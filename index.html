@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Primary Meta Tags -->
+    <title>wonjae.eth</title>
+    <meta name="title" content="wonjae.eth">
+    <meta name="description" content="Cryptographic Unix-like shell and VFS for decentralized personal archives.">
+    <meta name="author" content="Wonjae Choi">
+    <meta name="keywords"
+        content="cryptography, web3, ethereum, zero-knowledge, webassembly, rust, decentralized, unix-shell, terminal">
+    <meta name="theme-color" content="#0d1117">
+    <meta name="robots" content="index, follow">
+
+    <!-- Security Policy -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self';
+                 script-src 'self' 'wasm-unsafe-eval';
+                 style-src 'self' 'unsafe-inline';
+                 img-src 'self' data: https:;
+                 font-src 'self';
+                 connect-src 'self' https://*.githubusercontent.com https://*.infura.io https://*.etherscan.io https://*.cloudflare-eth.com;
+                 worker-src 'self';
+                 manifest-src 'self';
+                 base-uri 'self';
+                 form-action 'self';">
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta http-equiv="X-Frame-Options" content="DENY">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+
+    <!-- Open Graph / Facebook / Discord -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://wonjae.eth.limo/">
+    <meta property="og:title" content="wonjae.eth - Cryptographic Terminal">
+    <meta property="og:description"
+        content="Cryptographic Unix-like shell and VFS for decentralized personal archives.">
+    <meta property="og:image" content="https://wonjae.eth.limo/assets/preview.png">
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://wonjae.eth.limo/">
+    <meta property="twitter:title" content="wonjae.eth - Cryptographic Terminal">
+    <meta property="twitter:description"
+        content="Cryptographic Unix-like shell and VFS for decentralized personal archives.">
+    <meta property="twitter:image" content="https://wonjae.eth.limo/assets/preview.png">
+
+    <!-- Performance Optimization -->
+    <link rel="dns-prefetch" href="https://raw.githubusercontent.com">
+    <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin>
+
+    <!-- PWA -->
+    <link rel="manifest" href="/assets/manifest.json">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="wonjae.eth">
+
+    <base href="./">
+    <link data-trunk rel="css" href="assets/base.css">
+    <link data-trunk rel="css" href="assets/bundle.css">
+    <link data-trunk rel="icon" href="assets/favicon.svg">
+    <link rel="apple-touch-icon" href="assets/favicon.svg">
+</head>
+
+<body>
+    <div id="app"></div>
+    <noscript>
+        <div
+            style="background:#0d1117;color:#3fb950;font-family:monospace;padding:2rem;height:100vh;display:flex;align-items:center;justify-content:center;">
+            <pre>ERROR: JavaScript runtime not detected.
+Please enable JavaScript to access this terminal.</pre>
+        </div>
+    </noscript>
+    <link data-trunk rel="rust" data-wasm-opt="z" data-bin="websh" data-wasm-opt-params="--enable-bulk-memory">
+</body>
+
+</html>

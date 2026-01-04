@@ -1,0 +1,91 @@
+/* Input - Scoped CSS Module */
+
+.line {
+  display: flex;
+  align-items: center;
+  padding: var(--space-2) 0;
+}
+
+.prompt {
+  color: var(--terminal-green);
+  text-shadow: 0 0 2px currentColor;
+}
+
+.separator {
+  color: var(--text-dim);
+}
+
+.field {
+  flex: 1;
+  position: relative;
+}
+
+.input {
+  width: 100%;
+  background-color: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  caret-color: var(--terminal-green);
+  position: relative;
+  z-index: 1;
+}
+
+.input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+/* Input wrapper for positioning suggestions */
+.inputWrapper {
+  position: relative;
+}
+
+/* Autocomplete suggestions */
+.suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  margin-bottom: var(--space-1);
+}
+
+.suggestion {
+  color: var(--text-muted);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: 2px;
+  font-size: var(--font-size-sm);
+}
+
+.suggestionActive {
+  color: var(--terminal-cyan);
+  border-color: var(--terminal-cyan);
+  background-color: rgba(0, 255, 255, 0.1);
+}
+
+/* Ghost text overlay (shows input + hint together) */
+.ghostOverlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  white-space: pre;
+}
+
+.ghostText {
+  color: transparent;
+}
+
+.ghostHint {
+  color: var(--text-muted);
+  opacity: 0.5;
+}

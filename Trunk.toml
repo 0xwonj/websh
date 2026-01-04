@@ -1,0 +1,21 @@
+[build]
+target = "index.html"
+dist = "dist"
+# IPFS: use relative paths
+public_url = "./"
+# Add hash to filenames for cache optimization
+filehash = true
+
+[watch]
+watch = ["src", "index.html", "assets/base.css"]
+ignore = ["assets/bundle.css"]
+
+[serve]
+addresses = ["127.0.0.1"]
+port = 8080
+
+# Build stylance CSS bundle before Trunk build
+[[hooks]]
+stage = "pre_build"
+command = "stylance"
+command_arguments = ["--output-file", "assets/bundle.css", "."]

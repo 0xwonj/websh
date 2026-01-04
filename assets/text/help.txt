@@ -1,0 +1,39 @@
+
+Available commands:
+
+  Navigation:
+    ls [dir]      List directory contents
+    cd <dir>      Change directory (supports `.`, `..`, `~`, absolute paths)
+    pwd           Print working directory
+    cat <file>    View file contents (opens reader)
+
+  Information:
+    whoami        Display user profile
+    id            Show current session info
+    help          Show this help message
+
+  System:
+    clear         Clear terminal screen
+    echo <text>   Display text
+
+  Environment:
+    export              Show user variables
+    export KEY=value    Set variable (stored in localStorage)
+    unset KEY           Remove variable
+    cat .profile        View all localStorage data
+
+  Wallet:
+    login         Connect MetaMask wallet
+    logout        Disconnect wallet
+
+  Pipe Filters:
+    grep <pattern>  Filter lines matching pattern
+    head [-n]       Show first n lines (default: 10)
+    tail [-n]       Show last n lines (default: 10)
+    wc              Count lines
+
+  Tips:
+    - Use Tab for autocomplete
+    - Use Up/Down arrows to navigate command history
+    - Use pipes to chain commands (e.g., ls | grep md)
+    - Press 'q' or 'Esc' to exit reader view

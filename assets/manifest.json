@@ -1,0 +1,18 @@
+{
+  "name": "wonjae.eth - Cryptographic Terminal",
+  "short_name": "wonjae.eth",
+  "description": "Cryptographic Unix-like shell and VFS for decentralized personal archives",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0d1117",
+  "theme_color": "#3fb950",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/assets/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

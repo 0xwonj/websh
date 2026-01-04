@@ -1,0 +1,62 @@
+/* Output - Scoped CSS Module */
+
+.line {
+  white-space: pre;
+}
+
+.lineEmpty {
+  height: 1.25rem;
+}
+
+.command {
+  display: flex;
+}
+
+.listEntry {
+  display: flex;
+  gap: 1rem;
+  padding-left: 1rem;
+}
+
+.listEntry span:first-child {
+  min-width: 16rem;
+}
+
+.ascii {
+  font-size: var(--font-size-xs);
+  line-height: 1.25;
+  color: var(--terminal-cyan);
+}
+
+/* Note: Apply .glow class from base.css for text-shadow effect */
+
+/* Text Colors */
+.textFg {
+  color: var(--text-primary);
+}
+
+.textDim {
+  color: var(--text-dim);
+}
+
+.textGreen {
+  color: var(--terminal-green);
+}
+
+.textCyan {
+  color: var(--terminal-cyan);
+}
+
+.textYellow {
+  color: var(--terminal-yellow);
+}
+
+.textRed {
+  color: var(--terminal-red);
+}
+
+.fontBold {
+  font-weight: 700;
+}
+
+/* Removed: .glowSubtle - use .glow class from base.css instead */
