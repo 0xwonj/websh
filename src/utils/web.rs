@@ -5,8 +5,8 @@
 //! display messages through the `Display` trait implementation.
 
 use js_sys::{Array, Promise};
-use pulldown_cmark::{html, Options, Parser};
-use serde::{de::DeserializeOwned, Serialize};
+use pulldown_cmark::{Options, Parser, html};
+use serde::{Serialize, de::DeserializeOwned};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
@@ -160,9 +160,7 @@ async fn fetch_url(url: &str) -> Result<String, FetchError> {
         RaceResult::TimedOut => Err(FetchError::Timeout),
         RaceResult::Error(msg) => Err(FetchError::NetworkError(msg)),
         RaceResult::Completed(result) => {
-            let resp: Response = result
-                .dyn_into()
-                .map_err(|_| FetchError::InvalidContent)?;
+            let resp: Response = result.dyn_into().map_err(|_| FetchError::InvalidContent)?;
 
             if !resp.ok() {
                 return Err(FetchError::HttpError(resp.status()));

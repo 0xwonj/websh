@@ -13,7 +13,7 @@ mod filesystem;
 pub mod parser;
 pub mod wallet;
 
-pub use autocomplete::{autocomplete, get_hint, AutocompleteResult};
-pub use commands::{execute_pipeline, Command};
-pub use filesystem::VirtualFs;
+pub use autocomplete::{AutocompleteResult, autocomplete, get_hint};
+pub use commands::{Command, execute_pipeline};
+pub use filesystem::{DirEntry, VirtualFs};
 pub use parser::parse_input;

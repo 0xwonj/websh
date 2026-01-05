@@ -5,9 +5,9 @@
 
 use js_sys::{Array, Function, Object, Promise, Reflect};
 use serde::Deserialize;
-use wasm_bindgen::prelude::Closure;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
+use wasm_bindgen::prelude::Closure;
 use wasm_bindgen_futures::JsFuture;
 
 use crate::config::{WALLET_SESSION_KEY, WALLET_TIMEOUT_MS};
@@ -85,10 +85,7 @@ pub async fn connect() -> Result<String, WalletError> {
     let result = ethereum_request("eth_requestAccounts").await?;
     let accounts = Array::from(&result);
 
-    accounts
-        .get(0)
-        .as_string()
-        .ok_or(WalletError::NoAccount)
+    accounts.get(0).as_string().ok_or(WalletError::NoAccount)
 }
 
 /// Get currently connected account (no popup) with timeout
@@ -163,9 +160,7 @@ pub fn clear_session() {
 /// The closure is intentionally leaked using `forget()` since this is a
 /// single-page application where the listener should persist for the
 /// entire lifetime of the page.
-pub fn on_accounts_changed(
-    callback: impl Fn(Option<String>) + 'static,
-) -> Result<(), WalletError> {
+pub fn on_accounts_changed(callback: impl Fn(Option<String>) + 'static) -> Result<(), WalletError> {
     let ethereum = get_ethereum()?;
 
     let closure = Closure::wrap(Box::new(move |accounts: JsValue| {

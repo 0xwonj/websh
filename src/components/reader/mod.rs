@@ -3,7 +3,7 @@ use wasm_bindgen_futures::spawn_local;
 
 use crate::config::CONTENT_BASE_URL;
 use crate::models::FileType;
-use crate::utils::{fetch_content, markdown_to_html, validate_redirect_url, UrlValidation};
+use crate::utils::{UrlValidation, fetch_content, markdown_to_html, validate_redirect_url};
 
 stylance::import_crate_style!(css, "src/components/reader/reader.module.css");
 
@@ -19,7 +19,10 @@ pub fn Reader(
     // For PDF, use Google Docs Viewer to render inline
     let pdf_viewer_url = if file_type == FileType::Pdf {
         let encoded = js_sys::encode_uri_component(&content_url);
-        format!("https://docs.google.com/viewer?url={}&embedded=true", encoded)
+        format!(
+            "https://docs.google.com/viewer?url={}&embedded=true",
+            encoded
+        )
     } else {
         String::new()
     };
@@ -34,19 +37,17 @@ pub fn Reader(
         let file_type = file_type.clone();
         spawn_local(async move {
             match file_type {
-                FileType::Markdown => {
-                    match fetch_content(&content_path).await {
-                        Ok(md) => {
-                            let html = markdown_to_html(&md);
-                            set_content.set(html);
-                            set_loading.set(false);
-                        }
-                        Err(e) => {
-                            set_error.set(Some(e.to_string()));
-                            set_loading.set(false);
-                        }
+                FileType::Markdown => match fetch_content(&content_path).await {
+                    Ok(md) => {
+                        let html = markdown_to_html(&md);
+                        set_content.set(html);
+                        set_loading.set(false);
                     }
-                }
+                    Err(e) => {
+                        set_error.set(Some(e.to_string()));
+                        set_loading.set(false);
+                    }
+                },
                 FileType::Link => {
                     match fetch_content(&content_path).await {
                         Ok(url) => {
@@ -55,16 +56,14 @@ pub fn Reader(
                             match validate_redirect_url(url) {
                                 UrlValidation::Valid(safe_url) => {
                                     if let Some(window) = web_sys::window()
-                                        && window.location().set_href(&safe_url).is_err() {
-                                            set_error.set(Some("Failed to redirect".to_string()));
-                                            set_loading.set(false);
-                                        }
+                                        && window.location().set_href(&safe_url).is_err()
+                                    {
+                                        set_error.set(Some("Failed to redirect".to_string()));
+                                        set_loading.set(false);
+                                    }
                                 }
                                 UrlValidation::Invalid(err) => {
-                                    set_error.set(Some(format!(
-                                        "Redirect blocked: {}",
-                                        err
-                                    )));
+                                    set_error.set(Some(format!("Redirect blocked: {}", err)));
                                     set_loading.set(false);
                                 }
                             }
@@ -84,13 +83,11 @@ pub fn Reader(
     }
 
     // Handle keyboard events for closing
-    let handle_keydown = move |ev: ev::KeyboardEvent| {
-        match ev.key().as_str() {
-            "q" | "Escape" => {
-                on_close.run(());
-            }
-            _ => {}
+    let handle_keydown = move |ev: ev::KeyboardEvent| match ev.key().as_str() {
+        "q" | "Escape" => {
+            on_close.run(());
         }
+        _ => {}
     };
 
     // Focus the container on mount for keyboard events

@@ -180,15 +180,14 @@ fn setup_wallet_events(ctx: AppContext) {
         match account {
             Some(new_addr) => {
                 // Account changed - update state
-                ctx_for_accounts.wallet.update(|w| if let WalletState::Connected {
-                        chain_id,
-                        ..
-                    } = w {
-                    *w = WalletState::Connected {
-                        address: new_addr,
-                        ens_name: None, // Clear ENS, will need to re-resolve
-                        chain_id: *chain_id,
-                    };
+                ctx_for_accounts.wallet.update(|w| {
+                    if let WalletState::Connected { chain_id, .. } = w {
+                        *w = WalletState::Connected {
+                            address: new_addr,
+                            ens_name: None, // Clear ENS, will need to re-resolve
+                            chain_id: *chain_id,
+                        };
+                    }
                 });
             }
             None => {
@@ -244,8 +243,7 @@ fn focus_input() {
 #[component]
 pub fn Shell() -> impl IntoView {
     // Get context provided by App component
-    let ctx = use_context::<AppContext>()
-        .expect("AppContext must be provided at root");
+    let ctx = use_context::<AppContext>().expect("AppContext must be provided at root");
 
     let output_ref = NodeRef::<leptos::html::Div>::new();
 
@@ -339,14 +337,16 @@ fn create_submit_callback(ctx: AppContext) -> Callback<String> {
         let prompt = ctx.get_prompt();
 
         if !input.is_empty() {
-            ctx.terminal.push_output(OutputLine::command(prompt, &input));
+            ctx.terminal
+                .push_output(OutputLine::command(prompt, &input));
             ctx.terminal.add_to_command_history(&input);
         }
 
         // Parse with new parser (supports variables, history, pipes)
-        let pipeline = ctx.terminal.command_history.with(|history| {
-            parse_input(&input, history)
-        });
+        let pipeline = ctx
+            .terminal
+            .command_history
+            .with(|history| parse_input(&input, history));
 
         // Check for special async commands (only when single command, no pipes)
         if pipeline.commands.len() == 1 {
@@ -376,12 +376,13 @@ fn create_history_nav_callback(ctx: AppContext) -> Callback<i32, Option<String>>
     Callback::new(move |direction: i32| ctx.terminal.navigate_history(direction))
 }
 
-fn create_autocomplete_callback(ctx: AppContext) -> Callback<String, crate::core::AutocompleteResult> {
+fn create_autocomplete_callback(
+    ctx: AppContext,
+) -> Callback<String, crate::core::AutocompleteResult> {
     Callback::new(move |input: String| {
         ctx.terminal.current_path.with(|current_path| {
-            ctx.fs.with(|current_fs| {
-                autocomplete(&input, current_path, current_fs)
-            })
+            ctx.fs
+                .with(|current_fs| autocomplete(&input, current_path, current_fs))
         })
     })
 }
@@ -389,9 +390,8 @@ fn create_autocomplete_callback(ctx: AppContext) -> Callback<String, crate::core
 fn create_hint_callback(ctx: AppContext) -> Callback<String, Option<String>> {
     Callback::new(move |input: String| {
         ctx.terminal.current_path.with(|current_path| {
-            ctx.fs.with(|current_fs| {
-                get_hint(&input, current_path, current_fs)
-            })
+            ctx.fs
+                .with(|current_fs| get_hint(&input, current_path, current_fs))
         })
     })
 }

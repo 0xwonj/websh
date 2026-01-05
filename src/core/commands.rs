@@ -71,7 +71,11 @@ impl PartialEq<&str> for PathArg {
 /// Parsed terminal command
 #[derive(Clone, Debug)]
 pub enum Command {
-    Ls(Option<PathArg>),
+    /// List directory contents. bool = long format (-l)
+    Ls {
+        path: Option<PathArg>,
+        long: bool,
+    },
     Cd(PathArg),
     Pwd,
     Cat(PathArg),
@@ -101,7 +105,18 @@ impl Command {
     /// Parse command from name and arguments.
     pub fn parse(name: &str, args: &[String]) -> Self {
         match name.to_lowercase().as_str() {
-            "ls" => Self::Ls(args.first().map(PathArg::new)),
+            "ls" => {
+                let mut long = false;
+                let mut path = None;
+                for arg in args {
+                    if arg == "-l" {
+                        long = true;
+                    } else if path.is_none() {
+                        path = Some(PathArg::new(arg));
+                    }
+                }
+                Self::Ls { path, long }
+            }
             "cd" => Self::Cd(
                 args.first()
                     .map(PathArg::new)
@@ -159,7 +174,7 @@ pub fn execute_command(
     fs: &VirtualFs,
 ) -> Vec<OutputLine> {
     match cmd {
-        Command::Ls(path) => {
+        Command::Ls { path, long } => {
             let current = state.current_path.get();
             let target = path.as_ref().map(|p| p.as_str()).unwrap_or(".");
             let resolved = fs.resolve_path(&current, target);
@@ -167,15 +182,39 @@ pub fn execute_command(
             match resolved {
                 Some(resolved_path) => {
                     if let Some(entries) = fs.list_dir(resolved_path.as_str()) {
-                        let mut lines = vec![];
-                        for (name, is_dir, desc) in entries {
-                            if is_dir {
-                                lines.push(OutputLine::dir_entry(&name, desc));
-                            } else {
-                                lines.push(OutputLine::file_entry(&name, desc));
-                            }
+                        if long {
+                            // Long format: permissions, size, date, name
+                            entries
+                                .iter()
+                                .map(|entry| {
+                                    let fs_entry = fs.get_entry(&format!(
+                                        "{}/{}",
+                                        resolved_path.as_str().trim_end_matches('/'),
+                                        &entry.name
+                                    ));
+                                    let perms = fs_entry
+                                        .map(|e| fs.get_permissions(e, wallet_state))
+                                        .unwrap_or_default();
+                                    OutputLine::long_entry(entry, &perms)
+                                })
+                                .collect()
+                        } else {
+                            // Short format: name and description
+                            entries
+                                .iter()
+                                .map(|entry| {
+                                    if entry.is_dir {
+                                        OutputLine::dir_entry(&entry.name, &entry.description)
+                                    } else {
+                                        OutputLine::file_entry(
+                                            &entry.name,
+                                            &entry.description,
+                                            entry.meta.is_encrypted(),
+                                        )
+                                    }
+                                })
+                                .collect()
                         }
-                        lines
                     } else {
                         vec![OutputLine::error(format!(
                             "ls: cannot access '{}': Not a directory",
@@ -430,11 +469,8 @@ fn apply_filter(cmd: &str, args: &[String], lines: Vec<OutputLine>) -> Vec<Outpu
                     | OutputLineData::Success(s)
                     | OutputLineData::Info(s)
                     | OutputLineData::Ascii(s) => s.to_lowercase().contains(&pattern_lower),
-                    OutputLineData::ListEntry {
-                        name, description, ..
-                    } => {
+                    OutputLineData::ListEntry { name, .. } => {
                         name.to_lowercase().contains(&pattern_lower)
-                            || description.to_lowercase().contains(&pattern_lower)
                     }
                     OutputLineData::Command { input, .. } => {
                         input.to_lowercase().contains(&pattern_lower)
@@ -485,10 +521,27 @@ mod tests {
 
     #[test]
     fn test_parse_ls() {
-        assert!(matches!(Command::parse("ls", &[]), Command::Ls(None)));
+        assert!(matches!(
+            Command::parse("ls", &[]),
+            Command::Ls {
+                path: None,
+                long: false
+            }
+        ));
         assert!(matches!(
             Command::parse("ls", &args(&["projects"])),
-            Command::Ls(Some(ref p)) if p == "projects"
+            Command::Ls { path: Some(ref p), long: false } if p == "projects"
+        ));
+        assert!(matches!(
+            Command::parse("ls", &args(&["-l"])),
+            Command::Ls {
+                path: None,
+                long: true
+            }
+        ));
+        assert!(matches!(
+            Command::parse("ls", &args(&["-l", "blog"])),
+            Command::Ls { path: Some(ref p), long: true } if p == "blog"
         ));
     }
 
@@ -548,7 +601,13 @@ mod tests {
 
     #[test]
     fn test_parse_case_insensitive() {
-        assert!(matches!(Command::parse("LS", &[]), Command::Ls(None)));
+        assert!(matches!(
+            Command::parse("LS", &[]),
+            Command::Ls {
+                path: None,
+                long: false
+            }
+        ));
         assert!(matches!(
             Command::parse("CD", &args(&["/"])),
             Command::Cd(_)
@@ -622,7 +681,9 @@ mod tests {
         let lines = test_lines();
         let result = apply_filter("grep", &[], lines);
         assert_eq!(result.len(), 1);
-        assert!(matches!(&result[0].data, OutputLineData::Error(s) if s.contains("missing pattern")));
+        assert!(
+            matches!(&result[0].data, OutputLineData::Error(s) if s.contains("missing pattern"))
+        );
     }
 
     #[test]
@@ -690,14 +751,16 @@ mod tests {
         let lines = test_lines();
         let result = apply_filter("unknown", &[], lines);
         assert_eq!(result.len(), 1);
-        assert!(matches!(&result[0].data, OutputLineData::Error(s) if s.contains("unknown filter")));
+        assert!(
+            matches!(&result[0].data, OutputLineData::Error(s) if s.contains("unknown filter"))
+        );
     }
 
     #[test]
     fn test_grep_list_entry() {
         let lines = vec![
             OutputLine::dir_entry("project-alpha", "Alpha project"),
-            OutputLine::dir_entry("project-beta", "Beta testing"),
+            OutputLine::dir_entry("project-beta", "Beta project"),
         ];
         let result = apply_filter("grep", &args(&["alpha"]), lines);
         assert_eq!(result.len(), 1);

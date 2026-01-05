@@ -46,10 +46,11 @@ impl Route {
     /// Update browser URL to match this route (using pushState)
     pub fn push(&self) {
         if let Some(window) = web_sys::window()
-            && let Ok(history) = window.history() {
-                let hash = self.to_hash();
-                let _ = history.push_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some(&hash));
-            }
+            && let Ok(history) = window.history()
+        {
+            let hash = self.to_hash();
+            let _ = history.push_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some(&hash));
+        }
     }
 }
 

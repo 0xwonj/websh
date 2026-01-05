@@ -1,7 +1,7 @@
 //! Terminal input component with autocompletion and history navigation.
 
-use leptos::{ev, prelude::*};
 use leptos::prelude::CollectView;
+use leptos::{ev, prelude::*};
 use wasm_bindgen::JsCast;
 
 use super::hooks::{HintState, TabCycleState};

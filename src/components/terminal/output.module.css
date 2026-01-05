@@ -22,6 +22,26 @@
   min-width: 16rem;
 }
 
+.longEntry {
+  display: flex;
+  gap: 0.75rem;
+  padding-left: 1rem;
+  font-family: monospace;
+}
+
+.longEntry span:nth-child(1) { /* permissions */
+  min-width: 4ch;
+}
+
+.longEntry span:nth-child(2) { /* size */
+  min-width: 5ch;
+  text-align: right;
+}
+
+.longEntry span:nth-child(3) { /* date */
+  min-width: 12ch;
+}
+
 .ascii {
   font-size: var(--font-size-xs);
   line-height: 1.25;

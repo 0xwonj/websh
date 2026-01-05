@@ -13,6 +13,19 @@ pub enum TextStyle {
     Hidden,
 }
 
+/// Format for file listing entries.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ListFormat {
+    /// Short format: name and description only
+    Short,
+    /// Long format: permissions, size, date, name
+    Long {
+        permissions: String,
+        size: Option<u64>,
+        modified: Option<u64>,
+    },
+}
+
 /// Represents a single line of output in the terminal with a unique ID
 #[derive(Clone, Debug)]
 pub struct OutputLine {
@@ -39,11 +52,13 @@ pub enum OutputLineData {
     Ascii(String),
     /// Empty line
     Empty,
-    /// File listing entry with proper styling
+    /// File listing entry (ls, ls -l)
     ListEntry {
         name: String,
         description: String,
         style: TextStyle,
+        encrypted: bool,
+        format: ListFormat,
     },
 }
 
@@ -95,17 +110,23 @@ impl OutputLine {
         })
     }
 
-    /// Create a directory listing entry
+    /// Create a directory listing entry (short format)
     pub fn dir_entry(name: impl Into<String>, description: impl Into<String>) -> Self {
         Self::new(OutputLineData::ListEntry {
             name: name.into(),
             description: description.into(),
             style: TextStyle::Directory,
+            encrypted: false,
+            format: ListFormat::Short,
         })
     }
 
-    /// Create a file listing entry
-    pub fn file_entry(name: impl Into<String>, description: impl Into<String>) -> Self {
+    /// Create a file listing entry (short format)
+    pub fn file_entry(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        encrypted: bool,
+    ) -> Self {
         let name = name.into();
         let style = if name.starts_with('.') {
             TextStyle::Hidden
@@ -116,6 +137,30 @@ impl OutputLine {
             name,
             description: description.into(),
             style,
+            encrypted,
+            format: ListFormat::Short,
+        })
+    }
+
+    /// Create a long listing entry (ls -l)
+    pub fn long_entry(entry: &crate::core::DirEntry, perms: &super::DisplayPermissions) -> Self {
+        let style = if entry.is_dir {
+            TextStyle::Directory
+        } else if entry.name.starts_with('.') {
+            TextStyle::Hidden
+        } else {
+            TextStyle::File
+        };
+        Self::new(OutputLineData::ListEntry {
+            name: entry.name.clone(),
+            description: entry.description.clone(),
+            style,
+            encrypted: entry.meta.is_encrypted(),
+            format: ListFormat::Long {
+                permissions: perms.to_string(),
+                size: entry.meta.size,
+                modified: entry.meta.modified,
+            },
         })
     }
 
@@ -139,11 +184,26 @@ mod tests {
 
     #[test]
     fn test_output_line_constructors() {
-        assert_eq!(OutputLine::text("hello").data, OutputLineData::Text("hello".to_string()));
-        assert_eq!(OutputLine::error("error").data, OutputLineData::Error("error".to_string()));
-        assert_eq!(OutputLine::success("ok").data, OutputLineData::Success("ok".to_string()));
-        assert_eq!(OutputLine::info("info").data, OutputLineData::Info("info".to_string()));
-        assert_eq!(OutputLine::ascii("art").data, OutputLineData::Ascii("art".to_string()));
+        assert_eq!(
+            OutputLine::text("hello").data,
+            OutputLineData::Text("hello".to_string())
+        );
+        assert_eq!(
+            OutputLine::error("error").data,
+            OutputLineData::Error("error".to_string())
+        );
+        assert_eq!(
+            OutputLine::success("ok").data,
+            OutputLineData::Success("ok".to_string())
+        );
+        assert_eq!(
+            OutputLine::info("info").data,
+            OutputLineData::Info("info".to_string())
+        );
+        assert_eq!(
+            OutputLine::ascii("art").data,
+            OutputLineData::Ascii("art".to_string())
+        );
     }
 
     #[test]
@@ -162,10 +222,18 @@ mod tests {
     fn test_dir_entry() {
         let entry = OutputLine::dir_entry("docs", "Documentation");
         match entry.data {
-            OutputLineData::ListEntry { name, description, style } => {
+            OutputLineData::ListEntry {
+                name,
+                description,
+                style,
+                encrypted,
+                format,
+            } => {
                 assert_eq!(name, "docs");
                 assert_eq!(description, "Documentation");
                 assert_eq!(style, TextStyle::Directory);
+                assert!(!encrypted);
+                assert_eq!(format, ListFormat::Short);
             }
             _ => panic!("Expected ListEntry variant"),
         }
@@ -173,7 +241,7 @@ mod tests {
 
     #[test]
     fn test_file_entry_normal() {
-        let entry = OutputLine::file_entry("readme.md", "Readme file");
+        let entry = OutputLine::file_entry("readme.md", "Readme file", false);
         match entry.data {
             OutputLineData::ListEntry { name, style, .. } => {
                 assert_eq!(name, "readme.md");
@@ -185,7 +253,7 @@ mod tests {
 
     #[test]
     fn test_file_entry_hidden() {
-        let entry = OutputLine::file_entry(".gitignore", "Git ignore");
+        let entry = OutputLine::file_entry(".gitignore", "Git ignore", false);
         match entry.data {
             OutputLineData::ListEntry { name, style, .. } => {
                 assert_eq!(name, ".gitignore");

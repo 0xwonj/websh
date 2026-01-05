@@ -11,7 +11,11 @@ mod route;
 mod terminal;
 mod wallet;
 
-pub use filesystem::{FileType, FsEntry, ManifestEntry, VirtualPath};
+pub use filesystem::{
+    DisplayPermissions, FileMetadata, FileType, FsEntry, ManifestEntry, VirtualPath,
+};
+#[cfg(test)]
+pub use filesystem::{EncryptionInfo, WrappedKey};
 pub use route::Route;
-pub use terminal::{OutputLine, OutputLineData, ScreenMode, TextStyle};
+pub use terminal::{ListFormat, OutputLine, OutputLineData, ScreenMode, TextStyle};
 pub use wallet::WalletState;

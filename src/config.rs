@@ -99,11 +99,8 @@ pub mod eth_address {
 pub const USER_VAR_PREFIX: &str = "user.";
 
 /// Default user variables initialized on first visit.
-pub const DEFAULT_USER_VARS: &[(&str, &str)] = &[
-    ("THEME", "dark"),
-    ("LANG", "en"),
-    ("EDITOR", "vim"),
-];
+pub const DEFAULT_USER_VARS: &[(&str, &str)] =
+    &[("THEME", "dark"), ("LANG", "en"), ("EDITOR", "vim")];
 
 // =============================================================================
 // Terminal Configuration

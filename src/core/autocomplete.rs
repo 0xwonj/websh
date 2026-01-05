@@ -10,7 +10,7 @@
 //! - Multiple matches: Show common prefix and all options
 //! - Ghost text hints while typing
 
-use crate::core::{Command, VirtualFs};
+use crate::core::{Command, DirEntry, VirtualFs};
 use crate::models::VirtualPath;
 
 // ============================================================================
@@ -242,20 +242,20 @@ fn get_path_hint(
 
 /// Get filtered entries matching the partial name.
 fn get_matching_entries<'a>(
-    entries: &'a [(String, bool, String)],
+    entries: &'a [DirEntry],
     name_part: &str,
     dirs_only: bool,
 ) -> Vec<(&'a String, bool)> {
     let name_lower = name_part.to_lowercase();
     entries
         .iter()
-        .filter(|(name, is_dir, _)| {
-            if dirs_only && !is_dir {
+        .filter(|entry| {
+            if dirs_only && !entry.is_dir {
                 return false;
             }
-            name.to_lowercase().starts_with(&name_lower)
+            entry.name.to_lowercase().starts_with(&name_lower)
         })
-        .map(|(name, is_dir, _)| (name, *is_dir))
+        .map(|entry| (&entry.name, entry.is_dir))
         .collect()
 }
 

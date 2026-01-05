@@ -6,3 +6,7 @@
 
 # Claude Code artifacts
 /.claude
+
+# Environment variables (secrets)
+.env
+.last-cid

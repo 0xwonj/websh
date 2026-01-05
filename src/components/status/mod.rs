@@ -14,15 +14,10 @@ stylance::import_crate_style!(css, "src/components/status/status.module.css");
 #[component]
 pub fn Status() -> impl IntoView {
     // Get context - Status bar needs access to both terminal and wallet state
-    let ctx = use_context::<AppContext>()
-        .expect("AppContext must be provided at root");
+    let ctx = use_context::<AppContext>().expect("AppContext must be provided at root");
 
-    let display_path = Signal::derive(move ||
-        ctx.terminal.current_path.with(|p| p.display())
-    );
-    let session_name = Signal::derive(move ||
-        ctx.wallet.with(|w| w.display_name())
-    );
+    let display_path = Signal::derive(move || ctx.terminal.current_path.with(|p| p.display()));
+    let session_name = Signal::derive(move || ctx.wallet.with(|w| w.display_name()));
     let network_name = Signal::derive(move || {
         ctx.wallet.with(|w| {
             w.chain_id()

@@ -28,7 +28,10 @@ impl fmt::Display for WalletError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NoWindow => write!(f, "Browser window not available"),
-            Self::NotInstalled => write!(f, "MetaMask not installed. Please install MetaMask extension."),
+            Self::NotInstalled => write!(
+                f,
+                "MetaMask not installed. Please install MetaMask extension."
+            ),
             Self::RequestCreationFailed => write!(f, "Failed to create wallet request"),
             Self::RequestRejected(msg) => write!(f, "Wallet request rejected: {}", msg),
             Self::NoAccount => write!(f, "No account returned from wallet"),
@@ -56,7 +59,10 @@ impl fmt::Display for EnvironmentError {
         match self {
             Self::StorageUnavailable => write!(f, "localStorage not available"),
             Self::InvalidVariableName => {
-                write!(f, "invalid variable name (use letters, numbers, underscores)")
+                write!(
+                    f,
+                    "invalid variable name (use letters, numbers, underscores)"
+                )
             }
             Self::SaveFailed => write!(f, "failed to save to localStorage"),
             Self::RemoveFailed => write!(f, "failed to remove from localStorage"),

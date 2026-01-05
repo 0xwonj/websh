@@ -1,5 +1,16 @@
+use crate::models::{
+    DisplayPermissions, FileMetadata, FsEntry, ManifestEntry, VirtualPath, WalletState,
+};
 use std::collections::HashMap;
-use crate::models::{FsEntry, ManifestEntry, VirtualPath};
+
+/// Directory entry returned by list_dir
+#[derive(Clone, Debug)]
+pub struct DirEntry {
+    pub name: String,
+    pub is_dir: bool,
+    pub description: String,
+    pub meta: FileMetadata,
+}
 
 /// Virtual filesystem for the terminal
 #[derive(Clone)]
@@ -9,12 +20,17 @@ pub struct VirtualFs {
 
 impl VirtualFs {
     /// Create filesystem from manifest entries (dynamic content)
-    /// Supports nested paths like "projects/games/zkdungeon.md"
     pub fn from_manifest(entries: &[ManifestEntry]) -> Self {
         let mut content_tree: HashMap<String, FsEntry> = HashMap::new();
 
         for entry in entries {
-            Self::insert_path(&mut content_tree, &entry.path, &entry.path, &entry.title);
+            Self::insert_path(
+                &mut content_tree,
+                &entry.path,
+                &entry.path,
+                &entry.title,
+                entry.to_metadata(),
+            );
         }
 
         // Add static files
@@ -24,19 +40,33 @@ impl VirtualFs {
         );
 
         let root = FsEntry::dir(vec![
-            ("home", FsEntry::dir(vec![
-                ("wonjae", FsEntry::Directory(content_tree)),
-            ])),
-            ("etc", FsEntry::dir(vec![
-                ("motd", FsEntry::file("Message of the day")),
-            ])),
+            (
+                "home",
+                FsEntry::dir(vec![(
+                    "wonjae",
+                    FsEntry::Directory {
+                        children: content_tree,
+                        meta: FileMetadata::default(),
+                    },
+                )]),
+            ),
+            (
+                "etc",
+                FsEntry::dir(vec![("motd", FsEntry::file("Message of the day"))]),
+            ),
         ]);
 
         Self { root }
     }
 
     /// Insert a path into the tree using iteration instead of recursion.
-    fn insert_path(tree: &mut HashMap<String, FsEntry>, path: &str, full_path: &str, title: &str) {
+    fn insert_path(
+        tree: &mut HashMap<String, FsEntry>,
+        path: &str,
+        full_path: &str,
+        title: &str,
+        meta: FileMetadata,
+    ) {
         let parts: Vec<&str> = path.split('/').collect();
         let mut current = tree;
 
@@ -44,20 +74,30 @@ impl VirtualFs {
             let is_last = i == parts.len() - 1;
 
             if is_last {
-                current.insert(part.to_string(), FsEntry::content_file(full_path, title));
+                current.insert(
+                    part.to_string(),
+                    FsEntry::content_file_with_meta(full_path, title, meta.clone()),
+                );
             } else {
                 let entry = current
                     .entry(part.to_string())
-                    .or_insert_with(|| FsEntry::Directory(HashMap::new()));
+                    .or_insert_with(|| FsEntry::Directory {
+                        children: HashMap::new(),
+                        meta: FileMetadata::default(),
+                    });
 
                 current = match entry {
-                    FsEntry::Directory(subtree) => subtree,
+                    FsEntry::Directory { children, .. } => children,
                     FsEntry::File { .. } => {
                         // A file exists where we expect a directory - skip this entry.
                         // This indicates a manifest conflict (e.g., "a/b" and "a/b/c").
                         #[cfg(target_arch = "wasm32")]
                         web_sys::console::warn_1(
-                            &format!("Manifest conflict: '{}' blocked by existing file", full_path).into()
+                            &format!(
+                                "Manifest conflict: '{}' blocked by existing file",
+                                full_path
+                            )
+                            .into(),
                         );
                         return;
                     }
@@ -69,14 +109,20 @@ impl VirtualFs {
     /// Create empty filesystem (fallback when manifest fails to load)
     pub fn empty() -> Self {
         let root = FsEntry::dir(vec![
-            ("home", FsEntry::dir(vec![
-                ("wonjae", FsEntry::dir(vec![
-                    (".profile", FsEntry::file("User profile configuration")),
-                ])),
-            ])),
-            ("etc", FsEntry::dir(vec![
-                ("motd", FsEntry::file("Message of the day")),
-            ])),
+            (
+                "home",
+                FsEntry::dir(vec![(
+                    "wonjae",
+                    FsEntry::dir(vec![(
+                        ".profile",
+                        FsEntry::file("User profile configuration"),
+                    )]),
+                )]),
+            ),
+            (
+                "etc",
+                FsEntry::dir(vec![("motd", FsEntry::file("Message of the day"))]),
+            ),
         ]);
 
         Self { root }
@@ -105,8 +151,8 @@ impl VirtualFs {
 
         for part in parts {
             match current {
-                FsEntry::Directory(entries) => {
-                    current = entries.get(part)?;
+                FsEntry::Directory { children, .. } => {
+                    current = children.get(part)?;
                 }
                 FsEntry::File { .. } => return None,
             }
@@ -115,25 +161,44 @@ impl VirtualFs {
         Some(current)
     }
 
-    pub fn list_dir(&self, path: &str) -> Option<Vec<(String, bool, String)>> {
+    /// List directory contents with metadata.
+    /// Returns: Vec<(name, is_dir, description, metadata)>
+    pub fn list_dir(&self, path: &str) -> Option<Vec<DirEntry>> {
         match self.get_entry(path)? {
-            FsEntry::Directory(entries) => {
-                let mut items: Vec<_> = entries
+            FsEntry::Directory { children, .. } => {
+                let mut items: Vec<_> = children
                     .iter()
                     .map(|(name, entry)| {
-                        let is_dir = matches!(entry, FsEntry::Directory(_));
-                        let desc = match entry {
-                            FsEntry::Directory(_) => "directory".to_string(),
-                            FsEntry::File { description, .. } => description.clone(),
+                        let is_dir = entry.is_directory();
+                        let (desc, meta) = match entry {
+                            FsEntry::Directory { meta, .. } => ("directory".to_string(), meta),
+                            FsEntry::File {
+                                description, meta, ..
+                            } => (description.clone(), meta),
                         };
-                        (name.clone(), is_dir, desc)
+                        DirEntry {
+                            name: name.clone(),
+                            is_dir,
+                            description: desc,
+                            meta: meta.clone(),
+                        }
                     })
                     .collect();
+                // Sort: directories first, then regular files, then hidden files
+                // Within each group, sort alphabetically
                 items.sort_by(|a, b| {
-                    match (a.1, b.1) {
-                        (true, false) => std::cmp::Ordering::Less,
-                        (false, true) => std::cmp::Ordering::Greater,
-                        _ => a.0.cmp(&b.0),
+                    let a_hidden = a.name.starts_with('.');
+                    let b_hidden = b.name.starts_with('.');
+
+                    match (a.is_dir, b.is_dir, a_hidden, b_hidden) {
+                        // Directories before files
+                        (true, false, _, _) => std::cmp::Ordering::Less,
+                        (false, true, _, _) => std::cmp::Ordering::Greater,
+                        // Hidden files last (within same type)
+                        (_, _, false, true) => std::cmp::Ordering::Less,
+                        (_, _, true, false) => std::cmp::Ordering::Greater,
+                        // Same category: alphabetical
+                        _ => a.name.cmp(&b.name),
                     }
                 });
                 Some(items)
@@ -150,7 +215,52 @@ impl VirtualFs {
     }
 
     pub fn is_directory(&self, path: &str) -> bool {
-        matches!(self.get_entry(path), Some(FsEntry::Directory(_)))
+        matches!(self.get_entry(path), Some(FsEntry::Directory { .. }))
+    }
+
+    /// Compute display permissions for an entry at runtime.
+    ///
+    /// Permissions are computed based on:
+    /// - `d`: Directory or file
+    /// - `r`: Encrypted files require wallet address in wrapped_keys
+    /// - `w`: Admin login (not yet implemented, always false for now)
+    /// - `x`: Directories only
+    pub fn get_permissions(&self, entry: &FsEntry, wallet: &WalletState) -> DisplayPermissions {
+        let is_dir = entry.is_directory();
+
+        // Read permission: unencrypted = always readable, encrypted = check wrapped_keys
+        let read = match entry {
+            FsEntry::Directory { .. } => true,
+            FsEntry::File { meta, .. } => {
+                if let Some(ref enc) = meta.encryption {
+                    // Encrypted: check if wallet address is in recipients
+                    match wallet {
+                        WalletState::Connected { address, .. } => enc
+                            .wrapped_keys
+                            .iter()
+                            .any(|k| k.recipient.eq_ignore_ascii_case(address)),
+                        _ => false,
+                    }
+                } else {
+                    // Unencrypted: always readable
+                    true
+                }
+            }
+        };
+
+        // Write permission: TODO - implement admin check, permissionless mount check
+        // For now, always false (read-only)
+        let write = false;
+
+        // Execute permission: directories only
+        let execute = is_dir;
+
+        DisplayPermissions {
+            is_dir,
+            read,
+            write,
+            execute,
+        }
     }
 }
 
@@ -170,14 +280,26 @@ mod tests {
             ManifestEntry {
                 path: "blog/hello.md".to_string(),
                 title: "Hello World".to_string(),
+                size: Some(1234),
+                created: Some(1704067200),
+                modified: Some(1704153600),
+                encryption: None,
             },
             ManifestEntry {
                 path: "blog/rust.md".to_string(),
                 title: "Learning Rust".to_string(),
+                size: Some(2048),
+                created: None,
+                modified: None,
+                encryption: None,
             },
             ManifestEntry {
                 path: "projects/web/app.md".to_string(),
                 title: "Web App".to_string(),
+                size: None,
+                created: None,
+                modified: None,
+                encryption: None,
             },
         ];
         VirtualFs::from_manifest(&entries)
@@ -228,7 +350,7 @@ mod tests {
         let entries = fs.list_dir("/home/wonjae").expect("Should list directory");
 
         // Should have blog, projects, .profile
-        let names: Vec<_> = entries.iter().map(|(n, _, _)| n.as_str()).collect();
+        let names: Vec<_> = entries.iter().map(|e| e.name.as_str()).collect();
         assert!(names.contains(&"blog"));
         assert!(names.contains(&"projects"));
         assert!(names.contains(&".profile"));
@@ -244,18 +366,21 @@ mod tests {
         let dir_indices: Vec<_> = entries
             .iter()
             .enumerate()
-            .filter(|(_, (_, is_dir, _))| *is_dir)
+            .filter(|(_, e)| e.is_dir)
             .map(|(i, _)| i)
             .collect();
         let file_indices: Vec<_> = entries
             .iter()
             .enumerate()
-            .filter(|(_, (_, is_dir, _))| !*is_dir)
+            .filter(|(_, e)| !e.is_dir)
             .map(|(i, _)| i)
             .collect();
 
         if let (Some(&last_dir), Some(&first_file)) = (dir_indices.last(), file_indices.first()) {
-            assert!(last_dir < first_file, "Directories should come before files");
+            assert!(
+                last_dir < first_file,
+                "Directories should come before files"
+            );
         }
     }
 
@@ -285,11 +410,17 @@ mod tests {
 
         // Absolute path
         let resolved = fs.resolve_path(&home, "/home/wonjae/blog");
-        assert_eq!(resolved.map(|p| p.to_string()), Some("/home/wonjae/blog".to_string()));
+        assert_eq!(
+            resolved.map(|p| p.to_string()),
+            Some("/home/wonjae/blog".to_string())
+        );
 
         // Relative path
         let resolved = fs.resolve_path(&home, "blog");
-        assert_eq!(resolved.map(|p| p.to_string()), Some("/home/wonjae/blog".to_string()));
+        assert_eq!(
+            resolved.map(|p| p.to_string()),
+            Some("/home/wonjae/blog".to_string())
+        );
 
         // Non-existent path
         let resolved = fs.resolve_path(&home, "nonexistent");
@@ -314,5 +445,88 @@ mod tests {
         assert!(fs.get_entry("/nonexistent").is_none());
         assert!(fs.get_entry("/home/wonjae/nonexistent").is_none());
         assert!(fs.get_entry("/home/wonjae/blog/nonexistent.md").is_none());
+    }
+
+    #[test]
+    fn test_permissions_directory() {
+        let fs = create_test_fs();
+        let entry = fs.get_entry("/home/wonjae/blog").unwrap();
+        let perms = fs.get_permissions(entry, &WalletState::Disconnected);
+
+        assert!(perms.is_dir);
+        assert!(perms.read);
+        assert!(!perms.write); // Always false for now (Phase 2)
+        assert!(perms.execute);
+        assert_eq!(perms.to_string(), "dr-x"); // No write permission yet
+    }
+
+    #[test]
+    fn test_permissions_file_unencrypted() {
+        let fs = create_test_fs();
+        let entry = fs.get_entry("/home/wonjae/blog/hello.md").unwrap();
+        let perms = fs.get_permissions(entry, &WalletState::Disconnected);
+
+        assert!(!perms.is_dir);
+        assert!(perms.read);
+        assert!(!perms.write);
+        assert!(!perms.execute);
+        assert_eq!(perms.to_string(), "-r--");
+    }
+
+    #[test]
+    fn test_permissions_encrypted_no_access() {
+        use crate::models::EncryptionInfo;
+
+        // Create encrypted file entry
+        let entry = FsEntry::content_file_with_meta(
+            "secret.enc",
+            "Encrypted file",
+            FileMetadata {
+                encryption: Some(EncryptionInfo {
+                    algorithm: "AES-256-GCM".to_string(),
+                    wrapped_keys: vec![],
+                }),
+                ..Default::default()
+            },
+        );
+
+        let fs = VirtualFs::empty();
+        let perms = fs.get_permissions(&entry, &WalletState::Disconnected);
+
+        assert!(!perms.read);
+        assert_eq!(perms.to_string(), "----");
+    }
+
+    #[test]
+    fn test_permissions_encrypted_with_access() {
+        use crate::models::{EncryptionInfo, WrappedKey};
+
+        let wallet = WalletState::Connected {
+            address: "0x1234abcd".to_string(),
+            ens_name: None,
+            chain_id: Some(1),
+        };
+
+        // Create encrypted file entry with our address in recipients
+        let entry = FsEntry::content_file_with_meta(
+            "secret.enc",
+            "Encrypted file",
+            FileMetadata {
+                encryption: Some(EncryptionInfo {
+                    algorithm: "AES-256-GCM".to_string(),
+                    wrapped_keys: vec![WrappedKey {
+                        recipient: "0x1234ABCD".to_string(), // case-insensitive match
+                        encrypted_key: "base64key".to_string(),
+                    }],
+                }),
+                ..Default::default()
+            },
+        );
+
+        let fs = VirtualFs::empty();
+        let perms = fs.get_permissions(&entry, &wallet);
+
+        assert!(perms.read); // We have access!
+        assert_eq!(perms.to_string(), "-r--");
     }
 }

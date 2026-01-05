@@ -78,9 +78,10 @@ pub fn get_all_user_vars() -> Vec<(String, String)> {
     for i in 0..len {
         if let Ok(Some(key)) = storage.key(i)
             && let Some(var_name) = key.strip_prefix(USER_VAR_PREFIX)
-                && let Ok(Some(value)) = storage.get_item(&key) {
-                    vars.push((var_name.to_string(), value));
-                }
+            && let Ok(Some(value)) = storage.get_item(&key)
+        {
+            vars.push((var_name.to_string(), value));
+        }
     }
 
     vars.sort_by(|a, b| a.0.cmp(&b.0));
@@ -98,9 +99,10 @@ pub fn get_all_storage() -> Vec<(String, String)> {
 
     for i in 0..len {
         if let Ok(Some(key)) = storage.key(i)
-            && let Ok(Some(value)) = storage.get_item(&key) {
-                vars.push((key, value));
-            }
+            && let Ok(Some(value)) = storage.get_item(&key)
+        {
+            vars.push((key, value));
+        }
     }
 
     vars.sort_by(|a, b| a.0.cmp(&b.0));

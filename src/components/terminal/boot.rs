@@ -7,8 +7,8 @@ use wasm_bindgen_futures::spawn_local;
 
 use crate::app::AppContext;
 use crate::config::{
-    APP_NAME, APP_TAGLINE, APP_VERSION, ASCII_BANNER, CONTENT_BASE_URL, MS_PER_SECOND,
-    boot_delays, cache, eth_address,
+    APP_NAME, APP_TAGLINE, APP_VERSION, ASCII_BANNER, CONTENT_BASE_URL, MS_PER_SECOND, boot_delays,
+    cache, eth_address,
 };
 use crate::core::{VirtualFs, env, wallet};
 use crate::models::{ManifestEntry, OutputLine, Route, ScreenMode, WalletState};

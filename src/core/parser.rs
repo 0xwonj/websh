@@ -28,13 +28,25 @@ impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::UnexpectedPipe { position } => {
-                write!(f, "syntax error near token {}: unexpected '|'", position + 1)
+                write!(
+                    f,
+                    "syntax error near token {}: unexpected '|'",
+                    position + 1
+                )
             }
             Self::EmptyPipeStage { position } => {
-                write!(f, "syntax error near token {}: empty pipe stage", position + 1)
+                write!(
+                    f,
+                    "syntax error near token {}: empty pipe stage",
+                    position + 1
+                )
             }
             Self::TrailingPipe { position } => {
-                write!(f, "syntax error near token {}: unexpected end after '|'", position + 1)
+                write!(
+                    f,
+                    "syntax error near token {}: unexpected end after '|'",
+                    position + 1
+                )
             }
         }
     }
@@ -441,7 +453,9 @@ fn parse_pipeline(tokens: Vec<Token>) -> Pipeline {
 
     // Check for trailing pipe (e.g., "ls |")
     if error.is_none() && expect_command && current_words.is_empty() {
-        error = Some(ParseError::TrailingPipe { position: last_pipe_pos });
+        error = Some(ParseError::TrailingPipe {
+            position: last_pipe_pos,
+        });
     }
 
     if !current_words.is_empty() {
@@ -607,7 +621,10 @@ mod tests {
     fn test_empty_pipe_leading() {
         let pipeline = parse_input("| grep foo", &[]);
         assert!(pipeline.has_error());
-        assert_eq!(pipeline.error, Some(ParseError::UnexpectedPipe { position: 0 }));
+        assert_eq!(
+            pipeline.error,
+            Some(ParseError::UnexpectedPipe { position: 0 })
+        );
     }
 
     #[test]
@@ -615,7 +632,10 @@ mod tests {
         let pipeline = parse_input("ls | | grep foo", &[]);
         assert!(pipeline.has_error());
         // tokens: ["ls", "|", "|", "grep", "foo"], second pipe at index 2
-        assert_eq!(pipeline.error, Some(ParseError::EmptyPipeStage { position: 2 }));
+        assert_eq!(
+            pipeline.error,
+            Some(ParseError::EmptyPipeStage { position: 2 })
+        );
     }
 
     #[test]
@@ -623,7 +643,10 @@ mod tests {
         let pipeline = parse_input("ls |", &[]);
         assert!(pipeline.has_error());
         // tokens: ["ls", "|"], pipe at index 1
-        assert_eq!(pipeline.error, Some(ParseError::TrailingPipe { position: 1 }));
+        assert_eq!(
+            pipeline.error,
+            Some(ParseError::TrailingPipe { position: 1 })
+        );
     }
 
     #[test]

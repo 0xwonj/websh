@@ -164,9 +164,18 @@ mod tests {
 
     #[test]
     fn test_extract_host() {
-        assert_eq!(extract_host("https://github.com/user"), Some("github.com".to_string()));
-        assert_eq!(extract_host("https://www.github.com/user"), Some("github.com".to_string()));
-        assert_eq!(extract_host("https://api.github.com:443/repos"), Some("api.github.com".to_string()));
+        assert_eq!(
+            extract_host("https://github.com/user"),
+            Some("github.com".to_string())
+        );
+        assert_eq!(
+            extract_host("https://www.github.com/user"),
+            Some("github.com".to_string())
+        );
+        assert_eq!(
+            extract_host("https://api.github.com:443/repos"),
+            Some("api.github.com".to_string())
+        );
         assert_eq!(extract_host("https://"), None);
     }
 }

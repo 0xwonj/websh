@@ -5,7 +5,7 @@
 //! ensuring fresh content on new visits while avoiding redundant
 //! fetches during navigation within the same session.
 
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 use super::dom;
 
@@ -37,4 +37,3 @@ pub fn set<T: Serialize>(key: &str, data: &T) -> Result<(), CacheError> {
         .set_item(key, &json)
         .map_err(|_| CacheError::WriteFailed)
 }
-
