@@ -1,0 +1,359 @@
+/* FileList - Scoped CSS Module */
+
+/* Container is the grid - header and items use display:contents */
+.list {
+  display: grid;
+  grid-template-columns:
+    [icon] 2.5rem
+    [name] minmax(8rem, 2fr)
+    [desc] minmax(6rem, 2fr)
+    [date] minmax(10ch, 1fr)
+    [size] minmax(6ch, 1fr)
+    [perms] minmax(5ch, 1fr)
+    [chevron] 1.5rem;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-base);
+  overflow-x: hidden;
+}
+
+/* ==========================================================================
+   Column Header (Desktop only)
+   ========================================================================== */
+
+.listHeader {
+  display: contents;
+}
+
+.listHeader > span {
+  padding: var(--space-2) var(--space-2);
+  color: var(--text-muted);
+  font-weight: 600;
+  background-color: var(--bg-secondary);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  border-bottom: 1px solid var(--border-subtle);
+  position: relative;
+}
+
+.listHeader > span::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 15%;
+  height: 70%;
+  width: 1px;
+  background-color: var(--border-subtle);
+}
+
+/* Hide divider on first (icon) and last two (perms, chevron) columns */
+.listHeader > span:first-child::after,
+.listHeader > span:nth-last-child(2)::after,
+.listHeader > span:last-child::after {
+  display: none;
+}
+
+.headerIcon {
+  padding-left: var(--space-4);
+}
+
+.headerName {
+}
+
+.headerDesc {
+}
+
+.headerDate {
+}
+
+.headerSize {
+}
+
+.headerPerms {
+}
+
+.headerChevron {
+  padding-right: var(--space-4);
+}
+
+/* ==========================================================================
+   List View Item
+   ========================================================================== */
+
+.listItem {
+  display: contents;
+  cursor: pointer;
+}
+
+.listItem > span,
+.listItem > div {
+  padding: var(--space-2) var(--space-2);
+  min-height: 2.5rem;
+  display: flex;
+  align-items: center;
+  transition: background-color 0.15s;
+}
+
+/* First and last cell padding */
+.listItem > .icon {
+  padding-left: var(--space-4);
+}
+
+.listItem > .chevron {
+  padding-right: var(--space-4);
+}
+
+/* Hover - apply to all cells in the row */
+.listItem:hover > span,
+.listItem:hover > div {
+  background-color: var(--bg-secondary);
+}
+
+/* Selected state - macOS Finder style */
+.selected > span,
+.selected > div {
+  background-color: rgba(59, 130, 246, 0.15);
+}
+
+.selected:hover > span,
+.selected:hover > div {
+  background-color: rgba(59, 130, 246, 0.2);
+}
+
+/* ==========================================================================
+   Cell Styles
+   ========================================================================== */
+
+.icon {
+  font-size: 1.25rem;
+  justify-content: center;
+}
+
+.nameWrapper {
+  overflow: hidden;
+}
+
+.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nameDir {
+  color: var(--terminal-cyan);
+}
+
+.nameFile {
+  color: var(--text-primary);
+}
+
+.nameHidden {
+  color: var(--text-dim);
+}
+
+.nameBold {
+  font-weight: 700;
+}
+
+.lockIcon {
+  margin-left: var(--space-1);
+  font-size: 0.75em;
+  color: var(--terminal-yellow);
+  vertical-align: middle;
+}
+
+/* Desktop: hide mobile meta */
+.mobileMeta {
+  display: none;
+}
+
+.itemDesc {
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itemDate {
+  color: var(--text-muted);
+}
+
+.size {
+  color: var(--text-dim);
+  justify-content: flex-end;
+}
+
+.perms {
+  color: var(--text-dim);
+  justify-content: center;
+  letter-spacing: 0.4em;
+}
+
+.chevron {
+  color: var(--text-dim);
+  justify-content: center;
+}
+
+/* ==========================================================================
+   Tablet
+   ========================================================================== */
+
+@media (max-width: 1024px) {
+  .list {
+    font-size: var(--font-size-sm);
+    grid-template-columns:
+      [icon] 2rem
+      [name] minmax(6rem, 2fr)
+      [desc] minmax(4rem, 2fr)
+      [date] minmax(10ch, 1fr)
+      [size] minmax(5ch, 1fr)
+      [perms] minmax(5ch, 1fr)
+      [chevron] 1.5rem;
+  }
+}
+
+/* ==========================================================================
+   Mobile - iOS Files style
+   ========================================================================== */
+
+@media (max-width: 640px) {
+  .list {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .listHeader {
+    display: none;
+  }
+
+  .listItem {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4) var(--space-3) 0;
+    min-height: 4rem;
+  }
+
+  .listItem > span,
+  .listItem > div {
+    padding: 0;
+    min-height: auto;
+    display: block;
+    background-color: transparent !important;
+  }
+
+  /* Hover and selected on the row itself */
+  .listItem:hover {
+    background-color: var(--bg-secondary);
+  }
+
+  .selected {
+    background-color: rgba(59, 130, 246, 0.15);
+  }
+
+  .selected:hover {
+    background-color: rgba(59, 130, 246, 0.2);
+  }
+
+  .icon {
+    font-size: 1.75rem;
+    flex-shrink: 0;
+    display: flex;
+    margin-right: var(--space-2);
+  }
+
+  .nameWrapper {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .name {
+    font-size: var(--font-size-base);
+  }
+
+  .mobileMeta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--text-muted);
+    font-size: var(--font-size-xs);
+  }
+
+  .mobileMeta span:not(:last-child)::after {
+    content: "·";
+    margin-left: var(--space-2);
+    color: var(--text-dim);
+  }
+
+  .itemDesc,
+  .itemDate,
+  .size,
+  .perms {
+    display: none !important;
+  }
+
+  .chevron {
+    font-size: 1.25rem;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    display: flex !important;
+  }
+}
+
+/* ==========================================================================
+   Grid View (unused for now)
+   ========================================================================== */
+
+.gridItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  min-height: 5rem;
+}
+
+.gridItem:hover {
+  background-color: var(--bg-secondary);
+  border-color: var(--border-primary);
+}
+
+.gridPerms {
+  color: var(--text-dim);
+  font-size: var(--font-size-xs);
+  margin-bottom: var(--space-1);
+}
+
+.gridNameDir {
+  color: var(--terminal-cyan);
+  text-align: center;
+  word-break: break-all;
+}
+
+.gridNameFile {
+  color: var(--text-primary);
+  text-align: center;
+  word-break: break-all;
+}
+
+.gridSize {
+  color: var(--text-dim);
+  font-size: var(--font-size-xs);
+  margin-top: var(--space-1);
+}
+
+.gridLayout {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+}

@@ -5,12 +5,15 @@
 //! - [`OutputLine`], [`ScreenMode`] - Terminal output and display modes
 //! - [`WalletState`] - Web3 wallet connection state
 //! - [`Route`] - Hash-based navigation for IPFS compatibility
+//! - [`ViewMode`], [`ContentOverlay`] - View management for Terminal/Explorer
 
+mod explorer;
 mod filesystem;
 mod route;
 mod terminal;
 mod wallet;
 
+pub use explorer::{ContentOverlay, ExplorerViewType, SheetState, ViewMode};
 pub use filesystem::{
     DisplayPermissions, FileMetadata, FileType, FsEntry, ManifestEntry, VirtualPath,
 };

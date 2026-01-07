@@ -177,15 +177,10 @@ pub fn run(ctx: AppContext, initial_route: Route) {
                 ctx.terminal.screen_mode.set(ScreenMode::Terminal);
             }
             Route::Read { path } => {
-                let title = path
-                    .rsplit('/')
-                    .next()
-                    .and_then(|f| f.rsplit_once('.'))
-                    .map(|(name, _)| name.to_string())
-                    .unwrap_or_else(|| path.clone());
+                // For URL-based reader, use content path as virtual path
                 ctx.terminal.screen_mode.set(ScreenMode::Reader {
-                    content: path,
-                    title,
+                    content_path: path.clone(),
+                    virtual_path: path,
                 });
             }
         }

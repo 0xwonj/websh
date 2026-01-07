@@ -1,0 +1,357 @@
+/* BottomSheet - Scoped CSS Module */
+
+.sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--bg-secondary);
+  border-top: 1px solid var(--border-subtle);
+  border-radius: 1rem 1rem 0 0;
+  transition: transform 0.3s ease-out;
+  display: flex;
+  flex-direction: column;
+  max-height: 80vh;
+}
+
+.sheetClosed {
+  transform: translateY(100%);
+}
+
+.sheetPreview {
+  transform: translateY(0);
+  height: 40%;
+}
+
+.sheetExpanded {
+  transform: translateY(0);
+  height: 80vh;
+}
+
+/* Drag handle */
+.handle {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-2);
+  cursor: grab;
+}
+
+.handleBar {
+  width: 3rem;
+  height: 4px;
+  background-color: var(--text-dim);
+  border-radius: 2px;
+}
+
+/* Header */
+.sheetHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.filename {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.sheetActions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.actionButton {
+  background: none;
+  border: 1px solid var(--border-subtle);
+  color: var(--terminal-cyan);
+  padding: var(--space-1) var(--space-2);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: background-color 0.15s;
+}
+
+.actionButton:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.decryptButton {
+  background-color: var(--terminal-yellow);
+  border: none;
+  color: var(--bg-primary);
+  padding: var(--space-1) var(--space-3);
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.decryptButton:hover {
+  opacity: 0.9;
+}
+
+.closeButton {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0 var(--space-1);
+  line-height: 1;
+}
+
+.closeButton:hover {
+  color: var(--text-primary);
+}
+
+/* Content */
+.sheetContent {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-4);
+
+  scrollbar-width: thin;
+  scrollbar-color: var(--text-muted) transparent;
+}
+
+.preview {
+  color: var(--text-primary);
+}
+
+.description {
+  margin-bottom: var(--space-3);
+  color: var(--text-dim);
+}
+
+.metaInfo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  color: var(--text-dim);
+  font-size: var(--font-size-sm);
+}
+
+/* Encrypted file info */
+.encryptedInfo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  text-align: center;
+}
+
+.lockIcon {
+  font-size: 2rem;
+}
+
+.encryptedInfo p {
+  color: var(--text-dim);
+  margin: 0;
+}
+
+.metaLine {
+  font-size: var(--font-size-sm);
+}
+
+.hint {
+  color: var(--text-muted);
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+
+/* ==========================================================================
+   Text Preview
+   ========================================================================== */
+
+.textPreview {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.previewText {
+  margin: 0;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-y: auto;
+}
+
+.loading {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+  padding: var(--space-4);
+  text-align: center;
+}
+
+.noPreview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  text-align: center;
+}
+
+/* ==========================================================================
+   Image Preview
+   ========================================================================== */
+
+.imagePreview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.thumbnail {
+  max-width: 100%;
+  max-height: 200px;
+  object-fit: contain;
+  border-radius: 4px;
+  background-color: var(--bg-tertiary);
+}
+
+.imageDesc {
+  color: var(--text-dim);
+  margin: 0;
+  font-size: var(--font-size-sm);
+  text-align: center;
+}
+
+/* ==========================================================================
+   Markdown Styling
+   ========================================================================== */
+
+.markdown {
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+.markdown :global(h1) {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--terminal-cyan);
+  margin: 0 0 var(--space-3) 0;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.markdown :global(h2) {
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  color: var(--terminal-green);
+  margin: var(--space-4) 0 var(--space-2) 0;
+}
+
+.markdown :global(h3) {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--terminal-yellow);
+  margin: var(--space-3) 0 var(--space-2) 0;
+}
+
+.markdown :global(p) {
+  margin: 0 0 var(--space-3) 0;
+}
+
+.markdown :global(a) {
+  color: var(--terminal-cyan);
+  text-decoration: underline;
+}
+
+.markdown :global(a:hover) {
+  color: var(--terminal-green);
+}
+
+.markdown :global(strong) {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.markdown :global(em) {
+  font-style: italic;
+}
+
+.markdown :global(code) {
+  background-color: var(--bg-tertiary);
+  padding: 0.125rem 0.25rem;
+  border-radius: 3px;
+  color: var(--terminal-cyan);
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+
+.markdown :global(pre) {
+  background-color: var(--bg-tertiary);
+  padding: var(--space-3);
+  border-radius: 4px;
+  overflow-x: auto;
+  margin: var(--space-3) 0;
+}
+
+.markdown :global(pre code) {
+  background-color: transparent;
+  padding: 0;
+}
+
+.markdown :global(ul),
+.markdown :global(ol) {
+  margin: 0 0 var(--space-3) 0;
+  padding-left: 0;
+  list-style-position: inside;
+}
+
+.markdown :global(ul) {
+  list-style-type: disc;
+}
+
+.markdown :global(ol) {
+  list-style-type: decimal;
+}
+
+.markdown :global(li) {
+  margin-bottom: var(--space-1);
+  padding-left: var(--space-3);
+  text-indent: -1.2em;
+  margin-left: 1.2em;
+}
+
+.markdown :global(li)::marker {
+  color: var(--terminal-green);
+}
+
+.markdown :global(blockquote) {
+  border-left: 2px solid var(--terminal-purple);
+  padding-left: var(--space-3);
+  margin: var(--space-3) 0;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.markdown :global(img) {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
+/* ==========================================================================
+   Hide on desktop (PreviewPanel is used instead)
+   ========================================================================== */
+
+@media (min-width: 769px) {
+  .sheet {
+    display: none;
+  }
+}

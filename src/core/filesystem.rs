@@ -46,6 +46,7 @@ impl VirtualFs {
                     "wonjae",
                     FsEntry::Directory {
                         children: content_tree,
+                        description: String::new(),
                         meta: FileMetadata::default(),
                     },
                 )]),
@@ -83,6 +84,7 @@ impl VirtualFs {
                     .entry(part.to_string())
                     .or_insert_with(|| FsEntry::Directory {
                         children: HashMap::new(),
+                        description: String::new(),
                         meta: FileMetadata::default(),
                     });
 

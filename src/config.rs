@@ -112,6 +112,9 @@ pub const MAX_TERMINAL_HISTORY: usize = 1000;
 /// Maximum number of command history entries to keep.
 pub const MAX_COMMAND_HISTORY: usize = 100;
 
+/// Maximum number of navigation history entries (back/forward stacks).
+pub const MAX_NAV_HISTORY: usize = 50;
+
 /// Pipe filter defaults.
 pub mod pipe_filters {
     /// Default number of lines for `head` command.
@@ -158,3 +161,24 @@ pub mod cache {
     /// sessionStorage key for manifest cache.
     pub const MANIFEST_KEY: &str = "manifest_cache";
 }
+
+// =============================================================================
+// UI Configuration
+// =============================================================================
+
+/// Icon theme selection.
+///
+/// Available themes:
+/// - `Bootstrap` - Familiar, slightly bolder (default)
+/// - `Lucide` - Minimal, thin strokes
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[allow(dead_code)]
+pub enum IconTheme {
+    #[default]
+    Bootstrap,
+    Lucide,
+}
+
+/// Current icon theme used throughout the application.
+/// Change this value to switch icon styles globally.
+pub const ICON_THEME: IconTheme = IconTheme::Bootstrap;

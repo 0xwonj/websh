@@ -170,6 +170,12 @@ impl VirtualPath {
         }
     }
 
+    /// Check if this path is the home directory.
+    #[allow(dead_code)]
+    pub fn is_home(&self) -> bool {
+        self.0 == HOME_DIR
+    }
+
     /// Format for display, replacing home directory with `~`.
     pub fn display(&self) -> String {
         let home_with_slash = format!("{}/", HOME_DIR);
@@ -429,9 +435,11 @@ mod tests {
 
 /// Represents an entry in the virtual filesystem
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub enum FsEntry {
     Directory {
         children: HashMap<String, FsEntry>,
+        description: String,
         meta: FileMetadata,
     },
     File {
@@ -449,7 +457,25 @@ impl FsEntry {
                 .into_iter()
                 .map(|(k, v)| (k.to_string(), v))
                 .collect(),
+            description: String::new(),
             meta: FileMetadata::default(),
+        }
+    }
+
+    /// Create a directory with description and metadata.
+    #[allow(dead_code)]
+    pub fn dir_with_meta(
+        entries: Vec<(&str, FsEntry)>,
+        description: &str,
+        meta: FileMetadata,
+    ) -> Self {
+        FsEntry::Directory {
+            children: entries
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v))
+                .collect(),
+            description: description.to_string(),
+            meta,
         }
     }
 
@@ -474,5 +500,31 @@ impl FsEntry {
     /// Check if this entry is a directory.
     pub fn is_directory(&self) -> bool {
         matches!(self, FsEntry::Directory { .. })
+    }
+
+    /// Check if this file is encrypted.
+    pub fn is_encrypted(&self) -> bool {
+        match self {
+            FsEntry::File { meta, .. } => meta.is_encrypted(),
+            FsEntry::Directory { .. } => false,
+        }
+    }
+
+    /// Get the description of this entry.
+    #[allow(dead_code)]
+    pub fn description(&self) -> &str {
+        match self {
+            FsEntry::Directory { description, .. } => description,
+            FsEntry::File { description, .. } => description,
+        }
+    }
+
+    /// Get the metadata of this entry.
+    #[allow(dead_code)]
+    pub fn meta(&self) -> &FileMetadata {
+        match self {
+            FsEntry::Directory { meta, .. } => meta,
+            FsEntry::File { meta, .. } => meta,
+        }
     }
 }

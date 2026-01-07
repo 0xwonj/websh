@@ -11,61 +11,221 @@
   outline: none;
 }
 
+/* ==========================================================================
+   Header
+   ========================================================================== */
+
 .header {
   position: sticky;
   top: 0;
-  background-color: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-muted);
-  padding: var(--space-3) var(--space-8);
+  z-index: 10;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-4);
+  padding: 0 var(--space-5);
+  height: 3rem;
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
 }
 
-.titleSection {
+/* Navigation button (same style as Explorer) */
+.navButtons {
+  display: flex;
+  flex-shrink: 0;
+  background-color: var(--bg-tertiary);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.navButton {
+  background: none;
+  border: none;
+  color: var(--terminal-cyan);
+  font-size: 1.125rem;
+  cursor: pointer;
+  padding: var(--space-2) var(--space-4);
+  border-radius: 4px;
+  transition: background-color 0.15s, color 0.15s, transform 0.1s;
+  line-height: 1;
+}
+
+.navButton:hover {
+  background-color: var(--bg-secondary);
+}
+
+.navButton:active {
+  transform: scale(0.95);
+}
+
+.navArrow {
+  display: inline-block;
+  transition: transform 0.15s ease-out;
+  font-weight: 500;
+}
+
+.navButton:hover .navArrow {
+  transform: translateX(-2px);
+}
+
+/* ==========================================================================
+   Breadcrumb Path (absolute centered)
+   ========================================================================== */
+
+.breadcrumb {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   display: flex;
   align-items: center;
-  gap: var(--space-4);
+  gap: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-base);
+  max-width: calc(100% - 16rem); /* Leave space for left/right buttons */
+  overflow: hidden;
 }
 
-.titleLabel {
+.breadcrumbSegment {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.breadcrumbSegment:hover {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.breadcrumbSegmentCurrent {
+  color: var(--text-primary);
+  font-weight: 600;
+  cursor: default;
+}
+
+.breadcrumbSegmentCurrent:hover {
+  background-color: transparent;
+}
+
+.breadcrumbSeparator {
   color: var(--text-dim);
+  font-size: 0.875rem;
+  flex-shrink: 0;
 }
 
-.title {
-  color: var(--terminal-cyan);
-  font-weight: 700;
+.breadcrumbIcon {
+  font-size: 1rem;
 }
 
+/* Action buttons */
 .headerActions {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  flex-shrink: 0;
 }
 
-.openLink {
+.actionButton {
+  background: none;
+  border: none;
   color: var(--terminal-cyan);
+  font-size: 1.125rem;
+  cursor: pointer;
+  padding: var(--space-2);
+  border-radius: 4px;
+  transition: background-color 0.15s, color 0.15s, transform 0.1s;
+  line-height: 1;
+}
+
+.actionButton:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.actionButton:active {
+  transform: scale(0.95);
+}
+
+/* Dropdown menu */
+.dropdownWrapper {
+  position: relative;
+}
+
+.dropdownMenu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: var(--space-1);
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  min-width: 10rem;
+  padding: var(--space-1) 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 100;
+}
+
+.dropdownItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: none;
+  border: none;
+  color: var(--text-primary);
   font-size: var(--font-size-sm);
-  text-decoration: none;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.15s;
 }
 
-.openLink:hover {
-  text-decoration: underline;
-  color: var(--terminal-green);
+.dropdownItem:hover {
+  background-color: var(--bg-tertiary);
 }
 
-.separator {
-  color: var(--text-muted);
-  font-size: var(--font-size-sm);
+.dropdownIcon {
+  width: 1.25rem;
+  text-align: center;
+  flex-shrink: 0;
 }
 
+.dropdownDivider {
+  height: 1px;
+  background-color: var(--border-subtle);
+  margin: var(--space-1) 0;
+}
+
+/* Keyboard hint (desktop only) */
 .hint {
   color: var(--text-dim);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-xs);
+  margin-left: var(--space-2);
 }
 
 .hintKey {
   color: var(--terminal-yellow);
+  padding: 0 2px;
+}
+
+/* Responsive visibility */
+.desktopOnly {
+  display: flex;
+}
+
+.mobileOnly {
+  display: none;
 }
 
 /* Content Area */
@@ -267,18 +427,53 @@
   border-radius: 0.5rem;
 }
 
-/* Responsive */
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
 @media (max-width: 768px) {
   .content {
     padding: var(--space-6) var(--space-4);
   }
 
   .header {
-    padding: var(--space-3) var(--space-4);
+    padding: 0 var(--space-4);
+    gap: var(--space-3);
   }
 
   .pdfViewer {
     height: calc(100vh - 6rem);
+  }
+}
+
+@media (max-width: 640px) {
+  .header {
+    padding: 0 var(--space-3);
+    gap: var(--space-2);
+  }
+
+  .navButton {
+    font-size: 1rem;
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .breadcrumb {
+    font-size: var(--font-size-base);
+    max-width: calc(100% - 10rem);
+  }
+
+  /* Hide desktop-only elements */
+  .desktopOnly {
+    display: none !important;
+  }
+
+  /* Show mobile-only elements */
+  .mobileOnly {
+    display: flex !important;
+  }
+
+  .actionButton {
+    padding: var(--space-2);
   }
 }
 

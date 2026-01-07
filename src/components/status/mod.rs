@@ -1,22 +1,33 @@
+//! Status bar component.
+//!
+//! Displays session, location, and network information.
+//! Provides view toggle button to switch between Terminal and Explorer.
+
 use leptos::prelude::*;
+use leptos_icons::Icon;
 
 use crate::app::AppContext;
+use crate::components::icons as ic;
 use crate::core::wallet;
+use crate::models::ViewMode;
 
 stylance::import_crate_style!(css, "src/components/status/status.module.css");
 
 /// Status bar component displaying session, location, and network information.
 ///
-/// This component uses the application context to reactively display:
-/// - Session: Current wallet connection status (ENS name, address, or "guest")
-/// - Location: Current directory path in the virtual filesystem
-/// - Network: Connected blockchain network (if wallet is connected)
+/// ## Responsive behavior
+///
+/// | Breakpoint | Display |
+/// |------------|---------|
+/// | Desktop (> 768px) | Full labels: `Session: guest \| Location: ~ \| Network: Mainnet` |
+/// | Tablet (480-768px) | Values only: `guest · ~ · Mainnet` |
+/// | Mobile (< 480px) | Minimal: `guest · ~` (network hidden) |
 #[component]
 pub fn Status() -> impl IntoView {
-    // Get context - Status bar needs access to both terminal and wallet state
     let ctx = use_context::<AppContext>().expect("AppContext must be provided at root");
 
-    let display_path = Signal::derive(move || ctx.terminal.current_path.with(|p| p.display()));
+    // Derived signals for reactive display
+    let display_path = Signal::derive(move || ctx.current_path.with(|p| p.display()));
     let session_name = Signal::derive(move || ctx.wallet.with(|w| w.display_name()));
     let network_name = Signal::derive(move || {
         ctx.wallet.with(|w| {
@@ -26,25 +37,53 @@ pub fn Status() -> impl IntoView {
         })
     });
 
+    // View toggle
+    let view_mode = ctx.view_mode;
+    let toggle_view = move |_: leptos::ev::MouseEvent| {
+        ctx.toggle_view_mode();
+    };
+    let toggle_title = Signal::derive(move || match view_mode.get() {
+        ViewMode::Terminal => "Switch to Explorer",
+        ViewMode::Explorer => "Switch to Terminal",
+    });
+
     view! {
         <header class=css::bar>
+            // Status information section
             <div class=css::section>
+                // Session
                 <span class=css::label>
-                    "Session: "
+                    <span class=css::labelText>"Session:"</span>
+                    <span class=css::labelIcon><Icon icon=ic::USER /></span>
                     <span class=css::value>{session_name}</span>
                 </span>
+
+                // Location
                 <span class=css::labelCyan>
-                    "Location: "
+                    <span class=css::labelText>"Location:"</span>
+                    <span class=css::labelIcon><Icon icon=ic::LOCATION /></span>
                     <span class=css::value>{display_path}</span>
                 </span>
+
+                // Network
                 <span class=css::labelPurple>
-                    "Network: "
+                    <span class=css::labelText>"Network:"</span>
+                    <span class=css::labelIcon><Icon icon=ic::NETWORK /></span>
                     <span class=css::value>{network_name}</span>
                 </span>
             </div>
-            <div class=css::brand>
-                "wonjae.eth"
-            </div>
+
+            // View toggle button
+            <button
+                class=css::toggleButton
+                on:click=toggle_view
+                title=toggle_title
+            >
+                {move || match view_mode.get() {
+                    ViewMode::Terminal => view! { <Icon icon=ic::EXPLORER /> }.into_any(),
+                    ViewMode::Explorer => view! { <Icon icon=ic::TERMINAL /> }.into_any(),
+                }}
+            </button>
         </header>
     }
 }

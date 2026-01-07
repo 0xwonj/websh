@@ -267,8 +267,8 @@ pub fn execute_command(
                     {
                         // Set screen mode to reader - content will be loaded async
                         state.screen_mode.set(ScreenMode::Reader {
-                            content: content_path.clone(),
-                            title: file.to_string(),
+                            content_path,
+                            virtual_path: resolved_path.to_string(),
                         });
                         vec![OutputLine::info(format!("Opening {}...", file))]
                     } else if resolved_path.as_str() == PROFILE_PATH {

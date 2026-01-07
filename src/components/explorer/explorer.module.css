@@ -1,0 +1,398 @@
+/* Explorer - Scoped CSS Module */
+/* Dual panel layout: file list (left) + preview panel (right) on desktop */
+/* Single column with bottom sheet on mobile */
+
+.explorer {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-primary);
+  position: relative; /* For bottom sheet positioning */
+}
+
+/* ==========================================================================
+   Header
+   ========================================================================== */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-5);
+  height: 3rem;
+  border-bottom: 1px solid var(--border-subtle);
+  background-color: var(--bg-secondary);
+  flex-shrink: 0;
+  position: relative;
+}
+
+/* Navigation buttons - Segmented control (macOS Finder style) */
+.navButtons {
+  display: flex;
+  flex-shrink: 0;
+  background-color: var(--bg-tertiary);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.navButton {
+  background: none;
+  border: none;
+  color: var(--terminal-cyan);
+  font-size: 1.125rem;
+  cursor: pointer;
+  padding: var(--space-2) var(--space-4);
+  border-radius: 4px;
+  transition: background-color 0.15s, color 0.15s, transform 0.1s;
+  line-height: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Divider between buttons (all except last) */
+.navButton:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 20%;
+  height: 60%;
+  width: 1px;
+  background-color: var(--border-subtle);
+}
+
+.navButton:hover:not(:disabled) {
+  background-color: var(--bg-secondary);
+}
+
+.navButton:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.navButtonDisabled {
+  color: var(--text-dim);
+  cursor: default;
+}
+
+/* Arrow spans for animation */
+.navArrowBack,
+.navArrowForward {
+  display: inline-block;
+  transition: transform 0.15s ease-out;
+  font-weight: 500;
+}
+
+.navButton:hover:not(:disabled) .navArrowBack {
+  transform: translateX(-2px);
+}
+
+.navButton:hover:not(:disabled) .navArrowForward {
+  transform: translateX(2px);
+}
+
+.navButtonDisabled .navArrowBack,
+.navButtonDisabled .navArrowForward {
+  opacity: 0.5;
+}
+
+/* ==========================================================================
+   Breadcrumb Path
+   ========================================================================== */
+
+.breadcrumb {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-base);
+  max-width: calc(100% - 20rem);
+  overflow: hidden;
+}
+
+.breadcrumbSegment {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 0.15s, color 0.15s;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.breadcrumbSegment:hover {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.breadcrumbSegmentCurrent {
+  color: var(--text-primary);
+  font-weight: 600;
+  cursor: default;
+}
+
+.breadcrumbSegmentCurrent:hover {
+  background-color: transparent;
+}
+
+.breadcrumbSeparator {
+  color: var(--text-dim);
+  font-size: 0.875rem;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.breadcrumbIcon {
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+}
+
+/* Home button in nav group - no special styling needed */
+.navButtonHome {
+  /* Uses same divider style as other buttons */
+}
+
+/* ==========================================================================
+   Action Buttons (right side)
+   ========================================================================== */
+
+.actionButtons {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.actionButton {
+  background: none;
+  border: none;
+  color: var(--terminal-cyan);
+  font-size: 1.125rem;
+  cursor: pointer;
+  padding: var(--space-2);
+  border-radius: 4px;
+  transition: background-color 0.15s, color 0.15s, transform 0.1s;
+  line-height: 1;
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.actionButton:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.actionButton:active {
+  transform: scale(0.95);
+}
+
+/* ==========================================================================
+   Dropdown Menu
+   ========================================================================== */
+
+.dropdownWrapper {
+  position: relative;
+}
+
+.dropdownMenu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: var(--space-1);
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  min-width: 10rem;
+  padding: var(--space-1) 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 100;
+}
+
+.dropdownItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-mono);
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.15s;
+}
+
+.dropdownItem:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.dropdownIcon {
+  width: 1.25rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.dropdownDivider {
+  height: 1px;
+  background-color: var(--border-subtle);
+  margin: var(--space-1) 0;
+}
+
+/* ==========================================================================
+   Responsive visibility helpers
+   ========================================================================== */
+
+.desktopOnly {
+  display: flex;
+}
+
+.mobileOnly {
+  display: none;
+}
+
+/* ==========================================================================
+   Body (Dual Panel Container)
+   ========================================================================== */
+
+.body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+/* File list pane (left side) */
+.fileListPane {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-3) 0;
+  min-width: 0; /* Allow shrinking */
+
+  scrollbar-width: thin;
+  scrollbar-color: var(--text-muted) transparent;
+}
+
+.fileListPane::-webkit-scrollbar {
+  width: 6px;
+}
+
+.fileListPane::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.fileListPane::-webkit-scrollbar-thumb {
+  background-color: var(--text-muted);
+  border-radius: 3px;
+}
+
+/* ==========================================================================
+   Desktop (> 768px): Dual panel with preview on right
+   ========================================================================== */
+
+/* When preview panel is shown, shrink file list to 50% */
+@media (min-width: 769px) {
+  .fileListPaneWithPreview {
+    flex: 0 0 50%;
+    max-width: 50%;
+  }
+}
+
+/* ==========================================================================
+   Tablet (769px - 1024px)
+   ========================================================================== */
+
+@media (max-width: 1024px) {
+  .header {
+    gap: var(--space-3);
+    padding: 0 var(--space-4);
+  }
+
+  .navButton {
+    font-size: 1rem;
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .breadcrumb {
+    font-size: var(--font-size-sm);
+  }
+
+  .fileListPane {
+    padding: var(--space-2) 0;
+  }
+}
+
+/* ==========================================================================
+   Mobile (< 768px): Single column, bottom sheet for preview
+   ========================================================================== */
+
+@media (max-width: 768px) {
+  .fileListPane {
+    flex: 1;
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .header {
+    gap: var(--space-2);
+    padding: 0 var(--space-3) 0 0;
+  }
+
+  .navButton {
+    font-size: 1.125rem;
+    padding: var(--space-2);
+  }
+
+  /* Hide home button on mobile */
+  .navButtonHome {
+    display: none;
+  }
+
+  .breadcrumb {
+    position: static;
+    transform: none;
+    flex: 1;
+    min-width: 0;
+    max-width: none;
+    font-size: var(--font-size-base);
+    justify-content: flex-start;
+    padding-left: var(--space-2);
+  }
+
+  .fileListPane {
+    padding: var(--space-1) 0;
+  }
+
+  /* Hide desktop-only buttons, show mobile-only items */
+  .desktopOnly {
+    display: none !important;
+  }
+
+  .mobileOnly {
+    display: flex !important;
+  }
+
+  .actionButtons {
+    gap: var(--space-1);
+  }
+
+  .actionButton {
+    padding: var(--space-2);
+  }
+}

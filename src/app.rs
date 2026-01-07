@@ -6,9 +6,12 @@
 use leptos::prelude::*;
 
 use crate::components::Shell;
-use crate::config::{APP_NAME, MAX_COMMAND_HISTORY, MAX_TERMINAL_HISTORY};
+use crate::config::{APP_NAME, MAX_COMMAND_HISTORY, MAX_NAV_HISTORY, MAX_TERMINAL_HISTORY};
 use crate::core::VirtualFs;
-use crate::models::{OutputLine, ScreenMode, VirtualPath, WalletState};
+use crate::models::{
+    ContentOverlay, ExplorerViewType, OutputLine, ScreenMode, SheetState, ViewMode, VirtualPath,
+    WalletState,
+};
 use crate::utils::RingBuffer;
 
 // ============================================================================
@@ -26,11 +29,14 @@ use crate::utils::RingBuffer;
 ///
 /// This struct is `Copy` because all fields are Leptos signals, which are
 /// cheap to copy (they're just pointers to the underlying reactive state).
+///
+/// The `current_path` signal is shared with AppContext - changes from either
+/// Terminal or Explorer will be reflected in both views.
 #[derive(Clone, Copy)]
 pub struct TerminalState {
     /// Terminal output history (bounded by `MAX_TERMINAL_HISTORY`).
     pub history: RwSignal<RingBuffer<OutputLine>>,
-    /// Current working directory path.
+    /// Current working directory path (shared with AppContext).
     pub current_path: RwSignal<VirtualPath>,
     /// Current screen mode (terminal, reader, etc.).
     pub screen_mode: RwSignal<ScreenMode>,
@@ -52,6 +58,20 @@ impl TerminalState {
         Self {
             history: RwSignal::new(RingBuffer::new(MAX_TERMINAL_HISTORY)),
             current_path: RwSignal::new(VirtualPath::home()),
+            screen_mode: RwSignal::new(ScreenMode::Booting),
+            command_history: RwSignal::new(Vec::new()),
+            history_index: RwSignal::new(None),
+        }
+    }
+
+    /// Creates a new terminal state with a shared current_path signal.
+    ///
+    /// This constructor is used when creating a TerminalState that shares
+    /// its path with AppContext for synchronization between Terminal and Explorer.
+    pub fn new_with_path(current_path: RwSignal<VirtualPath>) -> Self {
+        Self {
+            history: RwSignal::new(RingBuffer::new(MAX_TERMINAL_HISTORY)),
+            current_path,
             screen_mode: RwSignal::new(ScreenMode::Booting),
             command_history: RwSignal::new(Vec::new()),
             history_index: RwSignal::new(None),
@@ -86,6 +106,7 @@ impl TerminalState {
     /// # Arguments
     ///
     /// * `wallet_state` - Current wallet state for username derivation
+    #[allow(dead_code)]
     pub fn get_prompt(&self, wallet_state: WalletState) -> String {
         let path = self.current_path.get();
         let display_path = path.display();
@@ -135,6 +156,60 @@ impl Default for TerminalState {
 }
 
 // ============================================================================
+// ExplorerState
+// ============================================================================
+
+/// Explorer state for the file browser UI.
+///
+/// # Note
+///
+/// This struct is `Copy` because all fields are Leptos signals.
+#[derive(Clone, Copy)]
+pub struct ExplorerState {
+    /// Currently selected file path (for preview).
+    pub selected_file: RwSignal<Option<String>>,
+    /// Current view type (list or grid).
+    pub view_type: RwSignal<ExplorerViewType>,
+    /// Bottom sheet state.
+    pub sheet_state: RwSignal<SheetState>,
+}
+
+impl ExplorerState {
+    /// Creates a new explorer state with default values.
+    pub fn new() -> Self {
+        Self {
+            selected_file: RwSignal::new(None),
+            view_type: RwSignal::new(ExplorerViewType::default()),
+            sheet_state: RwSignal::new(SheetState::default()),
+        }
+    }
+
+    /// Selects a file and opens the preview sheet.
+    pub fn select_file(&self, path: String) {
+        self.selected_file.set(Some(path));
+        self.sheet_state.set(SheetState::Preview);
+    }
+
+    /// Clears the selection and closes the sheet.
+    pub fn clear_selection(&self) {
+        self.selected_file.set(None);
+        self.sheet_state.set(SheetState::Closed);
+    }
+
+    /// Expands the sheet to full screen.
+    #[allow(dead_code)]
+    pub fn expand_sheet(&self) {
+        self.sheet_state.set(SheetState::Expanded);
+    }
+}
+
+impl Default for ExplorerState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
 // AppContext
 // ============================================================================
 
@@ -147,18 +222,37 @@ impl Default for TerminalState {
 ///
 /// The [`AppContext`] separates concerns into independent domains:
 /// - **Terminal state**: Command history, output, navigation
+/// - **Explorer state**: File browser UI state
 /// - **Wallet state**: Connection status, address, ENS name
-/// - **Filesystem**: Virtual filesystem for navigation
+/// - **Filesystem**: Virtual filesystem for navigation (shared)
+/// - **View management**: ViewMode and ContentOverlay
 #[derive(Clone, Copy)]
 pub struct AppContext {
-    /// Terminal state (history, commands, navigation).
-    pub terminal: TerminalState,
-
+    // === Shared State ===
+    /// Virtual filesystem for file navigation.
+    pub fs: RwSignal<VirtualFs>,
+    /// Current working directory path (shared between Terminal and Explorer).
+    pub current_path: RwSignal<VirtualPath>,
     /// Wallet connection state.
     pub wallet: RwSignal<WalletState>,
 
-    /// Virtual filesystem for file navigation.
-    pub fs: RwSignal<VirtualFs>,
+    // === Navigation History ===
+    /// Back navigation stack (bounded by `MAX_NAV_HISTORY`).
+    pub back_stack: RwSignal<Vec<VirtualPath>>,
+    /// Forward navigation stack (cleared on new navigation).
+    pub forward_stack: RwSignal<Vec<VirtualPath>>,
+
+    // === View Management ===
+    /// Current view mode (Terminal or Explorer).
+    pub view_mode: RwSignal<ViewMode>,
+    /// Content overlay (Reader, etc.).
+    pub content_overlay: RwSignal<ContentOverlay>,
+
+    // === View-Specific State ===
+    /// Terminal state (history, commands, navigation).
+    pub terminal: TerminalState,
+    /// Explorer state (selection, view type, sheet).
+    pub explorer: ExplorerState,
 }
 
 impl AppContext {
@@ -166,13 +260,30 @@ impl AppContext {
     ///
     /// All signals are initialized to their default values:
     /// - Terminal: Empty history, home directory
+    /// - Explorer: No selection, list view
     /// - Wallet: Disconnected
     /// - Filesystem: Empty
+    /// - View: Terminal mode
     pub fn new() -> Self {
+        let current_path = RwSignal::new(VirtualPath::home());
+
         Self {
-            terminal: TerminalState::new(),
-            wallet: RwSignal::new(WalletState::default()),
+            // Shared state
             fs: RwSignal::new(VirtualFs::empty()),
+            current_path,
+            wallet: RwSignal::new(WalletState::default()),
+
+            // Navigation history
+            back_stack: RwSignal::new(Vec::new()),
+            forward_stack: RwSignal::new(Vec::new()),
+
+            // View management
+            view_mode: RwSignal::new(ViewMode::default()),
+            content_overlay: RwSignal::new(ContentOverlay::default()),
+
+            // View-specific state
+            terminal: TerminalState::new_with_path(current_path),
+            explorer: ExplorerState::new(),
         }
     }
 
@@ -185,7 +296,145 @@ impl AppContext {
     /// - Shortened address (0x1234...5678) if connected
     /// - "guest" if disconnected
     pub fn get_prompt(&self) -> String {
-        self.terminal.get_prompt(self.wallet.get())
+        let path = self.current_path.get();
+        let display_path = path.display();
+        let username = self.wallet.get().display_name();
+        format!("{}@{}:{}", username, APP_NAME, display_path)
+    }
+
+    /// Toggles between Terminal and Explorer view modes.
+    pub fn toggle_view_mode(&self) {
+        self.view_mode.update(|mode| {
+            *mode = match *mode {
+                ViewMode::Terminal => ViewMode::Explorer,
+                ViewMode::Explorer => ViewMode::Terminal,
+            };
+        });
+    }
+
+    /// Opens the reader overlay with the specified content.
+    ///
+    /// # Arguments
+    /// * `content_path` - Relative path to content (e.g., "blog/hello.md")
+    /// * `virtual_path` - Full virtual path for breadcrumb (e.g., "/home/wonjae/blog/hello.md")
+    pub fn open_reader(&self, content_path: String, virtual_path: String) {
+        self.content_overlay.set(ContentOverlay::Reader {
+            content_path,
+            virtual_path,
+        });
+    }
+
+    /// Closes the content overlay.
+    pub fn close_overlay(&self) {
+        self.content_overlay.set(ContentOverlay::None);
+    }
+
+    // =========================================================================
+    // Navigation Methods
+    // =========================================================================
+
+    /// Navigates to a new directory, updating history stacks.
+    ///
+    /// This is the primary method for all directory changes. It:
+    /// - Pushes the current path to the back stack
+    /// - Clears the forward stack (new navigation invalidates forward history)
+    /// - Updates the current path
+    /// - Clears any file selection in the explorer
+    ///
+    /// The back stack is bounded by `MAX_NAV_HISTORY` to prevent unbounded growth.
+    pub fn navigate_to(&self, path: VirtualPath) {
+        let current = self.current_path.get();
+
+        // Don't add to history if navigating to the same path
+        if current == path {
+            return;
+        }
+
+        // Push current path to back stack (with size limit)
+        self.back_stack.update(|stack| {
+            stack.push(current);
+            if stack.len() > MAX_NAV_HISTORY {
+                stack.remove(0);
+            }
+        });
+
+        // Clear forward stack on new navigation
+        self.forward_stack.update(|stack| stack.clear());
+
+        // Update current path
+        self.current_path.set(path);
+
+        // Clear explorer selection
+        self.explorer.clear_selection();
+    }
+
+    /// Navigates back in history.
+    ///
+    /// Returns `true` if navigation occurred, `false` if back stack was empty.
+    pub fn go_back(&self) -> bool {
+        let prev = self.back_stack.try_update(|stack| stack.pop()).flatten();
+
+        if let Some(prev_path) = prev {
+            let current = self.current_path.get();
+
+            // Push current to forward stack
+            self.forward_stack.update(|stack| {
+                stack.push(current);
+                // Forward stack doesn't need strict limit since it's cleared on new navigation
+            });
+
+            self.current_path.set(prev_path);
+            self.explorer.clear_selection();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Navigates forward in history.
+    ///
+    /// Returns `true` if navigation occurred, `false` if forward stack was empty.
+    pub fn go_forward(&self) -> bool {
+        let next = self.forward_stack.try_update(|stack| stack.pop()).flatten();
+
+        if let Some(next_path) = next {
+            let current = self.current_path.get();
+
+            // Push current to back stack
+            self.back_stack.update(|stack| {
+                stack.push(current);
+                if stack.len() > MAX_NAV_HISTORY {
+                    stack.remove(0);
+                }
+            });
+
+            self.current_path.set(next_path);
+            self.explorer.clear_selection();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Returns the previous path (top of back stack) without navigating.
+    ///
+    /// Useful for `cd -` command which needs to know the previous directory.
+    #[inline]
+    #[allow(dead_code)]
+    pub fn previous_path(&self) -> Option<VirtualPath> {
+        self.back_stack.with(|stack| stack.last().cloned())
+    }
+
+    /// Checks if back navigation is available.
+    #[inline]
+    pub fn can_go_back(&self) -> bool {
+        self.back_stack.with(|stack| !stack.is_empty())
+    }
+
+    /// Checks if forward navigation is available.
+    #[inline]
+    pub fn can_go_forward(&self) -> bool {
+        self.forward_stack.with(|stack| !stack.is_empty())
     }
 }
 

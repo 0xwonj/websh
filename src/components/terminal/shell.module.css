@@ -1,4 +1,5 @@
 /* Shell - Scoped CSS Module */
+/* Root layout and global UI effects */
 
 .screen {
   height: 100vh;
@@ -13,48 +14,18 @@
   position: relative;
 }
 
-.container {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  padding: 0 var(--space-4);
-  cursor: text;
-}
-
-.output {
-  flex: 1;
-  overflow-y: auto;
-  padding: var(--space-4);
-
-  /* Scrollbar styling (type-safe alternative to global .scrollbar-thin) */
-  scrollbar-width: thin;
-  scrollbar-color: var(--text-muted) transparent;
-}
-
-.output::-webkit-scrollbar {
-  width: 6px;
-}
-
-.output::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.output::-webkit-scrollbar-thumb {
-  background-color: var(--text-muted);
-  border-radius: 3px;
-}
-
-.output::-webkit-scrollbar-thumb:hover {
-  background-color: var(--text-dim);
-}
-
-.inputArea {
-  flex: none;
-  border-top: 1px solid var(--border-subtle);
+/* Content overlay (for Reader from Explorer) */
+.overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
   background-color: var(--bg-primary);
 }
 
-/* CRT Effects */
+/* ==========================================================================
+   CRT Effects
+   ========================================================================== */
+
 .crtOverlay {
   pointer-events: none;
   position: fixed;

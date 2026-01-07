@@ -174,7 +174,12 @@ impl OutputLine {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ScreenMode {
     Terminal,
-    Reader { content: String, title: String },
+    Reader {
+        /// Content path relative to content root
+        content_path: String,
+        /// Full virtual path for breadcrumb display
+        virtual_path: String,
+    },
     Booting,
 }
 
@@ -282,8 +287,8 @@ mod tests {
     fn test_screen_mode() {
         let terminal = ScreenMode::Terminal;
         let reader = ScreenMode::Reader {
-            content: "blog/post.md".to_string(),
-            title: "post".to_string(),
+            content_path: "blog/post.md".to_string(),
+            virtual_path: "/home/wonjae/blog/post.md".to_string(),
         };
         let booting = ScreenMode::Booting;
 

@@ -1,4 +1,5 @@
-/* Status - Scoped CSS Module */
+/* Status Bar - Scoped CSS Module */
+/* Responsive status bar displaying session, location, and network info */
 
 .bar {
   flex: none;
@@ -7,15 +8,62 @@
   border-bottom: 1px solid var(--border-muted);
   display: flex;
   align-items: center;
+  gap: var(--space-3);
   padding: 0 var(--space-4);
   font-size: var(--font-size-sm);
   color: var(--text-dim);
 }
 
+/* ==========================================================================
+   View Toggle Button
+   ========================================================================== */
+
+.toggleButton {
+  flex-shrink: 0;
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: var(--space-1);
+  transition: color 0.15s;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.toggleButton svg {
+  width: 18px;
+  height: 18px;
+}
+
+.toggleButton:hover {
+  color: var(--terminal-cyan);
+}
+
+/* ==========================================================================
+   Status Information Section
+   ========================================================================== */
+
 .section {
   display: flex;
   align-items: center;
+  flex: 1;
+  min-width: 0; /* Allow truncation */
+  overflow: hidden;
   gap: var(--space-6);
+}
+
+.label,
+.labelCyan,
+.labelPurple {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  white-space: nowrap;
+  padding-right: var(--space-4);
+  border-right: 1px solid var(--border-muted);
 }
 
 .label {
@@ -28,25 +76,81 @@
 
 .labelPurple {
   color: var(--terminal-purple);
+  padding-right: 0;
+  border-right: none;
+}
+
+.labelText {
+  /* Visible on desktop, hidden on mobile */
+}
+
+.labelIcon {
+  display: none; /* Hidden on desktop, visible on mobile */
+  align-items: center;
+  opacity: 0.7;
+}
+
+.labelIcon svg {
+  width: 14px;
+  height: 14px;
 }
 
 .value {
   color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.brand {
-  margin-left: auto;
-  color: var(--text-muted);
-}
+
+/* ==========================================================================
+   Tablet (481px - 768px)
+   ========================================================================== */
 
 @media (max-width: 768px) {
+  .bar {
+    gap: var(--space-2);
+    padding: 0 var(--space-3);
+  }
+
   .section {
     gap: var(--space-4);
   }
 }
 
+/* ==========================================================================
+   Mobile (< 480px)
+   ========================================================================== */
+
 @media (max-width: 480px) {
   .bar {
     font-size: var(--font-size-xs);
+    padding: 0 var(--space-2);
+  }
+
+  .section {
+    gap: var(--space-3);
+  }
+
+  .label,
+  .labelCyan,
+  .labelPurple {
+    padding-right: var(--space-3);
+  }
+
+  .labelPurple {
+    padding-right: 0;
+  }
+
+  /* Switch from text labels to icons on mobile */
+  .labelText {
+    display: none;
+  }
+
+  .labelIcon {
+    display: flex;
+  }
+
+  .toggleButton {
+    padding: 2px var(--space-1);
   }
 }
