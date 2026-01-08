@@ -34,18 +34,12 @@ pub const APP_TAGLINE: &str =
 // Filesystem Configuration
 // =============================================================================
 
-/// Home directory path.
-pub const HOME_DIR: &str = "/home/wonjae";
-
-/// User profile file path.
-pub const PROFILE_PATH: &str = "/home/wonjae/.profile";
+/// Profile file name (relative to mount root).
+pub const PROFILE_FILE: &str = ".profile";
 
 // =============================================================================
 // Network Configuration
 // =============================================================================
-
-/// Base URL for fetching content from external repository.
-pub const CONTENT_BASE_URL: &str = "https://raw.githubusercontent.com/0xwonj/db/main";
 
 /// Fetch request timeout in milliseconds.
 pub const FETCH_TIMEOUT_MS: i32 = 10000;
@@ -81,16 +75,6 @@ pub const WALLET_SESSION_KEY: &str = "wallet_session";
 /// Wallet connection timeout in milliseconds.
 pub const WALLET_TIMEOUT_MS: i32 = 2000;
 
-/// Ethereum address display format constants.
-pub mod eth_address {
-    /// Length of address prefix to show (e.g., "0x1234").
-    pub const PREFIX_LEN: usize = 6;
-    /// Start index of address suffix (for 42-char address).
-    pub const SUFFIX_START: usize = 38;
-    /// Full length of an Ethereum address with 0x prefix.
-    pub const FULL_LEN: usize = 42;
-}
-
 // =============================================================================
 // Environment Variables
 // =============================================================================
@@ -111,9 +95,6 @@ pub const MAX_TERMINAL_HISTORY: usize = 1000;
 
 /// Maximum number of command history entries to keep.
 pub const MAX_COMMAND_HISTORY: usize = 100;
-
-/// Maximum number of navigation history entries (back/forward stacks).
-pub const MAX_NAV_HISTORY: usize = 50;
 
 /// Pipe filter defaults.
 pub mod pipe_filters {
@@ -182,3 +163,31 @@ pub enum IconTheme {
 /// Current icon theme used throughout the application.
 /// Change this value to switch icon styles globally.
 pub const ICON_THEME: IconTheme = IconTheme::Bootstrap;
+
+// =============================================================================
+// Mount Configuration
+// =============================================================================
+
+use crate::models::Mount;
+
+/// Get the configured mounts for the application.
+///
+/// This function defines all available filesystem mounts.
+/// The first mount in the list is considered the home mount.
+///
+/// # Customization
+///
+/// To add additional mounts, add more entries to the vector:
+/// ```ignore
+/// vec![
+///     Mount::github("~", "https://raw.githubusercontent.com/user/repo/main"),
+///     Mount::github("work", "https://raw.githubusercontent.com/company/repo/main"),
+///     Mount::ipfs("data", "QmXyz123"),
+/// ]
+/// ```
+pub fn configured_mounts() -> Vec<Mount> {
+    vec![Mount::github(
+        "~",
+        "https://raw.githubusercontent.com/0xwonj/db/main",
+    )]
+}

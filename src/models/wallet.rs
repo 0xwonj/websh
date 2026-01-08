@@ -1,4 +1,4 @@
-use crate::config::eth_address;
+use crate::utils::format::format_eth_address;
 
 /// Wallet connection state
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -34,14 +34,7 @@ impl WalletState {
                 ens_name: Some(name),
                 ..
             } => name.clone(),
-            WalletState::Connected { address, .. } if address.len() >= eth_address::FULL_LEN => {
-                format!(
-                    "{}...{}",
-                    &address[..eth_address::PREFIX_LEN],
-                    &address[eth_address::SUFFIX_START..]
-                )
-            }
-            WalletState::Connected { address, .. } => address.clone(),
+            WalletState::Connected { address, .. } => format_eth_address(address),
             WalletState::Connecting => "connecting...".to_string(),
             WalletState::Disconnected => "guest".to_string(),
         }

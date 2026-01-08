@@ -1,6 +1,4 @@
-use crate::models::{
-    DisplayPermissions, FileMetadata, FsEntry, ManifestEntry, VirtualPath, WalletState,
-};
+use crate::models::{DisplayPermissions, FileMetadata, FsEntry, ManifestEntry, WalletState};
 use std::collections::HashMap;
 
 /// Directory entry returned by list_dir
@@ -12,14 +10,27 @@ pub struct DirEntry {
     pub meta: FileMetadata,
 }
 
-/// Virtual filesystem for the terminal
+/// Virtual filesystem for a single mount.
+///
+/// Stores files using relative paths from the mount root.
+/// For example, a file at URL `~/blog/post.md` is stored as `blog/post.md`.
+///
+/// # Path Convention
+///
+/// - Root of mount: empty string `""`
+/// - File in root: `"post.md"`
+/// - Nested file: `"blog/post.md"`
+/// - No leading or trailing slashes
 #[derive(Clone)]
 pub struct VirtualFs {
+    /// Root directory entry containing all files
     root: FsEntry,
 }
 
 impl VirtualFs {
-    /// Create filesystem from manifest entries (dynamic content)
+    /// Create filesystem from manifest entries.
+    ///
+    /// Manifest paths are relative (e.g., `blog/post.md`).
     pub fn from_manifest(entries: &[ManifestEntry]) -> Self {
         let mut content_tree: HashMap<String, FsEntry> = HashMap::new();
 
@@ -39,23 +50,11 @@ impl VirtualFs {
             FsEntry::file("User profile configuration"),
         );
 
-        let root = FsEntry::dir(vec![
-            (
-                "home",
-                FsEntry::dir(vec![(
-                    "wonjae",
-                    FsEntry::Directory {
-                        children: content_tree,
-                        description: String::new(),
-                        meta: FileMetadata::default(),
-                    },
-                )]),
-            ),
-            (
-                "etc",
-                FsEntry::dir(vec![("motd", FsEntry::file("Message of the day"))]),
-            ),
-        ]);
+        let root = FsEntry::Directory {
+            children: content_tree,
+            description: String::new(),
+            meta: FileMetadata::default(),
+        };
 
         Self { root }
     }
@@ -108,43 +107,121 @@ impl VirtualFs {
         }
     }
 
-    /// Create empty filesystem (fallback when manifest fails to load)
+    /// Create empty filesystem (fallback when manifest fails to load).
     pub fn empty() -> Self {
-        let root = FsEntry::dir(vec![
-            (
-                "home",
-                FsEntry::dir(vec![(
-                    "wonjae",
-                    FsEntry::dir(vec![(
-                        ".profile",
-                        FsEntry::file("User profile configuration"),
-                    )]),
-                )]),
-            ),
-            (
-                "etc",
-                FsEntry::dir(vec![("motd", FsEntry::file("Message of the day"))]),
-            ),
-        ]);
+        let mut content_tree: HashMap<String, FsEntry> = HashMap::new();
+        content_tree.insert(
+            ".profile".to_string(),
+            FsEntry::file("User profile configuration"),
+        );
+
+        let root = FsEntry::Directory {
+            children: content_tree,
+            description: String::new(),
+            meta: FileMetadata::default(),
+        };
 
         Self { root }
     }
 
     /// Resolve a path relative to current directory.
-    /// Returns the resolved VirtualPath if the target exists in the filesystem.
-    pub fn resolve_path(&self, current: &VirtualPath, path: &str) -> Option<VirtualPath> {
-        let resolved = current.resolve(path);
+    ///
+    /// # Arguments
+    /// - `current`: Current path (relative, e.g., `"blog"` or `""` for root)
+    /// - `path`: Path to resolve (can be relative like `"posts"` or `".."`)
+    ///
+    /// # Returns
+    /// The resolved relative path if the target exists, or `None`.
+    ///
+    /// # Path Convention
+    /// - Root: `""`
+    /// - Subdirectory: `"blog"`, `"blog/posts"`
+    /// - `~` and `~/...` are treated as root-relative
+    pub fn resolve_path(&self, current: &str, path: &str) -> Option<String> {
+        let resolved = Self::resolve_path_string(current, path);
 
         // Verify path exists
-        if self.get_entry(resolved.as_str()).is_some() {
+        if self.get_entry(&resolved).is_some() {
             Some(resolved)
         } else {
             None
         }
     }
 
+    /// Resolve a path string without filesystem validation.
+    ///
+    /// All paths are relative (no leading slash).
+    /// - `~` means root (empty string)
+    /// - `..` goes up one level
+    /// - `.` stays in current directory
+    pub fn resolve_path_string(current: &str, path: &str) -> String {
+        // Handle home directory
+        if path == "~" {
+            return String::new();
+        }
+        if let Some(rest) = path.strip_prefix("~/") {
+            return Self::normalize_path(rest);
+        }
+
+        // Handle parent directory
+        if path == ".." {
+            return Self::parent_path(current);
+        }
+
+        // Handle current directory
+        if path == "." || path.is_empty() {
+            return current.to_string();
+        }
+
+        // Handle relative path
+        let combined = if current.is_empty() {
+            path.to_string()
+        } else {
+            format!("{}/{}", current, path)
+        };
+
+        Self::normalize_path(&combined)
+    }
+
+    /// Get the parent directory of a path.
+    ///
+    /// Returns empty string for root or single-level paths.
+    pub fn parent_path(path: &str) -> String {
+        if path.is_empty() {
+            return String::new();
+        }
+
+        match path.rsplit_once('/') {
+            Some((parent, _)) => parent.to_string(),
+            None => String::new(), // Single segment, parent is root
+        }
+    }
+
+    /// Normalize a path by resolving `.` and `..` components.
+    ///
+    /// Returns a relative path (no leading or trailing slashes).
+    pub fn normalize_path(path: &str) -> String {
+        let mut parts: Vec<&str> = Vec::new();
+        for part in path.split('/').filter(|s| !s.is_empty()) {
+            match part {
+                ".." => {
+                    parts.pop();
+                }
+                "." => {}
+                _ => parts.push(part),
+            }
+        }
+
+        parts.join("/")
+    }
+
+    /// Get an entry by relative path.
+    ///
+    /// - Empty string `""` returns the root directory
+    /// - `"blog"` returns the blog directory
+    /// - `"blog/post.md"` returns the file
     pub fn get_entry(&self, path: &str) -> Option<&FsEntry> {
-        if path == "/" {
+        if path.is_empty() {
             return Some(&self.root);
         }
 
@@ -164,7 +241,12 @@ impl VirtualFs {
     }
 
     /// List directory contents with metadata.
-    /// Returns: Vec<(name, is_dir, description, metadata)>
+    ///
+    /// # Arguments
+    /// - `path`: Relative path to directory (empty string for root)
+    ///
+    /// # Returns
+    /// Sorted list of entries (directories first, then files, hidden last).
     pub fn list_dir(&self, path: &str) -> Option<Vec<DirEntry>> {
         match self.get_entry(path)? {
             FsEntry::Directory { children, .. } => {
@@ -209,6 +291,9 @@ impl VirtualFs {
         }
     }
 
+    /// Get the content path for a file (for fetching from remote).
+    ///
+    /// Returns the path as stored in the manifest (relative).
     pub fn get_file_content_path(&self, path: &str) -> Option<String> {
         match self.get_entry(path)? {
             FsEntry::File { content_path, .. } => content_path.clone(),
@@ -216,6 +301,7 @@ impl VirtualFs {
         }
     }
 
+    /// Check if a path is a directory.
     pub fn is_directory(&self, path: &str) -> bool {
         matches!(self.get_entry(path), Some(FsEntry::Directory { .. }))
     }
@@ -275,7 +361,6 @@ impl Default for VirtualFs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::VirtualPath;
 
     fn create_test_fs() -> VirtualFs {
         let entries = vec![
@@ -310,28 +395,24 @@ mod tests {
     #[test]
     fn test_empty_fs() {
         let fs = VirtualFs::empty();
-        assert!(fs.get_entry("/").is_some());
-        assert!(fs.get_entry("/home").is_some());
-        assert!(fs.get_entry("/home/wonjae").is_some());
+        // Root is empty string
+        assert!(fs.get_entry("").is_some());
+        assert!(fs.get_entry(".profile").is_some());
     }
 
     #[test]
     fn test_from_manifest() {
         let fs = create_test_fs();
 
-        // Check root exists
-        assert!(fs.get_entry("/").is_some());
-
-        // Check home directory
-        assert!(fs.is_directory("/home"));
-        assert!(fs.is_directory("/home/wonjae"));
+        // Check root exists (empty string)
+        assert!(fs.get_entry("").is_some());
 
         // Check blog directory was created
-        assert!(fs.is_directory("/home/wonjae/blog"));
+        assert!(fs.is_directory("blog"));
 
         // Check files were created
-        assert!(fs.get_entry("/home/wonjae/blog/hello.md").is_some());
-        assert!(!fs.is_directory("/home/wonjae/blog/hello.md"));
+        assert!(fs.get_entry("blog/hello.md").is_some());
+        assert!(!fs.is_directory("blog/hello.md"));
     }
 
     #[test]
@@ -339,17 +420,17 @@ mod tests {
         let fs = create_test_fs();
 
         // Check deeply nested path
-        assert!(fs.is_directory("/home/wonjae/projects"));
-        assert!(fs.is_directory("/home/wonjae/projects/web"));
-        assert!(fs.get_entry("/home/wonjae/projects/web/app.md").is_some());
+        assert!(fs.is_directory("projects"));
+        assert!(fs.is_directory("projects/web"));
+        assert!(fs.get_entry("projects/web/app.md").is_some());
     }
 
     #[test]
     fn test_list_dir() {
         let fs = create_test_fs();
 
-        // List home/wonjae
-        let entries = fs.list_dir("/home/wonjae").expect("Should list directory");
+        // List root
+        let entries = fs.list_dir("").expect("Should list directory");
 
         // Should have blog, projects, .profile
         let names: Vec<_> = entries.iter().map(|e| e.name.as_str()).collect();
@@ -362,7 +443,7 @@ mod tests {
     fn test_list_dir_sorting() {
         let fs = create_test_fs();
 
-        let entries = fs.list_dir("/home/wonjae").expect("Should list directory");
+        let entries = fs.list_dir("").expect("Should list directory");
 
         // Directories should come before files
         let dir_indices: Vec<_> = entries
@@ -389,7 +470,7 @@ mod tests {
     #[test]
     fn test_list_dir_on_file() {
         let fs = create_test_fs();
-        let result = fs.list_dir("/home/wonjae/blog/hello.md");
+        let result = fs.list_dir("blog/hello.md");
         assert!(result.is_none());
     }
 
@@ -397,75 +478,106 @@ mod tests {
     fn test_get_file_content_path() {
         let fs = create_test_fs();
 
-        let content_path = fs.get_file_content_path("/home/wonjae/blog/hello.md");
+        let content_path = fs.get_file_content_path("blog/hello.md");
         assert_eq!(content_path, Some("blog/hello.md".to_string()));
 
         // Directory should return None
-        let dir_path = fs.get_file_content_path("/home/wonjae/blog");
+        let dir_path = fs.get_file_content_path("blog");
         assert!(dir_path.is_none());
     }
 
     #[test]
     fn test_resolve_path() {
         let fs = create_test_fs();
-        let home = VirtualPath::new("/home/wonjae");
 
-        // Absolute path
-        let resolved = fs.resolve_path(&home, "/home/wonjae/blog");
-        assert_eq!(
-            resolved.map(|p| p.to_string()),
-            Some("/home/wonjae/blog".to_string())
-        );
+        // Relative path from root
+        let resolved = fs.resolve_path("", "blog");
+        assert_eq!(resolved, Some("blog".to_string()));
 
-        // Relative path
-        let resolved = fs.resolve_path(&home, "blog");
-        assert_eq!(
-            resolved.map(|p| p.to_string()),
-            Some("/home/wonjae/blog".to_string())
-        );
+        // Relative path from subdirectory
+        let resolved = fs.resolve_path("blog", "hello.md");
+        assert_eq!(resolved, Some("blog/hello.md".to_string()));
 
         // Non-existent path
-        let resolved = fs.resolve_path(&home, "nonexistent");
+        let resolved = fs.resolve_path("", "nonexistent");
         assert!(resolved.is_none());
+    }
+
+    #[test]
+    fn test_resolve_path_string() {
+        // Home expansion (~ means root = empty string)
+        assert_eq!(VirtualFs::resolve_path_string("anywhere", "~"), "");
+        assert_eq!(VirtualFs::resolve_path_string("anywhere", "~/blog"), "blog");
+
+        // Relative path
+        assert_eq!(VirtualFs::resolve_path_string("", "blog"), "blog");
+        assert_eq!(
+            VirtualFs::resolve_path_string("blog", "posts"),
+            "blog/posts"
+        );
+
+        // Parent path
+        assert_eq!(VirtualFs::resolve_path_string("blog/posts", ".."), "blog");
+        assert_eq!(VirtualFs::resolve_path_string("blog", ".."), "");
+
+        // Current path
+        assert_eq!(VirtualFs::resolve_path_string("blog", "."), "blog");
+
+        // Nested .. handling
+        assert_eq!(VirtualFs::resolve_path_string("a/b/c", "../../d"), "a/d");
+    }
+
+    #[test]
+    fn test_normalize_path() {
+        assert_eq!(VirtualFs::normalize_path("home/./wonjae"), "home/wonjae");
+        assert_eq!(VirtualFs::normalize_path("home/wonjae/../etc"), "home/etc");
+        assert_eq!(VirtualFs::normalize_path("a/b/c/../../d"), "a/d");
+        assert_eq!(VirtualFs::normalize_path(""), "");
+        assert_eq!(VirtualFs::normalize_path("/../.."), "");
+    }
+
+    #[test]
+    fn test_parent_path() {
+        assert_eq!(VirtualFs::parent_path("home/wonjae"), "home");
+        assert_eq!(VirtualFs::parent_path("home"), "");
+        assert_eq!(VirtualFs::parent_path(""), "");
     }
 
     #[test]
     fn test_is_directory() {
         let fs = create_test_fs();
 
-        assert!(fs.is_directory("/"));
-        assert!(fs.is_directory("/home"));
-        assert!(fs.is_directory("/home/wonjae/blog"));
-        assert!(!fs.is_directory("/home/wonjae/blog/hello.md"));
-        assert!(!fs.is_directory("/nonexistent"));
+        assert!(fs.is_directory("")); // root
+        assert!(fs.is_directory("blog"));
+        assert!(!fs.is_directory("blog/hello.md"));
+        assert!(!fs.is_directory("nonexistent"));
     }
 
     #[test]
     fn test_get_entry_nonexistent() {
         let fs = create_test_fs();
 
-        assert!(fs.get_entry("/nonexistent").is_none());
-        assert!(fs.get_entry("/home/wonjae/nonexistent").is_none());
-        assert!(fs.get_entry("/home/wonjae/blog/nonexistent.md").is_none());
+        assert!(fs.get_entry("nonexistent").is_none());
+        assert!(fs.get_entry("blog/nonexistent.md").is_none());
     }
 
     #[test]
     fn test_permissions_directory() {
         let fs = create_test_fs();
-        let entry = fs.get_entry("/home/wonjae/blog").unwrap();
+        let entry = fs.get_entry("blog").unwrap();
         let perms = fs.get_permissions(entry, &WalletState::Disconnected);
 
         assert!(perms.is_dir);
         assert!(perms.read);
-        assert!(!perms.write); // Always false for now (Phase 2)
+        assert!(!perms.write);
         assert!(perms.execute);
-        assert_eq!(perms.to_string(), "dr-x"); // No write permission yet
+        assert_eq!(perms.to_string(), "dr-x");
     }
 
     #[test]
     fn test_permissions_file_unencrypted() {
         let fs = create_test_fs();
-        let entry = fs.get_entry("/home/wonjae/blog/hello.md").unwrap();
+        let entry = fs.get_entry("blog/hello.md").unwrap();
         let perms = fs.get_permissions(entry, &WalletState::Disconnected);
 
         assert!(!perms.is_dir);
@@ -517,7 +629,7 @@ mod tests {
                 encryption: Some(EncryptionInfo {
                     algorithm: "AES-256-GCM".to_string(),
                     wrapped_keys: vec![WrappedKey {
-                        recipient: "0x1234ABCD".to_string(), // case-insensitive match
+                        recipient: "0x1234ABCD".to_string(),
                         encrypted_key: "base64key".to_string(),
                     }],
                 }),
@@ -528,7 +640,7 @@ mod tests {
         let fs = VirtualFs::empty();
         let perms = fs.get_permissions(&entry, &wallet);
 
-        assert!(perms.read); // We have access!
+        assert!(perms.read);
         assert_eq!(perms.to_string(), "-r--");
     }
 }

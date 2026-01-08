@@ -15,31 +15,48 @@
 }
 
 /* ==========================================================================
-   View Toggle Button
+   View Toggle (Segmented Control)
    ========================================================================== */
 
-.toggleButton {
+.toggleGroup {
   flex-shrink: 0;
   margin-left: auto;
+  display: flex;
+  border: 1px solid var(--terminal-cyan);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.toggleButton {
   background: none;
   border: none;
-  color: var(--text-dim);
+  color: var(--terminal-cyan);
   cursor: pointer;
-  padding: var(--space-1);
-  transition: color 0.15s;
+  padding: 4px 10px;
+  transition: color 0.2s, background-color 0.2s;
   line-height: 1;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.toggleButton svg {
-  width: 18px;
-  height: 18px;
+/* Divider between buttons */
+.toggleButton:first-child {
+  border-right: 1px solid var(--terminal-cyan);
 }
 
-.toggleButton:hover {
-  color: var(--terminal-cyan);
+.toggleButton svg {
+  width: 14px;
+  height: 14px;
+}
+
+.toggleButton:hover:not(.toggleActive) {
+  background-color: rgba(0, 255, 255, 0.1);
+}
+
+.toggleActive {
+  background-color: var(--terminal-cyan);
+  color: var(--bg-primary);
 }
 
 /* ==========================================================================
@@ -50,7 +67,8 @@
   display: flex;
   align-items: center;
   flex: 1;
-  min-width: 0; /* Allow truncation */
+  min-width: 0;
+  /* Allow truncation */
   overflow: hidden;
   gap: var(--space-6);
 }
@@ -85,7 +103,8 @@
 }
 
 .labelIcon {
-  display: none; /* Hidden on desktop, visible on mobile */
+  display: none;
+  /* Hidden on desktop, visible on mobile */
   align-items: center;
   opacity: 0.7;
 }
@@ -152,5 +171,10 @@
 
   .toggleButton {
     padding: 2px var(--space-1);
+  }
+
+  .toggleButton svg {
+    width: 14px;
+    height: 14px;
   }
 }

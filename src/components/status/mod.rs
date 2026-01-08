@@ -8,6 +8,7 @@ use leptos_icons::Icon;
 
 use crate::app::AppContext;
 use crate::components::icons as ic;
+use crate::components::terminal::RouteContext;
 use crate::core::wallet;
 use crate::models::ViewMode;
 
@@ -25,9 +26,10 @@ stylance::import_crate_style!(css, "src/components/status/status.module.css");
 #[component]
 pub fn Status() -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided at root");
+    let route_ctx = use_context::<RouteContext>().expect("RouteContext must be provided");
 
     // Derived signals for reactive display
-    let display_path = Signal::derive(move || ctx.current_path.with(|p| p.display()));
+    let display_path = Signal::derive(move || route_ctx.0.get().display_path());
     let session_name = Signal::derive(move || ctx.wallet.with(|w| w.display_name()));
     let network_name = Signal::derive(move || {
         ctx.wallet.with(|w| {
@@ -39,13 +41,6 @@ pub fn Status() -> impl IntoView {
 
     // View toggle
     let view_mode = ctx.view_mode;
-    let toggle_view = move |_: leptos::ev::MouseEvent| {
-        ctx.toggle_view_mode();
-    };
-    let toggle_title = Signal::derive(move || match view_mode.get() {
-        ViewMode::Terminal => "Switch to Explorer",
-        ViewMode::Explorer => "Switch to Terminal",
-    });
 
     view! {
         <header class=css::bar>
@@ -73,17 +68,31 @@ pub fn Status() -> impl IntoView {
                 </span>
             </div>
 
-            // View toggle button
-            <button
-                class=css::toggleButton
-                on:click=toggle_view
-                title=toggle_title
-            >
-                {move || match view_mode.get() {
-                    ViewMode::Terminal => view! { <Icon icon=ic::EXPLORER /> }.into_any(),
-                    ViewMode::Explorer => view! { <Icon icon=ic::TERMINAL /> }.into_any(),
-                }}
-            </button>
+            // View toggle (segmented control)
+            <div class=css::toggleGroup>
+                <button
+                    class=move || if matches!(view_mode.get(), ViewMode::Terminal) {
+                        format!("{} {}", css::toggleButton, css::toggleActive)
+                    } else {
+                        css::toggleButton.to_string()
+                    }
+                    on:click=move |_| ctx.view_mode.set(ViewMode::Terminal)
+                    title="Terminal"
+                >
+                    <Icon icon=ic::TERMINAL />
+                </button>
+                <button
+                    class=move || if matches!(view_mode.get(), ViewMode::Explorer) {
+                        format!("{} {}", css::toggleButton, css::toggleActive)
+                    } else {
+                        css::toggleButton.to_string()
+                    }
+                    on:click=move |_| ctx.view_mode.set(ViewMode::Explorer)
+                    title="Explorer"
+                >
+                    <Icon icon=ic::EXPLORER />
+                </button>
+            </div>
         </header>
     }
 }

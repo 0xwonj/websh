@@ -11,8 +11,10 @@ use leptos_icons::Icon;
 
 use crate::app::AppContext;
 use crate::components::icons as ic;
+use crate::components::terminal::RouteContext;
 use crate::core::DirEntry;
-use crate::models::FileType;
+use crate::models::{AppRoute, FileType};
+use crate::utils::format::{format_date_iso, format_size};
 
 stylance::import_crate_style!(css, "src/components/explorer/file_list.module.css");
 
@@ -31,61 +33,6 @@ fn get_icon(entry: &DirEntry) -> IconData {
     }
 }
 
-/// Format file size for display (e.g., "1.2K", "3.4M")
-fn format_size(size: Option<u64>) -> String {
-    match size {
-        None => "-".to_string(),
-        Some(bytes) => {
-            if bytes >= 1_000_000 {
-                format!("{:.1}M", bytes as f64 / 1_000_000.0)
-            } else if bytes >= 1_000 {
-                format!("{:.1}K", bytes as f64 / 1_000.0)
-            } else {
-                format!("{}B", bytes)
-            }
-        }
-    }
-}
-
-/// Format a Unix timestamp as a date string (YYYY-MM-DD).
-fn format_date(timestamp: u64) -> String {
-    let days = timestamp / 86400;
-    let mut year = 1970i64;
-    let mut remaining_days = days as i64;
-
-    loop {
-        let days_in_year = if (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0) {
-            366
-        } else {
-            365
-        };
-        if remaining_days < days_in_year {
-            break;
-        }
-        remaining_days -= days_in_year;
-        year += 1;
-    }
-
-    let is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
-    let days_in_months: [i64; 12] = if is_leap {
-        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    } else {
-        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-    };
-
-    let mut month = 1;
-    for days_in_month in days_in_months.iter() {
-        if remaining_days < *days_in_month {
-            break;
-        }
-        remaining_days -= days_in_month;
-        month += 1;
-    }
-
-    let day = remaining_days + 1;
-    format!("{:04}-{:02}-{:02}", year, month, day)
-}
-
 /// Get display permissions string
 fn get_permissions(entry: &DirEntry) -> String {
     let prefix = if entry.is_dir { "d" } else { "-" };
@@ -98,12 +45,13 @@ fn get_permissions(entry: &DirEntry) -> String {
 #[component]
 pub fn FileList() -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
+    let route_ctx = use_context::<RouteContext>().expect("RouteContext must be provided");
 
-    // Get entries for current path
+    // Get entries for current path from route
     let entries = Signal::derive(move || {
-        let path = ctx.current_path.get();
-        ctx.fs
-            .with(|fs| fs.list_dir(path.as_str()).unwrap_or_default())
+        let route = route_ctx.0.get();
+        let path = route.fs_path();
+        ctx.fs.with(|fs| fs.list_dir(path).unwrap_or_default())
     });
 
     view! {
@@ -132,6 +80,8 @@ pub fn FileList() -> impl IntoView {
 #[component]
 fn FileListItem(entry: DirEntry) -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
+    let route_ctx = use_context::<RouteContext>().expect("RouteContext must be provided");
+
     let selected_file = ctx.explorer.selected_file;
 
     let entry_name = entry.name.clone();
@@ -141,42 +91,55 @@ fn FileListItem(entry: DirEntry) -> impl IntoView {
     let is_hidden = entry.name.starts_with('.');
     let icon = get_icon(&entry);
     let perms = get_permissions(&entry);
-    let size = format_size(entry.meta.size);
+    let size = format_size(entry.meta.size, false);
     let description = entry.description.clone();
-    let modified = entry.meta.modified.map(format_date);
+    let modified = entry.meta.modified.map(format_date_iso);
 
-    // Check if this entry is selected
-    let is_selected = Signal::derive(move || {
-        let current = ctx.current_path.get();
-        let file_path = format!("{}/{}", current.as_str().trim_end_matches('/'), &entry_name);
-        selected_file.get().as_ref() == Some(&file_path)
+    // Build the file path for selection tracking (relative fs path)
+    let file_fs_path = Signal::derive(move || {
+        let route = route_ctx.0.get();
+        let current_path = route.fs_path();
+        if current_path.is_empty() {
+            entry_name.clone()
+        } else {
+            format!("{}/{}", current_path, &entry_name)
+        }
     });
 
+    // Check if this entry is selected
+    let is_selected =
+        Signal::derive(move || selected_file.get().as_ref() == Some(&file_fs_path.get()));
+
     let handle_click = move |_: leptos::ev::MouseEvent| {
+        let route = route_ctx.0.get();
+
         if is_dir {
-            // Navigate into directory using navigate_to for history tracking
-            let current = ctx.current_path.get();
-            if let Some(new_path) = ctx
-                .fs
-                .with(|fs| fs.resolve_path(&current, &entry_name_for_click))
-            {
-                ctx.navigate_to(new_path);
-            }
+            // Navigate into directory
+            let new_route = route.join(&entry_name_for_click);
+            new_route.push();
         } else {
-            // Build file path
-            let current = ctx.current_path.get();
-            let file_path = format!(
-                "{}/{}",
-                current.as_str().trim_end_matches('/'),
-                &entry_name_for_click
-            );
+            // Build file path (relative)
+            let current_path = route.fs_path();
+            let file_path = if current_path.is_empty() {
+                entry_name_for_click.clone()
+            } else {
+                format!("{}/{}", current_path, &entry_name_for_click)
+            };
 
             // If already selected, open in reader; otherwise select for preview
             if ctx.explorer.selected_file.get().as_ref() == Some(&file_path) {
-                // Already selected - open in reader
-                if let Some(cp) = ctx.fs.with(|fs| fs.get_file_content_path(&file_path)) {
-                    ctx.open_reader(cp, file_path);
-                }
+                // Already selected - open in reader (navigate to read route)
+                let mount = route.mount().cloned().unwrap_or_else(|| {
+                    crate::config::configured_mounts()
+                        .into_iter()
+                        .next()
+                        .unwrap()
+                });
+                let read_route = AppRoute::Read {
+                    mount,
+                    path: file_path,
+                };
+                read_route.push();
             } else {
                 // Not selected - select for preview
                 ctx.explorer.select_file(file_path);

@@ -13,8 +13,8 @@ use leptos_icons::Icon;
 
 use crate::app::AppContext;
 use crate::components::icons as ic;
-use crate::config::CONTENT_BASE_URL;
-use crate::models::{FileType, FsEntry, SheetState};
+use crate::components::terminal::RouteContext;
+use crate::models::{AppRoute, FileType, FsEntry, SheetState};
 use crate::utils::{fetch_content, markdown_to_html};
 
 stylance::import_crate_style!(css, "src/components/explorer/sheet.module.css");
@@ -31,6 +31,7 @@ enum PreviewContent {
 #[component]
 pub fn BottomSheet() -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
+    let route_ctx = use_context::<RouteContext>().expect("RouteContext must be provided");
 
     let sheet_state = ctx.explorer.sheet_state;
     let selected_file = ctx.explorer.selected_file;
@@ -91,19 +92,29 @@ pub fn BottomSheet() -> impl IntoView {
         let path = content_path.get();
         let ftype = file_type.get();
         let encrypted = is_encrypted.get();
+        // Get base URL from current route's mount
+        let route = route_ctx.0.get();
+        let base_url = route.mount().map(|m| m.base_url()).unwrap_or_else(|| {
+            crate::config::configured_mounts()
+                .into_iter()
+                .next()
+                .map(|m| m.base_url())
+                .unwrap_or_default()
+        });
         async move {
             if encrypted {
                 return None;
             }
             let path = path?;
+            let url = format!("{}/{}", base_url, path);
             match ftype {
                 FileType::Markdown => {
-                    let content = fetch_content(&path).await.ok()?;
+                    let content = fetch_content(&url).await.ok()?;
                     let html = markdown_to_html(&content);
                     Some(PreviewContent::Html(html))
                 }
                 FileType::Unknown => {
-                    let content = fetch_content(&path).await.ok()?;
+                    let content = fetch_content(&url).await.ok()?;
                     Some(PreviewContent::Text(content))
                 }
                 _ => None,
@@ -115,19 +126,17 @@ pub fn BottomSheet() -> impl IntoView {
         ctx.explorer.clear_selection();
     };
 
-    let open_file = move |_: leptos::ev::MouseEvent| {
-        if let Some(path) = selected_file.get()
-            && let Some(cp) = ctx.fs.with(|fs| fs.get_file_content_path(&path))
-        {
-            ctx.open_reader(cp, path);
-        }
-    };
-
     // Build image URL for thumbnails
     let image_url = Signal::derive(move || {
-        content_path
-            .get()
-            .map(|p| format!("{}/{}", CONTENT_BASE_URL, p))
+        let route = route_ctx.0.get();
+        let base_url = route.mount().map(|m| m.base_url()).unwrap_or_else(|| {
+            crate::config::configured_mounts()
+                .into_iter()
+                .next()
+                .map(|m| m.base_url())
+                .unwrap_or_default()
+        });
+        content_path.get().map(|p| format!("{}/{}", base_url, p))
     });
 
     let sheet_class = Signal::derive(move || match sheet_state.get() {
@@ -147,11 +156,11 @@ pub fn BottomSheet() -> impl IntoView {
             <div class=css::sheetHeader>
                 <span class=css::filename>{move || filename.get()}</span>
                 <div class=css::sheetActions>
-                    <Show when=move || !is_encrypted.get()>
-                        <button class=css::actionButton on:click=open_file title="Open file">
-                            "Open"
-                        </button>
-                    </Show>
+                    <OpenFileButton
+                        selected_file=selected_file
+                        route_ctx=route_ctx
+                        is_encrypted=is_encrypted
+                    />
                     <Show when=move || is_encrypted.get()>
                         <button class=css::decryptButton title="Decrypt file">
                             "Decrypt"
@@ -226,5 +235,42 @@ pub fn BottomSheet() -> impl IntoView {
                 }}
             </div>
         </div>
+    }
+}
+
+/// Open file button component.
+#[component]
+fn OpenFileButton(
+    selected_file: RwSignal<Option<String>>,
+    route_ctx: RouteContext,
+    is_encrypted: Signal<bool>,
+) -> impl IntoView {
+    view! {
+        <Show when=move || !is_encrypted.get()>
+            <button
+                class=css::actionButton
+                on:click=move |_| {
+                    if let Some(path) = selected_file.get() {
+                        // Get mount from current route
+                        let route = route_ctx.0.get();
+                        let mount = route.mount().cloned().unwrap_or_else(|| {
+                            crate::config::configured_mounts()
+                                .into_iter()
+                                .next()
+                                .unwrap()
+                        });
+                        // selected_file already contains the full relative path
+                        let read_route = AppRoute::Read {
+                            mount,
+                            path,
+                        };
+                        read_route.push();
+                    }
+                }
+                title="Open file"
+            >
+                "Open"
+            </button>
+        </Show>
     }
 }

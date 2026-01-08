@@ -5,9 +5,10 @@
 use leptos::prelude::*;
 
 use crate::app::AppContext;
-use crate::components::terminal::{Input, Output};
+use crate::components::terminal::{Input, Output, RouteContext};
 use crate::core::{autocomplete, execute_pipeline, get_hint, parse_input, wallet};
-use crate::models::{OutputLine, ScreenMode, WalletState};
+use crate::models::{AppRoute, OutputLine, ViewMode, WalletState};
+use crate::utils::dom::focus_terminal_input;
 
 stylance::import_crate_style!(css, "src/components/terminal/terminal.module.css");
 
@@ -85,39 +86,27 @@ fn handle_logout(ctx: &AppContext) {
 }
 
 // ============================================================================
-// Helper Functions
-// ============================================================================
-
-/// Focus the terminal input element.
-fn focus_input() {
-    use wasm_bindgen::JsCast;
-    if let Some(window) = web_sys::window()
-        && let Some(document) = window.document()
-        && let Some(input) = document.query_selector("input").ok().flatten()
-        && let Ok(element) = input.dyn_into::<web_sys::HtmlElement>()
-    {
-        let _ = element.focus();
-    }
-}
-
-// ============================================================================
 // Terminal Component
 // ============================================================================
 
 #[component]
 pub fn Terminal(output_ref: NodeRef<leptos::html::Div>) -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided at root");
+    let route_ctx = use_context::<RouteContext>().expect("RouteContext must be provided");
 
     // Derived signals
-    let prompt = Signal::derive(move || ctx.get_prompt());
+    let prompt = Signal::derive(move || {
+        let route = route_ctx.0.get();
+        ctx.get_prompt(&route)
+    });
 
-    // Callbacks
-    let on_submit = create_submit_callback(ctx);
+    // Callbacks need route access
+    let on_submit = create_submit_callback(ctx, route_ctx);
     let on_history_nav = create_history_nav_callback(ctx);
-    let on_autocomplete = create_autocomplete_callback(ctx);
-    let on_get_hint = create_hint_callback(ctx);
+    let on_autocomplete = create_autocomplete_callback(ctx, route_ctx);
+    let on_get_hint = create_hint_callback(ctx, route_ctx);
 
-    let handle_click = move |_| focus_input();
+    let handle_click = move |_| focus_terminal_input();
     let history_signal = ctx.terminal.history;
 
     view! {
@@ -130,20 +119,15 @@ pub fn Terminal(output_ref: NodeRef<leptos::html::Div>) -> impl IntoView {
                 />
             </div>
 
-            <Show
-                when=move || matches!(ctx.terminal.screen_mode.get(), ScreenMode::Terminal)
-                fallback=|| ()
-            >
-                <div class=css::inputArea>
-                    <Input
-                        prompt=prompt
-                        on_submit=on_submit
-                        on_history_nav=on_history_nav
-                        on_autocomplete=on_autocomplete
-                        on_get_hint=on_get_hint
-                    />
-                </div>
-            </Show>
+            <div class=css::inputArea>
+                <Input
+                    prompt=prompt
+                    on_submit=on_submit
+                    on_history_nav=on_history_nav
+                    on_autocomplete=on_autocomplete
+                    on_get_hint=on_get_hint
+                />
+            </div>
         </div>
     }
 }
@@ -152,9 +136,10 @@ pub fn Terminal(output_ref: NodeRef<leptos::html::Div>) -> impl IntoView {
 // Callback Factories
 // ============================================================================
 
-fn create_submit_callback(ctx: AppContext) -> Callback<String> {
+fn create_submit_callback(ctx: AppContext, route_ctx: RouteContext) -> Callback<String> {
     Callback::new(move |input: String| {
-        let prompt = ctx.get_prompt();
+        let current_route = route_ctx.0.get();
+        let prompt = ctx.get_prompt(&current_route);
 
         if !input.is_empty() {
             ctx.terminal
@@ -167,9 +152,10 @@ fn create_submit_callback(ctx: AppContext) -> Callback<String> {
             .command_history
             .with(|history| parse_input(&input, history));
 
+        // Handle special commands that need navigation or view switching
         if pipeline.commands.len() == 1 {
-            let cmd_name = pipeline.first_command_name().unwrap_or("");
-            match cmd_name.to_lowercase().as_str() {
+            let first_cmd = &pipeline.commands[0];
+            match first_cmd.name.to_lowercase().as_str() {
                 "login" => {
                     handle_login(ctx);
                     return;
@@ -178,14 +164,57 @@ fn create_submit_callback(ctx: AppContext) -> Callback<String> {
                     handle_logout(&ctx);
                     return;
                 }
+                "explorer" => {
+                    // Switch to explorer view, optionally navigate first
+                    if let Some(path_arg) = first_cmd.args.first() {
+                        let current_path = current_route.fs_path();
+                        let fs = ctx.fs.get();
+
+                        match fs.resolve_path(current_path, path_arg) {
+                            Some(new_path) if fs.is_directory(&new_path) => {
+                                // Navigate to the new path and switch to explorer
+                                let new_route = fs_path_to_browse_route(&new_path);
+                                new_route.push();
+                            }
+                            Some(_) => {
+                                ctx.terminal.push_output(OutputLine::error(format!(
+                                    "explorer: not a directory: {}",
+                                    path_arg
+                                )));
+                                return;
+                            }
+                            None => {
+                                ctx.terminal.push_output(OutputLine::error(format!(
+                                    "explorer: no such file or directory: {}",
+                                    path_arg
+                                )));
+                                return;
+                            }
+                        }
+                    }
+                    ctx.view_mode.set(ViewMode::Explorer);
+                    return;
+                }
                 _ => {}
             }
         }
 
         let current_fs = ctx.fs.get();
         let wallet_state = ctx.wallet.get();
-        let output = execute_pipeline(&pipeline, &ctx.terminal, &wallet_state, &current_fs);
-        ctx.terminal.push_lines(output);
+        let result = execute_pipeline(
+            &pipeline,
+            &ctx.terminal,
+            &wallet_state,
+            &current_fs,
+            &current_route,
+        );
+
+        // Handle navigation if command requested it
+        if let Some(new_route) = result.navigate_to {
+            new_route.push();
+        }
+
+        ctx.terminal.push_lines(result.output);
     })
 }
 
@@ -195,20 +224,39 @@ fn create_history_nav_callback(ctx: AppContext) -> Callback<i32, Option<String>>
 
 fn create_autocomplete_callback(
     ctx: AppContext,
+    route_ctx: RouteContext,
 ) -> Callback<String, crate::core::AutocompleteResult> {
     Callback::new(move |input: String| {
-        ctx.terminal.current_path.with(|current_path| {
-            ctx.fs
-                .with(|current_fs| autocomplete(&input, current_path, current_fs))
-        })
+        let current_route = route_ctx.0.get();
+        ctx.fs
+            .with(|current_fs| autocomplete(&input, &current_route, current_fs))
     })
 }
 
-fn create_hint_callback(ctx: AppContext) -> Callback<String, Option<String>> {
+fn create_hint_callback(
+    ctx: AppContext,
+    route_ctx: RouteContext,
+) -> Callback<String, Option<String>> {
     Callback::new(move |input: String| {
-        ctx.terminal.current_path.with(|current_path| {
-            ctx.fs
-                .with(|current_fs| get_hint(&input, current_path, current_fs))
-        })
+        let current_route = route_ctx.0.get();
+        ctx.fs
+            .with(|current_fs| get_hint(&input, &current_route, current_fs))
     })
+}
+
+// ============================================================================
+// Path to Route Helper
+// ============================================================================
+
+/// Convert a filesystem path (relative) to a Browse route.
+fn fs_path_to_browse_route(fs_path: &str) -> AppRoute {
+    let mount = crate::config::configured_mounts()
+        .into_iter()
+        .next()
+        .expect("At least one mount must be configured");
+
+    AppRoute::Browse {
+        mount,
+        path: fs_path.to_string(),
+    }
 }

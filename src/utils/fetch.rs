@@ -1,18 +1,15 @@
-//! Web-related utilities for fetch, timeout racing, and markdown rendering.
+//! Network fetching utilities with timeout support.
 //!
-//! This module uses [`FetchError`] for structured error handling,
-//! providing meaningful error types while maintaining user-friendly
-//! display messages through the `Display` trait implementation.
+//! Provides async fetch functions with timeout racing and caching support.
 
 use js_sys::{Array, Promise};
-use pulldown_cmark::{Options, Parser, html};
 use serde::{Serialize, de::DeserializeOwned};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{Request, RequestInit, RequestMode, Response};
 
-use crate::config::{CONTENT_BASE_URL, FETCH_TIMEOUT_MS};
+use crate::config::FETCH_TIMEOUT_MS;
 use crate::core::error::FetchError;
 use crate::utils::cache;
 
@@ -73,32 +70,8 @@ pub async fn race_with_timeout(promise: Promise, timeout_ms: i32) -> RaceResult 
 }
 
 // =============================================================================
-// Markdown Rendering
+// Fetch Functions
 // =============================================================================
-
-/// Convert markdown content to sanitized HTML.
-///
-/// Supports extended markdown syntax including:
-/// - Strikethrough (`~~text~~`)
-/// - Tables
-/// - Footnotes
-///
-/// The output is sanitized using `ammonia` to prevent XSS attacks
-/// by removing potentially dangerous HTML elements and attributes.
-pub fn markdown_to_html(markdown: &str) -> String {
-    let mut options = Options::empty();
-    options.insert(Options::ENABLE_STRIKETHROUGH);
-    options.insert(Options::ENABLE_TABLES);
-    options.insert(Options::ENABLE_FOOTNOTES);
-
-    let parser = Parser::new_ext(markdown, options);
-
-    let mut html_output = String::new();
-    html::push_html(&mut html_output, parser);
-
-    // Sanitize HTML to prevent XSS attacks
-    ammonia::clean(&html_output)
-}
 
 /// Fetch and parse JSON from a URL.
 pub async fn fetch_json<T: DeserializeOwned>(url: &str) -> Result<T, FetchError> {
@@ -129,15 +102,13 @@ where
     Ok(data)
 }
 
-/// Fetch content from external content repository.
-pub async fn fetch_content(path: &str) -> Result<String, FetchError> {
-    let url = format!("{}/{}", CONTENT_BASE_URL, path);
-    fetch_url(&url).await
+/// Fetch text content from a URL.
+///
+/// This is a convenience wrapper around `fetch_url` that fetches text content.
+/// The caller should construct the full URL (e.g., using mount's base_url + path).
+pub async fn fetch_content(url: &str) -> Result<String, FetchError> {
+    fetch_url(url).await
 }
-
-// =============================================================================
-// Network Fetching
-// =============================================================================
 
 /// Fetch text from a URL using the Fetch API with timeout.
 ///

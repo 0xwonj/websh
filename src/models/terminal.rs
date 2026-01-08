@@ -170,19 +170,6 @@ impl OutputLine {
     }
 }
 
-/// Current screen mode of the application
-#[derive(Clone, Debug, PartialEq)]
-pub enum ScreenMode {
-    Terminal,
-    Reader {
-        /// Content path relative to content root
-        content_path: String,
-        /// Full virtual path for breadcrumb display
-        virtual_path: String,
-    },
-    Booting,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -281,19 +268,5 @@ mod tests {
 
         // But content equality works
         assert_eq!(line1.data, line3.data);
-    }
-
-    #[test]
-    fn test_screen_mode() {
-        let terminal = ScreenMode::Terminal;
-        let reader = ScreenMode::Reader {
-            content_path: "blog/post.md".to_string(),
-            virtual_path: "/home/wonjae/blog/post.md".to_string(),
-        };
-        let booting = ScreenMode::Booting;
-
-        assert_eq!(terminal, ScreenMode::Terminal);
-        assert_ne!(reader, ScreenMode::Terminal);
-        assert_eq!(booting, ScreenMode::Booting);
     }
 }

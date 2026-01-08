@@ -4,13 +4,7 @@
 .list {
   display: grid;
   grid-template-columns:
-    [icon] 2.5rem
-    [name] minmax(8rem, 2fr)
-    [desc] minmax(6rem, 2fr)
-    [date] minmax(10ch, 1fr)
-    [size] minmax(6ch, 1fr)
-    [perms] minmax(5ch, 1fr)
-    [chevron] 1.5rem;
+    [icon] 3rem [name] minmax(8rem, 2fr) [desc] minmax(6rem, 2fr) [date] minmax(10ch, 1fr) [size] minmax(6ch, 1fr) [perms] minmax(5ch, 1fr) [chevron] 1.5rem;
   font-family: var(--font-mono);
   font-size: var(--font-size-base);
   overflow-x: hidden;
@@ -24,7 +18,7 @@
   display: contents;
 }
 
-.listHeader > span {
+.listHeader>span {
   padding: var(--space-2) var(--space-2);
   color: var(--text-muted);
   font-weight: 600;
@@ -36,7 +30,7 @@
   position: relative;
 }
 
-.listHeader > span::after {
+.listHeader>span::after {
   content: "";
   position: absolute;
   right: 0;
@@ -47,9 +41,9 @@
 }
 
 /* Hide divider on first (icon) and last two (perms, chevron) columns */
-.listHeader > span:first-child::after,
-.listHeader > span:nth-last-child(2)::after,
-.listHeader > span:last-child::after {
+.listHeader>span:first-child::after,
+.listHeader>span:nth-last-child(2)::after,
+.listHeader>span:last-child::after {
   display: none;
 }
 
@@ -57,20 +51,15 @@
   padding-left: var(--space-4);
 }
 
-.headerName {
-}
+.headerName {}
 
-.headerDesc {
-}
+.headerDesc {}
 
-.headerDate {
-}
+.headerDate {}
 
-.headerSize {
-}
+.headerSize {}
 
-.headerPerms {
-}
+.headerPerms {}
 
 .headerChevron {
   padding-right: var(--space-4);
@@ -85,38 +74,38 @@
   cursor: pointer;
 }
 
-.listItem > span,
-.listItem > div {
+.listItem>span,
+.listItem>div {
   padding: var(--space-2) var(--space-2);
-  min-height: 2.5rem;
+  min-height: 3.5rem;
   display: flex;
   align-items: center;
   transition: background-color 0.15s;
 }
 
 /* First and last cell padding */
-.listItem > .icon {
+.listItem>.icon {
   padding-left: var(--space-4);
 }
 
-.listItem > .chevron {
+.listItem>.chevron {
   padding-right: var(--space-4);
 }
 
 /* Hover - apply to all cells in the row */
-.listItem:hover > span,
-.listItem:hover > div {
+.listItem:hover>span,
+.listItem:hover>div {
   background-color: var(--bg-secondary);
 }
 
 /* Selected state - macOS Finder style */
-.selected > span,
-.selected > div {
+.selected>span,
+.selected>div {
   background-color: rgba(59, 130, 246, 0.15);
 }
 
-.selected:hover > span,
-.selected:hover > div {
+.selected:hover>span,
+.selected:hover>div {
   background-color: rgba(59, 130, 246, 0.2);
 }
 
@@ -125,7 +114,7 @@
    ========================================================================== */
 
 .icon {
-  font-size: 1.25rem;
+  font-size: 1.375rem;
   justify-content: center;
 }
 
@@ -202,13 +191,16 @@
   .list {
     font-size: var(--font-size-sm);
     grid-template-columns:
-      [icon] 2rem
-      [name] minmax(6rem, 2fr)
-      [desc] minmax(4rem, 2fr)
-      [date] minmax(10ch, 1fr)
-      [size] minmax(5ch, 1fr)
-      [perms] minmax(5ch, 1fr)
-      [chevron] 1.5rem;
+      [icon] 2.5rem [name] minmax(6rem, 2fr) [desc] minmax(4rem, 2fr) [date] minmax(10ch, 1fr) [size] minmax(5ch, 1fr) [perms] minmax(5ch, 1fr) [chevron] 1.5rem;
+  }
+
+  .listItem>span,
+  .listItem>div {
+    min-height: 3rem;
+  }
+
+  .icon {
+    font-size: 1.75rem;
   }
 }
 
@@ -234,8 +226,8 @@
     min-height: 4rem;
   }
 
-  .listItem > span,
-  .listItem > div {
+  .listItem>span,
+  .listItem>div {
     padding: 0;
     min-height: auto;
     display: block;

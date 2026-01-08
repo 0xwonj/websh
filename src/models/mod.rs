@@ -1,24 +1,24 @@
 //! Data models and types for the application.
 //!
 //! Contains domain types for:
-//! - [`VirtualPath`], [`FsEntry`] - Virtual filesystem representation
-//! - [`OutputLine`], [`ScreenMode`] - Terminal output and display modes
+//! - [`FsEntry`], [`FileMetadata`], [`FileType`] - Virtual filesystem representation
+//! - [`OutputLine`] - Terminal output types
 //! - [`WalletState`] - Web3 wallet connection state
-//! - [`Route`] - Hash-based navigation for IPFS compatibility
-//! - [`ViewMode`], [`ContentOverlay`] - View management for Terminal/Explorer
+//! - [`AppRoute`], [`Mount`], [`MountRegistry`] - Hash-based navigation for IPFS compatibility
+//! - [`ViewMode`], [`ExplorerViewType`], [`SheetState`] - View management
 
 mod explorer;
 mod filesystem;
+mod mount;
 mod route;
 mod terminal;
 mod wallet;
 
-pub use explorer::{ContentOverlay, ExplorerViewType, SheetState, ViewMode};
-pub use filesystem::{
-    DisplayPermissions, FileMetadata, FileType, FsEntry, ManifestEntry, VirtualPath,
-};
+pub use explorer::{ExplorerViewType, SheetState, ViewMode};
+pub use filesystem::{DisplayPermissions, FileMetadata, FileType, FsEntry, ManifestEntry};
 #[cfg(test)]
 pub use filesystem::{EncryptionInfo, WrappedKey};
-pub use route::Route;
-pub use terminal::{ListFormat, OutputLine, OutputLineData, ScreenMode, TextStyle};
+pub use mount::{Mount, MountRegistry};
+pub use route::AppRoute;
+pub use terminal::{ListFormat, OutputLine, OutputLineData, TextStyle};
 pub use wallet::WalletState;

@@ -6,26 +6,12 @@ use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
 use crate::app::AppContext;
-use crate::config::{
-    APP_NAME, APP_TAGLINE, APP_VERSION, ASCII_BANNER, CONTENT_BASE_URL, MS_PER_SECOND, boot_delays,
-    cache, eth_address,
-};
+use crate::config::{APP_NAME, APP_TAGLINE, APP_VERSION, ASCII_BANNER, boot_delays, cache};
 use crate::core::{VirtualFs, env, wallet};
-use crate::models::{ManifestEntry, OutputLine, Route, ScreenMode, WalletState};
+use crate::models::{ManifestEntry, OutputLine, ViewMode, WalletState};
+use crate::utils::dom::is_mobile_or_tablet;
 use crate::utils::fetch_json_cached;
-
-/// Format an Ethereum address for display (0x1234...5678)
-fn format_short_address(address: &str) -> String {
-    if address.len() >= eth_address::FULL_LEN {
-        format!(
-            "{}...{}",
-            &address[..eth_address::PREFIX_LEN],
-            &address[eth_address::SUFFIX_START..]
-        )
-    } else {
-        address.to_string()
-    }
-}
+use crate::utils::format::{format_elapsed, format_eth_address};
 
 /// Delay helper using setTimeout
 async fn delay(window: &web_sys::Window, ms: i32) {
@@ -35,11 +21,6 @@ async fn delay(window: &web_sys::Window, ms: i32) {
     let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
 }
 
-/// Format elapsed time for boot messages
-fn format_time(ms: f64) -> String {
-    format!("[{:8.3}]", ms / MS_PER_SECOND)
-}
-
 /// Run the boot sequence
 ///
 /// Initializes the application by:
@@ -47,8 +28,8 @@ fn format_time(ms: f64) -> String {
 /// 2. Fetching and mounting the virtual filesystem
 /// 3. Restoring wallet session if available
 /// 4. Displaying the welcome banner
-/// 5. Navigating to the initial route
-pub fn run(ctx: AppContext, initial_route: Route) {
+/// 5. Setting the initial view mode based on device type
+pub fn run(ctx: AppContext) {
     spawn_local(async move {
         let window = web_sys::window().expect("Boot sequence requires browser environment");
         let start = js_sys::Date::now();
@@ -59,9 +40,8 @@ pub fn run(ctx: AppContext, initial_route: Route) {
 
         // Kernel init
         ctx.terminal.push_output(OutputLine::info(format!(
-            "{} Booting {} kernel v{}",
-            format_time(elapsed()),
-            APP_NAME,
+            "{} Booting websh kernel v{}",
+            format_elapsed(elapsed()),
             APP_VERSION
         )));
         delay(&window, boot_delays::KERNEL_INIT).await;
@@ -69,49 +49,81 @@ pub fn run(ctx: AppContext, initial_route: Route) {
         // WASM runtime
         ctx.terminal.push_output(OutputLine::success(format!(
             "{} WASM runtime initialized",
-            format_time(elapsed())
+            format_elapsed(elapsed())
         )));
         delay(&window, boot_delays::WASM_RUNTIME).await;
 
-        // Mount filesystem
+        // Mount filesystems from registry
         ctx.terminal.push_output(OutputLine::text(format!(
-            "{} Mounting filesystem...",
-            format_time(elapsed())
+            "{} Mounting filesystems...",
+            format_elapsed(elapsed())
         )));
 
-        let manifest_url = format!("{}/manifest.json", CONTENT_BASE_URL);
-        match fetch_json_cached::<Vec<ManifestEntry>>(&manifest_url, cache::MANIFEST_KEY).await {
-            Ok(entries) => {
-                ctx.terminal.push_output(OutputLine::success(format!(
-                    "{} Mounted {} file entries",
-                    format_time(elapsed()),
-                    entries.len()
-                )));
-                ctx.fs.set(VirtualFs::from_manifest(&entries));
+        // Fetch manifests for all configured mounts
+        let mounts = ctx.mounts.get();
+        let mut total_entries = 0;
+        let mut all_entries = Vec::new();
+        let mut mount_errors = Vec::new();
+
+        for mount in mounts.all() {
+            let manifest_url = mount.manifest_url();
+            let cache_key = format!("{}_{}", cache::MANIFEST_KEY, mount.alias());
+
+            match fetch_json_cached::<Vec<ManifestEntry>>(&manifest_url, &cache_key).await {
+                Ok(entries) => {
+                    let count = entries.len();
+                    total_entries += count;
+                    all_entries.extend(entries);
+                    ctx.terminal.push_output(OutputLine::success(format!(
+                        "{} Mounted '{}' ({} entries)",
+                        format_elapsed(elapsed()),
+                        mount.alias(),
+                        count
+                    )));
+                }
+                Err(e) => {
+                    mount_errors.push((mount.alias().to_string(), e.to_string()));
+                    ctx.terminal.push_output(OutputLine::error(format!(
+                        "{} Failed to mount '{}': {}",
+                        format_elapsed(elapsed()),
+                        mount.alias(),
+                        e
+                    )));
+                }
             }
-            Err(e) => {
-                ctx.terminal.push_output(OutputLine::error(format!(
-                    "{} Mount failed: {}",
-                    format_time(elapsed()),
-                    e
-                )));
-                ctx.fs.set(VirtualFs::empty());
-            }
+        }
+
+        // Build filesystem from all entries
+        if !all_entries.is_empty() {
+            ctx.fs.set(VirtualFs::from_manifest(&all_entries));
+            ctx.terminal.push_output(OutputLine::success(format!(
+                "{} Total: {} file entries mounted",
+                format_elapsed(elapsed()),
+                total_entries
+            )));
+        } else if mount_errors.is_empty() {
+            ctx.terminal.push_output(OutputLine::text(format!(
+                "{} No mounts configured",
+                format_elapsed(elapsed())
+            )));
+            ctx.fs.set(VirtualFs::empty());
+        } else {
+            ctx.fs.set(VirtualFs::empty());
         }
 
         // Check wallet connection (only if previously logged in)
         if wallet::is_available() && wallet::has_session() {
             ctx.terminal.push_output(OutputLine::text(format!(
                 "{} Restoring wallet session...",
-                format_time(elapsed())
+                format_elapsed(elapsed())
             )));
 
             match wallet::get_account().await {
                 Some(address) => {
-                    let short_addr = format_short_address(&address);
+                    let short_addr = format_eth_address(&address);
                     ctx.terminal.push_output(OutputLine::success(format!(
                         "{} Connected: {}",
-                        format_time(elapsed()),
+                        format_elapsed(elapsed()),
                         short_addr
                     )));
 
@@ -120,7 +132,7 @@ pub fn run(ctx: AppContext, initial_route: Route) {
                     if let Some(id) = chain_id {
                         ctx.terminal.push_output(OutputLine::info(format!(
                             "{} Network: {} (chain_id={})",
-                            format_time(elapsed()),
+                            format_elapsed(elapsed()),
                             wallet::chain_name(id),
                             id
                         )));
@@ -131,7 +143,7 @@ pub fn run(ctx: AppContext, initial_route: Route) {
                     if let Some(ref name) = ens_name {
                         ctx.terminal.push_output(OutputLine::success(format!(
                             "{} ENS resolved: {}",
-                            format_time(elapsed()),
+                            format_elapsed(elapsed()),
                             name
                         )));
                     }
@@ -147,19 +159,35 @@ pub fn run(ctx: AppContext, initial_route: Route) {
                     wallet::clear_session();
                     ctx.terminal.push_output(OutputLine::text(format!(
                         "{} Wallet session expired",
-                        format_time(elapsed())
+                        format_elapsed(elapsed())
                     )));
                 }
             }
         }
 
+        // Detect device type and set initial view mode
+        let is_mobile = is_mobile_or_tablet();
+        if is_mobile {
+            ctx.view_mode.set(ViewMode::Explorer);
+            ctx.terminal.push_output(OutputLine::info(format!(
+                "{} Mobile device detected, switching to Explorer mode",
+                format_elapsed(elapsed())
+            )));
+        } else {
+            ctx.view_mode.set(ViewMode::Terminal);
+            ctx.terminal.push_output(OutputLine::info(format!(
+                "{} Desktop detected, initializing Terminal mode",
+                format_elapsed(elapsed())
+            )));
+        }
+        delay(&window, boot_delays::BOOT_COMPLETE).await;
+
         // Boot complete
         ctx.terminal.push_output(OutputLine::success(format!(
             "{} Boot complete. Welcome to {}",
-            format_time(elapsed()),
+            format_elapsed(elapsed()),
             APP_NAME
         )));
-        delay(&window, boot_delays::BOOT_COMPLETE).await;
 
         // Banner and info
         ctx.terminal.push_output(OutputLine::empty());
@@ -167,22 +195,12 @@ pub fn run(ctx: AppContext, initial_route: Route) {
         ctx.terminal.push_output(OutputLine::empty());
         ctx.terminal.push_output(OutputLine::info(APP_TAGLINE));
         ctx.terminal.push_output(OutputLine::empty());
+        ctx.terminal.push_output(OutputLine::text("Tips:"));
         ctx.terminal
-            .push_output(OutputLine::text("Type 'help' for available commands."));
+            .push_output(OutputLine::text("  - Type 'help' for available commands"));
+        ctx.terminal.push_output(OutputLine::text(
+            "  - Use the view toggle (top-right) to switch to Explorer mode",
+        ));
         ctx.terminal.push_output(OutputLine::empty());
-
-        // Navigate based on initial URL
-        match initial_route {
-            Route::Home => {
-                ctx.terminal.screen_mode.set(ScreenMode::Terminal);
-            }
-            Route::Read { path } => {
-                // For URL-based reader, use content path as virtual path
-                ctx.terminal.screen_mode.set(ScreenMode::Reader {
-                    content_path: path.clone(),
-                    virtual_path: path,
-                });
-            }
-        }
     });
 }

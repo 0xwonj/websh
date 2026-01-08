@@ -11,7 +11,7 @@
 //! - Ghost text hints while typing
 
 use crate::core::{Command, DirEntry, VirtualFs};
-use crate::models::VirtualPath;
+use crate::models::AppRoute;
 
 // ============================================================================
 // Public Types
@@ -93,19 +93,19 @@ struct ParsedPath<'a> {
     /// Filename/directory name being completed.
     name_part: &'a str,
     /// Resolved search directory path.
-    search_dir: VirtualPath,
+    search_dir: String,
 }
 
 impl<'a> ParsedPath<'a> {
     /// Parse a partial path and resolve the search directory.
-    fn parse(partial: &'a str, current_path: &VirtualPath, fs: &VirtualFs) -> Option<Self> {
+    fn parse(partial: &'a str, current_path: &str, fs: &VirtualFs) -> Option<Self> {
         let (dir_part, name_part) = match partial.rfind('/') {
             Some(idx) => (&partial[..=idx], &partial[idx + 1..]),
             None => ("", partial),
         };
 
         let search_dir = if dir_part.is_empty() {
-            current_path.clone()
+            current_path.to_string()
         } else {
             fs.resolve_path(current_path, dir_part.trim_end_matches('/'))?
         };
@@ -125,12 +125,13 @@ impl<'a> ParsedPath<'a> {
 /// Perform autocomplete on Tab press.
 ///
 /// Returns a completion result based on the current input and filesystem state.
-pub fn autocomplete(input: &str, current_path: &VirtualPath, fs: &VirtualFs) -> AutocompleteResult {
+pub fn autocomplete(input: &str, current_route: &AppRoute, fs: &VirtualFs) -> AutocompleteResult {
     let input = input.trim_start();
     if input.is_empty() {
         return AutocompleteResult::None;
     }
 
+    let current_path = current_route.fs_path();
     let (mode, parts) = CompletionMode::from_input(input);
 
     match mode {
@@ -145,12 +146,13 @@ pub fn autocomplete(input: &str, current_path: &VirtualPath, fs: &VirtualFs) -> 
 /// Get autocomplete suggestion for ghost text hint (while typing).
 ///
 /// Returns the suffix that would complete the current input.
-pub fn get_hint(input: &str, current_path: &VirtualPath, fs: &VirtualFs) -> Option<String> {
+pub fn get_hint(input: &str, current_route: &AppRoute, fs: &VirtualFs) -> Option<String> {
     let input = input.trim_start();
     if input.is_empty() {
         return None;
     }
 
+    let current_path = current_route.fs_path();
     let (mode, parts) = CompletionMode::from_input(input);
 
     match mode {
@@ -202,7 +204,7 @@ fn get_command_hint(partial: &str) -> Option<String> {
 fn complete_path(
     cmd: &str,
     partial: &str,
-    current_path: &VirtualPath,
+    current_path: &str,
     fs: &VirtualFs,
     dirs_only: bool,
 ) -> AutocompleteResult {
@@ -210,7 +212,7 @@ fn complete_path(
         return AutocompleteResult::None;
     };
 
-    let Some(entries) = fs.list_dir(parsed.search_dir.as_str()) else {
+    let Some(entries) = fs.list_dir(&parsed.search_dir) else {
         return AutocompleteResult::None;
     };
 
@@ -221,12 +223,12 @@ fn complete_path(
 /// Get hint for path completion.
 fn get_path_hint(
     partial: &str,
-    current_path: &VirtualPath,
+    current_path: &str,
     fs: &VirtualFs,
     dirs_only: bool,
 ) -> Option<String> {
     let parsed = ParsedPath::parse(partial, current_path, fs)?;
-    let entries = fs.list_dir(parsed.search_dir.as_str())?;
+    let entries = fs.list_dir(&parsed.search_dir)?;
     let matches = get_matching_entries(&entries, parsed.name_part, dirs_only);
 
     // Find first match that extends current input

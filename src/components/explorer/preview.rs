@@ -13,8 +13,8 @@ use leptos_icons::Icon;
 
 use crate::app::AppContext;
 use crate::components::icons as ic;
-use crate::config::CONTENT_BASE_URL;
-use crate::models::{FileType, FsEntry};
+use crate::components::terminal::RouteContext;
+use crate::models::{AppRoute, FileType, FsEntry};
 use crate::utils::{fetch_content, markdown_to_html};
 
 stylance::import_crate_style!(css, "src/components/explorer/preview.module.css");
@@ -35,6 +35,7 @@ enum PreviewContent {
 #[component]
 pub fn PreviewPanel() -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
+    let route_ctx = use_context::<RouteContext>().expect("RouteContext must be provided");
 
     let selected_file = ctx.explorer.selected_file;
 
@@ -94,19 +95,29 @@ pub fn PreviewPanel() -> impl IntoView {
         let path = content_path.get();
         let ftype = file_type.get();
         let encrypted = is_encrypted.get();
+        // Get base URL from current route's mount
+        let route = route_ctx.0.get();
+        let base_url = route.mount().map(|m| m.base_url()).unwrap_or_else(|| {
+            crate::config::configured_mounts()
+                .into_iter()
+                .next()
+                .map(|m| m.base_url())
+                .unwrap_or_default()
+        });
         async move {
             if encrypted {
                 return None;
             }
             let path = path?;
+            let url = format!("{}/{}", base_url, path);
             match ftype {
                 FileType::Markdown => {
-                    let content = fetch_content(&path).await.ok()?;
+                    let content = fetch_content(&url).await.ok()?;
                     let html = markdown_to_html(&content);
                     Some(PreviewContent::Html(html))
                 }
                 FileType::Unknown => {
-                    let content = fetch_content(&path).await.ok()?;
+                    let content = fetch_content(&url).await.ok()?;
                     Some(PreviewContent::Text(content))
                 }
                 _ => None,
@@ -120,9 +131,15 @@ pub fn PreviewPanel() -> impl IntoView {
 
     // Build image URL for thumbnails
     let image_url = Signal::derive(move || {
-        content_path
-            .get()
-            .map(|p| format!("{}/{}", CONTENT_BASE_URL, p))
+        let route = route_ctx.0.get();
+        let base_url = route.mount().map(|m| m.base_url()).unwrap_or_else(|| {
+            crate::config::configured_mounts()
+                .into_iter()
+                .next()
+                .map(|m| m.base_url())
+                .unwrap_or_default()
+        });
+        content_path.get().map(|p| format!("{}/{}", base_url, p))
     });
 
     view! {
@@ -211,21 +228,48 @@ pub fn PreviewPanel() -> impl IntoView {
             </div>
 
             // Bottom action bar (only for non-encrypted files)
-            <Show when=move || !is_encrypted.get()>
-                <button
-                    class=css::openBar
-                    on:click=move |_| {
-                        if let Some(path) = selected_file.get()
-                            && let Some(cp) = ctx.fs.with(|fs| fs.get_file_content_path(&path))
-                        {
-                            ctx.open_reader(cp, path);
-                        }
-                    }
-                >
-                    "Open in reader"
-                </button>
-            </Show>
+            <OpenButton
+                selected_file=selected_file
+                route_ctx=route_ctx
+                is_encrypted=is_encrypted
+            />
         </aside>
+    }
+}
+
+/// Open in reader button component.
+#[component]
+fn OpenButton(
+    selected_file: RwSignal<Option<String>>,
+    route_ctx: RouteContext,
+    is_encrypted: Signal<bool>,
+) -> impl IntoView {
+    view! {
+        <Show when=move || !is_encrypted.get()>
+            <button
+                class=css::openBar
+                on:click=move |_| {
+                    if let Some(path) = selected_file.get() {
+                        // Get mount from current route
+                        let route = route_ctx.0.get();
+                        let mount = route.mount().cloned().unwrap_or_else(|| {
+                            crate::config::configured_mounts()
+                                .into_iter()
+                                .next()
+                                .unwrap()
+                        });
+                        // selected_file already contains the full relative path
+                        let read_route = AppRoute::Read {
+                            mount,
+                            path,
+                        };
+                        read_route.push();
+                    }
+                }
+            >
+                "Open in reader"
+            </button>
+        </Show>
     }
 }
 

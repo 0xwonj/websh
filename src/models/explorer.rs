@@ -10,21 +10,6 @@ pub enum ViewMode {
     Explorer,
 }
 
-/// Content overlay mode (Reader, etc.).
-#[derive(Clone, Debug, Default, PartialEq)]
-pub enum ContentOverlay {
-    /// No overlay
-    #[default]
-    None,
-    /// Reader overlay for viewing file content
-    Reader {
-        /// Content path relative to content root (e.g., "blog/hello.md")
-        content_path: String,
-        /// Full virtual path for breadcrumb display (e.g., "/home/wonjae/blog/hello.md")
-        virtual_path: String,
-    },
-}
-
 /// View type for explorer (list or grid).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ExplorerViewType {

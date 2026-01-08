@@ -1,6 +1,7 @@
 //! UI components built with Leptos.
 //!
-//! - [`Shell`] - Main shell interface (root component)
+//! - [`router`] - Application routing (main entry point)
+//! - [`Shell`] - Main shell interface (terminal/explorer container)
 //! - [`explorer`] - File browser UI
 //! - [`icons`] - Centralized icon definitions (change theme here)
 //! - [`reader`] - Content reader for markdown, PDF, images
@@ -10,7 +11,8 @@
 pub mod explorer;
 pub mod icons;
 pub mod reader;
+pub mod router;
 pub mod status;
 pub mod terminal;
 
-pub use terminal::Shell;
+pub use router::AppRouter;

@@ -15,7 +15,8 @@ use leptos_icons::Icon;
 use super::{BottomSheet, FileList, PreviewPanel};
 use crate::app::AppContext;
 use crate::components::icons as ic;
-use crate::models::{ExplorerViewType, SheetState, VirtualPath};
+use crate::components::terminal::RouteContext;
+use crate::models::{AppRoute, ExplorerViewType, SheetState};
 
 stylance::import_crate_style!(css, "src/components/explorer/explorer.module.css");
 
@@ -29,22 +30,28 @@ stylance::import_crate_style!(css, "src/components/explorer/explorer.module.css"
 #[component]
 pub fn Explorer() -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
+    let route_ctx = use_context::<RouteContext>().expect("RouteContext must be provided");
 
     // Dropdown menu states
     let (new_menu_open, set_new_menu_open) = signal(false);
     let (more_menu_open, set_more_menu_open) = signal(false);
 
-    // Navigation handlers
+    // Navigation handlers using browser history
     let on_back = move |_: leptos::ev::MouseEvent| {
-        ctx.go_back();
+        if let Some(window) = web_sys::window() {
+            let _ = window.history().and_then(|h| h.back());
+        }
     };
 
     let on_forward = move |_: leptos::ev::MouseEvent| {
-        ctx.go_forward();
+        if let Some(window) = web_sys::window() {
+            let _ = window.history().and_then(|h| h.forward());
+        }
     };
 
+    // Navigate home using AppRoute::push()
     let on_home = move |_: leptos::ev::MouseEvent| {
-        ctx.navigate_to(VirtualPath::home());
+        AppRoute::home().push();
     };
 
     // Action handlers (placeholder - log only for now)
@@ -74,15 +81,9 @@ pub fn Explorer() -> impl IntoView {
         web_sys::console::log_1(&"New folder clicked".into());
     };
 
-    let on_switch_terminal = move |_: leptos::ev::MouseEvent| {
-        set_more_menu_open.set(false);
-        ctx.toggle_view_mode();
-    };
-
-    // Derived signals for button states
-    let can_go_back = Signal::derive(move || ctx.can_go_back());
-    let can_go_forward = Signal::derive(move || ctx.can_go_forward());
-    let is_home = Signal::derive(move || ctx.current_path.get() == VirtualPath::home());
+    // Note: can_go_back/forward rely on browser history which we can't query.
+    // We'll always enable them and let the browser handle the navigation.
+    let is_home = Signal::derive(move || route_ctx.0.get() == AppRoute::home());
     let has_selection = Signal::derive(move || ctx.explorer.selected_file.get().is_some());
     let view_type = Signal::derive(move || ctx.explorer.view_type.get());
 
@@ -93,17 +94,15 @@ pub fn Explorer() -> impl IntoView {
                 // Navigation buttons (segmented control: back/forward/home)
                 <div class=css::navButtons>
                     <button
-                        class=move || if can_go_back.get() { css::navButton.to_string() } else { format!("{} {}", css::navButton, css::navButtonDisabled) }
+                        class=css::navButton
                         on:click=on_back
-                        disabled=move || !can_go_back.get()
                         title="Go back"
                     >
                         <Icon icon=ic::CHEVRON_LEFT />
                     </button>
                     <button
-                        class=move || if can_go_forward.get() { css::navButton.to_string() } else { format!("{} {}", css::navButton, css::navButtonDisabled) }
+                        class=css::navButton
                         on:click=on_forward
-                        disabled=move || !can_go_forward.get()
                         title="Go forward"
                     >
                         <Icon icon=ic::CHEVRON_RIGHT />
@@ -124,28 +123,25 @@ pub fn Explorer() -> impl IntoView {
                 // Breadcrumb path
                 <nav class=css::breadcrumb>
                     {move || {
-                        let path = ctx.current_path.get();
-                        let display = path.display();
+                        let route = route_ctx.0.get();
+                        let display = route.display_path();
                         let segments: Vec<&str> = display.split('/').filter(|s| !s.is_empty()).collect();
 
                         // Build path for each segment
                         segments.iter().enumerate().map(|(idx, segment)| {
                             let is_last = idx == segments.len() - 1;
-                            let is_home = *segment == "~";
+                            let is_home_segment = *segment == "~";
 
-                            // Build target path for navigation
-                            let target_path = if is_home {
-                                VirtualPath::home()
-                            } else if segments[0] == "~" {
-                                // Home-relative path: use resolve() to properly expand ~
-                                let relative_path = segments[1..=idx].join("/");
-                                VirtualPath::home().resolve(&relative_path)
+                            // Build target route for navigation
+                            let target_route = if is_home_segment {
+                                AppRoute::home()
                             } else {
-                                // Absolute path
-                                VirtualPath::new(format!("/{}", segments[0..=idx].join("/")))
+                                // Build route from segments (excluding ~ prefix)
+                                let path = segments[1..=idx].join("/");
+                                route.join(&path)
                             };
 
-                            let icon = if is_home { ic::HOME } else { ic::FOLDER };
+                            let icon = if is_home_segment { ic::HOME } else { ic::FOLDER };
                             let segment_str = segment.to_string();
 
                             let segment_class = if is_last {
@@ -165,7 +161,7 @@ pub fn Explorer() -> impl IntoView {
                                         class=segment_class
                                         on:click=move |_| {
                                             if !is_last {
-                                                ctx.navigate_to(target_path.clone());
+                                                target_route.clone().push();
                                             }
                                         }
                                         disabled=is_last
@@ -227,47 +223,11 @@ pub fn Explorer() -> impl IntoView {
                     </div>
 
                     // More menu
-                    <div class=css::dropdownWrapper>
-                        <button
-                            class=css::actionButton
-                            on:click=move |_| set_more_menu_open.update(|v| *v = !*v)
-                            title="More options"
-                        >
-                            <Icon icon=ic::MORE />
-                        </button>
-                        <Show when=move || more_menu_open.get()>
-                            <div class=css::dropdownMenu>
-                                // Mobile-only items
-                                <button class=format!("{} {}", css::dropdownItem, css::mobileOnly) on:click=on_search>
-                                    <span class=css::dropdownIcon><Icon icon=ic::SEARCH /></span>
-                                    "Search"
-                                </button>
-                                <button class=format!("{} {}", css::dropdownItem, css::mobileOnly) on:click=move |_| {
-                                    set_more_menu_open.set(false);
-                                    on_view_toggle(leptos::ev::MouseEvent::new("click").unwrap());
-                                }>
-                                    <span class=css::dropdownIcon>
-                                        {move || if matches!(view_type.get(), ExplorerViewType::List) {
-                                            view! { <Icon icon=ic::GRID /> }.into_any()
-                                        } else {
-                                            view! { <Icon icon=ic::LIST /> }.into_any()
-                                        }}
-                                    </span>
-                                    {move || if matches!(view_type.get(), ExplorerViewType::List) { "Grid View" } else { "List View" }}
-                                </button>
-                                <button class=format!("{} {}", css::dropdownItem, css::mobileOnly) on:click=on_home>
-                                    <span class=css::dropdownIcon><Icon icon=ic::HOME /></span>
-                                    "Go Home"
-                                </button>
-                                <div class=format!("{} {}", css::dropdownDivider, css::mobileOnly)></div>
-                                // Always visible items
-                                <button class=css::dropdownItem on:click=on_switch_terminal>
-                                    <span class=css::dropdownIcon><Icon icon=ic::TERMINAL /></span>
-                                    "Switch to Terminal"
-                                </button>
-                            </div>
-                        </Show>
-                    </div>
+                    <MoreMenu
+                        menu_open=more_menu_open
+                        set_menu_open=set_more_menu_open
+                        view_type=view_type
+                    />
                 </div>
             </header>
 
@@ -293,6 +253,83 @@ pub fn Explorer() -> impl IntoView {
             // Bottom sheet for file preview (mobile only, hidden via CSS on desktop)
             <Show when=move || !matches!(ctx.explorer.sheet_state.get(), SheetState::Closed)>
                 <BottomSheet />
+            </Show>
+        </div>
+    }
+}
+
+/// More menu dropdown component.
+#[component]
+fn MoreMenu(
+    menu_open: ReadSignal<bool>,
+    set_menu_open: WriteSignal<bool>,
+    view_type: Signal<ExplorerViewType>,
+) -> impl IntoView {
+    let ctx = use_context::<AppContext>().expect("AppContext must be provided");
+
+    let on_search = move |_: leptos::ev::MouseEvent| {
+        set_menu_open.set(false);
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::log_1(&"Search clicked".into());
+    };
+
+    let on_view_toggle = move |_: leptos::ev::MouseEvent| {
+        set_menu_open.set(false);
+        ctx.explorer.view_type.update(|vt| {
+            *vt = match *vt {
+                ExplorerViewType::List => ExplorerViewType::Grid,
+                ExplorerViewType::Grid => ExplorerViewType::List,
+            };
+        });
+    };
+
+    let on_switch_terminal = move |_: leptos::ev::MouseEvent| {
+        set_menu_open.set(false);
+        ctx.toggle_view_mode();
+    };
+
+    let on_home = move |_: leptos::ev::MouseEvent| {
+        set_menu_open.set(false);
+        AppRoute::home().push();
+    };
+
+    view! {
+        <div class=css::dropdownWrapper>
+            <button
+                class=css::actionButton
+                on:click=move |_| set_menu_open.update(|v| *v = !*v)
+                title="More options"
+            >
+                <Icon icon=ic::MORE />
+            </button>
+            <Show when=move || menu_open.get()>
+                <div class=css::dropdownMenu>
+                    // Mobile-only items
+                    <button class=format!("{} {}", css::dropdownItem, css::mobileOnly) on:click=on_search>
+                        <span class=css::dropdownIcon><Icon icon=ic::SEARCH /></span>
+                        "Search"
+                    </button>
+                    <button class=format!("{} {}", css::dropdownItem, css::mobileOnly) on:click=on_view_toggle>
+                        <span class=css::dropdownIcon>
+                            {move || if matches!(view_type.get(), ExplorerViewType::List) {
+                                view! { <Icon icon=ic::GRID /> }.into_any()
+                            } else {
+                                view! { <Icon icon=ic::LIST /> }.into_any()
+                            }}
+                        </span>
+                        {move || if matches!(view_type.get(), ExplorerViewType::List) { "Grid View" } else { "List View" }}
+                    </button>
+                    <button class=format!("{} {}", css::dropdownItem, css::mobileOnly) on:click=on_home>
+                        <span class=css::dropdownIcon><Icon icon=ic::HOME /></span>
+                        "Go Home"
+                    </button>
+                    <div class=format!("{} {}", css::dropdownDivider, css::mobileOnly)></div>
+                    // Always visible items
+                    <button class=css::dropdownItem on:click=on_switch_terminal>
+                        <span class=css::dropdownIcon><Icon icon=ic::TERMINAL /></span>
+                        "Switch to Terminal"
+                    </button>
+                </div>
             </Show>
         </div>
     }
