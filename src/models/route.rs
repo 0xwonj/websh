@@ -24,13 +24,13 @@ use crate::utils::dom;
 /// Application route parsed from URL.
 ///
 /// Routes are determined by URL structure:
-/// - `/` or empty → Root (redirects to home)
+/// - `/` or empty → Root (mount selection)
 /// - `/{mount}/` → Browse (directory)
 /// - `/{mount}/{path}/` → Browse (directory)
 /// - `/{mount}/{path}` (with extension) → Read (file)
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum AppRoute {
-    /// Root route - redirects to home (`#/~/`)
+    /// Root route - mount selection (`#/`)
     #[default]
     Root,
 
@@ -175,6 +175,7 @@ impl AppRoute {
     /// Replace the current route without adding to history.
     ///
     /// Useful for redirects that shouldn't be in the back button history.
+    #[allow(dead_code)]
     pub fn replace(&self) {
         dom::replace_hash(&self.to_hash());
     }
@@ -207,7 +208,7 @@ impl AppRoute {
     /// Returns `None` for non-file routes.
     pub fn content_url(&self) -> Option<String> {
         match self {
-            Self::Read { mount, path } => Some(format!("{}/{}", mount.base_url(), path)),
+            Self::Read { mount, path } => Some(format!("{}/{}", mount.content_base_url(), path)),
             _ => None,
         }
     }
@@ -231,17 +232,15 @@ impl AppRoute {
     /// Get the parent directory route.
     ///
     /// - Root → Root
-    /// - Browse at mount root → Browse at mount root
+    /// - Browse at mount root → Root (go to mount selection)
     /// - Browse/Read with path → Browse at parent directory
     pub fn parent(&self) -> Self {
         match self {
             Self::Root => Self::Root,
             Self::Browse { mount, path } | Self::Read { mount, path } => {
                 if path.is_empty() {
-                    Self::Browse {
-                        mount: mount.clone(),
-                        path: String::new(),
-                    }
+                    // At mount root, go up to Root (mount selection)
+                    Self::Root
                 } else if let Some((parent, _)) = path.rsplit_once('/') {
                     Self::Browse {
                         mount: mount.clone(),
@@ -260,13 +259,13 @@ impl AppRoute {
     /// Get display path for terminal prompt.
     ///
     /// # Examples
-    /// - Root → "~"
+    /// - Root → "/"
     /// - Browse { Home, "" } → "~"
     /// - Browse { Home, "blog" } → "~/blog"
     /// - Read { Home, "blog/post.md" } → "~/blog/post.md"
     pub fn display_path(&self) -> String {
         match self {
-            Self::Root => "~".to_string(),
+            Self::Root => "/".to_string(),
             Self::Browse { mount, path } | Self::Read { mount, path } => {
                 let alias = mount.alias();
                 let prefix = if alias == "~" { "~" } else { alias };
@@ -486,7 +485,8 @@ mod tests {
             mount: test_mount(),
             path: String::new(),
         };
-        assert_eq!(mount_root.parent(), mount_root);
+        // Mount root's parent is Root (mount selection)
+        assert_eq!(mount_root.parent(), AppRoute::Root);
 
         let blog = AppRoute::Browse {
             mount: test_mount(),
@@ -503,7 +503,7 @@ mod tests {
 
     #[test]
     fn test_route_display_path() {
-        assert_eq!(AppRoute::Root.display_path(), "~");
+        assert_eq!(AppRoute::Root.display_path(), "/");
 
         let browse = AppRoute::Browse {
             mount: test_mount(),

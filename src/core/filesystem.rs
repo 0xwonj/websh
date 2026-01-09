@@ -1,4 +1,7 @@
-use crate::models::{DisplayPermissions, FileMetadata, FsEntry, ManifestEntry, WalletState};
+use crate::models::{
+    DirectoryEntry, DirectoryMetadata, DisplayPermissions, FileMetadata, FsEntry, Manifest,
+    WalletState,
+};
 use std::collections::HashMap;
 
 /// Directory entry returned by list_dir
@@ -6,8 +9,8 @@ use std::collections::HashMap;
 pub struct DirEntry {
     pub name: String,
     pub is_dir: bool,
-    pub description: String,
-    pub meta: FileMetadata,
+    pub title: String,
+    pub file_meta: Option<FileMetadata>,
 }
 
 /// Virtual filesystem for a single mount.
@@ -28,20 +31,36 @@ pub struct VirtualFs {
 }
 
 impl VirtualFs {
-    /// Create filesystem from manifest entries.
+    /// Create filesystem from manifest.
     ///
     /// Manifest paths are relative (e.g., `blog/post.md`).
-    pub fn from_manifest(entries: &[ManifestEntry]) -> Self {
+    pub fn from_manifest(manifest: &Manifest) -> Self {
+        // Build directory metadata map for quick lookup
+        let dir_meta_map: HashMap<String, &DirectoryEntry> = manifest
+            .directories
+            .iter()
+            .map(|d| (d.path.clone(), d))
+            .collect();
+
         let mut content_tree: HashMap<String, FsEntry> = HashMap::new();
 
-        for entry in entries {
+        // Create all files (this also creates parent directories)
+        for file in &manifest.files {
             Self::insert_path(
                 &mut content_tree,
-                &entry.path,
-                &entry.path,
-                &entry.title,
-                entry.to_metadata(),
+                &file.path,
+                &file.path,
+                &file.title,
+                file.to_metadata(),
+                &dir_meta_map,
             );
+        }
+
+        // Ensure directories from manifest exist (even if empty)
+        for dir in &manifest.directories {
+            if !dir.path.is_empty() {
+                Self::ensure_directory(&mut content_tree, &dir.path, &dir_meta_map);
+            }
         }
 
         // Add static files
@@ -50,10 +69,21 @@ impl VirtualFs {
             FsEntry::file("User profile configuration"),
         );
 
+        // Build root metadata
+        let root_meta = dir_meta_map
+            .get("")
+            .map(|d| DirectoryMetadata {
+                title: d.title.clone(),
+                description: d.description.clone(),
+                icon: d.icon.clone(),
+                thumbnail: d.thumbnail.clone(),
+                tags: d.tags.clone(),
+            })
+            .unwrap_or_default();
+
         let root = FsEntry::Directory {
             children: content_tree,
-            description: String::new(),
-            meta: FileMetadata::default(),
+            meta: root_meta,
         };
 
         Self { root }
@@ -66,9 +96,11 @@ impl VirtualFs {
         full_path: &str,
         title: &str,
         meta: FileMetadata,
+        dir_meta_map: &HashMap<String, &DirectoryEntry>,
     ) {
         let parts: Vec<&str> = path.split('/').collect();
         let mut current = tree;
+        let mut current_path = String::new();
 
         for (i, part) in parts.iter().enumerate() {
             let is_last = i == parts.len() - 1;
@@ -79,19 +111,38 @@ impl VirtualFs {
                     FsEntry::content_file_with_meta(full_path, title, meta.clone()),
                 );
             } else {
-                let entry = current
-                    .entry(part.to_string())
-                    .or_insert_with(|| FsEntry::Directory {
+                // Build current directory path
+                if !current_path.is_empty() {
+                    current_path.push('/');
+                }
+                current_path.push_str(part);
+
+                let entry = current.entry(part.to_string()).or_insert_with(|| {
+                    // Create directory with metadata if available
+                    let dir_meta = dir_meta_map
+                        .get(&current_path)
+                        .map(|d| DirectoryMetadata {
+                            title: d.title.clone(),
+                            description: d.description.clone(),
+                            icon: d.icon.clone(),
+                            thumbnail: d.thumbnail.clone(),
+                            tags: d.tags.clone(),
+                        })
+                        .unwrap_or_else(|| DirectoryMetadata {
+                            title: part.to_string(),
+                            ..Default::default()
+                        });
+
+                    FsEntry::Directory {
                         children: HashMap::new(),
-                        description: String::new(),
-                        meta: FileMetadata::default(),
-                    });
+                        meta: dir_meta,
+                    }
+                });
 
                 current = match entry {
                     FsEntry::Directory { children, .. } => children,
                     FsEntry::File { .. } => {
                         // A file exists where we expect a directory - skip this entry.
-                        // This indicates a manifest conflict (e.g., "a/b" and "a/b/c").
                         #[cfg(target_arch = "wasm32")]
                         web_sys::console::warn_1(
                             &format!(
@@ -107,6 +158,50 @@ impl VirtualFs {
         }
     }
 
+    /// Ensure a directory exists at the given path.
+    fn ensure_directory(
+        tree: &mut HashMap<String, FsEntry>,
+        path: &str,
+        dir_meta_map: &HashMap<String, &DirectoryEntry>,
+    ) {
+        let parts: Vec<&str> = path.split('/').collect();
+        let mut current = tree;
+        let mut current_path = String::new();
+
+        for part in parts {
+            if !current_path.is_empty() {
+                current_path.push('/');
+            }
+            current_path.push_str(part);
+
+            let entry = current.entry(part.to_string()).or_insert_with(|| {
+                let dir_meta = dir_meta_map
+                    .get(&current_path)
+                    .map(|d| DirectoryMetadata {
+                        title: d.title.clone(),
+                        description: d.description.clone(),
+                        icon: d.icon.clone(),
+                        thumbnail: d.thumbnail.clone(),
+                        tags: d.tags.clone(),
+                    })
+                    .unwrap_or_else(|| DirectoryMetadata {
+                        title: part.to_string(),
+                        ..Default::default()
+                    });
+
+                FsEntry::Directory {
+                    children: HashMap::new(),
+                    meta: dir_meta,
+                }
+            });
+
+            current = match entry {
+                FsEntry::Directory { children, .. } => children,
+                FsEntry::File { .. } => return,
+            };
+        }
+    }
+
     /// Create empty filesystem (fallback when manifest fails to load).
     pub fn empty() -> Self {
         let mut content_tree: HashMap<String, FsEntry> = HashMap::new();
@@ -117,8 +212,7 @@ impl VirtualFs {
 
         let root = FsEntry::Directory {
             children: content_tree,
-            description: String::new(),
-            meta: FileMetadata::default(),
+            meta: DirectoryMetadata::default(),
         };
 
         Self { root }
@@ -254,17 +348,17 @@ impl VirtualFs {
                     .iter()
                     .map(|(name, entry)| {
                         let is_dir = entry.is_directory();
-                        let (desc, meta) = match entry {
-                            FsEntry::Directory { meta, .. } => ("directory".to_string(), meta),
+                        let (title, file_meta) = match entry {
+                            FsEntry::Directory { meta, .. } => (meta.title.clone(), None),
                             FsEntry::File {
                                 description, meta, ..
-                            } => (description.clone(), meta),
+                            } => (description.clone(), Some(meta.clone())),
                         };
                         DirEntry {
                             name: name.clone(),
                             is_dir,
-                            description: desc,
-                            meta: meta.clone(),
+                            title,
+                            file_meta,
                         }
                     })
                     .collect();
@@ -361,35 +455,56 @@ impl Default for VirtualFs {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::FileEntry;
 
     fn create_test_fs() -> VirtualFs {
-        let entries = vec![
-            ManifestEntry {
-                path: "blog/hello.md".to_string(),
-                title: "Hello World".to_string(),
-                size: Some(1234),
-                created: Some(1704067200),
-                modified: Some(1704153600),
-                encryption: None,
-            },
-            ManifestEntry {
-                path: "blog/rust.md".to_string(),
-                title: "Learning Rust".to_string(),
-                size: Some(2048),
-                created: None,
-                modified: None,
-                encryption: None,
-            },
-            ManifestEntry {
-                path: "projects/web/app.md".to_string(),
-                title: "Web App".to_string(),
-                size: None,
-                created: None,
-                modified: None,
-                encryption: None,
-            },
-        ];
-        VirtualFs::from_manifest(&entries)
+        let manifest = Manifest {
+            files: vec![
+                FileEntry {
+                    path: "blog/hello.md".to_string(),
+                    title: "Hello World".to_string(),
+                    size: Some(1234),
+                    modified: Some(1704153600),
+                    tags: vec!["rust".to_string(), "intro".to_string()],
+                    encryption: None,
+                },
+                FileEntry {
+                    path: "blog/rust.md".to_string(),
+                    title: "Learning Rust".to_string(),
+                    size: Some(2048),
+                    modified: None,
+                    tags: vec![],
+                    encryption: None,
+                },
+                FileEntry {
+                    path: "projects/web/app.md".to_string(),
+                    title: "Web App".to_string(),
+                    size: None,
+                    modified: None,
+                    tags: vec![],
+                    encryption: None,
+                },
+            ],
+            directories: vec![
+                DirectoryEntry {
+                    path: "blog".to_string(),
+                    title: "Blog Posts".to_string(),
+                    tags: vec!["posts".to_string()],
+                    description: None,
+                    icon: None,
+                    thumbnail: None,
+                },
+                DirectoryEntry {
+                    path: String::new(),
+                    title: "Home".to_string(),
+                    tags: vec!["root".to_string()],
+                    description: None,
+                    icon: None,
+                    thumbnail: None,
+                },
+            ],
+        };
+        VirtualFs::from_manifest(&manifest)
     }
 
     #[test]
@@ -413,6 +528,23 @@ mod tests {
         // Check files were created
         assert!(fs.get_entry("blog/hello.md").is_some());
         assert!(!fs.is_directory("blog/hello.md"));
+    }
+
+    #[test]
+    fn test_directory_metadata() {
+        let fs = create_test_fs();
+
+        // Check root directory title
+        let root_entry = fs.get_entry("").expect("root should exist");
+        assert_eq!(root_entry.dir_meta().unwrap().title, "Home");
+
+        // Check directory title was set from manifest
+        let blog_entry = fs.get_entry("blog").expect("blog should exist");
+        assert_eq!(blog_entry.dir_meta().unwrap().title, "Blog Posts");
+
+        // Directory without metadata should use directory name as title
+        let projects_entry = fs.get_entry("projects").expect("projects should exist");
+        assert_eq!(projects_entry.dir_meta().unwrap().title, "projects");
     }
 
     #[test]

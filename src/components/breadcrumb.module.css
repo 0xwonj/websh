@@ -1,0 +1,102 @@
+/* ==========================================================================
+   Shared Breadcrumb Component
+   ========================================================================== */
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Segment button */
+.segment {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-base);
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.segment:hover:not(:disabled) {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.segment:focus-visible {
+  outline: 2px solid var(--terminal-cyan);
+  outline-offset: 2px;
+}
+
+/* Current segment (not clickable) */
+.segmentCurrent {
+  color: var(--text-primary);
+  cursor: default;
+  /* Allow truncation for long names */
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.segmentCurrent .label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Icon within segment */
+.icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  font-size: 1em;
+}
+
+/* Label text */
+.label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Separator between segments */
+.separator {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 0.8em;
+  flex-shrink: 0;
+}
+
+/* ==========================================================================
+   Mobile Responsive Styles
+   ========================================================================== */
+
+@media (max-width: 768px) {
+  .breadcrumb {
+    gap: 0;
+  }
+
+  .segment {
+    padding: var(--space-1);
+    font-size: var(--font-size-sm);
+  }
+
+  /* Hide labels for all non-current segments on mobile (show icons only) */
+  .segment:not(.segmentCurrent) .label {
+    display: none;
+  }
+
+  /* Current segment keeps its label */
+  .segmentCurrent .label {
+    display: inline;
+  }
+}

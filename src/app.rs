@@ -9,7 +9,7 @@ use crate::components::AppRouter;
 use crate::config::{APP_NAME, MAX_COMMAND_HISTORY, MAX_TERMINAL_HISTORY};
 use crate::core::VirtualFs;
 use crate::models::{
-    AppRoute, ExplorerViewType, MountRegistry, OutputLine, SheetState, ViewMode, WalletState,
+    AppRoute, ExplorerViewType, MountRegistry, OutputLine, Selection, ViewMode, WalletState,
 };
 use crate::utils::RingBuffer;
 
@@ -133,40 +133,66 @@ impl Default for TerminalState {
 /// This struct is `Copy` because all fields are Leptos signals.
 #[derive(Clone, Copy)]
 pub struct ExplorerState {
-    /// Currently selected file path (for preview).
-    pub selected_file: RwSignal<Option<String>>,
+    /// Currently selected item (file or directory).
+    pub selection: RwSignal<Option<Selection>>,
     /// Current view type (list or grid).
     pub view_type: RwSignal<ExplorerViewType>,
-    /// Bottom sheet state.
-    pub sheet_state: RwSignal<SheetState>,
+    /// Forward navigation stack (stores routes to go forward to after going back/up).
+    pub forward_stack: RwSignal<Vec<AppRoute>>,
 }
 
 impl ExplorerState {
     /// Creates a new explorer state with default values.
     pub fn new() -> Self {
         Self {
-            selected_file: RwSignal::new(None),
+            selection: RwSignal::new(None),
             view_type: RwSignal::new(ExplorerViewType::default()),
-            sheet_state: RwSignal::new(SheetState::default()),
+            forward_stack: RwSignal::new(Vec::new()),
         }
     }
 
-    /// Selects a file and opens the preview sheet.
-    pub fn select_file(&self, path: String) {
-        self.selected_file.set(Some(path));
-        self.sheet_state.set(SheetState::Preview);
+    /// Selects an item (file or directory).
+    pub fn select(&self, path: String, is_dir: bool) {
+        self.selection.set(Some(Selection { path, is_dir }));
     }
 
-    /// Clears the selection and closes the sheet.
+    /// Clears the selection.
     pub fn clear_selection(&self) {
-        self.selected_file.set(None);
-        self.sheet_state.set(SheetState::Closed);
+        self.selection.set(None);
     }
 
-    /// Expands the sheet to full screen.
-    #[allow(dead_code)]
-    pub fn expand_sheet(&self) {
-        self.sheet_state.set(SheetState::Expanded);
+    /// Push current route to forward stack (called when navigating back/up).
+    pub fn push_forward(&self, route: AppRoute) {
+        self.forward_stack.update(|stack| stack.push(route));
+    }
+
+    /// Pop from forward stack (called when navigating forward).
+    pub fn pop_forward(&self) -> Option<AppRoute> {
+        let mut result = None;
+        self.forward_stack.update(|stack| {
+            result = stack.pop();
+        });
+        result
+    }
+
+    /// Clear forward stack (called when navigating to a new location, not back/forward).
+    pub fn clear_forward(&self) {
+        self.forward_stack.update(|stack| stack.clear());
+    }
+
+    /// Check if forward navigation is available.
+    pub fn can_go_forward(&self) -> bool {
+        self.forward_stack.with(|stack| !stack.is_empty())
+    }
+
+    /// Toggle between list and grid view.
+    pub fn toggle_view_type(&self) {
+        self.view_type.update(|vt| {
+            *vt = match *vt {
+                ExplorerViewType::List => ExplorerViewType::Grid,
+                ExplorerViewType::Grid => ExplorerViewType::List,
+            };
+        });
     }
 }
 
@@ -199,7 +225,9 @@ impl Default for ExplorerState {
 pub struct AppContext {
     // === Shared State ===
     /// Mount registry for managing multiple filesystem backends.
-    pub mounts: RwSignal<MountRegistry>,
+    /// This is not a signal because mounts are configured once at startup
+    /// and never change during the application lifecycle.
+    pub mounts: StoredValue<MountRegistry>,
     /// Virtual filesystem for file navigation.
     pub fs: RwSignal<VirtualFs>,
     /// Wallet connection state.
@@ -231,7 +259,7 @@ impl AppContext {
 
         Self {
             // Shared state
-            mounts: RwSignal::new(MountRegistry::from_mounts(configured_mounts())),
+            mounts: StoredValue::new(MountRegistry::from_mounts(configured_mounts())),
             fs: RwSignal::new(VirtualFs::empty()),
             wallet: RwSignal::new(WalletState::default()),
 
@@ -259,6 +287,7 @@ impl AppContext {
     }
 
     /// Toggles between Terminal and Explorer view modes.
+    #[allow(dead_code)]
     pub fn toggle_view_mode(&self) {
         self.view_mode.update(|mode| {
             *mode = match *mode {

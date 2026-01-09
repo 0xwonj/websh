@@ -20,15 +20,11 @@ pub enum ExplorerViewType {
     Grid,
 }
 
-/// Bottom sheet state for file preview.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[allow(dead_code)]
-pub enum SheetState {
-    /// Sheet is closed
-    #[default]
-    Closed,
-    /// Preview mode (30-40% height)
-    Preview,
-    /// Full screen mode
-    Expanded,
+/// Selected item in the explorer (file or directory).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Selection {
+    /// Path relative to mount root.
+    pub path: String,
+    /// Whether this is a directory.
+    pub is_dir: bool,
 }

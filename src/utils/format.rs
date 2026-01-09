@@ -101,6 +101,20 @@ pub fn format_elapsed(ms: f64) -> String {
     format!("[{:8.3}]", ms / 1000.0)
 }
 
+/// Join a base path with a name, handling empty base correctly.
+///
+/// Examples:
+/// - `join_path("", "foo")` -> `"foo"`
+/// - `join_path("dir", "file")` -> `"dir/file"`
+/// - `join_path("a/b", "c")` -> `"a/b/c"`
+pub fn join_path(base: &str, name: &str) -> String {
+    if base.is_empty() {
+        name.to_string()
+    } else {
+        format!("{}/{}", base, name)
+    }
+}
+
 /// Format Ethereum address for display (0x1234...5678).
 pub fn format_eth_address(address: &str) -> String {
     const PREFIX_LEN: usize = 6;
@@ -146,5 +160,12 @@ mod tests {
     fn test_format_elapsed() {
         assert_eq!(format_elapsed(123.0), "[   0.123]");
         assert_eq!(format_elapsed(1234.0), "[   1.234]");
+    }
+
+    #[test]
+    fn test_join_path() {
+        assert_eq!(join_path("", "foo"), "foo");
+        assert_eq!(join_path("dir", "file"), "dir/file");
+        assert_eq!(join_path("a/b", "c"), "a/b/c");
     }
 }

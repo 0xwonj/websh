@@ -23,9 +23,8 @@
   height: 40%;
 }
 
-.sheetExpanded {
-  transform: translateY(0);
-  height: 80vh;
+.sheetDragging {
+  transition: none;
 }
 
 /* Drag handle */
@@ -203,6 +202,84 @@
   text-align: center;
 }
 
+.error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  text-align: center;
+  color: var(--terminal-red);
+}
+
+.error span {
+  font-size: 2rem;
+}
+
+/* ==========================================================================
+   Directory Preview
+   ========================================================================== */
+
+.dirPreview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  text-align: center;
+}
+
+.dirIcon {
+  font-size: 2.5rem;
+  color: var(--terminal-yellow);
+}
+
+.dirTitle {
+  color: var(--text-primary);
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+}
+
+.dirDescription {
+  color: var(--text-dim);
+  margin: 0;
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+}
+
+.dirInfo {
+  color: var(--text-primary);
+  margin: 0;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+}
+
+.dirDetails {
+  color: var(--text-muted);
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+
+.dirTags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}
+
+.dirTag {
+  background-color: var(--bg-tertiary);
+  color: var(--text-dim);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-mono);
+  padding: 2px var(--space-2);
+  border-radius: 4px;
+}
+
 /* ==========================================================================
    Image Preview
    ========================================================================== */
@@ -227,123 +304,6 @@
   margin: 0;
   font-size: var(--font-size-sm);
   text-align: center;
-}
-
-/* ==========================================================================
-   Markdown Styling
-   ========================================================================== */
-
-.markdown {
-  font-size: var(--font-size-sm);
-  line-height: 1.6;
-  color: var(--text-primary);
-}
-
-.markdown :global(h1) {
-  font-size: var(--font-size-lg);
-  font-weight: 700;
-  color: var(--terminal-cyan);
-  margin: 0 0 var(--space-3) 0;
-  padding-bottom: var(--space-2);
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.markdown :global(h2) {
-  font-size: var(--font-size-base);
-  font-weight: 700;
-  color: var(--terminal-green);
-  margin: var(--space-4) 0 var(--space-2) 0;
-}
-
-.markdown :global(h3) {
-  font-size: var(--font-size-sm);
-  font-weight: 700;
-  color: var(--terminal-yellow);
-  margin: var(--space-3) 0 var(--space-2) 0;
-}
-
-.markdown :global(p) {
-  margin: 0 0 var(--space-3) 0;
-}
-
-.markdown :global(a) {
-  color: var(--terminal-cyan);
-  text-decoration: underline;
-}
-
-.markdown :global(a:hover) {
-  color: var(--terminal-green);
-}
-
-.markdown :global(strong) {
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.markdown :global(em) {
-  font-style: italic;
-}
-
-.markdown :global(code) {
-  background-color: var(--bg-tertiary);
-  padding: 0.125rem 0.25rem;
-  border-radius: 3px;
-  color: var(--terminal-cyan);
-  font-family: var(--font-mono);
-  font-size: 0.85em;
-}
-
-.markdown :global(pre) {
-  background-color: var(--bg-tertiary);
-  padding: var(--space-3);
-  border-radius: 4px;
-  overflow-x: auto;
-  margin: var(--space-3) 0;
-}
-
-.markdown :global(pre code) {
-  background-color: transparent;
-  padding: 0;
-}
-
-.markdown :global(ul),
-.markdown :global(ol) {
-  margin: 0 0 var(--space-3) 0;
-  padding-left: 0;
-  list-style-position: inside;
-}
-
-.markdown :global(ul) {
-  list-style-type: disc;
-}
-
-.markdown :global(ol) {
-  list-style-type: decimal;
-}
-
-.markdown :global(li) {
-  margin-bottom: var(--space-1);
-  padding-left: var(--space-3);
-  text-indent: -1.2em;
-  margin-left: 1.2em;
-}
-
-.markdown :global(li)::marker {
-  color: var(--terminal-green);
-}
-
-.markdown :global(blockquote) {
-  border-left: 2px solid var(--terminal-purple);
-  padding-left: var(--space-3);
-  margin: var(--space-3) 0;
-  font-style: italic;
-  color: var(--text-muted);
-}
-
-.markdown :global(img) {
-  max-width: 100%;
-  height: auto;
-  border-radius: 4px;
 }
 
 /* ==========================================================================

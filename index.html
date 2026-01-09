@@ -19,9 +19,9 @@
     <!-- Note: 'unsafe-inline' and 'unsafe-eval' needed for Trunk dev server -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self';
                  script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval';
-                 style-src 'self' 'unsafe-inline';
+                 style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
                  img-src 'self' data: https:;
-                 font-src 'self';
+                 font-src 'self' https://fonts.gstatic.com;
                  connect-src 'self' https://*.githubusercontent.com https://*.infura.io https://*.etherscan.io https://*.cloudflare-eth.com ws://localhost:* ws://127.0.0.1:*;
                  frame-src 'self' https://*.githubusercontent.com https://mozilla.github.io;
                  worker-src 'self' blob:;

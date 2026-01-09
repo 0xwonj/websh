@@ -12,9 +12,6 @@ use serde::{Deserialize, Serialize};
 pub struct FileMetadata {
     /// File size in bytes (None for directories or unknown)
     pub size: Option<u64>,
-    /// Creation time as Unix timestamp (reserved for future use)
-    #[allow(dead_code)]
-    pub created: Option<u64>,
     /// Last modification time as Unix timestamp
     pub modified: Option<u64>,
     /// Encryption details (None = unencrypted)
@@ -26,6 +23,21 @@ impl FileMetadata {
     pub fn is_encrypted(&self) -> bool {
         self.encryption.is_some()
     }
+}
+
+/// Metadata for directories (from .meta.json).
+#[derive(Clone, Debug, Default)]
+pub struct DirectoryMetadata {
+    /// Display title
+    pub title: String,
+    /// Longer description text
+    pub description: Option<String>,
+    /// Icon identifier (e.g., "folder-code")
+    pub icon: Option<String>,
+    /// Thumbnail image path
+    pub thumbnail: Option<String>,
+    /// Tags for categorization
+    pub tags: Vec<String>,
 }
 
 /// Encryption information for access control.
@@ -67,7 +79,7 @@ impl fmt::Display for DisplayPermissions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{}{}{}{}",
+            "{} {} {} {}",
             if self.is_dir { 'd' } else { '-' },
             if self.read { 'r' } else { '-' },
             if self.write { 'w' } else { '-' },
@@ -77,36 +89,61 @@ impl fmt::Display for DisplayPermissions {
 }
 
 // =============================================================================
-// Manifest Entry
+// Manifest Types
 // =============================================================================
 
-/// Entry from manifest.json (external content repository)
+/// Root manifest structure from manifest.json
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct ManifestEntry {
+pub struct Manifest {
+    /// File entries
+    pub files: Vec<FileEntry>,
+    /// Directory metadata entries
+    pub directories: Vec<DirectoryEntry>,
+}
+
+/// File entry from manifest.json
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct FileEntry {
     /// File path (relative to content root)
     pub path: String,
     /// Display title/description
     pub title: String,
     /// File size in bytes
     pub size: Option<u64>,
-    /// Creation time (Unix timestamp)
-    pub created: Option<u64>,
     /// Last modification time (Unix timestamp)
     pub modified: Option<u64>,
+    /// Tags for categorization
+    pub tags: Vec<String>,
     /// Encryption details (None = unencrypted)
     pub encryption: Option<EncryptionInfo>,
 }
 
-impl ManifestEntry {
+impl FileEntry {
     /// Convert to FileMetadata
     pub fn to_metadata(&self) -> FileMetadata {
         FileMetadata {
             size: self.size,
-            created: self.created,
             modified: self.modified,
             encryption: self.encryption.clone(),
         }
     }
+}
+
+/// Directory metadata entry from manifest.json
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct DirectoryEntry {
+    /// Directory path (relative to content root, empty string for root)
+    pub path: String,
+    /// Display title
+    pub title: String,
+    /// Tags for categorization
+    pub tags: Vec<String>,
+    /// Longer description text
+    pub description: Option<String>,
+    /// Icon identifier (e.g., "folder-code", "folder-images")
+    pub icon: Option<String>,
+    /// Thumbnail image path (relative to content root)
+    pub thumbnail: Option<String>,
 }
 
 /// Supported file types for the reader
@@ -157,8 +194,7 @@ mod tests {
 pub enum FsEntry {
     Directory {
         children: HashMap<String, FsEntry>,
-        description: String,
-        meta: FileMetadata,
+        meta: DirectoryMetadata,
     },
     File {
         content_path: Option<String>,
@@ -199,21 +235,21 @@ impl FsEntry {
         }
     }
 
-    /// Get the description of this entry.
+    /// Get the file metadata (files only).
     #[allow(dead_code)]
-    pub fn description(&self) -> &str {
+    pub fn file_meta(&self) -> Option<&FileMetadata> {
         match self {
-            FsEntry::Directory { description, .. } => description,
-            FsEntry::File { description, .. } => description,
+            FsEntry::File { meta, .. } => Some(meta),
+            FsEntry::Directory { .. } => None,
         }
     }
 
-    /// Get the metadata of this entry.
+    /// Get the directory metadata (directories only).
     #[allow(dead_code)]
-    pub fn meta(&self) -> &FileMetadata {
+    pub fn dir_meta(&self) -> Option<&DirectoryMetadata> {
         match self {
-            FsEntry::Directory { meta, .. } => meta,
-            FsEntry::File { meta, .. } => meta,
+            FsEntry::Directory { meta, .. } => Some(meta),
+            FsEntry::File { .. } => None,
         }
     }
 }

@@ -4,9 +4,9 @@
 //! against the virtual filesystem and returns results.
 
 use crate::app::TerminalState;
-use crate::config::{ASCII_PROFILE, HELP_TEXT, PROFILE_FILE};
+use crate::config::{ASCII_PROFILE, HELP_TEXT, PROFILE_FILE, configured_mounts};
 use crate::core::{VirtualFs, env, wallet};
-use crate::models::{AppRoute, OutputLine, WalletState};
+use crate::models::{AppRoute, Mount, OutputLine, WalletState};
 use crate::utils::sysinfo;
 
 use super::{Command, CommandResult};
@@ -34,8 +34,8 @@ pub fn execute_command(
     let current_path = current_route.fs_path();
 
     match cmd {
-        Command::Ls { path, long } => execute_ls(path, long, wallet_state, fs, current_path),
-        Command::Cd(path) => execute_cd(path, fs, current_path),
+        Command::Ls { path, long } => execute_ls(path, long, wallet_state, fs, current_route),
+        Command::Cd(path) => execute_cd(path, fs, current_route),
         Command::Pwd => CommandResult::output(vec![OutputLine::text(current_route.display_path())]),
         Command::Cat(file) => execute_cat(file, fs, current_path, current_route),
         Command::Whoami => {
@@ -65,48 +65,43 @@ fn execute_ls(
     long: bool,
     wallet_state: &WalletState,
     fs: &VirtualFs,
-    current_path: &str,
+    current_route: &AppRoute,
 ) -> CommandResult {
     let target = path.as_ref().map(|p| p.as_str()).unwrap_or(".");
+
+    // Check if we're at Root or targeting Root
+    let at_root = matches!(current_route, AppRoute::Root);
+    let target_is_current = target == "." || target.is_empty();
+    let target_is_root = target == "/" || target == "..";
+
+    // If at Root and listing current directory, show mounts
+    if at_root && (target_is_current || target_is_root) {
+        return list_mounts(long);
+    }
+
+    // If at Root and targeting a mount alias, resolve it
+    if at_root {
+        if resolve_mount_alias(target).is_some() {
+            // List the mount's root directory
+            if let Some(entries) = fs.list_dir("") {
+                let output = format_ls_output(&entries, "", long, wallet_state, fs);
+                return CommandResult::output(output);
+            }
+        }
+        return CommandResult::output(vec![OutputLine::error(format!(
+            "ls: cannot access '{}': No such file or directory",
+            target
+        ))]);
+    }
+
+    // Normal filesystem ls
+    let current_path = current_route.fs_path();
     let resolved = fs.resolve_path(current_path, target);
 
     match resolved {
         Some(resolved_path) => {
             if let Some(entries) = fs.list_dir(&resolved_path) {
-                let output = if long {
-                    // Long format: permissions, size, date, name
-                    entries
-                        .iter()
-                        .map(|entry| {
-                            let entry_path = if resolved_path.is_empty() {
-                                entry.name.clone()
-                            } else {
-                                format!("{}/{}", resolved_path, &entry.name)
-                            };
-                            let fs_entry = fs.get_entry(&entry_path);
-                            let perms = fs_entry
-                                .map(|e| fs.get_permissions(e, wallet_state))
-                                .unwrap_or_default();
-                            OutputLine::long_entry(entry, &perms)
-                        })
-                        .collect()
-                } else {
-                    // Short format: name and description
-                    entries
-                        .iter()
-                        .map(|entry| {
-                            if entry.is_dir {
-                                OutputLine::dir_entry(&entry.name, &entry.description)
-                            } else {
-                                OutputLine::file_entry(
-                                    &entry.name,
-                                    &entry.description,
-                                    entry.meta.is_encrypted(),
-                                )
-                            }
-                        })
-                        .collect()
-                };
+                let output = format_ls_output(&entries, &resolved_path, long, wallet_state, fs);
                 CommandResult::output(output)
             } else {
                 CommandResult::output(vec![OutputLine::error(format!(
@@ -122,13 +117,139 @@ fn execute_ls(
     }
 }
 
+/// Format ls output for directory entries.
+fn format_ls_output(
+    entries: &[crate::core::DirEntry],
+    resolved_path: &str,
+    long: bool,
+    wallet_state: &WalletState,
+    fs: &VirtualFs,
+) -> Vec<OutputLine> {
+    if long {
+        entries
+            .iter()
+            .map(|entry| {
+                let entry_path = if resolved_path.is_empty() {
+                    entry.name.clone()
+                } else {
+                    format!("{}/{}", resolved_path, &entry.name)
+                };
+                let fs_entry = fs.get_entry(&entry_path);
+                let perms = fs_entry
+                    .map(|e| fs.get_permissions(e, wallet_state))
+                    .unwrap_or_default();
+                OutputLine::long_entry(entry, &perms)
+            })
+            .collect()
+    } else {
+        entries
+            .iter()
+            .map(|entry| {
+                if entry.is_dir {
+                    OutputLine::dir_entry(&entry.name, &entry.title)
+                } else {
+                    let is_encrypted = entry
+                        .file_meta
+                        .as_ref()
+                        .map(|m| m.is_encrypted())
+                        .unwrap_or(false);
+                    OutputLine::file_entry(&entry.name, &entry.title, is_encrypted)
+                }
+            })
+            .collect()
+    }
+}
+
+/// List available mounts as directory entries.
+fn list_mounts(long: bool) -> CommandResult {
+    let mounts = configured_mounts();
+
+    let output: Vec<OutputLine> = if long {
+        mounts
+            .iter()
+            .map(|mount| {
+                let perms = crate::models::DisplayPermissions {
+                    is_dir: true,
+                    read: true,
+                    write: false,
+                    execute: true,
+                };
+                let entry = crate::core::DirEntry {
+                    name: mount.alias().to_string(),
+                    is_dir: true,
+                    title: mount.description(),
+                    file_meta: None,
+                };
+                OutputLine::long_entry(&entry, &perms)
+            })
+            .collect()
+    } else {
+        mounts
+            .iter()
+            .map(|mount| OutputLine::dir_entry(mount.alias(), mount.description()))
+            .collect()
+    };
+
+    CommandResult::output(output)
+}
+
+/// Resolve a mount alias to a Mount.
+fn resolve_mount_alias(alias: &str) -> Option<Mount> {
+    configured_mounts().into_iter().find(|m| m.alias() == alias)
+}
+
 /// Execute `cd` command.
-fn execute_cd(path: super::PathArg, fs: &VirtualFs, current_path: &str) -> CommandResult {
-    match fs.resolve_path(current_path, path.as_str()) {
-        Some(new_path) if fs.is_directory(&new_path) => {
-            let route = fs_path_to_route(&new_path);
-            CommandResult::navigate(route)
+fn execute_cd(path: super::PathArg, fs: &VirtualFs, current_route: &AppRoute) -> CommandResult {
+    let target = path.as_str();
+    let at_root = matches!(current_route, AppRoute::Root);
+
+    // Handle special paths
+    match target {
+        // cd / always goes to Root
+        "/" => return CommandResult::navigate(AppRoute::Root),
+
+        // cd ~ always goes to home mount root
+        "~" => return CommandResult::navigate(AppRoute::home()),
+
+        // cd .. from Root stays at Root
+        ".." if at_root => return CommandResult::navigate(AppRoute::Root),
+
+        // cd .. from mount root goes to Root
+        ".." if current_route.fs_path().is_empty() => {
+            return CommandResult::navigate(AppRoute::Root);
         }
+
+        _ => {}
+    }
+
+    // If at Root, target should be a mount alias
+    if at_root {
+        if let Some(mount) = resolve_mount_alias(target) {
+            return CommandResult::navigate(AppRoute::Browse {
+                mount,
+                path: String::new(),
+            });
+        }
+        return CommandResult::output(vec![OutputLine::error(format!(
+            "cd: no such file or directory: {}",
+            target
+        ))]);
+    }
+
+    // Normal filesystem cd within a mount
+    let current_path = current_route.fs_path();
+    let current_mount = current_route.mount().cloned().unwrap_or_else(|| {
+        configured_mounts()
+            .into_iter()
+            .next()
+            .expect("At least one mount must be configured")
+    });
+
+    match fs.resolve_path(current_path, target) {
+        Some(new_path) if fs.is_directory(&new_path) => CommandResult::navigate(AppRoute::Browse {
+            mount: current_mount,
+            path: new_path,
+        }),
         Some(_) => CommandResult::output(vec![OutputLine::error(format!(
             "cd: not a directory: {}",
             path
@@ -145,8 +266,23 @@ fn execute_cat(
     file: super::PathArg,
     fs: &VirtualFs,
     current_path: &str,
-    _current_route: &AppRoute,
+    current_route: &AppRoute,
 ) -> CommandResult {
+    // cat doesn't work at Root (no files there)
+    if matches!(current_route, AppRoute::Root) {
+        return CommandResult::output(vec![OutputLine::error(format!(
+            "cat: {}: No such file or directory",
+            file
+        ))]);
+    }
+
+    let current_mount = current_route.mount().cloned().unwrap_or_else(|| {
+        configured_mounts()
+            .into_iter()
+            .next()
+            .expect("At least one mount must be configured")
+    });
+
     let resolved = fs.resolve_path(current_path, file.as_str());
 
     match resolved {
@@ -167,14 +303,8 @@ fn execute_cat(
                 CommandResult::output(lines)
             } else if fs.get_file_content_path(&resolved_path).is_some() {
                 // Navigate to file route (opens reader overlay)
-                let route = fs_path_to_route(&resolved_path);
                 CommandResult::navigate(AppRoute::Read {
-                    mount: route.mount().cloned().unwrap_or_else(|| {
-                        crate::config::configured_mounts()
-                            .into_iter()
-                            .next()
-                            .unwrap()
-                    }),
+                    mount: current_mount,
                     path: resolved_path,
                 })
             } else {
@@ -293,20 +423,5 @@ fn execute_unset(key: String) -> CommandResult {
         }
     } else {
         CommandResult::empty() // Silently succeed if variable doesn't exist
-    }
-}
-
-/// Convert a filesystem path to an AppRoute.
-///
-/// The path is relative (e.g., "" for root, "blog" for subdirectory).
-fn fs_path_to_route(path: &str) -> AppRoute {
-    let mount = crate::config::configured_mounts()
-        .into_iter()
-        .next()
-        .expect("At least one mount must be configured");
-
-    AppRoute::Browse {
-        mount,
-        path: path.to_string(),
     }
 }

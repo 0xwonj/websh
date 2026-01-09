@@ -175,7 +175,6 @@
 .perms {
   color: var(--text-dim);
   justify-content: center;
-  letter-spacing: 0.4em;
 }
 
 .chevron {

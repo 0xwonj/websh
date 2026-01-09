@@ -8,7 +8,7 @@ use wasm_bindgen_futures::spawn_local;
 use crate::app::AppContext;
 use crate::config::{APP_NAME, APP_TAGLINE, APP_VERSION, ASCII_BANNER, boot_delays, cache};
 use crate::core::{VirtualFs, env, wallet};
-use crate::models::{ManifestEntry, OutputLine, ViewMode, WalletState};
+use crate::models::{Manifest, OutputLine, ViewMode, WalletState};
 use crate::utils::dom::is_mobile_or_tablet;
 use crate::utils::fetch_json_cached;
 use crate::utils::format::{format_elapsed, format_eth_address};
@@ -60,25 +60,27 @@ pub fn run(ctx: AppContext) {
         )));
 
         // Fetch manifests for all configured mounts
-        let mounts = ctx.mounts.get();
-        let mut total_entries = 0;
-        let mut all_entries = Vec::new();
+        let mounts = ctx.mounts.get_value();
+        let mut combined_manifest = Manifest {
+            files: Vec::new(),
+            directories: Vec::new(),
+        };
         let mut mount_errors = Vec::new();
 
         for mount in mounts.all() {
             let manifest_url = mount.manifest_url();
             let cache_key = format!("{}_{}", cache::MANIFEST_KEY, mount.alias());
 
-            match fetch_json_cached::<Vec<ManifestEntry>>(&manifest_url, &cache_key).await {
-                Ok(entries) => {
-                    let count = entries.len();
-                    total_entries += count;
-                    all_entries.extend(entries);
+            match fetch_json_cached::<Manifest>(&manifest_url, &cache_key).await {
+                Ok(manifest) => {
+                    let file_count = manifest.files.len();
+                    combined_manifest.files.extend(manifest.files);
+                    combined_manifest.directories.extend(manifest.directories);
                     ctx.terminal.push_output(OutputLine::success(format!(
-                        "{} Mounted '{}' ({} entries)",
+                        "{} Mounted '{}' ({} files)",
                         format_elapsed(elapsed()),
                         mount.alias(),
-                        count
+                        file_count
                     )));
                 }
                 Err(e) => {
@@ -93,13 +95,14 @@ pub fn run(ctx: AppContext) {
             }
         }
 
-        // Build filesystem from all entries
-        if !all_entries.is_empty() {
-            ctx.fs.set(VirtualFs::from_manifest(&all_entries));
+        // Build filesystem from manifest
+        if !combined_manifest.files.is_empty() {
+            let total_files = combined_manifest.files.len();
+            ctx.fs.set(VirtualFs::from_manifest(&combined_manifest));
             ctx.terminal.push_output(OutputLine::success(format!(
-                "{} Total: {} file entries mounted",
+                "{} Total: {} files mounted",
                 format_elapsed(elapsed()),
-                total_entries
+                total_files
             )));
         } else if mount_errors.is_empty() {
             ctx.terminal.push_output(OutputLine::text(format!(

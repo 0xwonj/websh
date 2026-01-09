@@ -14,8 +14,11 @@ mod route;
 mod terminal;
 mod wallet;
 
-pub use explorer::{ExplorerViewType, SheetState, ViewMode};
-pub use filesystem::{DisplayPermissions, FileMetadata, FileType, FsEntry, ManifestEntry};
+pub use explorer::{ExplorerViewType, Selection, ViewMode};
+pub use filesystem::{
+    DirectoryEntry, DirectoryMetadata, DisplayPermissions, FileMetadata, FileType, FsEntry,
+    Manifest,
+};
 #[cfg(test)]
 pub use filesystem::{EncryptionInfo, WrappedKey};
 pub use mount::{Mount, MountRegistry};

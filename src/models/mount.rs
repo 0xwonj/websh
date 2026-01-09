@@ -19,8 +19,10 @@ pub enum Mount {
     GitHub {
         /// URL alias (e.g., "~", "work")
         alias: String,
-        /// Base URL for content fetching
+        /// Base URL for manifest and root
         base_url: String,
+        /// Optional prefix for content paths (e.g., "~" if content is in ~/*)
+        content_prefix: Option<String>,
     },
 
     /// IPFS gateway
@@ -44,10 +46,25 @@ pub enum Mount {
 
 impl Mount {
     /// Create a new GitHub mount.
+    #[cfg(test)]
     pub fn github(alias: impl Into<String>, base_url: impl Into<String>) -> Self {
         Self::GitHub {
             alias: alias.into(),
             base_url: base_url.into(),
+            content_prefix: None,
+        }
+    }
+
+    /// Create a new GitHub mount with content prefix.
+    pub fn github_with_prefix(
+        alias: impl Into<String>,
+        base_url: impl Into<String>,
+        content_prefix: impl Into<String>,
+    ) -> Self {
+        Self::GitHub {
+            alias: alias.into(),
+            base_url: base_url.into(),
+            content_prefix: Some(content_prefix.into()),
         }
     }
 
@@ -94,7 +111,7 @@ impl Mount {
         }
     }
 
-    /// Get base URL for content fetching.
+    /// Get base URL (for manifest).
     pub fn base_url(&self) -> String {
         match self {
             Self::GitHub { base_url, .. } => base_url.clone(),
@@ -109,9 +126,33 @@ impl Mount {
         }
     }
 
+    /// Get content URL base (includes content_prefix if set).
+    pub fn content_base_url(&self) -> String {
+        match self {
+            Self::GitHub {
+                base_url,
+                content_prefix,
+                ..
+            } => match content_prefix {
+                Some(prefix) => format!("{}/{}", base_url, prefix),
+                None => base_url.clone(),
+            },
+            _ => self.base_url(),
+        }
+    }
+
     /// Get the manifest URL for this mount.
     pub fn manifest_url(&self) -> String {
         format!("{}/manifest.json", self.base_url())
+    }
+
+    /// Get a short description of this mount's backend type.
+    pub fn description(&self) -> String {
+        match self {
+            Self::GitHub { .. } => "github".to_string(),
+            Self::Ipfs { cid, .. } => format!("ipfs:{}", &cid[..8.min(cid.len())]),
+            Self::Ens { name, .. } => format!("ens:{}", name),
+        }
     }
 }
 

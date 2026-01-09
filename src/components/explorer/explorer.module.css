@@ -97,67 +97,37 @@
 }
 
 /* ==========================================================================
-   Breadcrumb Path
+   Header Title (current location name)
    ========================================================================== */
 
-.breadcrumb {
+.title {
   position: absolute;
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
   display: flex;
   align-items: center;
-  gap: 0;
+  gap: var(--space-2);
   font-family: var(--font-mono);
   font-size: var(--font-size-base);
+  color: var(--text-primary);
+  font-weight: 500;
   max-width: calc(100% - 20rem);
   overflow: hidden;
 }
 
-.breadcrumbSegment {
+.titleIcon {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1) var(--space-2);
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-family: inherit;
-  font-size: inherit;
-  cursor: pointer;
-  border-radius: 4px;
-  transition: background-color 0.15s, color 0.15s;
-  white-space: nowrap;
-  line-height: 1.2;
-}
-
-.breadcrumbSegment:hover {
-  background-color: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-
-.breadcrumbSegmentCurrent {
-  color: var(--text-primary);
-  font-weight: 600;
-  cursor: default;
-}
-
-.breadcrumbSegmentCurrent:hover {
-  background-color: transparent;
-}
-
-.breadcrumbSeparator {
-  color: var(--text-dim);
-  font-size: 0.875rem;
+  color: var(--terminal-cyan);
+  font-size: 1.125rem;
   flex-shrink: 0;
-  display: flex;
-  align-items: center;
 }
 
-.breadcrumbIcon {
-  font-size: 1rem;
-  display: flex;
-  align-items: center;
+.titleLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Home button in nav group - no special styling needed */
@@ -328,7 +298,7 @@
     padding: var(--space-2) var(--space-3);
   }
 
-  .breadcrumb {
+  .title {
     font-size: var(--font-size-sm);
   }
 
@@ -359,20 +329,10 @@
     padding: var(--space-2);
   }
 
-  /* Hide home button on mobile */
-  .navButtonHome {
-    display: none;
-  }
 
-  .breadcrumb {
-    position: static;
-    transform: none;
-    flex: 1;
-    min-width: 0;
-    max-width: none;
+  .title {
     font-size: var(--font-size-base);
-    justify-content: flex-start;
-    padding-left: var(--space-2);
+    max-width: calc(100% - 10rem);
   }
 
   .fileListPane {

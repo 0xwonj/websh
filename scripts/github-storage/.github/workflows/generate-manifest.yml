@@ -1,0 +1,53 @@
+name: Generate Manifest
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '~/**/*.md'
+      - '~/**/*.pdf'
+      - '~/**/*.png'
+      - '~/**/*.jpg'
+      - '~/**/*.jpeg'
+      - '~/**/*.gif'
+      - '~/**/*.webp'
+      - '~/**/*.svg'
+      - '~/**/*.link'
+      - '~/**/*.enc'
+      - '~/**/*.keys'
+      - '~/**/.meta.json'
+      - 'generate-manifest.py'
+      - '.github/workflows/generate-manifest.yml'
+    paths-ignore:
+      - 'manifest.json'
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0  # Full history for git log timestamps
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      - name: Generate manifest.json
+        run: python3 generate-manifest.py
+
+      - name: Commit manifest
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add manifest.json
+          if git diff --staged --quiet; then
+            echo "No changes to manifest.json"
+          else
+            git commit -m "chore: update manifest.json"
+            git push
+          fi

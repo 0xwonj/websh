@@ -11,8 +11,11 @@
 //! - **hashchange events**: Browser back/forward buttons work automatically
 
 use leptos::prelude::*;
-use wasm_bindgen::prelude::*;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::Closure;
 
+#[cfg(target_arch = "wasm32")]
+use crate::app::AppContext;
 use crate::components::reader::Reader;
 use crate::components::terminal::Shell;
 use crate::components::terminal::shell::OVERLAY_CLASS;
@@ -26,8 +29,8 @@ use crate::utils::dom::focus_terminal_input;
 /// Main application router.
 ///
 /// Sets up hash-based routing with the following structure:
-/// - `#/` → Redirects to `#/~/`
-/// - `#/~/` → Home directory (Browse)
+/// - `#/` → Root (mount selection)
+/// - `#/~/` → Home mount directory (Browse)
 /// - `#/~/path/` → Browse directory
 /// - `#/~/path/file.ext` → Read file (with overlay)
 #[component]
@@ -35,8 +38,10 @@ pub fn AppRouter() -> impl IntoView {
     // Create route signal from current URL hash
     let route = RwSignal::new(AppRoute::current());
 
-    // Set up hashchange event listener
-    Effect::new(move |_| {
+    // Set up hashchange event listener (runs once on mount)
+    #[cfg(target_arch = "wasm32")]
+    {
+        use wasm_bindgen::JsCast;
         let closure = Closure::wrap(Box::new(move || {
             route.set(AppRoute::current());
         }) as Box<dyn Fn()>);
@@ -48,15 +53,10 @@ pub fn AppRouter() -> impl IntoView {
 
         // Keep the closure alive for the lifetime of the app
         closure.forget();
-    });
+    }
 
-    // Redirect root to home on initial load
-    Effect::new(move |_| {
-        if matches!(route.get(), AppRoute::Root) {
-            AppRoute::home().replace();
-            route.set(AppRoute::home());
-        }
-    });
+    // Note: Root is now a valid route showing mount selection
+    // No redirect needed
 
     // Focus terminal input when returning from reader overlay
     Effect::new(move |prev_was_file: Option<bool>| {
@@ -92,9 +92,15 @@ pub fn AppRouter() -> impl IntoView {
 /// Closes by navigating to the parent directory.
 #[component]
 fn ReaderOverlay(route: Memo<AppRoute>) -> impl IntoView {
-    // Close handler - navigate to parent directory
+    #[cfg(target_arch = "wasm32")]
+    let ctx = use_context::<AppContext>().expect("AppContext must be provided");
+
+    // Close handler - navigate to parent directory, push current file to forward stack
     let on_close = Callback::new(move |_: ()| {
-        route.get().parent().push();
+        let current = route.get();
+        #[cfg(target_arch = "wasm32")]
+        ctx.explorer.push_forward(current.clone());
+        current.parent().push();
     });
 
     view! {

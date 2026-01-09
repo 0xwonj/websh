@@ -404,6 +404,12 @@
   /* inherits typography from .content :global() rules */
 }
 
+/* Raw text content (for unsupported file types) */
+.rawText {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* PDF Viewer */
 .pdfViewer {
   width: 100%;

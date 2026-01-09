@@ -186,8 +186,27 @@ use crate::models::Mount;
 /// ]
 /// ```
 pub fn configured_mounts() -> Vec<Mount> {
-    vec![Mount::github(
+    vec![Mount::github_with_prefix(
         "~",
         "https://raw.githubusercontent.com/0xwonj/db/main",
+        "~",
     )]
+}
+
+/// Get the default (home) mount.
+///
+/// Returns the first configured mount, which is typically the home mount ("~").
+/// Panics if no mounts are configured.
+pub fn default_mount() -> Mount {
+    configured_mounts()
+        .into_iter()
+        .next()
+        .expect("At least one mount must be configured")
+}
+
+/// Get the default base URL for content fetching.
+///
+/// Returns the content base URL of the default mount.
+pub fn default_base_url() -> String {
+    default_mount().content_base_url()
 }

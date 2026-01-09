@@ -1,0 +1,143 @@
+/* Markdown - Shared CSS Module */
+/* Common markdown styling for preview panel and bottom sheet */
+
+.markdown {
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+.markdown :global(h1) {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--terminal-cyan);
+  margin: 0 0 var(--space-3) 0;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.markdown :global(h2) {
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  color: var(--terminal-green);
+  margin: var(--space-4) 0 var(--space-2) 0;
+}
+
+.markdown :global(h3) {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--terminal-yellow);
+  margin: var(--space-3) 0 var(--space-2) 0;
+}
+
+.markdown :global(p) {
+  margin: 0 0 var(--space-3) 0;
+}
+
+.markdown :global(a) {
+  color: var(--terminal-cyan);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown :global(a:hover) {
+  color: var(--terminal-green);
+}
+
+.markdown :global(strong) {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.markdown :global(em) {
+  font-style: italic;
+}
+
+.markdown :global(code) {
+  background-color: var(--bg-tertiary);
+  padding: 0.125rem 0.25rem;
+  border-radius: 3px;
+  color: var(--terminal-cyan);
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+
+.markdown :global(pre) {
+  background-color: var(--bg-tertiary);
+  padding: var(--space-3);
+  border-radius: 4px;
+  overflow-x: auto;
+  margin: var(--space-3) 0;
+  border: 1px solid var(--border-subtle);
+}
+
+.markdown :global(pre code) {
+  background-color: transparent;
+  padding: 0;
+}
+
+.markdown :global(ul),
+.markdown :global(ol) {
+  margin: 0 0 var(--space-3) 0;
+  padding-left: 0;
+  list-style-position: inside;
+}
+
+.markdown :global(ul) {
+  list-style-type: disc;
+}
+
+.markdown :global(ol) {
+  list-style-type: decimal;
+}
+
+.markdown :global(li) {
+  margin-bottom: var(--space-1);
+  padding-left: var(--space-3);
+  text-indent: -1.2em;
+  margin-left: 1.2em;
+}
+
+.markdown :global(li)::marker {
+  color: var(--terminal-green);
+}
+
+.markdown :global(blockquote) {
+  border-left: 2px solid var(--terminal-purple);
+  padding-left: var(--space-3);
+  margin: var(--space-3) 0;
+  font-style: italic;
+  color: var(--text-muted);
+}
+
+.markdown :global(hr) {
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  margin: var(--space-4) 0;
+}
+
+.markdown :global(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: var(--space-3) 0;
+  font-size: var(--font-size-xs);
+}
+
+.markdown :global(th),
+.markdown :global(td) {
+  border: 1px solid var(--border-subtle);
+  padding: var(--space-1) var(--space-2);
+  text-align: left;
+}
+
+.markdown :global(th) {
+  background-color: var(--bg-tertiary);
+  color: var(--terminal-cyan);
+  font-weight: 600;
+}
+
+.markdown :global(img) {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}

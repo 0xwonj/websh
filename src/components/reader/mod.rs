@@ -5,27 +5,16 @@
 
 #![allow(dead_code)]
 
-use icondata::Icon as IconData;
 use leptos::{ev, prelude::*};
 use leptos_icons::Icon;
 use wasm_bindgen_futures::spawn_local;
 
+use crate::components::Breadcrumb;
 use crate::components::icons as ic;
 use crate::models::{AppRoute, FileType};
 use crate::utils::{UrlValidation, fetch_content, markdown_to_html, validate_redirect_url};
 
 stylance::import_crate_style!(css, "src/components/reader/reader.module.css");
-
-/// Get file icon based on file type.
-fn get_file_icon(file_type: &FileType) -> IconData {
-    match file_type {
-        FileType::Markdown => ic::FILE_TEXT,
-        FileType::Pdf => ic::FILE_PDF,
-        FileType::Image => ic::FILE_IMAGE,
-        FileType::Link => ic::FILE_LINK,
-        FileType::Unknown => ic::FILE,
-    }
-}
 
 /// Reader component for displaying file content.
 ///
@@ -51,10 +40,7 @@ pub fn Reader(route: Memo<AppRoute>, on_close: Callback<()>) -> impl IntoView {
             .unwrap_or_else(|| content_path.get())
     });
 
-    // Derive file icon
-    let file_icon = Memo::new(move |_| get_file_icon(&file_type.get()));
-
-    // Parse display path into breadcrumb segments
+    // Parse display path into breadcrumb segments (for filename extraction)
     let breadcrumb_segments = Memo::new(move |_| {
         display_path
             .get()
@@ -78,7 +64,7 @@ pub fn Reader(route: Memo<AppRoute>, on_close: Callback<()>) -> impl IntoView {
     });
 
     let (content, set_content) = signal(String::new());
-    let (loading, set_loading) = signal(true);
+    let (loading, set_loading) = signal(false); // Start as false, only true for async content
     let (error, set_error) = signal::<Option<String>>(None);
 
     // Load content when content_path changes
@@ -86,52 +72,68 @@ pub fn Reader(route: Memo<AppRoute>, on_close: Callback<()>) -> impl IntoView {
         let url = content_url.get();
         let ft = file_type.get();
 
-        set_loading.set(true);
         set_error.set(None);
         set_content.set(String::new());
 
-        spawn_local(async move {
-            match ft {
-                FileType::Markdown => match fetch_content(&url).await {
-                    Ok(md) => {
-                        let html = markdown_to_html(&md);
-                        set_content.set(html);
-                        set_loading.set(false);
-                    }
-                    Err(e) => {
-                        set_error.set(Some(e.to_string()));
-                        set_loading.set(false);
-                    }
-                },
-                FileType::Link => match fetch_content(&url).await {
-                    Ok(url) => {
-                        let url = url.trim();
-                        match validate_redirect_url(url) {
-                            UrlValidation::Valid(safe_url) => {
-                                if let Some(window) = web_sys::window()
-                                    && window.location().set_href(&safe_url).is_err()
-                                {
-                                    set_error.set(Some("Failed to redirect".to_string()));
-                                    set_loading.set(false);
-                                }
-                            }
-                            UrlValidation::Invalid(err) => {
-                                set_error.set(Some(format!("Redirect blocked: {}", err)));
+        // Only set loading for types that need async fetch
+        match ft {
+            FileType::Markdown | FileType::Link | FileType::Unknown => {
+                set_loading.set(true);
+                spawn_local(async move {
+                    match ft {
+                        FileType::Markdown => match fetch_content(&url).await {
+                            Ok(md) => {
+                                let html = markdown_to_html(&md);
+                                set_content.set(html);
                                 set_loading.set(false);
                             }
-                        }
+                            Err(e) => {
+                                set_error.set(Some(e.to_string()));
+                                set_loading.set(false);
+                            }
+                        },
+                        FileType::Link => match fetch_content(&url).await {
+                            Ok(url) => {
+                                let url = url.trim();
+                                match validate_redirect_url(url) {
+                                    UrlValidation::Valid(safe_url) => {
+                                        if let Some(window) = web_sys::window()
+                                            && window.location().set_href(&safe_url).is_err()
+                                        {
+                                            set_error.set(Some("Failed to redirect".to_string()));
+                                            set_loading.set(false);
+                                        }
+                                    }
+                                    UrlValidation::Invalid(err) => {
+                                        set_error.set(Some(format!("Redirect blocked: {}", err)));
+                                        set_loading.set(false);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                set_error.set(Some(e.to_string()));
+                                set_loading.set(false);
+                            }
+                        },
+                        FileType::Unknown => match fetch_content(&url).await {
+                            Ok(text) => {
+                                set_content.set(text);
+                                set_loading.set(false);
+                            }
+                            Err(e) => {
+                                set_error.set(Some(e.to_string()));
+                                set_loading.set(false);
+                            }
+                        },
+                        _ => {}
                     }
-                    Err(e) => {
-                        set_error.set(Some(e.to_string()));
-                        set_loading.set(false);
-                    }
-                },
-                // PDF, Image, Unknown don't need async loading
-                _ => {
-                    set_loading.set(false);
-                }
+                });
             }
-        });
+            // PDF, Image don't need loading - render immediately
+            _ => {
+                set_loading.set(false);
+            }
+        }
     });
 
     // Handle keyboard events for closing
@@ -215,78 +217,7 @@ pub fn Reader(route: Memo<AppRoute>, on_close: Callback<()>) -> impl IntoView {
                 </div>
 
                 // Breadcrumb path (center)
-                <nav class=css::breadcrumb>
-                    <For
-                        each=move || {
-                            let segments = breadcrumb_segments.get();
-                            segments.into_iter().enumerate().collect::<Vec<_>>()
-                        }
-                        key=|(idx, segment)| format!("{}-{}", idx, segment)
-                        children=move |(idx, segment)| {
-                            let segments = breadcrumb_segments.get();
-                            let is_last = idx == segments.len() - 1;
-                            let is_home = segment == "~";
-
-                            // Build target route for navigation
-                            let target_route = if is_home {
-                                AppRoute::home()
-                            } else {
-                                // Build path from segments up to current index
-                                let path = segments[1..=idx].join("/");
-                                // Get mount from current route
-                                let mount = route
-                                    .get()
-                                    .mount()
-                                    .cloned()
-                                    .unwrap_or_else(|| {
-                                        crate::config::configured_mounts()
-                                            .into_iter()
-                                            .next()
-                                            .unwrap()
-                                    });
-                                AppRoute::Browse { mount, path }
-                            };
-
-                            // Use file icon only for last segment, folder for directories
-                            let icon = if is_home {
-                                ic::HOME
-                            } else if is_last {
-                                file_icon.get()
-                            } else {
-                                ic::FOLDER
-                            };
-
-                            let segment_class = if is_last {
-                                format!("{} {}", css::breadcrumbSegment, css::breadcrumbSegmentCurrent)
-                            } else {
-                                css::breadcrumbSegment.to_string()
-                            };
-
-                            view! {
-                                <>
-                                    {if idx > 0 {
-                                        Some(view! { <span class=css::breadcrumbSeparator><Icon icon=ic::CHEVRON_RIGHT /></span> })
-                                    } else {
-                                        None
-                                    }}
-                                    <button
-                                        class=segment_class
-                                        on:click=move |_| {
-                                            if !is_last {
-                                                // Navigate to directory (this will close the reader overlay)
-                                                target_route.clone().push();
-                                            }
-                                        }
-                                        disabled=is_last
-                                    >
-                                        <span class=css::breadcrumbIcon><Icon icon=icon /></span>
-                                        {segment.clone()}
-                                    </button>
-                                </>
-                            }
-                        }
-                    />
-                </nav>
+                <Breadcrumb />
 
                 // Action buttons (right)
                 <div class=css::headerActions>
@@ -404,9 +335,7 @@ pub fn Reader(route: Memo<AppRoute>, on_close: Callback<()>) -> impl IntoView {
                                 }
                                 FileType::Unknown => {
                                     view! {
-                                        <div class=css::error>
-                                            <p>"Unsupported file type"</p>
-                                        </div>
+                                        <div class=css::rawText>{content}</div>
                                     }.into_any()
                                 }
                             }
