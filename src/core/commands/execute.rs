@@ -9,7 +9,7 @@ use crate::core::{VirtualFs, env, wallet};
 use crate::models::{AppRoute, Mount, OutputLine, WalletState};
 use crate::utils::sysinfo;
 
-use super::{Command, CommandResult, SideEffect};
+use super::{Command, CommandResult};
 
 /// Execute a parsed command and return output lines.
 ///
@@ -444,6 +444,7 @@ fn execute_explorer(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::SideEffect;
     use crate::app::TerminalState;
     use crate::core::VirtualFs;
     use crate::models::{AppRoute, ViewMode, WalletState};

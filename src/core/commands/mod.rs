@@ -24,7 +24,7 @@ use std::fmt;
 use crate::app::TerminalState;
 use crate::core::VirtualFs;
 use crate::core::parser::Pipeline;
-use crate::models::{AppRoute, OutputLine, WalletState};
+use crate::models::{AppRoute, WalletState};
 
 // =============================================================================
 // Path Argument Type
@@ -192,32 +192,35 @@ pub fn execute_pipeline(
     fs: &VirtualFs,
     current_route: &AppRoute,
 ) -> CommandResult {
-    // Check for syntax errors first
     if let Some(ref err) = pipeline.error {
-        return CommandResult::output(vec![OutputLine::error(err.to_string())]);
+        return CommandResult::error_line(err.to_string());
     }
 
     if pipeline.is_empty() {
         return CommandResult::empty();
     }
 
-    // Execute first command
+    // Execute first command.
     let first = &pipeline.commands[0];
     let cmd = Command::parse(&first.name, &first.args);
-    let result = execute_command(cmd, state, wallet_state, fs, current_route);
+    let mut result = execute_command(cmd, state, wallet_state, fs, current_route);
 
-    // If there are no filters, return directly (preserving navigation)
     if pipeline.commands.len() == 1 {
         return result;
     }
 
-    // Apply pipe filters (navigation is discarded when piping)
-    let mut lines = result.output;
+    // Pipeline mode: side effects are discarded (cannot navigate mid-pipe).
+    result.side_effect = None;
+    let mut current_lines = result.output;
+    let mut current_exit = result.exit_code;
+
     for filter_cmd in pipeline.commands.iter().skip(1) {
-        lines = apply_filter(&filter_cmd.name, &filter_cmd.args, lines).output;
+        let stage = apply_filter(&filter_cmd.name, &filter_cmd.args, current_lines);
+        current_lines = stage.output;
+        current_exit = stage.exit_code;
     }
 
-    CommandResult::output(lines)
+    CommandResult::output(current_lines).with_exit_code(current_exit)
 }
 
 // =============================================================================
@@ -369,5 +372,60 @@ mod tests {
         // less and more should NOT be in the list
         assert!(!names.contains(&"less"));
         assert!(!names.contains(&"more"));
+    }
+
+    #[test]
+    fn test_pipeline_no_filters_preserves_side_effect() {
+        // execute_pipeline should preserve SideEffect from first command
+        // when there are no filters.
+        use crate::app::TerminalState;
+        use crate::core::VirtualFs;
+        use crate::core::parser::parse_input;
+        use crate::models::WalletState;
+
+        let state = TerminalState::new();
+        let wallet = WalletState::Disconnected;
+        let fs = VirtualFs::empty();
+        let route = AppRoute::Root;
+
+        let pipeline = parse_input("login", &[]);
+        let result = execute_pipeline(&pipeline, &state, &wallet, &fs, &route);
+        assert_eq!(result.side_effect, Some(super::SideEffect::Login));
+    }
+
+    #[test]
+    fn test_pipeline_drops_side_effect_when_piped() {
+        // When a command has filters attached, side effects are discarded.
+        use crate::app::TerminalState;
+        use crate::core::VirtualFs;
+        use crate::core::parser::parse_input;
+        use crate::models::WalletState;
+
+        let state = TerminalState::new();
+        let wallet = WalletState::Disconnected;
+        let fs = VirtualFs::empty();
+        let route = AppRoute::Root;
+
+        let pipeline = parse_input("help | head -1", &[]);
+        let result = execute_pipeline(&pipeline, &state, &wallet, &fs, &route);
+        assert!(result.side_effect.is_none());
+    }
+
+    #[test]
+    fn test_pipeline_exit_code_is_last_stage() {
+        use crate::app::TerminalState;
+        use crate::core::VirtualFs;
+        use crate::core::parser::parse_input;
+        use crate::models::WalletState;
+
+        let state = TerminalState::new();
+        let wallet = WalletState::Disconnected;
+        let fs = VirtualFs::empty();
+        let route = AppRoute::Root;
+
+        // `help | grep xyzzy` should exit 1 (grep no match)
+        let pipeline = parse_input("help | grep xyzzy", &[]);
+        let result = execute_pipeline(&pipeline, &state, &wallet, &fs, &route);
+        assert_eq!(result.exit_code, 1);
     }
 }
