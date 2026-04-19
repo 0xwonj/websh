@@ -101,7 +101,9 @@ pub enum Command {
     Help,
     Clear,
     Echo(String),
-    Export(Option<String>),
+    /// `export` command. Each element is one raw `KEY=value` assignment
+    /// (or a bare `KEY` for display). Empty Vec prints all variables.
+    Export(Vec<String>),
     Unset(Option<String>),
     Login,
     Logout,
@@ -148,13 +150,7 @@ impl Command {
             "help" | "?" => Self::Help,
             "clear" | "cls" => Self::Clear,
             "echo" => Self::Echo(args.join(" ")),
-            "export" => {
-                if args.is_empty() {
-                    Self::Export(None)
-                } else {
-                    Self::Export(Some(args.join(" ")))
-                }
-            }
+            "export" => Self::Export(args.to_vec()),
             "unset" => Self::Unset(args.first().cloned()),
             "login" => Self::Login,
             "logout" => Self::Logout,
@@ -293,11 +289,19 @@ mod tests {
     fn test_parse_export() {
         assert!(matches!(
             Command::parse("export", &[]),
-            Command::Export(None)
+            Command::Export(ref v) if v.is_empty()
         ));
         assert!(matches!(
             Command::parse("export", &args(&["FOO=bar"])),
-            Command::Export(Some(ref s)) if s == "FOO=bar"
+            Command::Export(ref v) if v.len() == 1 && v[0] == "FOO=bar"
+        ));
+    }
+
+    #[test]
+    fn test_parse_export_multi() {
+        assert!(matches!(
+            Command::parse("export", &args(&["FOO=a", "BAR=b"])),
+            Command::Export(ref v) if v.len() == 2 && v[0] == "FOO=a" && v[1] == "BAR=b"
         ));
     }
 
