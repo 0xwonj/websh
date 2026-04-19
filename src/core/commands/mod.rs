@@ -17,7 +17,7 @@ mod result;
 
 pub use execute::execute_command;
 pub use filters::apply_filter;
-pub use result::CommandResult;
+pub use result::{CommandResult, SideEffect};
 
 use std::fmt;
 

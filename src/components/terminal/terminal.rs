@@ -210,7 +210,8 @@ fn create_submit_callback(ctx: AppContext, route_ctx: RouteContext) -> Callback<
         );
 
         // Handle navigation if command requested it
-        if let Some(new_route) = result.navigate_to {
+        // (Task 2.5 will replace this with a unified SideEffect dispatcher.)
+        if let Some(crate::core::SideEffect::Navigate(new_route)) = result.side_effect.clone() {
             new_route.push();
         }
 
