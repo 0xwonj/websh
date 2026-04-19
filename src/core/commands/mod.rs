@@ -17,14 +17,14 @@ mod result;
 
 pub use execute::execute_command;
 pub use filters::apply_filter;
-pub use result::CommandResult;
+pub use result::{CommandResult, SideEffect};
 
 use std::fmt;
 
 use crate::app::TerminalState;
 use crate::core::VirtualFs;
 use crate::core::parser::Pipeline;
-use crate::models::{AppRoute, OutputLine, WalletState};
+use crate::models::{AppRoute, WalletState};
 
 // =============================================================================
 // Path Argument Type
@@ -95,18 +95,17 @@ pub enum Command {
     },
     Cd(PathArg),
     Pwd,
-    Cat(PathArg),
+    Cat(Option<PathArg>),
     Whoami,
     Id,
     Help,
     Clear,
     Echo(String),
     Export(Option<String>),
-    Unset(String),
+    Unset(Option<String>),
     Login,
     Logout,
     /// Switch to explorer view mode with optional path
-    #[allow(dead_code)]
     Explorer(Option<PathArg>),
     Unknown(String),
 }
@@ -143,13 +142,7 @@ impl Command {
                     .unwrap_or_else(|| PathArg::new("~")),
             ),
             "pwd" => Self::Pwd,
-            "cat" => {
-                if let Some(file) = args.first() {
-                    Self::Cat(PathArg::new(file))
-                } else {
-                    Self::Unknown("cat: missing file operand".to_string())
-                }
-            }
+            "cat" => Self::Cat(args.first().map(PathArg::new)),
             "whoami" => Self::Whoami,
             "id" => Self::Id,
             "help" | "?" => Self::Help,
@@ -162,13 +155,7 @@ impl Command {
                     Self::Export(Some(args.join(" ")))
                 }
             }
-            "unset" => {
-                if let Some(key) = args.first() {
-                    Self::Unset(key.clone())
-                } else {
-                    Self::Unknown("unset: missing variable name".to_string())
-                }
-            }
+            "unset" => Self::Unset(args.first().cloned()),
             "login" => Self::Login,
             "logout" => Self::Logout,
             "explorer" => Self::Explorer(args.first().map(PathArg::new)),
@@ -192,32 +179,35 @@ pub fn execute_pipeline(
     fs: &VirtualFs,
     current_route: &AppRoute,
 ) -> CommandResult {
-    // Check for syntax errors first
     if let Some(ref err) = pipeline.error {
-        return CommandResult::output(vec![OutputLine::error(err.to_string())]);
+        return CommandResult::error_line(err.to_string()).with_exit_code(2);
     }
 
     if pipeline.is_empty() {
         return CommandResult::empty();
     }
 
-    // Execute first command
+    // Execute first command.
     let first = &pipeline.commands[0];
     let cmd = Command::parse(&first.name, &first.args);
-    let result = execute_command(cmd, state, wallet_state, fs, current_route);
+    let mut result = execute_command(cmd, state, wallet_state, fs, current_route);
 
-    // If there are no filters, return directly (preserving navigation)
     if pipeline.commands.len() == 1 {
         return result;
     }
 
-    // Apply pipe filters (navigation is discarded when piping)
-    let mut lines = result.output;
+    // Pipeline mode: side effects are discarded (cannot navigate mid-pipe).
+    result.side_effect = None;
+    let mut current_lines = result.output;
+    let mut current_exit = result.exit_code;
+
     for filter_cmd in pipeline.commands.iter().skip(1) {
-        lines = apply_filter(&filter_cmd.name, &filter_cmd.args, lines);
+        let stage = apply_filter(&filter_cmd.name, &filter_cmd.args, current_lines);
+        current_lines = stage.output;
+        current_exit = stage.exit_code;
     }
 
-    CommandResult::output(lines)
+    CommandResult::output(current_lines).with_exit_code(current_exit)
 }
 
 // =============================================================================
@@ -274,7 +264,7 @@ mod tests {
     fn test_parse_cat() {
         assert!(matches!(
             Command::parse("cat", &args(&["file.md"])),
-            Command::Cat(ref f) if f == "file.md"
+            Command::Cat(Some(ref f)) if f == "file.md"
         ));
     }
 
@@ -296,7 +286,7 @@ mod tests {
 
     #[test]
     fn test_parse_cat_missing_file() {
-        assert!(matches!(Command::parse("cat", &[]), Command::Unknown(_)));
+        assert!(matches!(Command::parse("cat", &[]), Command::Cat(None)));
     }
 
     #[test]
@@ -315,9 +305,9 @@ mod tests {
     fn test_parse_unset() {
         assert!(matches!(
             Command::parse("unset", &args(&["FOO"])),
-            Command::Unset(ref k) if k == "FOO"
+            Command::Unset(Some(ref k)) if k == "FOO"
         ));
-        assert!(matches!(Command::parse("unset", &[]), Command::Unknown(_)));
+        assert!(matches!(Command::parse("unset", &[]), Command::Unset(None)));
     }
 
     #[test]
@@ -369,5 +359,78 @@ mod tests {
         // less and more should NOT be in the list
         assert!(!names.contains(&"less"));
         assert!(!names.contains(&"more"));
+    }
+
+    #[test]
+    fn test_pipeline_no_filters_preserves_side_effect() {
+        // execute_pipeline should preserve SideEffect from first command
+        // when there are no filters.
+        use crate::app::TerminalState;
+        use crate::core::VirtualFs;
+        use crate::core::parser::parse_input;
+        use crate::models::WalletState;
+
+        let state = TerminalState::new();
+        let wallet = WalletState::Disconnected;
+        let fs = VirtualFs::empty();
+        let route = AppRoute::Root;
+
+        let pipeline = parse_input("login", &[]);
+        let result = execute_pipeline(&pipeline, &state, &wallet, &fs, &route);
+        assert_eq!(result.side_effect, Some(super::SideEffect::Login));
+    }
+
+    #[test]
+    fn test_pipeline_drops_side_effect_when_piped() {
+        // When a command has filters attached, side effects are discarded.
+        use crate::app::TerminalState;
+        use crate::core::VirtualFs;
+        use crate::core::parser::parse_input;
+        use crate::models::WalletState;
+
+        let state = TerminalState::new();
+        let wallet = WalletState::Disconnected;
+        let fs = VirtualFs::empty();
+        let route = AppRoute::Root;
+
+        let pipeline = parse_input("help | head -1", &[]);
+        let result = execute_pipeline(&pipeline, &state, &wallet, &fs, &route);
+        assert!(result.side_effect.is_none());
+    }
+
+    #[test]
+    fn test_pipeline_exit_code_is_last_stage() {
+        use crate::app::TerminalState;
+        use crate::core::VirtualFs;
+        use crate::core::parser::parse_input;
+        use crate::models::WalletState;
+
+        let state = TerminalState::new();
+        let wallet = WalletState::Disconnected;
+        let fs = VirtualFs::empty();
+        let route = AppRoute::Root;
+
+        // `help | grep xyzzy` should exit 1 (grep no match)
+        let pipeline = parse_input("help | grep xyzzy", &[]);
+        let result = execute_pipeline(&pipeline, &state, &wallet, &fs, &route);
+        assert_eq!(result.exit_code, 1);
+    }
+
+    #[test]
+    fn test_parser_error_exit_2() {
+        use crate::app::TerminalState;
+        use crate::core::VirtualFs;
+        use crate::core::parser::parse_input;
+        use crate::models::WalletState;
+
+        let state = TerminalState::new();
+        let wallet = WalletState::Disconnected;
+        let fs = VirtualFs::empty();
+        let route = AppRoute::Root;
+
+        // Pipe with nothing on the right-hand side → parse error
+        let pipeline = parse_input("ls |", &[]);
+        let result = execute_pipeline(&pipeline, &state, &wallet, &fs, &route);
+        assert_eq!(result.exit_code, 2);
     }
 }

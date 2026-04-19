@@ -168,24 +168,11 @@ pub const ICON_THEME: IconTheme = IconTheme::Bootstrap;
 // Mount Configuration
 // =============================================================================
 
-use crate::models::Mount;
+use crate::models::{Mount, MountRegistry};
+use std::sync::OnceLock;
 
-/// Get the configured mounts for the application.
-///
-/// This function defines all available filesystem mounts.
-/// The first mount in the list is considered the home mount.
-///
-/// # Customization
-///
-/// To add additional mounts, add more entries to the vector:
-/// ```ignore
-/// vec![
-///     Mount::github("~", "https://raw.githubusercontent.com/user/repo/main"),
-///     Mount::github("work", "https://raw.githubusercontent.com/company/repo/main"),
-///     Mount::ipfs("data", "QmXyz123"),
-/// ]
-/// ```
-pub fn configured_mounts() -> Vec<Mount> {
+/// Static mount list. Private — external callers use `mounts()`.
+fn mount_list() -> Vec<Mount> {
     vec![Mount::github_with_prefix(
         "~",
         "https://raw.githubusercontent.com/0xwonj/db/main",
@@ -193,20 +180,29 @@ pub fn configured_mounts() -> Vec<Mount> {
     )]
 }
 
-/// Get the default (home) mount.
+/// Get the global mount registry.
 ///
-/// Returns the first configured mount, which is typically the home mount ("~").
-/// Panics if no mounts are configured.
-pub fn default_mount() -> Mount {
-    configured_mounts()
-        .into_iter()
-        .next()
-        .expect("At least one mount must be configured")
+/// Initialized once on first access. The registry is guaranteed to be
+/// non-empty (see `MountRegistry::from_mounts`).
+pub fn mounts() -> &'static MountRegistry {
+    static REGISTRY: OnceLock<MountRegistry> = OnceLock::new();
+    REGISTRY.get_or_init(|| MountRegistry::from_mounts(mount_list()))
 }
 
-/// Get the default base URL for content fetching.
-///
-/// Returns the content base URL of the default mount.
-pub fn default_base_url() -> String {
-    default_mount().content_base_url()
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mounts_is_singleton() {
+        let a = mounts() as *const _;
+        let b = mounts() as *const _;
+        assert_eq!(a, b, "mounts() must return the same static reference");
+    }
+
+    #[test]
+    fn test_mounts_has_home() {
+        let home = mounts().home();
+        assert_eq!(home.alias(), "~");
+    }
 }

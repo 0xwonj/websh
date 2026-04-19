@@ -8,9 +8,7 @@ use leptos::prelude::*;
 use crate::components::AppRouter;
 use crate::config::{APP_NAME, MAX_COMMAND_HISTORY, MAX_TERMINAL_HISTORY};
 use crate::core::VirtualFs;
-use crate::models::{
-    AppRoute, ExplorerViewType, MountRegistry, OutputLine, Selection, ViewMode, WalletState,
-};
+use crate::models::{AppRoute, ExplorerViewType, OutputLine, Selection, ViewMode, WalletState};
 use crate::utils::RingBuffer;
 
 // ============================================================================
@@ -215,7 +213,6 @@ impl Default for ExplorerState {
 ///
 /// The URL is the single source of truth for navigation state.
 /// AppContext only manages non-navigation state:
-/// - **Mounts**: Registry of mounted filesystems
 /// - **Filesystem**: Virtual filesystem for file operations
 /// - **Terminal state**: Command history, output
 /// - **Explorer state**: File browser UI state
@@ -224,10 +221,6 @@ impl Default for ExplorerState {
 #[derive(Clone, Copy)]
 pub struct AppContext {
     // === Shared State ===
-    /// Mount registry for managing multiple filesystem backends.
-    /// This is not a signal because mounts are configured once at startup
-    /// and never change during the application lifecycle.
-    pub mounts: StoredValue<MountRegistry>,
     /// Virtual filesystem for file navigation.
     pub fs: RwSignal<VirtualFs>,
     /// Wallet connection state.
@@ -248,18 +241,14 @@ impl AppContext {
     /// Creates a new application context with default state.
     ///
     /// All signals are initialized to their default values:
-    /// - Mounts: Registry from configured mounts
     /// - Terminal: Empty history
     /// - Explorer: No selection, list view
     /// - Wallet: Disconnected
     /// - Filesystem: Empty
     /// - View: Terminal mode
     pub fn new() -> Self {
-        use crate::config::configured_mounts;
-
         Self {
             // Shared state
-            mounts: StoredValue::new(MountRegistry::from_mounts(configured_mounts())),
             fs: RwSignal::new(VirtualFs::empty()),
             wallet: RwSignal::new(WalletState::default()),
 

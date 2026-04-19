@@ -184,7 +184,7 @@ pub fn use_preview() -> PreviewData {
         route
             .mount()
             .map(|m| m.content_base_url())
-            .unwrap_or_else(crate::config::default_base_url)
+            .unwrap_or_else(|| crate::config::mounts().home().content_base_url())
     });
 
     // Build image URL for thumbnails

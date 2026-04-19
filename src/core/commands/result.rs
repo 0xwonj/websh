@@ -1,40 +1,195 @@
 //! Command execution result type.
 
-use crate::models::{AppRoute, OutputLine};
+use crate::models::{AppRoute, OutputLine, ViewMode};
+
+/// Side effect requested by a command's execution.
+///
+/// Commands return side effects as data; the UI layer (or executor) is
+/// responsible for actually performing them. This keeps command logic
+/// testable without Leptos signals or async runtimes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SideEffect {
+    /// Navigate to a new route.
+    Navigate(AppRoute),
+    /// Initiate wallet login (async).
+    Login,
+    /// Perform wallet logout.
+    Logout,
+    /// Switch view mode (e.g., Terminal <-> Explorer).
+    SwitchView(ViewMode),
+    /// Switch view mode and navigate in one step.
+    SwitchViewAndNavigate(ViewMode, AppRoute),
+}
 
 /// Result of executing a command.
 ///
-/// Commands can produce output and optionally request navigation to a new route.
+/// Carries output lines, a POSIX-style exit code, and an optional side
+/// effect (navigation, wallet action, view switch).
 #[derive(Clone, Debug)]
 pub struct CommandResult {
-    /// Output lines to display
+    /// Output lines to display.
     pub output: Vec<OutputLine>,
-    /// Optional route to navigate to (e.g., for `cd` command)
-    pub navigate_to: Option<AppRoute>,
+    /// POSIX exit code. 0 = success, non-zero = error.
+    pub exit_code: i32,
+    /// Side effect to perform after display (if any).
+    pub side_effect: Option<SideEffect>,
 }
 
 impl CommandResult {
-    /// Create a result with just output, no navigation.
+    // --- Primary constructors ---
+
+    /// Success with output, no side effect.
     pub fn output(lines: Vec<OutputLine>) -> Self {
         Self {
             output: lines,
-            navigate_to: None,
+            exit_code: 0,
+            side_effect: None,
         }
     }
 
-    /// Create a result with navigation and optional output.
-    pub fn navigate(route: AppRoute) -> Self {
+    /// Error output with exit_code=1.
+    pub fn error_line(message: impl Into<String>) -> Self {
         Self {
-            output: vec![],
-            navigate_to: Some(route),
+            output: vec![OutputLine::error(message.into())],
+            exit_code: 1,
+            side_effect: None,
         }
     }
 
-    /// Create an empty result (no output, no navigation).
+    /// Success, no output, no side effect.
     pub fn empty() -> Self {
         Self {
             output: vec![],
-            navigate_to: None,
+            exit_code: 0,
+            side_effect: None,
         }
+    }
+
+    // --- Side-effect constructors ---
+
+    pub fn navigate(route: AppRoute) -> Self {
+        Self {
+            output: vec![],
+            exit_code: 0,
+            side_effect: Some(SideEffect::Navigate(route)),
+        }
+    }
+
+    pub fn login() -> Self {
+        Self {
+            output: vec![],
+            exit_code: 0,
+            side_effect: Some(SideEffect::Login),
+        }
+    }
+
+    pub fn logout() -> Self {
+        Self {
+            output: vec![],
+            exit_code: 0,
+            side_effect: Some(SideEffect::Logout),
+        }
+    }
+
+    pub fn switch_view(mode: ViewMode) -> Self {
+        Self {
+            output: vec![],
+            exit_code: 0,
+            side_effect: Some(SideEffect::SwitchView(mode)),
+        }
+    }
+
+    pub fn open_explorer(route: AppRoute) -> Self {
+        Self {
+            output: vec![],
+            exit_code: 0,
+            side_effect: Some(SideEffect::SwitchViewAndNavigate(
+                ViewMode::Explorer,
+                route,
+            )),
+        }
+    }
+
+    // --- Builder methods ---
+
+    /// Override the exit code (chainable).
+    pub fn with_exit_code(mut self, code: i32) -> Self {
+        self.exit_code = code;
+        self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{Mount, OutputLine, ViewMode};
+
+    fn test_mount() -> Mount {
+        Mount::github("~", "https://example.com")
+    }
+
+    #[test]
+    fn test_output_constructor() {
+        let r = CommandResult::output(vec![OutputLine::text("hi")]);
+        assert_eq!(r.exit_code, 0);
+        assert!(r.side_effect.is_none());
+        assert_eq!(r.output.len(), 1);
+    }
+
+    #[test]
+    fn test_error_line_constructor() {
+        let r = CommandResult::error_line("boom");
+        assert_eq!(r.exit_code, 1);
+        assert!(r.side_effect.is_none());
+        assert_eq!(r.output.len(), 1);
+    }
+
+    #[test]
+    fn test_navigate_constructor() {
+        let route = AppRoute::Browse {
+            mount: test_mount(),
+            path: "blog".to_string(),
+        };
+        let r = CommandResult::navigate(route.clone());
+        assert_eq!(r.exit_code, 0);
+        assert_eq!(r.side_effect, Some(SideEffect::Navigate(route)));
+    }
+
+    #[test]
+    fn test_login_constructor() {
+        let r = CommandResult::login();
+        assert_eq!(r.exit_code, 0);
+        assert_eq!(r.side_effect, Some(SideEffect::Login));
+    }
+
+    #[test]
+    fn test_logout_constructor() {
+        let r = CommandResult::logout();
+        assert_eq!(r.side_effect, Some(SideEffect::Logout));
+    }
+
+    #[test]
+    fn test_switch_view_constructor() {
+        let r = CommandResult::switch_view(ViewMode::Explorer);
+        assert_eq!(r.side_effect, Some(SideEffect::SwitchView(ViewMode::Explorer)));
+    }
+
+    #[test]
+    fn test_open_explorer_constructor() {
+        let route = AppRoute::Browse {
+            mount: test_mount(),
+            path: "blog".to_string(),
+        };
+        let r = CommandResult::open_explorer(route.clone());
+        assert_eq!(
+            r.side_effect,
+            Some(SideEffect::SwitchViewAndNavigate(ViewMode::Explorer, route))
+        );
+    }
+
+    #[test]
+    fn test_with_exit_code() {
+        let r = CommandResult::empty().with_exit_code(127);
+        assert_eq!(r.exit_code, 127);
     }
 }

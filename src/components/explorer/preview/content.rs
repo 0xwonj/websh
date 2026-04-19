@@ -288,7 +288,7 @@ pub fn OpenButton(
                     {
                         let route = route_ctx.0.get();
                         let mount = route.mount().cloned()
-                            .unwrap_or_else(crate::config::default_mount);
+                            .unwrap_or_else(|| crate::config::mounts().home().clone());
                         AppRoute::Read { mount, path: s.path }.push();
                     }
                 }

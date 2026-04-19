@@ -69,7 +69,7 @@ pub fn BottomSheet(data: PreviewData) -> impl IntoView {
         let mount = route
             .mount()
             .cloned()
-            .unwrap_or_else(crate::config::default_mount);
+            .unwrap_or_else(|| crate::config::mounts().home().clone());
 
         if selection.is_dir {
             // Navigate into directory

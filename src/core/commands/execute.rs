@@ -4,7 +4,7 @@
 //! against the virtual filesystem and returns results.
 
 use crate::app::TerminalState;
-use crate::config::{ASCII_PROFILE, HELP_TEXT, PROFILE_FILE, configured_mounts};
+use crate::config::{ASCII_PROFILE, HELP_TEXT, PROFILE_FILE, mounts};
 use crate::core::{VirtualFs, env, wallet};
 use crate::models::{AppRoute, Mount, OutputLine, WalletState};
 use crate::utils::sysinfo;
@@ -37,7 +37,10 @@ pub fn execute_command(
         Command::Ls { path, long } => execute_ls(path, long, wallet_state, fs, current_route),
         Command::Cd(path) => execute_cd(path, fs, current_route),
         Command::Pwd => CommandResult::output(vec![OutputLine::text(current_route.display_path())]),
-        Command::Cat(file) => execute_cat(file, fs, current_path, current_route),
+        Command::Cat(file) => match file {
+            Some(f) => execute_cat(f, fs, current_path, current_route),
+            None => CommandResult::error_line("cat: missing file operand"),
+        },
         Command::Whoami => {
             CommandResult::output(vec![OutputLine::ascii(ASCII_PROFILE.to_string())])
         }
@@ -49,13 +52,18 @@ pub fn execute_command(
         }
         Command::Echo(text) => CommandResult::output(vec![OutputLine::text(text)]),
         Command::Export(arg) => execute_export(arg),
-        Command::Unset(key) => execute_unset(key),
-        Command::Unknown(cmd) => CommandResult::output(vec![OutputLine::error(format!(
+        Command::Unset(key) => match key {
+            Some(k) => execute_unset(k),
+            None => CommandResult::error_line("unset: missing variable name"),
+        },
+        Command::Login => CommandResult::login(),
+        Command::Logout => CommandResult::logout(),
+        Command::Explorer(path) => execute_explorer(path, fs, current_route),
+        Command::Unknown(cmd) => CommandResult::error_line(format!(
             "Command not found: {}. Type 'help' for available commands.",
             cmd
-        ))]),
-        // Login/Logout/Explorer are handled in terminal.rs
-        Command::Login | Command::Logout | Command::Explorer(_) => CommandResult::empty(),
+        ))
+        .with_exit_code(127),
     }
 }
 
@@ -88,10 +96,10 @@ fn execute_ls(
                 return CommandResult::output(output);
             }
         }
-        return CommandResult::output(vec![OutputLine::error(format!(
+        return CommandResult::error_line(format!(
             "ls: cannot access '{}': No such file or directory",
             target
-        ))]);
+        ));
     }
 
     // Normal filesystem ls
@@ -104,16 +112,16 @@ fn execute_ls(
                 let output = format_ls_output(&entries, &resolved_path, long, wallet_state, fs);
                 CommandResult::output(output)
             } else {
-                CommandResult::output(vec![OutputLine::error(format!(
+                CommandResult::error_line(format!(
                     "ls: cannot access '{}': Not a directory",
                     target
-                ))])
+                ))
             }
         }
-        None => CommandResult::output(vec![OutputLine::error(format!(
+        None => CommandResult::error_line(format!(
             "ls: cannot access '{}': No such file or directory",
             target
-        ))]),
+        )),
     }
 }
 
@@ -162,11 +170,11 @@ fn format_ls_output(
 
 /// List available mounts as directory entries.
 fn list_mounts(long: bool) -> CommandResult {
-    let mounts = configured_mounts();
+    let registry = mounts();
 
     let output: Vec<OutputLine> = if long {
-        mounts
-            .iter()
+        registry
+            .all()
             .map(|mount| {
                 let perms = crate::models::DisplayPermissions {
                     is_dir: true,
@@ -184,8 +192,8 @@ fn list_mounts(long: bool) -> CommandResult {
             })
             .collect()
     } else {
-        mounts
-            .iter()
+        registry
+            .all()
             .map(|mount| OutputLine::dir_entry(mount.alias(), mount.description()))
             .collect()
     };
@@ -195,7 +203,7 @@ fn list_mounts(long: bool) -> CommandResult {
 
 /// Resolve a mount alias to a Mount.
 fn resolve_mount_alias(alias: &str) -> Option<Mount> {
-    configured_mounts().into_iter().find(|m| m.alias() == alias)
+    mounts().resolve(alias).cloned()
 }
 
 /// Execute `cd` command.
@@ -230,34 +238,26 @@ fn execute_cd(path: super::PathArg, fs: &VirtualFs, current_route: &AppRoute) ->
                 path: String::new(),
             });
         }
-        return CommandResult::output(vec![OutputLine::error(format!(
+        return CommandResult::error_line(format!(
             "cd: no such file or directory: {}",
             target
-        ))]);
+        ));
     }
 
     // Normal filesystem cd within a mount
     let current_path = current_route.fs_path();
-    let current_mount = current_route.mount().cloned().unwrap_or_else(|| {
-        configured_mounts()
-            .into_iter()
-            .next()
-            .expect("At least one mount must be configured")
-    });
+    let current_mount = current_route
+        .mount()
+        .cloned()
+        .unwrap_or_else(|| mounts().home().clone());
 
     match fs.resolve_path(current_path, target) {
         Some(new_path) if fs.is_directory(&new_path) => CommandResult::navigate(AppRoute::Browse {
             mount: current_mount,
             path: new_path,
         }),
-        Some(_) => CommandResult::output(vec![OutputLine::error(format!(
-            "cd: not a directory: {}",
-            path
-        ))]),
-        None => CommandResult::output(vec![OutputLine::error(format!(
-            "cd: no such file or directory: {}",
-            path
-        ))]),
+        Some(_) => CommandResult::error_line(format!("cd: not a directory: {}", path)),
+        None => CommandResult::error_line(format!("cd: no such file or directory: {}", path)),
     }
 }
 
@@ -270,28 +270,20 @@ fn execute_cat(
 ) -> CommandResult {
     // cat doesn't work at Root (no files there)
     if matches!(current_route, AppRoute::Root) {
-        return CommandResult::output(vec![OutputLine::error(format!(
-            "cat: {}: No such file or directory",
-            file
-        ))]);
+        return CommandResult::error_line(format!("cat: {}: No such file or directory", file));
     }
 
-    let current_mount = current_route.mount().cloned().unwrap_or_else(|| {
-        configured_mounts()
-            .into_iter()
-            .next()
-            .expect("At least one mount must be configured")
-    });
+    let current_mount = current_route
+        .mount()
+        .cloned()
+        .unwrap_or_else(|| mounts().home().clone());
 
     let resolved = fs.resolve_path(current_path, file.as_str());
 
     match resolved {
         Some(resolved_path) => {
             if fs.is_directory(&resolved_path) {
-                CommandResult::output(vec![OutputLine::error(format!(
-                    "cat: {}: Is a directory",
-                    file
-                ))])
+                CommandResult::error_line(format!("cat: {}: Is a directory", file))
             } else if resolved_path == PROFILE_FILE {
                 // Dynamic .profile from environment variables
                 let content = env::generate_profile();
@@ -308,16 +300,10 @@ fn execute_cat(
                     path: resolved_path,
                 })
             } else {
-                CommandResult::output(vec![OutputLine::error(format!(
-                    "cat: {}: No content available",
-                    file
-                ))])
+                CommandResult::error_line(format!("cat: {}: No content available", file))
             }
         }
-        None => CommandResult::output(vec![OutputLine::error(format!(
-            "cat: {}: No such file or directory",
-            file
-        ))]),
+        None => CommandResult::error_line(format!("cat: {}: No such file or directory", file)),
     }
 }
 
@@ -397,9 +383,7 @@ fn execute_export(arg: Option<String>) -> CommandResult {
 
                 match env::set_user_var(key, value) {
                     Ok(()) => CommandResult::empty(),
-                    Err(e) => {
-                        CommandResult::output(vec![OutputLine::error(format!("export: {}", e))])
-                    }
+                    Err(e) => CommandResult::error_line(format!("export: {}", e)),
                 }
             } else {
                 // Just a key without value - show current value
@@ -419,9 +403,142 @@ fn execute_unset(key: String) -> CommandResult {
     if env::get_user_var(&key).is_some() {
         match env::unset_user_var(&key) {
             Ok(()) => CommandResult::empty(),
-            Err(e) => CommandResult::output(vec![OutputLine::error(format!("unset: {}", e))]),
+            Err(e) => CommandResult::error_line(format!("unset: {}", e)),
         }
     } else {
         CommandResult::empty() // Silently succeed if variable doesn't exist
+    }
+}
+
+/// Execute `explorer` command.
+fn execute_explorer(
+    path: Option<super::PathArg>,
+    fs: &VirtualFs,
+    current_route: &AppRoute,
+) -> CommandResult {
+    use crate::models::ViewMode;
+
+    let Some(path_arg) = path else {
+        return CommandResult::switch_view(ViewMode::Explorer);
+    };
+
+    let current_path = current_route.fs_path();
+    match fs.resolve_path(current_path, path_arg.as_str()) {
+        Some(new_path) if fs.is_directory(&new_path) => {
+            let mount = current_route
+                .mount()
+                .cloned()
+                .unwrap_or_else(|| mounts().home().clone());
+            CommandResult::open_explorer(AppRoute::Browse {
+                mount,
+                path: new_path,
+            })
+        }
+        Some(_) => CommandResult::error_line(format!(
+            "explorer: not a directory: {}",
+            path_arg
+        )),
+        None => CommandResult::error_line(format!(
+            "explorer: no such file or directory: {}",
+            path_arg
+        )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::SideEffect;
+    use crate::app::TerminalState;
+    use crate::core::VirtualFs;
+    use crate::models::{AppRoute, ViewMode, WalletState};
+
+    fn empty_state() -> (TerminalState, WalletState, VirtualFs) {
+        (
+            TerminalState::new(),
+            WalletState::Disconnected,
+            VirtualFs::empty(),
+        )
+    }
+
+    #[test]
+    fn test_login_returns_login_side_effect() {
+        let (ts, ws, fs) = empty_state();
+        let result = execute_command(Command::Login, &ts, &ws, &fs, &AppRoute::Root);
+        assert_eq!(result.side_effect, Some(SideEffect::Login));
+        assert_eq!(result.exit_code, 0);
+    }
+
+    #[test]
+    fn test_logout_returns_logout_side_effect() {
+        let (ts, ws, fs) = empty_state();
+        let result = execute_command(Command::Logout, &ts, &ws, &fs, &AppRoute::Root);
+        assert_eq!(result.side_effect, Some(SideEffect::Logout));
+    }
+
+    #[test]
+    fn test_explorer_no_arg_switches_view() {
+        let (ts, ws, fs) = empty_state();
+        let result = execute_command(
+            Command::Explorer(None),
+            &ts,
+            &ws,
+            &fs,
+            &AppRoute::Root,
+        );
+        assert_eq!(
+            result.side_effect,
+            Some(SideEffect::SwitchView(ViewMode::Explorer))
+        );
+    }
+
+    #[test]
+    fn test_unknown_command_exit_127() {
+        let (ts, ws, fs) = empty_state();
+        let result = execute_command(
+            Command::Unknown("foobar".into()),
+            &ts,
+            &ws,
+            &fs,
+            &AppRoute::Root,
+        );
+        assert_eq!(result.exit_code, 127);
+    }
+
+    #[test]
+    fn test_ls_nonexistent_exit_1() {
+        let (ts, ws, fs) = empty_state();
+        let result = execute_command(
+            Command::Ls {
+                path: Some(super::super::PathArg::new("nonexistent")),
+                long: false,
+            },
+            &ts,
+            &ws,
+            &fs,
+            &AppRoute::Root,
+        );
+        assert_eq!(result.exit_code, 1);
+        assert!(!result.output.is_empty());
+    }
+
+    #[test]
+    fn test_cat_missing_operand_exit_1() {
+        let (ts, ws, fs) = empty_state();
+        let result = execute_command(Command::Cat(None), &ts, &ws, &fs, &AppRoute::Root);
+        assert_eq!(result.exit_code, 1);
+        assert!(
+            result
+                .output
+                .iter()
+                .any(|l| matches!(&l.data, crate::models::OutputLineData::Error(s) if s == "cat: missing file operand"))
+        );
+    }
+
+    #[test]
+    fn test_unset_missing_operand_exit_1() {
+        let (ts, ws, fs) = empty_state();
+        let result = execute_command(Command::Unset(None), &ts, &ws, &fs, &AppRoute::Root);
+        assert_eq!(result.exit_code, 1);
     }
 }
