@@ -132,3 +132,20 @@ Recording decisions made during Phase 2 execution, in the order they happen. Eac
 - **Heuristic fallback in `resolve`**: when fs has no entry for the path, keep the extension-based decision instead of defaulting to one variant. Covers the "loading window" between boot and manifest fetch.
 - **Minor suggestions deferred**: M1 (extract heuristic helper) and M2 (stronger test of fallback) from the code review are noted; small QoL, not blocking. Revisit if Track P or another track touches route.rs.
 
+### Track B — Command filters (merged)
+- **D-B-1: H4 (iterator streaming) deferred to Phase 3+.** WebSH's typical pipeline processes dozens-to-low-hundreds of lines (`ls`, `help`, `id`, etc.). Iterator streaming requires stateful exit-code accumulation (grep's exit code depends on match count, not known until iteration ends) — forces `Rc<Cell<i32>>` plumbing or `CommandResult` redesign. Cost/benefit unfavorable at current scale. Revisit if a command starts producing thousands of lines.
+- **D-B-2: `grep` default is now case-sensitive.** Reverses prior case-insensitive default. POSIX-correct; `-i` opt-in.
+- **D-B-3: `head 5` / `tail 2` (bare positional, no dash) now errors with exit 2.** POSIX requires `-N` or `-n N`. No prior user code can have relied on the loose form alone — those inputs were "working by accident" via `trim_start_matches('-')`. Two internal tests updated to use `-3`/`-2` dash form.
+- **D-B-4: `regex = "1"` with `default-features = false, features = ["std", "perf"]`.** Strips `unicode-*` sub-features (~200-300 KB of Unicode tables) to keep the wasm bundle small. ASCII regex is sufficient for shell pattern matching; if ever needed, user can still write `[a-zA-Z]` explicitly.
+- **Minor suggestions deferred**: flag-after-pattern test, mixed short/long form test, error-message polish for `-abc`. All QoL, not blocking. Accept current error wording.
+
+### Track A — Parser (merged)
+- **D-A-1: Lexer rewrites word building inline (`parse_word_segment`) and removes `Token::Variable`.** Rationale: coalescing literal+variable+quoted into one Word is the mental model POSIX shells use. Having a separate `Token::Variable` that gets expanded later forces an artificial adjacency-tracking pass. Inline expansion is simpler and already matched the pre-existing double-quoted body.
+- **D-A-2: Unquoted `$UNDEF` drops the word.** POSIX-correct. Test: `echo $UNDEF hi` → argv `["echo", "hi"]`. Implemented via the lexer's tri-state accumulator + iterator retry on None.
+- **D-A-3: Quoted `"$UNDEF"` yields empty string (was literal `$UNDEF` before).** Behavior change, POSIX-aligned. Pre-existing callers weren't depending on the old non-POSIX string.
+- **D-A-4: `dom::window()` returns `None` on non-wasm targets.** Cross-cutting change to enable native unit tests that touch env/wallet paths. Only caller (`wallet.rs`) already handled `Option`. Pragmatic; a proper `EnvProvider` trait is a later refactor.
+- **Known gaps documented as follow-ups**: `echo foo!bar` / `echo foo!!` do NOT coalesce (`!` breaks word). POSIX bash would merge. Out of scope for Track A. Track for future.
+- **Pre-existing bug flagged**: `export FOO='"quoted"'` — `execute_export` trims surrounding quotes twice. Not introduced here; Track I candidate.
+
+
+
