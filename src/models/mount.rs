@@ -182,7 +182,15 @@ impl MountRegistry {
     }
 
     /// Create a registry from a list of mounts.
+    ///
+    /// # Panics
+    /// Panics if the input list is empty. The registry's `home()` method
+    /// relies on the non-empty invariant.
     pub fn from_mounts(mounts: Vec<Mount>) -> Self {
+        assert!(
+            !mounts.is_empty(),
+            "MountRegistry requires at least one mount",
+        );
         let mut registry = Self::new();
         for mount in mounts {
             registry.register(mount);
@@ -199,6 +207,21 @@ impl MountRegistry {
             self.order.push(alias.clone());
         }
         self.mounts.insert(alias, mount);
+    }
+
+    /// Get the home mount (first registered).
+    ///
+    /// Infallible: `from_mounts` guarantees at least one mount.
+    pub fn home(&self) -> &Mount {
+        self.order
+            .first()
+            .and_then(|alias| self.mounts.get(alias))
+            .expect("MountRegistry invariant: non-empty")
+    }
+
+    /// Resolve an alias to a mount.
+    pub fn resolve(&self, alias: &str) -> Option<&Mount> {
+        self.mounts.get(alias)
     }
 
     /// Get all registered mounts in registration order.
@@ -266,5 +289,33 @@ mod tests {
             mount.manifest_url(),
             "https://raw.githubusercontent.com/user/repo/main/manifest.json"
         );
+    }
+
+    #[test]
+    fn test_registry_home() {
+        let mounts = vec![
+            Mount::github("~", "https://example.com"),
+            Mount::ipfs("data", "QmXyz"),
+        ];
+        let registry = MountRegistry::from_mounts(mounts);
+        assert_eq!(registry.home().alias(), "~");
+    }
+
+    #[test]
+    fn test_registry_resolve() {
+        let mounts = vec![
+            Mount::github("~", "https://example.com"),
+            Mount::ipfs("data", "QmXyz"),
+        ];
+        let registry = MountRegistry::from_mounts(mounts);
+        assert_eq!(registry.resolve("~").map(|m| m.alias()), Some("~"));
+        assert_eq!(registry.resolve("data").map(|m| m.alias()), Some("data"));
+        assert!(registry.resolve("unknown").is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "at least one mount")]
+    fn test_registry_from_empty_panics() {
+        let _ = MountRegistry::from_mounts(vec![]);
     }
 }
