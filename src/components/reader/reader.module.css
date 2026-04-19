@@ -1,10 +1,12 @@
-/* Reader - Scoped CSS Module */
+/* Reader Container Component Styles */
 
 .reader {
   height: 100%;
   width: 100%;
+  display: flex;
+  flex-direction: column;
   background-color: var(--bg-primary);
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 .reader:focus {
@@ -16,421 +18,179 @@
    ========================================================================== */
 
 .header {
-  position: sticky;
-  top: 0;
-  z-index: 10;
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-4);
-  padding: 0 var(--space-5);
   height: 3rem;
+  padding: 0 var(--space-3);
   background-color: var(--bg-secondary);
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
 }
 
-/* Navigation button (same style as Explorer) */
-.navButtons {
-  display: flex;
-  flex-shrink: 0;
-  background-color: var(--bg-tertiary);
-  border-radius: 6px;
-  padding: 2px;
-}
-
-.navButton {
-  background: none;
-  border: none;
-  color: var(--terminal-cyan);
-  font-size: 1.125rem;
-  cursor: pointer;
-  padding: var(--space-2) var(--space-4);
-  border-radius: 4px;
-  transition: background-color 0.15s, color 0.15s, transform 0.1s;
-  line-height: 1;
-}
-
-.navButton:hover {
-  background-color: var(--bg-secondary);
-}
-
-.navButton:active {
-  transform: scale(0.95);
-}
-
-.navArrow {
-  display: inline-block;
-  transition: transform 0.15s ease-out;
-  font-weight: 500;
-}
-
-.navButton:hover .navArrow {
-  transform: translateX(-2px);
-}
-
-/* ==========================================================================
-   Breadcrumb Path (absolute centered)
-   ========================================================================== */
-
-.breadcrumb {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
+.headerLeft {
   display: flex;
   align-items: center;
-  gap: 0;
-  font-family: var(--font-mono);
-  font-size: var(--font-size-base);
-  max-width: calc(100% - 16rem); /* Leave space for left/right buttons */
-  overflow: hidden;
+  gap: var(--space-2);
+  z-index: 1;
 }
 
-.breadcrumbSegment {
+.headerCenter {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 50%;
+}
+
+.headerRight {
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  padding: var(--space-1) var(--space-2);
+  z-index: 1;
+}
+
+.headerButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
   background: none;
   border: none;
   color: var(--text-muted);
-  font-family: inherit;
-  font-size: inherit;
+  font-size: 1.125rem;
   cursor: pointer;
   border-radius: 4px;
   transition: background-color 0.15s, color 0.15s;
-  white-space: nowrap;
 }
 
-.breadcrumbSegment:hover {
+.headerButton:hover {
   background-color: var(--bg-tertiary);
   color: var(--text-primary);
 }
 
-.breadcrumbSegmentCurrent {
-  color: var(--text-primary);
-  font-weight: 600;
-  cursor: default;
-}
+/* ==========================================================================
+   Segmented Toggle (Read / Both / Write)
+   ========================================================================== */
 
-.breadcrumbSegmentCurrent:hover {
-  background-color: transparent;
-}
-
-.breadcrumbSeparator {
-  color: var(--text-dim);
-  font-size: 0.875rem;
-  flex-shrink: 0;
-}
-
-.breadcrumbIcon {
-  font-size: 1rem;
-}
-
-/* Action buttons */
-.headerActions {
+.segmentedToggle {
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-shrink: 0;
-}
-
-.actionButton {
-  background: none;
-  border: none;
-  color: var(--terminal-cyan);
-  font-size: 1.125rem;
-  cursor: pointer;
-  padding: var(--space-2);
-  border-radius: 4px;
-  transition: background-color 0.15s, color 0.15s, transform 0.1s;
-  line-height: 1;
-}
-
-.actionButton:hover {
   background-color: var(--bg-tertiary);
-}
-
-.actionButton:active {
-  transform: scale(0.95);
-}
-
-/* Dropdown menu */
-.dropdownWrapper {
-  position: relative;
-}
-
-.dropdownMenu {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  margin-top: var(--space-1);
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border-subtle);
   border-radius: 6px;
-  min-width: 10rem;
-  padding: var(--space-1) 0;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  z-index: 100;
+  padding: 2px;
+  border: 1px solid var(--border-subtle);
 }
 
-.dropdownItem {
+.segmentButton {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  width: 100%;
-  padding: var(--space-2) var(--space-3);
+  justify-content: center;
+  padding: var(--space-2);
   background: none;
   border: none;
-  color: var(--text-primary);
-  font-size: var(--font-size-sm);
-  font-family: var(--font-mono);
+  color: var(--text-muted);
+  font-size: 1rem;
   cursor: pointer;
-  text-align: left;
-  transition: background-color 0.15s;
+  border-radius: 4px;
+  transition: background-color 0.15s, color 0.15s;
+  aspect-ratio: 1;
 }
 
-.dropdownItem:hover {
-  background-color: var(--bg-tertiary);
+.segmentButton:hover {
+  color: var(--text-primary);
 }
 
-.dropdownIcon {
-  width: 1.25rem;
-  text-align: center;
-  flex-shrink: 0;
+.segmentButtonActive {
+  background-color: var(--bg-primary);
+  color: var(--terminal-cyan);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
-.dropdownDivider {
-  height: 1px;
-  background-color: var(--border-subtle);
-  margin: var(--space-1) 0;
+/* ==========================================================================
+   Content Areas
+   ========================================================================== */
+
+.contentArea {
+  flex: 1;
+  overflow-y: auto;
 }
 
-/* Keyboard hint (desktop only) */
-.hint {
-  color: var(--text-dim);
-  font-size: var(--font-size-xs);
-  margin-left: var(--space-2);
-}
-
-.hintKey {
-  color: var(--terminal-yellow);
-  padding: 0 2px;
-}
-
-/* Responsive visibility */
-.desktopOnly {
-  display: flex;
-}
-
-.mobileOnly {
-  display: none;
-}
-
-/* Content Area */
-.content {
-  max-width: 48rem;
-  margin-left: auto;
-  margin-right: auto;
-  padding: var(--space-12) var(--space-8);
-  line-height: 1.7;
-}
-
-/* Loading/Error States */
 .loading {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--space-12);
-  color: var(--terminal-yellow);
+  height: 100%;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
 }
 
 .error {
   color: var(--terminal-red);
+  padding: var(--space-8);
 }
 
 .errorTitle {
   font-weight: 700;
-}
-
-/* Typography for markdown content */
-.content :global(h1) {
-  font-size: var(--font-size-2xl);
-  font-weight: 700;
-  color: var(--terminal-cyan);
-  margin-bottom: var(--space-6);
-  padding-bottom: var(--space-2);
-  border-bottom: 1px solid var(--border-muted);
-}
-
-.content :global(h2) {
-  font-size: var(--font-size-xl);
-  font-weight: 700;
-  color: var(--terminal-green);
-  margin-top: var(--space-8);
-  margin-bottom: var(--space-4);
-}
-
-.content :global(h3) {
-  font-size: var(--font-size-lg);
-  font-weight: 700;
-  color: var(--terminal-yellow);
-  margin-top: var(--space-6);
-  margin-bottom: var(--space-3);
-}
-
-.content :global(p) {
-  margin-bottom: var(--space-4);
-}
-
-.content :global(a) {
-  color: var(--terminal-cyan);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  transition: color var(--transition-fast);
-}
-
-.content :global(a:hover) {
-  color: var(--terminal-green);
-}
-
-.content :global(strong) {
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.content :global(em) {
-  font-style: italic;
-}
-
-/* Code Blocks */
-.content :global(code) {
-  background-color: var(--bg-secondary);
-  padding: 0.125rem 0.375rem;
-  border-radius: 0.25rem;
-  color: var(--terminal-cyan);
-  font-size: 0.9em;
-}
-
-.content :global(pre) {
-  position: relative;
-  background-color: var(--bg-secondary);
-  padding: var(--space-4);
-  border-radius: 0.5rem;
-  overflow-x: auto;
-  margin: var(--space-4) 0;
-  border: 1px solid var(--border-subtle);
-}
-
-.content :global(pre)::before {
-  content: "┌─ code ─────────────────────────────────";
-  position: absolute;
-  top: -0.75rem;
-  left: var(--space-2);
-  font-size: var(--font-size-xs);
-  color: var(--text-muted);
-  background-color: var(--bg-secondary);
-  padding: 0 var(--space-2);
-}
-
-.content :global(pre code) {
-  background-color: transparent;
-  padding: 0;
-  border-radius: 0;
-}
-
-/* Lists */
-.content :global(ul),
-.content :global(ol) {
-  margin-bottom: var(--space-4);
-  padding-left: var(--space-6);
-}
-
-.content :global(ul) {
-  list-style-type: disc;
-}
-
-.content :global(ol) {
-  list-style-type: decimal;
-}
-
-.content :global(li) {
   margin-bottom: var(--space-2);
 }
 
-.content :global(li)::marker {
-  color: var(--terminal-green);
+/* ==========================================================================
+   Split View Container
+   ========================================================================== */
+
+.splitContainer {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
 }
 
-/* Blockquote */
-.content :global(blockquote) {
-  border-left: 2px solid var(--terminal-purple);
-  padding-left: var(--space-4);
-  margin: var(--space-4) 0;
-  font-style: italic;
-  color: var(--text-dim);
+.editorPane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-right: 1px solid var(--border-subtle);
 }
 
-/* Horizontal Rule */
-.content :global(hr) {
-  border: none;
-  border-top: 1px solid var(--border-muted);
-  margin: var(--space-8) 0;
+.previewPane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-y: auto;
 }
 
-/* Tables */
-.content :global(table) {
-  width: 100%;
-  border-collapse: collapse;
-  margin: var(--space-4) 0;
+.editorFull {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
-.content :global(th),
-.content :global(td) {
-  border: 1px solid var(--border-muted);
-  padding: var(--space-2) var(--space-3);
-  text-align: left;
-}
+/* ==========================================================================
+   Other Content Types
+   ========================================================================== */
 
-.content :global(th) {
-  background-color: var(--bg-secondary);
-  color: var(--terminal-cyan);
-  font-weight: 700;
-}
-
-/* Markdown container */
-.markdown {
-  /* inherits typography from .content :global() rules */
-}
-
-/* Raw text content (for unsupported file types) */
-.rawText {
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-/* PDF Viewer */
 .pdfViewer {
   width: 100%;
-  height: calc(100vh - 8rem);
+  height: 100%;
   border: none;
   background-color: var(--bg-secondary);
 }
 
-/* Image Viewer */
 .imageContainer {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--space-4);
+  min-height: 100%;
+  padding: var(--space-8);
 }
 
 .image {
   max-width: 100%;
-  max-height: calc(100vh - 12rem);
+  max-height: calc(100vh - 6rem);
   object-fit: contain;
-  border-radius: 0.5rem;
+  border-radius: 8px;
 }
 
 /* ==========================================================================
@@ -438,53 +198,118 @@
    ========================================================================== */
 
 @media (max-width: 768px) {
-  .content {
-    padding: var(--space-6) var(--space-4);
+  .headerCenter {
+    display: none;
   }
 
-  .header {
-    padding: 0 var(--space-4);
-    gap: var(--space-3);
+  .splitContainer {
+    flex-direction: column;
   }
 
-  .pdfViewer {
-    height: calc(100vh - 6rem);
-  }
-}
-
-@media (max-width: 640px) {
-  .header {
-    padding: 0 var(--space-3);
-    gap: var(--space-2);
+  .editorPane {
+    flex: none;
+    height: 50%;
+    border-right: none;
+    border-bottom: 1px solid var(--border-subtle);
   }
 
-  .navButton {
-    font-size: 1rem;
-    padding: var(--space-2) var(--space-3);
+  .previewPane {
+    flex: none;
+    height: 50%;
   }
 
-  .breadcrumb {
-    font-size: var(--font-size-base);
-    max-width: calc(100% - 10rem);
-  }
-
-  /* Hide desktop-only elements */
-  .desktopOnly {
-    display: none !important;
-  }
-
-  /* Show mobile-only elements */
-  .mobileOnly {
-    display: flex !important;
-  }
-
-  .actionButton {
-    padding: var(--space-2);
+  .segmentButton {
+    padding: var(--space-1) var(--space-2);
+    font-size: var(--font-size-xs);
   }
 }
 
 @media (max-width: 480px) {
-  .content :global(pre)::before {
-    content: "┌─ code ─────────";
+  .header {
+    padding: 0 var(--space-2);
   }
+
+  .segmentedToggle {
+    display: none;
+  }
+}
+
+/* ==========================================================================
+   Close Confirmation Dialog
+   ========================================================================== */
+
+.overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.dialog {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: var(--space-6);
+  max-width: 20rem;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.dialogMessage {
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--space-6);
+  text-align: center;
+}
+
+.dialogButtons {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.dialogButtonSecondary,
+.dialogButtonPrimary,
+.dialogButtonDanger {
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: 4px;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s, opacity 0.15s;
+}
+
+.dialogButtonSecondary {
+  background-color: var(--bg-tertiary);
+  color: var(--text-muted);
+}
+
+.dialogButtonSecondary:hover {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.dialogButtonPrimary {
+  background-color: var(--terminal-cyan);
+  color: var(--bg-primary);
+}
+
+.dialogButtonPrimary:hover {
+  opacity: 0.85;
+}
+
+.dialogButtonDanger {
+  background-color: var(--terminal-red);
+  color: var(--bg-primary);
+}
+
+.dialogButtonDanger:hover {
+  opacity: 0.85;
 }

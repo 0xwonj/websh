@@ -86,6 +86,93 @@ fn handle_logout(ctx: &AppContext) {
 }
 
 // ============================================================================
+// Commit Handler
+// ============================================================================
+
+use crate::core::admin::is_admin;
+use crate::core::storage::{GitHubBackend, PendingChanges, StorageBackend, local};
+
+/// Execute commit command asynchronously.
+fn handle_commit(ctx: AppContext, message: Option<String>) {
+    wasm_bindgen_futures::spawn_local(async move {
+        // Check admin permission
+        let wallet_state = ctx.wallet.get();
+        if !is_admin(&wallet_state) {
+            ctx.terminal.push_output(OutputLine::error(
+                "Permission denied: admin access required. Use 'login' to connect wallet.",
+            ));
+            return;
+        }
+
+        // Get pending changes
+        let pending = ctx.fs.pending().get();
+        if pending.is_empty() {
+            ctx.terminal.push_output(OutputLine::info(
+                "Nothing to commit. Working directory clean.",
+            ));
+            return;
+        }
+
+        // Check GitHub token
+        if !local::has_github_token() {
+            ctx.terminal.push_output(OutputLine::error(
+                "No GitHub token configured.",
+            ));
+            ctx.terminal.push_output(OutputLine::text(
+                "Use 'auth github <token>' to set your Personal Access Token.",
+            ));
+            return;
+        }
+
+        // Get GitHub backend
+        let backend = ctx.get_github_backend();
+        let Some(backend) = backend else {
+            ctx.terminal.push_output(OutputLine::error(
+                "No writable GitHub mount configured.",
+            ));
+            return;
+        };
+
+        let commit_message = message.unwrap_or_else(|| "Update via websh".to_string());
+        let summary = pending.summary();
+
+        ctx.terminal.push_output(OutputLine::info(format!(
+            "Committing {} changes: \"{}\"",
+            summary.total(),
+            commit_message
+        )));
+
+        // Execute commit
+        match backend.commit(&pending, &commit_message).await {
+            Ok(new_manifest) => {
+                // Clear pending changes
+                ctx.fs.pending().set(PendingChanges::default());
+                let _ = local::save_pending_changes(&PendingChanges::default());
+
+                // Update VirtualFs with new manifest
+                let new_fs = crate::core::VirtualFs::from_manifest(&new_manifest);
+                ctx.fs.set_base(new_fs);
+
+                ctx.terminal.push_output(OutputLine::success(format!(
+                    "Successfully committed {} changes.",
+                    summary.total()
+                )));
+                ctx.terminal.push_output(OutputLine::info(format!(
+                    "{} additions, {} modifications, {} deletions",
+                    summary.creates, summary.updates, summary.deletes
+                )));
+            }
+            Err(e) => {
+                ctx.terminal.push_output(OutputLine::error(format!(
+                    "Commit failed: {}",
+                    e
+                )));
+            }
+        }
+    });
+}
+
+// ============================================================================
 // Terminal Component
 // ============================================================================
 
@@ -152,7 +239,7 @@ fn create_submit_callback(ctx: AppContext, route_ctx: RouteContext) -> Callback<
             .command_history
             .with(|history| parse_input(&input, history));
 
-        // Handle special commands that need navigation or view switching
+        // Handle special commands that need async or view switching
         if pipeline.commands.len() == 1 {
             let first_cmd = &pipeline.commands[0];
             match first_cmd.name.to_lowercase().as_str() {
@@ -164,14 +251,23 @@ fn create_submit_callback(ctx: AppContext, route_ctx: RouteContext) -> Callback<
                     handle_logout(&ctx);
                     return;
                 }
+                "commit" => {
+                    let message = if first_cmd.args.is_empty() {
+                        None
+                    } else {
+                        Some(first_cmd.args.join(" "))
+                    };
+                    handle_commit(ctx, message);
+                    return;
+                }
                 "explorer" => {
                     // Switch to explorer view, optionally navigate first
                     if let Some(path_arg) = first_cmd.args.first() {
                         let current_path = current_route.fs_path();
-                        let fs = ctx.fs.get();
+                        let merged_fs = ctx.fs.get();
 
-                        match fs.resolve_path(current_path, path_arg) {
-                            Some(new_path) if fs.is_directory(&new_path) => {
+                        match merged_fs.resolve_path(current_path, path_arg) {
+                            Some(new_path) if merged_fs.is_directory(&new_path) => {
                                 // Navigate to the new path and switch to explorer
                                 let new_route = fs_path_to_browse_route(&new_path);
                                 new_route.push();
@@ -199,15 +295,30 @@ fn create_submit_callback(ctx: AppContext, route_ctx: RouteContext) -> Callback<
             }
         }
 
-        let current_fs = ctx.fs.get();
+        let merged_fs = ctx.fs.get();
         let wallet_state = ctx.wallet.get();
+        let pending = ctx.fs.pending().get();
+        let staged = ctx.fs.staged().get();
         let result = execute_pipeline(
             &pipeline,
             &ctx.terminal,
             &wallet_state,
-            &current_fs,
+            &merged_fs,
             &current_route,
+            &pending,
+            &staged,
         );
+
+        // Handle pending changes update (signal + localStorage)
+        if let Some(new_pending) = result.pending {
+            ctx.fs.pending().set(new_pending.clone());
+            let _ = crate::core::storage::local::save_pending_changes(&new_pending);
+        }
+
+        // Handle staged changes update
+        if let Some(new_staged) = result.staged {
+            ctx.fs.staged().set(new_staged);
+        }
 
         // Handle navigation if command requested it
         if let Some(new_route) = result.navigate_to {
@@ -228,8 +339,8 @@ fn create_autocomplete_callback(
 ) -> Callback<String, crate::core::AutocompleteResult> {
     Callback::new(move |input: String| {
         let current_route = route_ctx.0.get();
-        ctx.fs
-            .with(|current_fs| autocomplete(&input, &current_route, current_fs))
+        let merged_fs = ctx.fs.get();
+        autocomplete(&input, &current_route, &merged_fs)
     })
 }
 
@@ -239,8 +350,8 @@ fn create_hint_callback(
 ) -> Callback<String, Option<String>> {
     Callback::new(move |input: String| {
         let current_route = route_ctx.0.get();
-        ctx.fs
-            .with(|current_fs| get_hint(&input, &current_route, current_fs))
+        let merged_fs = ctx.fs.get();
+        get_hint(&input, &current_route, &merged_fs)
     })
 }
 

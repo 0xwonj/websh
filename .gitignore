@@ -11,9 +11,6 @@
 .env
 .last-cid
 
-# Test content directory
-/content-test
-
 # Scripts test artifacts (content & generated manifest)
 /scripts/github-storage/~
 /scripts/github-storage/manifest.json

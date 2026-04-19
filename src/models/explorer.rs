@@ -10,6 +10,18 @@ pub enum ViewMode {
     Explorer,
 }
 
+/// Reader view mode (Read, Write, or Split).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ReaderViewMode {
+    /// Read-only rendered view (default)
+    #[default]
+    Read,
+    /// Write/edit mode with textarea
+    Write,
+    /// Split view: editor on left, preview on right
+    Split,
+}
+
 /// View type for explorer (list or grid).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ExplorerViewType {

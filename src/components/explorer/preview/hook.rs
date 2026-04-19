@@ -157,8 +157,9 @@ pub fn use_preview() -> PreviewData {
     let dir_meta = Signal::derive(move || {
         selection.get().filter(|s| s.is_dir).map(|s| {
             ctx.fs.with(|fs| {
-                let mut meta = fs
-                    .get_entry(&s.path)
+                let entry = fs.get_entry(&s.path);
+                let mut meta = entry
+                    .as_ref()
                     .and_then(|e| e.dir_meta())
                     .map(DirMeta::from)
                     .unwrap_or_else(|| DirMeta {

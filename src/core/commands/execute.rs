@@ -5,7 +5,8 @@
 
 use crate::app::TerminalState;
 use crate::config::{ASCII_PROFILE, HELP_TEXT, PROFILE_FILE, configured_mounts};
-use crate::core::{VirtualFs, env, wallet};
+use crate::core::storage::{PendingChanges, StagedChanges};
+use crate::core::{MergedFs, env, wallet};
 use crate::models::{AppRoute, Mount, OutputLine, WalletState};
 use crate::utils::sysinfo;
 
@@ -21,14 +22,18 @@ use super::{Command, CommandResult};
 /// * `cmd` - The parsed command to execute
 /// * `state` - Terminal state (for clearing history)
 /// * `wallet_state` - Current wallet connection state
-/// * `fs` - Virtual filesystem
+/// * `fs` - Merged filesystem (base + pending changes)
 /// * `current_route` - Current route (for resolving relative paths)
+/// * `pending` - Current pending changes (for admin commands)
+/// * `staged` - Current staged changes (for sync commands)
 pub fn execute_command(
     cmd: Command,
     state: &TerminalState,
     wallet_state: &WalletState,
-    fs: &VirtualFs,
+    fs: &MergedFs,
     current_route: &AppRoute,
+    pending: &PendingChanges,
+    staged: &StagedChanges,
 ) -> CommandResult {
     // Get the filesystem path (relative, e.g., "blog" or "")
     let current_path = current_route.fs_path();
@@ -56,6 +61,20 @@ pub fn execute_command(
         ))]),
         // Login/Logout/Explorer are handled in terminal.rs
         Command::Login | Command::Logout | Command::Explorer(_) => CommandResult::empty(),
+
+        // Admin commands
+        Command::Touch(path) => execute_touch(path, wallet_state, fs, current_route, pending),
+        Command::Mkdir(path) => execute_mkdir(path, wallet_state, fs, current_route, pending),
+        Command::Rm(path) => execute_rm(path, wallet_state, fs, current_route, pending),
+        Command::Rmdir(path) => execute_rmdir(path, wallet_state, fs, current_route, pending),
+
+        // Sync commands
+        Command::SyncStatus => execute_sync_status(wallet_state, pending, staged),
+        Command::SyncAdd(path) => execute_sync_add(path, wallet_state, fs, current_route, pending, staged),
+        Command::SyncReset(path) => execute_sync_reset(path, wallet_state, staged),
+        Command::SyncCommit(msg) => execute_sync_commit(msg, wallet_state, pending, staged),
+        Command::SyncDiscard(path) => execute_sync_discard(path, wallet_state, pending),
+        Command::SyncAuth { provider, token } => execute_sync_auth(provider, token),
     }
 }
 
@@ -64,7 +83,7 @@ fn execute_ls(
     path: Option<super::PathArg>,
     long: bool,
     wallet_state: &WalletState,
-    fs: &VirtualFs,
+    fs: &MergedFs,
     current_route: &AppRoute,
 ) -> CommandResult {
     let target = path.as_ref().map(|p| p.as_str()).unwrap_or(".");
@@ -123,7 +142,7 @@ fn format_ls_output(
     resolved_path: &str,
     long: bool,
     wallet_state: &WalletState,
-    fs: &VirtualFs,
+    fs: &MergedFs,
 ) -> Vec<OutputLine> {
     if long {
         entries
@@ -136,6 +155,7 @@ fn format_ls_output(
                 };
                 let fs_entry = fs.get_entry(&entry_path);
                 let perms = fs_entry
+                    .as_ref()
                     .map(|e| fs.get_permissions(e, wallet_state))
                     .unwrap_or_default();
                 OutputLine::long_entry(entry, &perms)
@@ -199,7 +219,7 @@ fn resolve_mount_alias(alias: &str) -> Option<Mount> {
 }
 
 /// Execute `cd` command.
-fn execute_cd(path: super::PathArg, fs: &VirtualFs, current_route: &AppRoute) -> CommandResult {
+fn execute_cd(path: super::PathArg, fs: &MergedFs, current_route: &AppRoute) -> CommandResult {
     let target = path.as_str();
     let at_root = matches!(current_route, AppRoute::Root);
 
@@ -264,7 +284,7 @@ fn execute_cd(path: super::PathArg, fs: &VirtualFs, current_route: &AppRoute) ->
 /// Execute `cat` command.
 fn execute_cat(
     file: super::PathArg,
-    fs: &VirtualFs,
+    fs: &MergedFs,
     current_path: &str,
     current_route: &AppRoute,
 ) -> CommandResult {
@@ -423,5 +443,566 @@ fn execute_unset(key: String) -> CommandResult {
         }
     } else {
         CommandResult::empty() // Silently succeed if variable doesn't exist
+    }
+}
+
+// =============================================================================
+// Admin Commands
+// =============================================================================
+
+use crate::core::admin::is_admin;
+use crate::core::storage::{ChangeType, local};
+use crate::utils::current_timestamp;
+
+/// Check admin permission and return error if not admin.
+fn check_admin(wallet_state: &WalletState) -> Option<CommandResult> {
+    if !is_admin(wallet_state) {
+        Some(CommandResult::output(vec![OutputLine::error(
+            "Permission denied: admin access required. Use 'login' to connect wallet.",
+        )]))
+    } else {
+        None
+    }
+}
+
+/// Execute `touch` command - create a new file.
+fn execute_touch(
+    path: super::PathArg,
+    wallet_state: &WalletState,
+    fs: &MergedFs,
+    current_route: &AppRoute,
+    pending: &PendingChanges,
+) -> CommandResult {
+    if let Some(err) = check_admin(wallet_state) {
+        return err;
+    }
+
+    if matches!(current_route, AppRoute::Root) {
+        return CommandResult::output(vec![OutputLine::error(
+            "touch: cannot create file at root level",
+        )]);
+    }
+
+    let current_path = current_route.fs_path();
+    let resolved = MergedFs::resolve_path_string(current_path, path.as_str());
+
+    // Check if file already exists
+    if fs.get_entry(&resolved).is_some() {
+        return CommandResult::output(vec![OutputLine::error(format!(
+            "touch: cannot create '{}': File exists",
+            path
+        ))]);
+    }
+
+    // Get file name for description
+    let filename = resolved.rsplit('/').next().unwrap_or(&resolved);
+
+    // Clone pending and add change
+    let mut new_pending = pending.clone();
+    new_pending.add(
+        resolved.clone(),
+        ChangeType::CreateFile {
+            content: String::new(),
+            description: filename.to_string(),
+            meta: crate::models::FileMetadata {
+                size: Some(0),
+                modified: Some(current_timestamp()),
+                encryption: None,
+            },
+        },
+    );
+
+    CommandResult::with_pending(
+        vec![OutputLine::success(format!(
+            "Created file '{}' (pending commit)",
+            resolved
+        ))],
+        new_pending,
+    )
+}
+
+/// Execute `mkdir` command - create a new directory.
+fn execute_mkdir(
+    path: super::PathArg,
+    wallet_state: &WalletState,
+    fs: &MergedFs,
+    current_route: &AppRoute,
+    pending: &PendingChanges,
+) -> CommandResult {
+    if let Some(err) = check_admin(wallet_state) {
+        return err;
+    }
+
+    if matches!(current_route, AppRoute::Root) {
+        return CommandResult::output(vec![OutputLine::error(
+            "mkdir: cannot create directory at root level",
+        )]);
+    }
+
+    let current_path = current_route.fs_path();
+    let resolved = MergedFs::resolve_path_string(current_path, path.as_str());
+
+    // Check if already exists
+    if fs.get_entry(&resolved).is_some() {
+        return CommandResult::output(vec![OutputLine::error(format!(
+            "mkdir: cannot create '{}': File exists",
+            path
+        ))]);
+    }
+
+    // Get dir name for title
+    let dirname = resolved.rsplit('/').next().unwrap_or(&resolved);
+
+    let mut new_pending = pending.clone();
+    new_pending.add(
+        resolved.clone(),
+        ChangeType::CreateDirectory {
+            meta: crate::models::DirectoryMetadata {
+                title: dirname.to_string(),
+                ..Default::default()
+            },
+        },
+    );
+
+    CommandResult::with_pending(
+        vec![OutputLine::success(format!(
+            "Created directory '{}' (pending commit)",
+            resolved
+        ))],
+        new_pending,
+    )
+}
+
+/// Execute `rm` command - remove a file.
+fn execute_rm(
+    path: super::PathArg,
+    wallet_state: &WalletState,
+    fs: &MergedFs,
+    current_route: &AppRoute,
+    pending: &PendingChanges,
+) -> CommandResult {
+    if let Some(err) = check_admin(wallet_state) {
+        return err;
+    }
+
+    if matches!(current_route, AppRoute::Root) {
+        return CommandResult::output(vec![OutputLine::error("rm: cannot remove at root level")]);
+    }
+
+    let current_path = current_route.fs_path();
+    let resolved = match fs.resolve_path(current_path, path.as_str()) {
+        Some(p) => p,
+        None => {
+            return CommandResult::output(vec![OutputLine::error(format!(
+                "rm: cannot remove '{}': No such file or directory",
+                path
+            ))]);
+        }
+    };
+
+    // Check if it's a directory
+    if fs.is_directory(&resolved) {
+        return CommandResult::output(vec![OutputLine::error(format!(
+            "rm: cannot remove '{}': Is a directory (use rmdir)",
+            path
+        ))]);
+    }
+
+    let mut new_pending = pending.clone();
+    new_pending.add(resolved.clone(), ChangeType::DeleteFile);
+
+    CommandResult::with_pending(
+        vec![OutputLine::success(format!(
+            "Removed file '{}' (pending commit)",
+            resolved
+        ))],
+        new_pending,
+    )
+}
+
+/// Execute `rmdir` command - remove a directory.
+fn execute_rmdir(
+    path: super::PathArg,
+    wallet_state: &WalletState,
+    fs: &MergedFs,
+    current_route: &AppRoute,
+    pending: &PendingChanges,
+) -> CommandResult {
+    if let Some(err) = check_admin(wallet_state) {
+        return err;
+    }
+
+    if matches!(current_route, AppRoute::Root) {
+        return CommandResult::output(vec![OutputLine::error(
+            "rmdir: cannot remove at root level",
+        )]);
+    }
+
+    let current_path = current_route.fs_path();
+    let resolved = match fs.resolve_path(current_path, path.as_str()) {
+        Some(p) => p,
+        None => {
+            return CommandResult::output(vec![OutputLine::error(format!(
+                "rmdir: cannot remove '{}': No such file or directory",
+                path
+            ))]);
+        }
+    };
+
+    // Check if it's actually a directory
+    if !fs.is_directory(&resolved) {
+        return CommandResult::output(vec![OutputLine::error(format!(
+            "rmdir: cannot remove '{}': Not a directory",
+            path
+        ))]);
+    }
+
+    // Check if directory is empty
+    if let Some(entries) = fs.list_dir(&resolved)
+        && !entries.is_empty()
+    {
+        return CommandResult::output(vec![OutputLine::error(format!(
+            "rmdir: failed to remove '{}': Directory not empty",
+            path
+        ))]);
+    }
+
+    let mut new_pending = pending.clone();
+    new_pending.add(resolved.clone(), ChangeType::DeleteDirectory);
+
+    CommandResult::with_pending(
+        vec![OutputLine::success(format!(
+            "Removed directory '{}' (pending commit)",
+            resolved
+        ))],
+        new_pending,
+    )
+}
+
+// =============================================================================
+// Sync Commands
+// =============================================================================
+
+/// Execute `sync status` - show pending and staged changes.
+fn execute_sync_status(
+    wallet_state: &WalletState,
+    pending: &PendingChanges,
+    staged: &StagedChanges,
+) -> CommandResult {
+    if let Some(err) = check_admin(wallet_state) {
+        return err;
+    }
+
+    if pending.is_empty() {
+        return CommandResult::output(vec![OutputLine::info(
+            "No pending changes. Working directory clean.",
+        )]);
+    }
+
+    let summary = pending.summary();
+    let mut lines = vec![OutputLine::empty()];
+
+    // Show staged changes first
+    let staged_count = staged.len();
+    if staged_count > 0 {
+        lines.push(OutputLine::text(format!(
+            "Changes staged for commit ({}):",
+            staged_count
+        )));
+        lines.push(OutputLine::empty());
+
+        for change in pending.iter() {
+            if staged.is_staged(&change.path) {
+                let status = match &change.change_type {
+                    ChangeType::CreateFile { .. } => "new file:   ",
+                    ChangeType::CreateBinaryFile { .. } => "new file:   ",
+                    ChangeType::CreateDirectory { .. } => "new dir:    ",
+                    ChangeType::UpdateFile { .. } => "modified:   ",
+                    ChangeType::DeleteFile => "deleted:    ",
+                    ChangeType::DeleteDirectory => "deleted:    ",
+                };
+                lines.push(OutputLine::success(format!(
+                    "        {}{}",
+                    status, change.path
+                )));
+            }
+        }
+        lines.push(OutputLine::empty());
+    }
+
+    // Show unstaged changes
+    let unstaged: Vec<_> = pending
+        .iter()
+        .filter(|c| !staged.is_staged(&c.path))
+        .collect();
+
+    if !unstaged.is_empty() {
+        lines.push(OutputLine::text(format!(
+            "Changes not staged for commit ({}):",
+            unstaged.len()
+        )));
+        lines.push(OutputLine::empty());
+
+        for change in unstaged {
+            let status = match &change.change_type {
+                ChangeType::CreateFile { .. } => "new file:   ",
+                ChangeType::CreateBinaryFile { .. } => "new file:   ",
+                ChangeType::CreateDirectory { .. } => "new dir:    ",
+                ChangeType::UpdateFile { .. } => "modified:   ",
+                ChangeType::DeleteFile => "deleted:    ",
+                ChangeType::DeleteDirectory => "deleted:    ",
+            };
+            lines.push(OutputLine::text(format!(
+                "        {}{}",
+                status, change.path
+            )));
+        }
+        lines.push(OutputLine::empty());
+    }
+
+    lines.push(OutputLine::info(format!(
+        "{} additions, {} modifications, {} deletions",
+        summary.creates, summary.updates, summary.deletes
+    )));
+    lines.push(OutputLine::empty());
+    lines.push(OutputLine::text(
+        "Use 'sync add <path>' to stage, 'sync commit' to commit staged changes.",
+    ));
+
+    CommandResult::output(lines)
+}
+
+/// Execute `sync add` - stage changes for commit.
+fn execute_sync_add(
+    path: Option<super::PathArg>,
+    wallet_state: &WalletState,
+    fs: &MergedFs,
+    current_route: &AppRoute,
+    pending: &PendingChanges,
+    staged: &StagedChanges,
+) -> CommandResult {
+    if let Some(err) = check_admin(wallet_state) {
+        return err;
+    }
+
+    if pending.is_empty() {
+        return CommandResult::output(vec![OutputLine::info("No pending changes to stage.")]);
+    }
+
+    match path {
+        Some(p) => {
+            let target = p.as_str();
+
+            // Handle "." to stage all
+            if target == "." {
+                let mut new_staged = staged.clone();
+                new_staged.add_all(pending.paths().map(|s| s.to_string()));
+                let count = pending.len();
+                return CommandResult::with_staged(
+                    vec![OutputLine::success(format!("Staged all {} changes", count))],
+                    new_staged,
+                );
+            }
+
+            // Resolve path
+            let current_path = current_route.fs_path();
+            let resolved = MergedFs::resolve_path_string(current_path, target);
+
+            if pending.has_change(&resolved) {
+                let mut new_staged = staged.clone();
+                new_staged.add(resolved.clone());
+                CommandResult::with_staged(
+                    vec![OutputLine::success(format!("Staged '{}'", resolved))],
+                    new_staged,
+                )
+            } else {
+                CommandResult::output(vec![OutputLine::error(format!(
+                    "sync add: no pending changes for '{}'",
+                    target
+                ))])
+            }
+        }
+        None => {
+            // No path - show usage
+            CommandResult::output(vec![
+                OutputLine::text("Usage: sync add <path>"),
+                OutputLine::text("       sync add .        Stage all pending changes"),
+            ])
+        }
+    }
+}
+
+/// Execute `sync reset` - unstage changes.
+fn execute_sync_reset(
+    path: Option<super::PathArg>,
+    wallet_state: &WalletState,
+    staged: &StagedChanges,
+) -> CommandResult {
+    if let Some(err) = check_admin(wallet_state) {
+        return err;
+    }
+
+    if staged.is_empty() {
+        return CommandResult::output(vec![OutputLine::info("No staged changes to reset.")]);
+    }
+
+    match path {
+        Some(p) => {
+            let target = p.as_str();
+            if staged.is_staged(target) {
+                let mut new_staged = staged.clone();
+                new_staged.remove(target);
+                CommandResult::with_staged(
+                    vec![OutputLine::success(format!("Unstaged '{}'", target))],
+                    new_staged,
+                )
+            } else {
+                CommandResult::output(vec![OutputLine::error(format!(
+                    "sync reset: '{}' is not staged",
+                    target
+                ))])
+            }
+        }
+        None => {
+            // Reset all
+            let count = staged.len();
+            CommandResult::with_staged(
+                vec![OutputLine::success(format!(
+                    "Unstaged all {} changes",
+                    count
+                ))],
+                StagedChanges::default(),
+            )
+        }
+    }
+}
+
+/// Execute `sync commit` - commit staged changes.
+fn execute_sync_commit(
+    msg: Option<String>,
+    wallet_state: &WalletState,
+    pending: &PendingChanges,
+    staged: &StagedChanges,
+) -> CommandResult {
+    if let Some(err) = check_admin(wallet_state) {
+        return err;
+    }
+
+    if staged.is_empty() {
+        return CommandResult::output(vec![
+            OutputLine::info("Nothing staged to commit."),
+            OutputLine::text("Use 'sync add <path>' to stage changes first."),
+        ]);
+    }
+
+    // Check if GitHub token is set
+    if !local::has_github_token() {
+        return CommandResult::output(vec![
+            OutputLine::error("No GitHub token configured."),
+            OutputLine::text("Use 'sync auth github <token>' to set your Personal Access Token."),
+        ]);
+    }
+
+    let message = msg.unwrap_or_else(|| "Update via websh".to_string());
+    let staged_count = staged.len();
+
+    // Note: Actual GitHub commit is async and needs to be handled separately.
+    // For now, we just show the info. The actual commit logic would be triggered
+    // from a component that can handle async operations.
+    CommandResult::output(vec![
+        OutputLine::info(format!(
+            "Ready to commit {} staged changes: \"{}\"",
+            staged_count, message
+        )),
+        OutputLine::text("Commit will be processed asynchronously..."),
+        OutputLine::text("(Note: Full async commit implementation pending)"),
+    ])
+}
+
+/// Execute `sync discard` - discard pending changes.
+fn execute_sync_discard(
+    path: Option<super::PathArg>,
+    wallet_state: &WalletState,
+    pending: &PendingChanges,
+) -> CommandResult {
+    if let Some(err) = check_admin(wallet_state) {
+        return err;
+    }
+
+    if pending.is_empty() {
+        return CommandResult::output(vec![OutputLine::info("No pending changes to discard.")]);
+    }
+
+    match path {
+        Some(p) => {
+            let target = p.as_str();
+            if pending.has_change(target) {
+                let mut new_pending = pending.clone();
+                new_pending.remove(target);
+                CommandResult::with_pending(
+                    vec![OutputLine::success(format!(
+                        "Discarded changes to '{}'",
+                        target
+                    ))],
+                    new_pending,
+                )
+            } else {
+                CommandResult::output(vec![OutputLine::error(format!(
+                    "sync discard: no pending changes for '{}'",
+                    target
+                ))])
+            }
+        }
+        None => {
+            // Discard all
+            let count = pending.len();
+            CommandResult::with_pending(
+                vec![OutputLine::success(format!(
+                    "Discarded all {} pending changes",
+                    count
+                ))],
+                PendingChanges::default(),
+            )
+        }
+    }
+}
+
+/// Execute `sync auth` - set authentication tokens.
+fn execute_sync_auth(provider: String, token: Option<String>) -> CommandResult {
+    match provider.to_lowercase().as_str() {
+        "github" => match token {
+            Some(t) => {
+                if let Err(e) = local::store_github_token(&t) {
+                    return CommandResult::output(vec![OutputLine::error(format!(
+                        "sync auth: failed to store token: {}",
+                        e
+                    ))]);
+                }
+                CommandResult::output(vec![OutputLine::success(
+                    "GitHub token stored successfully.",
+                )])
+            }
+            None => {
+                // Show status
+                if local::has_github_token() {
+                    CommandResult::output(vec![OutputLine::info("GitHub token is configured.")])
+                } else {
+                    CommandResult::output(vec![
+                        OutputLine::info("GitHub token is not configured."),
+                        OutputLine::text("Usage: sync auth github <personal-access-token>"),
+                    ])
+                }
+            }
+        },
+        "" => CommandResult::output(vec![
+            OutputLine::text("Usage: sync auth <provider> [token]"),
+            OutputLine::text(""),
+            OutputLine::text("Providers:"),
+            OutputLine::text("  github    Set GitHub Personal Access Token for commits"),
+        ]),
+        _ => CommandResult::output(vec![OutputLine::error(format!(
+            "sync auth: unknown provider '{}'. Supported: github",
+            provider
+        ))]),
     }
 }

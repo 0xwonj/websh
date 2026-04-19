@@ -121,6 +121,7 @@ fn FileListItem(entry: DirEntry) -> impl IntoView {
     let perms = ctx.fs.with_untracked(|fs| {
         let wallet = ctx.wallet.get_untracked();
         fs.get_entry(&item_fs_path)
+            .as_ref()
             .map(|e| fs.get_permissions(e, &wallet).to_string())
             .unwrap_or_else(|| {
                 // Fallback for mounts at root

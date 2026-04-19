@@ -253,8 +253,7 @@ fn NewMenu(menu_open: ReadSignal<bool>, set_menu_open: WriteSignal<bool>) -> imp
                 if let (Some(wrapper), Some(target)) = (
                     current.dyn_ref::<web_sys::Node>(),
                     related.dyn_ref::<web_sys::Node>(),
-                )
-                    && !wrapper.contains(Some(target))
+                ) && !wrapper.contains(Some(target))
                 {
                     set_menu.set(false);
                 }
@@ -339,8 +338,7 @@ fn MoreMenu(
                 if let (Some(wrapper), Some(target)) = (
                     current.dyn_ref::<web_sys::Node>(),
                     related.dyn_ref::<web_sys::Node>(),
-                )
-                    && !wrapper.contains(Some(target))
+                ) && !wrapper.contains(Some(target))
                 {
                     set_menu.set(false);
                 }

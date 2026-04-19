@@ -77,20 +77,21 @@ pub fn Breadcrumb(
                     };
 
                     // Build target route for navigation
+                    // Use absolute path construction, not relative join
                     let target = if is_last {
                         None // Current segment is not clickable
                     } else if is_home_segment {
                         Some(AppRoute::home())
-                    } else if idx == 0 {
-                        Some(route.join(segment))
-                    } else {
+                    } else if let Some(mount) = route.mount() {
+                        // Build absolute path from segments up to this index
                         let start_idx = if segments.first() == Some(&"~") { 1 } else { 0 };
-                        if idx >= start_idx {
-                            let path = segments[start_idx..=idx].join("/");
-                            Some(route.join(&path))
-                        } else {
-                            Some(route.clone())
-                        }
+                        let path = segments[start_idx..=idx].join("/");
+                        Some(AppRoute::Browse {
+                            mount: mount.clone(),
+                            path,
+                        })
+                    } else {
+                        None
                     };
 
                     segment_data.push(BreadcrumbSegment {

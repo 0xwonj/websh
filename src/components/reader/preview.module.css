@@ -1,0 +1,162 @@
+/* Preview Component Styles */
+
+.preview {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-8);
+  background-color: var(--bg-primary);
+}
+
+/* ==========================================================================
+   Article (Rendered Markdown)
+   ========================================================================== */
+
+.article {
+  max-width: 48rem;
+  margin: 0 auto;
+  line-height: 1.7;
+}
+
+/* Typography */
+.article :global(h1) {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-top: 0;
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-muted);
+}
+
+.article :global(h2) {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-top: var(--space-8);
+  margin-bottom: var(--space-4);
+}
+
+.article :global(h3) {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-top: var(--space-6);
+  margin-bottom: var(--space-3);
+}
+
+.article :global(p) {
+  margin-bottom: var(--space-4);
+}
+
+.article :global(a) {
+  color: var(--terminal-cyan);
+  text-decoration: none;
+}
+
+.article :global(a:hover) {
+  text-decoration: underline;
+}
+
+.article :global(strong) {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.article :global(em) {
+  font-style: italic;
+}
+
+/* Code */
+.article :global(code) {
+  background-color: var(--bg-secondary);
+  padding: 0.125rem 0.375rem;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  color: var(--terminal-cyan);
+}
+
+.article :global(pre) {
+  background-color: #1e1e2e;
+  padding: var(--space-4);
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: var(--space-4) 0;
+}
+
+.article :global(pre code) {
+  background-color: transparent;
+  padding: 0;
+  color: var(--text-primary);
+}
+
+/* Lists */
+.article :global(ul),
+.article :global(ol) {
+  margin-bottom: var(--space-4);
+  padding-left: var(--space-6);
+}
+
+.article :global(li) {
+  margin-bottom: var(--space-2);
+}
+
+.article :global(li)::marker {
+  color: var(--text-muted);
+}
+
+/* Blockquote */
+.article :global(blockquote) {
+  border-left: 4px solid var(--terminal-purple);
+  padding-left: var(--space-4);
+  margin: var(--space-4) 0;
+  color: var(--text-muted);
+}
+
+/* Tables */
+.article :global(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: var(--space-4) 0;
+}
+
+.article :global(th),
+.article :global(td) {
+  border: 1px solid var(--border-muted);
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+}
+
+.article :global(th) {
+  background-color: var(--bg-secondary);
+  font-weight: 600;
+}
+
+/* Horizontal Rule */
+.article :global(hr) {
+  border: none;
+  border-top: 1px solid var(--border-muted);
+  margin: var(--space-8) 0;
+}
+
+/* ==========================================================================
+   Raw Text
+   ========================================================================== */
+
+.rawText {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-primary);
+}
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media (max-width: 768px) {
+  .preview {
+    padding: var(--space-4);
+  }
+}

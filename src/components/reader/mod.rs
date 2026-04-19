@@ -1,53 +1,64 @@
 //! Reader component for displaying file content.
 //!
-//! Supports markdown, PDF, images, and link files.
-//! Navigation is handled via AppRoute::push().
+//! HackMD-style editor with three view modes: Read, Write, and Split.
+//!
+//! ## Component Structure
+//! - `Reader`: Container component with view mode toggle and header
+//! - `Editor`: Markdown editor with line numbers and formatting toolbar
+//! - `Preview`: Rendered markdown/content display
 
 #![allow(dead_code)]
+
+mod editor;
+mod preview;
 
 use leptos::{ev, prelude::*};
 use leptos_icons::Icon;
 use wasm_bindgen_futures::spawn_local;
 
-use crate::components::Breadcrumb;
+use crate::app::AppContext;
 use crate::components::icons as ic;
-use crate::models::{AppRoute, FileType};
-use crate::utils::{UrlValidation, fetch_content, markdown_to_html, validate_redirect_url};
+use crate::components::Breadcrumb;
+use crate::core::storage::{ChangeType, save_pending_changes};
+use crate::models::{AppRoute, FileMetadata, FileType, ReaderViewMode};
+use crate::utils::{
+    UrlValidation, fetch_content, markdown_to_html, markdown_to_html_with_images,
+    validate_redirect_url,
+};
+
+use editor::{Editor, ImageUpload};
+use preview::{Preview, RawPreview};
 
 stylance::import_crate_style!(css, "src/components/reader/reader.module.css");
 
 /// Reader component for displaying file content.
-///
-/// # Props
-/// - `route`: The current AppRoute (must be a Read route)
-/// - `on_close`: Callback invoked when the reader should be closed
 #[component]
 pub fn Reader(route: Memo<AppRoute>, on_close: Callback<()>) -> impl IntoView {
-    // Derive content path from route
-    let content_path = Memo::new(move |_| route.get().path().to_string());
+    let ctx = use_context::<AppContext>().expect("AppContext must be provided");
 
-    // Derive display path for breadcrumb
-    let display_path = Memo::new(move |_| route.get().display_path());
+    // View mode state - default to Read for viewing
+    let (view_mode, set_view_mode) = signal(ReaderViewMode::Read);
+
+    // Derive content path and filename from route
+    let content_path = Memo::new(move |_| route.get().path().to_string());
+    let filename = Memo::new(move |_| {
+        content_path
+            .get()
+            .rsplit('/')
+            .next()
+            .unwrap_or("untitled")
+            .to_string()
+    });
 
     // Derive file type from content path
     let file_type = Memo::new(move |_| FileType::from_path(&content_path.get()));
 
-    // Derive content URL from route (uses mount's base_url)
+    // Derive content URL from route
     let content_url = Memo::new(move |_| {
         route
             .get()
             .content_url()
             .unwrap_or_else(|| content_path.get())
-    });
-
-    // Parse display path into breadcrumb segments (for filename extraction)
-    let breadcrumb_segments = Memo::new(move |_| {
-        display_path
-            .get()
-            .split('/')
-            .filter(|s| !s.is_empty())
-            .map(String::from)
-            .collect::<Vec<_>>()
     });
 
     // For PDF, use Mozilla's PDF.js viewer
@@ -63,27 +74,75 @@ pub fn Reader(route: Memo<AppRoute>, on_close: Callback<()>) -> impl IntoView {
         }
     });
 
+    // Content signals
     let (content, set_content) = signal(String::new());
-    let (loading, set_loading) = signal(false); // Start as false, only true for async content
+    let edit_content = RwSignal::new(String::new());
+    let (loading, set_loading) = signal(false);
     let (error, set_error) = signal::<Option<String>>(None);
 
-    // Load content when content_path changes
+    // Dirty state - tracks if content has been modified since last save
+    let (original_content, set_original_content) = signal(String::new());
+    let is_dirty = Memo::new(move |_| edit_content.get() != original_content.get());
+
+    // Close confirmation dialog state
+    let (show_close_confirm, set_show_close_confirm) = signal(false);
+
+    // Live preview HTML with pending image resolution
+    let preview_html = Memo::new(move |_| {
+        if file_type.get() == FileType::Markdown {
+            // Get pending binary files as data URLs for preview
+            let image_urls = ctx.fs.pending().with(|p| p.get_all_binary_data_urls());
+            markdown_to_html_with_images(&edit_content.get(), &image_urls)
+        } else {
+            edit_content.get()
+        }
+    });
+
+    // Load content
     Effect::new(move |_| {
         let url = content_url.get();
         let ft = file_type.get();
+        let path = content_path.get();
 
         set_error.set(None);
         set_content.set(String::new());
+        edit_content.set(String::new());
+        set_original_content.set(String::new());
 
-        // Only set loading for types that need async fetch
+        // Check if there's pending content for this file
+        let pending_content = ctx.fs.pending().with(|p| {
+            p.get(&path).and_then(|change| match &change.change_type {
+                ChangeType::CreateFile { content, .. } => Some(content.clone()),
+                ChangeType::UpdateFile { content, .. } => Some(content.clone()),
+                _ => None,
+            })
+        });
+
         match ft {
             FileType::Markdown | FileType::Link | FileType::Unknown => {
                 set_loading.set(true);
+
+                // If we have pending content, use it instead of fetching
+                if let Some(pending) = pending_content {
+                    let html = if ft == FileType::Markdown {
+                        markdown_to_html(&pending)
+                    } else {
+                        pending.clone()
+                    };
+                    edit_content.set(pending.clone());
+                    set_original_content.set(pending); // Mark as "saved" since it's from pending
+                    set_content.set(html);
+                    set_loading.set(false);
+                    return;
+                }
+
                 spawn_local(async move {
                     match ft {
                         FileType::Markdown => match fetch_content(&url).await {
                             Ok(md) => {
                                 let html = markdown_to_html(&md);
+                                edit_content.set(md.clone());
+                                set_original_content.set(md);
                                 set_content.set(html);
                                 set_loading.set(false);
                             }
@@ -117,6 +176,8 @@ pub fn Reader(route: Memo<AppRoute>, on_close: Callback<()>) -> impl IntoView {
                         },
                         FileType::Unknown => match fetch_content(&url).await {
                             Ok(text) => {
+                                edit_content.set(text.clone());
+                                set_original_content.set(text.clone());
                                 set_content.set(text);
                                 set_loading.set(false);
                             }
@@ -129,23 +190,88 @@ pub fn Reader(route: Memo<AppRoute>, on_close: Callback<()>) -> impl IntoView {
                     }
                 });
             }
-            // PDF, Image don't need loading - render immediately
             _ => {
                 set_loading.set(false);
             }
         }
     });
 
-    // Handle keyboard events for closing
-    let handle_keydown = move |ev: ev::KeyboardEvent| match ev.key().as_str() {
-        "q" | "Escape" => {
-            ev.prevent_default();
-            on_close.run(());
-        }
-        _ => {}
+    // Save function - stores content in pending changes
+    let save_content = move || {
+        let path = content_path.get();
+        let current_content = edit_content.get();
+
+        web_sys::console::log_1(&format!("save_content: path={}", path).into());
+        web_sys::console::log_1(&format!("save_content: content length={}", current_content.len()).into());
+
+        // Check if this is a new file or update
+        let is_new_file = original_content.get().is_empty();
+        web_sys::console::log_1(&format!("save_content: is_new_file={}", is_new_file).into());
+
+        ctx.fs.pending().update(|pending| {
+            web_sys::console::log_1(&"save_content: inside pending update".into());
+            if is_new_file {
+                pending.add(
+                    path.clone(),
+                    ChangeType::CreateFile {
+                        content: current_content.clone(),
+                        description: String::new(),
+                        meta: FileMetadata::default(),
+                    },
+                );
+            } else {
+                pending.add(
+                    path.clone(),
+                    ChangeType::UpdateFile {
+                        content: current_content.clone(),
+                        description: None,
+                    },
+                );
+            }
+            web_sys::console::log_1(&format!("save_content: pending count={}", pending.len()).into());
+        });
+
+        // Save to localStorage
+        ctx.fs.pending().with(|p| {
+            web_sys::console::log_1(&format!("save_content: saving to localStorage, count={}", p.len()).into());
+            match save_pending_changes(p) {
+                Ok(_) => web_sys::console::log_1(&"save_content: localStorage save OK".into()),
+                Err(e) => web_sys::console::log_1(&format!("save_content: localStorage error: {:?}", e).into()),
+            }
+        });
+
+        // Update original content to mark as saved
+        set_original_content.set(current_content.clone());
+        web_sys::console::log_1(&"save_content: done".into());
     };
 
-    // Focus the container on mount for keyboard events
+    // Keyboard handler
+    let handle_keydown = move |ev: ev::KeyboardEvent| {
+        let key = ev.key();
+
+        // Ctrl+S or Cmd+S to save
+        if (ev.ctrl_key() || ev.meta_key()) && key == "s" {
+            ev.prevent_default();
+            if is_dirty.get() {
+                save_content();
+            }
+            return;
+        }
+
+        // Escape to close (with confirmation if dirty)
+        if key == "Escape" {
+            ev.prevent_default();
+            web_sys::console::log_1(&format!("Reader: Escape pressed, is_dirty={}", is_dirty.get()).into());
+            if is_dirty.get() {
+                web_sys::console::log_1(&"Reader: showing close confirm dialog".into());
+                set_show_close_confirm.set(true);
+            } else {
+                on_close.run(());
+            }
+        }
+    };
+
+    // Focus container on mount
     let container_ref = NodeRef::<leptos::html::Div>::new();
     Effect::new(move || {
         if let Some(el) = container_ref.get() {
@@ -153,201 +279,262 @@ pub fn Reader(route: Memo<AppRoute>, on_close: Callback<()>) -> impl IntoView {
         }
     });
 
-    // Extract filename for image alt text
-    let filename = Memo::new(move |_| {
-        breadcrumb_segments
-            .get()
-            .last()
-            .cloned()
-            .unwrap_or_default()
+    // Check if file supports editing
+    let supports_editing = Memo::new(move |_| {
+        matches!(file_type.get(), FileType::Markdown | FileType::Unknown)
     });
 
-    // More menu state
-    let (more_menu_open, set_more_menu_open) = signal(false);
+    // Content as signal for RawPreview
+    let content_signal = Signal::derive(move || content.get());
 
-    // Placeholder handlers for menu items (UI only)
-    let on_edit = move |_: ev::MouseEvent| {
-        set_more_menu_open.set(false);
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&"Edit clicked".into());
-    };
+    // Image upload callback - stores image in pending changes and returns path
+    let on_image_upload = Callback::new(move |upload: ImageUpload| {
+        // Generate path in .assets folder
+        let path = format!("/.assets/{}", upload.filename);
 
-    let on_font_increase = move |_: ev::MouseEvent| {
-        set_more_menu_open.set(false);
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&"Font increase clicked".into());
-    };
+        // Add to pending changes
+        ctx.fs.pending().update(|pending| {
+            pending.add(
+                path.clone(),
+                ChangeType::CreateBinaryFile {
+                    content_base64: upload.content_base64,
+                    mime_type: upload.mime_type,
+                    description: format!("Image: {}", upload.filename),
+                    meta: FileMetadata::default(),
+                },
+            );
+        });
 
-    let on_font_decrease = move |_: ev::MouseEvent| {
-        set_more_menu_open.set(false);
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&"Font decrease clicked".into());
-    };
+        // Save to localStorage
+        ctx.fs.pending().with(|p| {
+            let _ = save_pending_changes(p);
+        });
 
-    let on_share = move |_: ev::MouseEvent| {
-        set_more_menu_open.set(false);
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&"Share clicked".into());
-    };
+        path
+    });
 
-    let on_download = move |_: ev::MouseEvent| {
-        set_more_menu_open.set(false);
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&"Download clicked".into());
-    };
+    // Save callback for Editor
+    let on_save = Callback::new(move |()| {
+        web_sys::console::log_1(&format!("Reader on_save: is_dirty={}", is_dirty.get()).into());
+        if is_dirty.get() {
+            web_sys::console::log_1(&"Reader: calling save_content".into());
+            save_content();
+        }
+    });
 
     view! {
         <div
             node_ref=container_ref
             tabindex="-1"
-            class=format!("{} scrollbar-thin", css::reader)
+            class=css::reader
             on:keydown=handle_keydown
         >
-            // Header
+            // Header with view toggle (left), breadcrumb (center), actions (right)
             <header class=css::header>
-                // Back button (left)
-                <div class=css::navButtons>
+                // Left: Back button + View mode toggle
+                <div class=css::headerLeft>
                     <button
-                        class=css::navButton
-                        on:click=move |_| on_close.run(())
-                        title="Back (Esc)"
+                        class=css::headerButton
+                        on:click=move |_| {
+                            if is_dirty.get() {
+                                set_show_close_confirm.set(true);
+                            } else {
+                                on_close.run(());
+                            }
+                        }
+                        title="Close (Esc)"
                     >
                         <Icon icon=ic::CHEVRON_LEFT />
                     </button>
+
+                    // Segmented view mode toggle (only for editable files)
+                    <Show when=move || supports_editing.get()>
+                        <div class=css::segmentedToggle>
+                            <button
+                                class=move || if view_mode.get() == ReaderViewMode::Write {
+                                    format!("{} {}", css::segmentButton, css::segmentButtonActive)
+                                } else {
+                                    css::segmentButton.to_string()
+                                }
+                                on:click=move |_| set_view_mode.set(ReaderViewMode::Write)
+                                title="Write"
+                            >
+                                <Icon icon=ic::EDIT />
+                            </button>
+                            <button
+                                class=move || if view_mode.get() == ReaderViewMode::Split {
+                                    format!("{} {}", css::segmentButton, css::segmentButtonActive)
+                                } else {
+                                    css::segmentButton.to_string()
+                                }
+                                on:click=move |_| set_view_mode.set(ReaderViewMode::Split)
+                                title="Both"
+                            >
+                                <Icon icon=ic::COLUMNS />
+                            </button>
+                            <button
+                                class=move || if view_mode.get() == ReaderViewMode::Read {
+                                    format!("{} {}", css::segmentButton, css::segmentButtonActive)
+                                } else {
+                                    css::segmentButton.to_string()
+                                }
+                                on:click=move |_| set_view_mode.set(ReaderViewMode::Read)
+                                title="Read"
+                            >
+                                <Icon icon=ic::EYE />
+                            </button>
+                        </div>
+                    </Show>
                 </div>
 
-                // Breadcrumb path (center)
-                <Breadcrumb />
+                // Center: Breadcrumb (absolute positioned)
+                <div class=css::headerCenter>
+                    <Breadcrumb />
+                </div>
 
-                // Action buttons (right)
-                <div class=css::headerActions>
-                    // Open in new tab
-                    <a
-                        href=move || content_url.get()
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class=format!("{} {}", css::actionButton, css::desktopOnly)
-                        title="Open in new tab"
-                    >
-                        <Icon icon=ic::EXTERNAL_LINK />
-                    </a>
-
-                    // More menu
-                    <div class=css::dropdownWrapper>
-                        <button
-                            class=css::actionButton
-                            on:click=move |_| set_more_menu_open.update(|v| *v = !*v)
-                            title="More"
-                        >
-                            <Icon icon=ic::MORE />
-                        </button>
-                        <Show when=move || more_menu_open.get()>
-                            <div class=css::dropdownMenu>
-                                // Edit
-                                <button class=css::dropdownItem on:click=on_edit>
-                                    <span class=css::dropdownIcon><Icon icon=ic::EDIT /></span>
-                                    "Edit"
-                                </button>
-
-                                // Open in new tab (mobile)
-                                <a
-                                    href=move || content_url.get()
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    class=format!("{} {}", css::dropdownItem, css::mobileOnly)
-                                >
-                                    <span class=css::dropdownIcon><Icon icon=ic::EXTERNAL_LINK /></span>
-                                    "Open in new tab"
-                                </a>
-
-                                <div class=css::dropdownDivider />
-
-                                // Font size
-                                <button class=css::dropdownItem on:click=on_font_increase>
-                                    <span class=css::dropdownIcon><Icon icon=ic::FONT_INCREASE /></span>
-                                    "Increase font"
-                                </button>
-                                <button class=css::dropdownItem on:click=on_font_decrease>
-                                    <span class=css::dropdownIcon><Icon icon=ic::FONT_DECREASE /></span>
-                                    "Decrease font"
-                                </button>
-
-                                <div class=css::dropdownDivider />
-
-                                // Share & Download
-                                <button class=css::dropdownItem on:click=on_share>
-                                    <span class=css::dropdownIcon><Icon icon=ic::SHARE /></span>
-                                    "Share"
-                                </button>
-                                <button class=css::dropdownItem on:click=on_download>
-                                    <span class=css::dropdownIcon><Icon icon=ic::DOWNLOAD /></span>
-                                    "Download"
-                                </button>
-                            </div>
-                        </Show>
-                    </div>
+                // Right: Action buttons
+                <div class=css::headerRight>
+                    <button class=css::headerButton title="Search">
+                        <Icon icon=ic::SEARCH />
+                    </button>
+                    <button class=css::headerButton title="More">
+                        <Icon icon=ic::MORE />
+                    </button>
                 </div>
             </header>
 
-            // Content
-            <div class=css::content>
-                <Show
-                    when=move || loading.get()
-                    fallback=move || {
-                        // Show error if present, otherwise show content
-                        if let Some(err) = error.get() {
-                            view! {
+            // Content area
+            <Show
+                when=move || loading.get()
+                fallback=move || {
+                    if let Some(err) = error.get() {
+                        view! {
+                            <div class=css::contentArea>
                                 <div class=css::error>
                                     <p class=css::errorTitle>"Error loading content:"</p>
                                     <p>{err}</p>
                                 </div>
-                            }.into_any()
-                        } else {
-                            // Render content based on file type
-                            match file_type.get() {
-                                FileType::Markdown => {
-                                    view! {
-                                        <div class=css::markdown inner_html=content />
-                                    }.into_any()
-                                }
-                                FileType::Pdf => {
-                                    view! {
+                            </div>
+                        }.into_any()
+                    } else {
+                        match (view_mode.get(), file_type.get()) {
+                            // Split view
+                            (ReaderViewMode::Split, FileType::Markdown | FileType::Unknown) => {
+                                view! {
+                                    <div class=css::splitContainer>
+                                        <div class=css::editorPane>
+                                            <Editor
+                                                content=edit_content
+                                                show_toolbar=true
+                                                on_image_upload=on_image_upload
+                                                on_save=on_save
+                                            />
+                                        </div>
+                                        <div class=css::previewPane>
+                                            <Preview html=preview_html />
+                                        </div>
+                                    </div>
+                                }.into_any()
+                            }
+                            // Write mode only
+                            (ReaderViewMode::Write, FileType::Markdown | FileType::Unknown) => {
+                                view! {
+                                    <div class=css::editorFull>
+                                        <Editor
+                                            content=edit_content
+                                            show_toolbar=true
+                                            on_image_upload=on_image_upload
+                                            on_save=on_save
+                                        />
+                                    </div>
+                                }.into_any()
+                            }
+                            // Read mode for markdown
+                            (_, FileType::Markdown) => {
+                                view! {
+                                    <div class=css::contentArea>
+                                        <Preview html=preview_html />
+                                    </div>
+                                }.into_any()
+                            }
+                            // PDF viewer
+                            (_, FileType::Pdf) => {
+                                view! {
+                                    <div class=css::contentArea>
                                         <iframe
                                             src=pdf_viewer_url.get()
                                             class=css::pdfViewer
                                             title="PDF Viewer"
                                         />
-                                    }.into_any()
-                                }
-                                FileType::Image => {
-                                    view! {
+                                    </div>
+                                }.into_any()
+                            }
+                            // Image viewer
+                            (_, FileType::Image) => {
+                                view! {
+                                    <div class=css::contentArea>
                                         <div class=css::imageContainer>
                                             <img src=content_url.get() alt=filename.get() class=css::image />
                                         </div>
-                                    }.into_any()
-                                }
-                                FileType::Link => {
-                                    view! {
-                                        <div class=css::loading>
-                                            <span>"Redirecting..."</span>
-                                        </div>
-                                    }.into_any()
-                                }
-                                FileType::Unknown => {
-                                    view! {
-                                        <div class=css::rawText>{content}</div>
-                                    }.into_any()
-                                }
+                                    </div>
+                                }.into_any()
+                            }
+                            // Link redirect
+                            (_, FileType::Link) => {
+                                view! {
+                                    <div class=css::contentArea>
+                                        <div class=css::loading>"Redirecting..."</div>
+                                    </div>
+                                }.into_any()
+                            }
+                            // Unknown file type - raw text
+                            (_, FileType::Unknown) => {
+                                view! {
+                                    <div class=css::contentArea>
+                                        <RawPreview content=content_signal />
+                                    </div>
+                                }.into_any()
                             }
                         }
                     }
-                >
-                    // Loading state
-                    <div class=css::loading>
-                        <span>"Loading content..."</span>
+                }
+            >
+                <div class=css::contentArea>
+                    <div class=css::loading>"Loading..."</div>
+                </div>
+            </Show>
+
+            // Close confirmation dialog
+            <Show when=move || show_close_confirm.get()>
+                <div class=css::overlay>
+                    <div class=css::dialog>
+                        <p class=css::dialogMessage>"Unsaved changes will be lost."</p>
+                        <div class=css::dialogButtons>
+                            <button
+                                class=css::dialogButtonSecondary
+                                on:click=move |_| set_show_close_confirm.set(false)
+                            >
+                                "Cancel"
+                            </button>
+                            <button
+                                class=css::dialogButtonPrimary
+                                on:click=move |_| {
+                                    save_content();
+                                    on_close.run(());
+                                }
+                            >
+                                "Save"
+                            </button>
+                            <button
+                                class=css::dialogButtonDanger
+                                on:click=move |_| on_close.run(())
+                            >
+                                "Discard"
+                            </button>
+                        </div>
                     </div>
-                </Show>
-            </div>
+                </div>
+            </Show>
         </div>
     }
 }

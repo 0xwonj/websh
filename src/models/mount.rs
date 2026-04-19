@@ -5,154 +5,120 @@
 
 use std::collections::HashMap;
 
+use super::storage::Storage;
+
 // ============================================================================
-// Mount Types
+// Mount
 // ============================================================================
 
-/// Storage backend type for a mount.
+/// A mounted filesystem with alias and storage backend.
 ///
-/// Each variant represents a different way to fetch content.
+/// Mount combines a URL alias (for routing) with a storage backend
+/// (for content access) and optional content prefix.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[allow(dead_code)]
-pub enum Mount {
-    /// GitHub raw content
-    GitHub {
-        /// URL alias (e.g., "~", "work")
-        alias: String,
-        /// Base URL for manifest and root
-        base_url: String,
-        /// Optional prefix for content paths (e.g., "~" if content is in ~/*)
-        content_prefix: Option<String>,
-    },
-
-    /// IPFS gateway
-    Ipfs {
-        /// URL alias
-        alias: String,
-        /// Content identifier (CID)
-        cid: String,
-        /// Optional custom gateway URL
-        gateway: Option<String>,
-    },
-
-    /// ENS contenthash
-    Ens {
-        /// URL alias
-        alias: String,
-        /// ENS name (e.g., "vitalik.eth")
-        name: String,
-    },
+pub struct Mount {
+    /// URL alias (e.g., "~", "work")
+    pub alias: String,
+    /// Storage backend
+    pub storage: Storage,
+    /// Optional prefix for content paths (e.g., "~" if content is in ~/*)
+    pub content_prefix: Option<String>,
 }
 
 impl Mount {
-    /// Create a new GitHub mount.
-    #[cfg(test)]
-    pub fn github(alias: impl Into<String>, base_url: impl Into<String>) -> Self {
-        Self::GitHub {
+    // ========================================================================
+    // Constructors
+    // ========================================================================
+
+    /// Create a new mount with the given alias and storage.
+    pub fn new(alias: impl Into<String>, storage: Storage) -> Self {
+        Self {
             alias: alias.into(),
-            base_url: base_url.into(),
+            storage,
             content_prefix: None,
         }
     }
 
-    /// Create a new GitHub mount with content prefix.
+    /// Create a new mount with content prefix.
+    pub fn with_prefix(
+        alias: impl Into<String>,
+        storage: Storage,
+        prefix: impl Into<String>,
+    ) -> Self {
+        Self {
+            alias: alias.into(),
+            storage,
+            content_prefix: Some(prefix.into()),
+        }
+    }
+
+    /// Create a GitHub mount (convenience method).
+    #[cfg(test)]
+    pub fn github(alias: impl Into<String>, owner: &str, repo: &str, branch: &str) -> Self {
+        Self::new(alias, Storage::github(owner, repo, branch))
+    }
+
+    /// Create a GitHub mount with content prefix (convenience method).
     pub fn github_with_prefix(
         alias: impl Into<String>,
-        base_url: impl Into<String>,
-        content_prefix: impl Into<String>,
+        owner: &str,
+        repo: &str,
+        branch: &str,
+        prefix: impl Into<String>,
     ) -> Self {
-        Self::GitHub {
-            alias: alias.into(),
-            base_url: base_url.into(),
-            content_prefix: Some(content_prefix.into()),
-        }
+        Self::with_prefix(alias, Storage::github(owner, repo, branch), prefix)
     }
 
-    /// Create a new IPFS mount.
-    #[cfg(test)]
-    pub fn ipfs(alias: impl Into<String>, cid: impl Into<String>) -> Self {
-        Self::Ipfs {
-            alias: alias.into(),
-            cid: cid.into(),
-            gateway: None,
-        }
-    }
-
-    /// Create a new IPFS mount with custom gateway.
-    #[cfg(test)]
-    pub fn ipfs_with_gateway(
-        alias: impl Into<String>,
-        cid: impl Into<String>,
-        gateway: impl Into<String>,
-    ) -> Self {
-        Self::Ipfs {
-            alias: alias.into(),
-            cid: cid.into(),
-            gateway: Some(gateway.into()),
-        }
-    }
-
-    /// Create a new ENS mount.
-    #[cfg(test)]
-    pub fn ens(alias: impl Into<String>, name: impl Into<String>) -> Self {
-        Self::Ens {
-            alias: alias.into(),
-            name: name.into(),
-        }
-    }
+    // ========================================================================
+    // Accessors
+    // ========================================================================
 
     /// Get the alias for URL path segment.
     #[inline]
     pub fn alias(&self) -> &str {
-        match self {
-            Self::GitHub { alias, .. } => alias,
-            Self::Ipfs { alias, .. } => alias,
-            Self::Ens { alias, .. } => alias,
-        }
+        &self.alias
     }
 
-    /// Get base URL (for manifest).
+    /// Get the storage backend.
+    #[inline]
+    pub fn storage(&self) -> &Storage {
+        &self.storage
+    }
+
+    // ========================================================================
+    // URL Generation
+    // ========================================================================
+
+    /// Get base URL for raw content (without content prefix).
     pub fn base_url(&self) -> String {
-        match self {
-            Self::GitHub { base_url, .. } => base_url.clone(),
-            Self::Ipfs { cid, gateway, .. } => {
-                let gw = gateway.as_deref().unwrap_or("https://ipfs.io");
-                format!("{}/ipfs/{}", gw, cid)
-            }
-            Self::Ens { name, .. } => {
-                // ENS resolution via eth.limo gateway
-                format!("https://{}.limo", name)
-            }
-        }
+        self.storage.raw_base_url()
     }
 
     /// Get content URL base (includes content_prefix if set).
     pub fn content_base_url(&self) -> String {
-        match self {
-            Self::GitHub {
-                base_url,
-                content_prefix,
-                ..
-            } => match content_prefix {
-                Some(prefix) => format!("{}/{}", base_url, prefix),
-                None => base_url.clone(),
-            },
-            _ => self.base_url(),
+        match &self.content_prefix {
+            Some(prefix) => format!("{}/{}", self.storage.raw_base_url(), prefix),
+            None => self.storage.raw_base_url(),
         }
     }
 
     /// Get the manifest URL for this mount.
     pub fn manifest_url(&self) -> String {
-        format!("{}/manifest.json", self.base_url())
+        self.storage.manifest_url()
     }
 
     /// Get a short description of this mount's backend type.
     pub fn description(&self) -> String {
-        match self {
-            Self::GitHub { .. } => "github".to_string(),
-            Self::Ipfs { cid, .. } => format!("ipfs:{}", &cid[..8.min(cid.len())]),
-            Self::Ens { name, .. } => format!("ens:{}", name),
-        }
+        self.storage.description()
+    }
+
+    // ========================================================================
+    // Backend Properties
+    // ========================================================================
+
+    /// Check if this mount supports writing.
+    pub fn is_writable(&self) -> bool {
+        self.storage.is_writable()
     }
 }
 
@@ -201,9 +167,19 @@ impl MountRegistry {
         self.mounts.insert(alias, mount);
     }
 
+    /// Get a mount by alias.
+    pub fn get(&self, alias: &str) -> Option<&Mount> {
+        self.mounts.get(alias)
+    }
+
     /// Get all registered mounts in registration order.
     pub fn all(&self) -> impl Iterator<Item = &Mount> {
         self.order.iter().filter_map(|alias| self.mounts.get(alias))
+    }
+
+    /// Get the first (home) mount.
+    pub fn first(&self) -> Option<&Mount> {
+        self.order.first().and_then(|alias| self.mounts.get(alias))
     }
 }
 
@@ -217,51 +193,74 @@ mod tests {
 
     #[test]
     fn test_github_mount() {
-        let mount = Mount::github("~", "https://raw.githubusercontent.com/user/repo/main");
+        let mount = Mount::github("~", "user", "repo", "main");
         assert_eq!(mount.alias(), "~");
         assert_eq!(
             mount.base_url(),
             "https://raw.githubusercontent.com/user/repo/main"
         );
+        assert!(mount.is_writable());
     }
 
     #[test]
-    fn test_ipfs_mount() {
-        let mount = Mount::ipfs("data", "QmXyz123");
-        assert_eq!(mount.alias(), "data");
-        assert_eq!(mount.base_url(), "https://ipfs.io/ipfs/QmXyz123");
-    }
-
-    #[test]
-    fn test_ipfs_mount_custom_gateway() {
-        let mount = Mount::ipfs_with_gateway("data", "QmXyz123", "https://cloudflare-ipfs.com");
+    fn test_github_mount_with_prefix() {
+        let mount = Mount::github_with_prefix("~", "user", "repo", "main", "~");
+        assert_eq!(mount.alias(), "~");
         assert_eq!(
             mount.base_url(),
-            "https://cloudflare-ipfs.com/ipfs/QmXyz123"
+            "https://raw.githubusercontent.com/user/repo/main"
+        );
+        assert_eq!(
+            mount.content_base_url(),
+            "https://raw.githubusercontent.com/user/repo/main/~"
         );
     }
 
     #[test]
+    fn test_ipfs_mount() {
+        let mount = Mount::new("data", Storage::ipfs("QmXyz123"));
+        assert_eq!(mount.alias(), "data");
+        assert_eq!(mount.base_url(), "https://ipfs.io/ipfs/QmXyz123");
+        assert!(!mount.is_writable());
+    }
+
+    #[test]
     fn test_ens_mount() {
-        let mount = Mount::ens("vitalik", "vitalik.eth");
+        let mount = Mount::new("vitalik", Storage::ens("vitalik.eth"));
         assert_eq!(mount.alias(), "vitalik");
         assert_eq!(mount.base_url(), "https://vitalik.eth.limo");
+        assert!(!mount.is_writable());
     }
 
     #[test]
     fn test_registry_from_mounts() {
         let mounts = vec![
-            Mount::github("~", "https://example.com"),
-            Mount::ipfs("data", "QmXyz"),
+            Mount::github("~", "user", "repo", "main"),
+            Mount::new("data", Storage::ipfs("QmXyz")),
         ];
         let registry = MountRegistry::from_mounts(mounts);
 
         assert_eq!(registry.all().count(), 2);
+        assert!(registry.get("~").is_some());
+        assert!(registry.get("data").is_some());
+        assert!(registry.get("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_registry_first() {
+        let mounts = vec![
+            Mount::github("~", "user", "repo", "main"),
+            Mount::new("data", Storage::ipfs("QmXyz")),
+        ];
+        let registry = MountRegistry::from_mounts(mounts);
+
+        let first = registry.first().unwrap();
+        assert_eq!(first.alias(), "~");
     }
 
     #[test]
     fn test_manifest_url() {
-        let mount = Mount::github("~", "https://raw.githubusercontent.com/user/repo/main");
+        let mount = Mount::github("~", "user", "repo", "main");
         assert_eq!(
             mount.manifest_url(),
             "https://raw.githubusercontent.com/user/repo/main/manifest.json"

@@ -1,0 +1,269 @@
+/* Sync Panel - Dropdown showing changes */
+
+.overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 998;
+}
+
+.panel {
+  position: fixed;
+  top: 2rem;
+  right: var(--space-4);
+  width: 480px;
+  max-height: 600px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-muted);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  z-index: 999;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Header */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-muted);
+  background-color: var(--bg-tertiary);
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.title svg {
+  width: 16px;
+  height: 16px;
+  color: var(--terminal-yellow);
+}
+
+.closeButton {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: var(--space-1);
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.closeButton:hover {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.closeButton svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Body */
+.body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* Section */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border-muted);
+}
+
+.sectionTitle {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.actionButton {
+  background: none;
+  border: none;
+  color: var(--terminal-cyan);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.actionButton:hover {
+  background-color: rgba(0, 255, 255, 0.1);
+}
+
+/* File List */
+.fileList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-height: 40px;
+}
+
+.fileItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.fileItem:hover {
+  background-color: var(--bg-tertiary);
+}
+
+/* Checkbox */
+.checkbox,
+.checkboxUnchecked {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--terminal-cyan);
+  border-radius: 3px;
+  background: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background-color 0.2s, border-color 0.2s;
+}
+
+.checkbox {
+  background-color: var(--terminal-cyan);
+  border-color: var(--terminal-cyan);
+}
+
+.checkbox svg {
+  width: 12px;
+  height: 12px;
+  color: var(--bg-primary);
+}
+
+.checkboxUnchecked:hover {
+  border-color: var(--terminal-cyan);
+  background-color: rgba(0, 255, 255, 0.1);
+}
+
+/* Change Type Badge */
+.changeType {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  border-radius: 3px;
+}
+
+.added {
+  background-color: var(--terminal-green);
+  color: var(--bg-primary);
+}
+
+.modified {
+  background-color: var(--terminal-yellow);
+  color: var(--bg-primary);
+}
+
+.deleted {
+  background-color: var(--terminal-red);
+  color: var(--bg-primary);
+}
+
+/* File Path */
+.fileItem svg:not(.checkbox svg):not(.checkboxUnchecked svg) {
+  width: 14px;
+  height: 14px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.filePath {
+  flex: 1;
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Footer */
+.footer {
+  border-top: 1px solid var(--border-muted);
+  padding: var(--space-3) var(--space-4);
+  background-color: var(--bg-tertiary);
+}
+
+.commitButton {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  background-color: var(--terminal-green);
+  color: var(--bg-primary);
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+}
+
+.commitButton:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.commitButton:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.commitButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.commitButton svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .panel {
+    right: var(--space-2);
+    left: var(--space-2);
+    width: auto;
+  }
+}

@@ -76,6 +76,25 @@ pub const WALLET_SESSION_KEY: &str = "wallet_session";
 pub const WALLET_TIMEOUT_MS: i32 = 2000;
 
 // =============================================================================
+// Admin Configuration
+// =============================================================================
+
+/// Admin wallet addresses (case-insensitive).
+///
+/// These addresses have write access to the filesystem when authenticated.
+/// Add your wallet address here to enable admin features.
+pub const ADMIN_ADDRESSES: &[&str] = &[
+    // Add admin wallet addresses here:
+    "0x2c4b04a4aeb6e18c2f8a5c8b4a3f62c0cf33795a",
+];
+
+/// localStorage key for GitHub Personal Access Token.
+pub const GITHUB_TOKEN_KEY: &str = "github_token";
+
+/// localStorage key for pending changes.
+pub const PENDING_CHANGES_KEY: &str = "pending_changes";
+
+// =============================================================================
 // Environment Variables
 // =============================================================================
 
@@ -179,18 +198,15 @@ use crate::models::Mount;
 ///
 /// To add additional mounts, add more entries to the vector:
 /// ```ignore
+/// use crate::models::{Mount, Storage};
 /// vec![
-///     Mount::github("~", "https://raw.githubusercontent.com/user/repo/main"),
-///     Mount::github("work", "https://raw.githubusercontent.com/company/repo/main"),
-///     Mount::ipfs("data", "QmXyz123"),
+///     Mount::github_with_prefix("~", "user", "repo", "main", "~"),
+///     Mount::new("work", Storage::github("company", "repo", "main")),
+///     Mount::new("data", Storage::ipfs("QmXyz123")),
 /// ]
 /// ```
 pub fn configured_mounts() -> Vec<Mount> {
-    vec![Mount::github_with_prefix(
-        "~",
-        "https://raw.githubusercontent.com/0xwonj/db/main",
-        "~",
-    )]
+    vec![Mount::github_with_prefix("~", "0xwonj", "db", "main", "~")]
 }
 
 /// Get the default (home) mount.

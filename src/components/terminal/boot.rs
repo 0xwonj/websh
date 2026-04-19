@@ -98,7 +98,7 @@ pub fn run(ctx: AppContext) {
         // Build filesystem from manifest
         if !combined_manifest.files.is_empty() {
             let total_files = combined_manifest.files.len();
-            ctx.fs.set(VirtualFs::from_manifest(&combined_manifest));
+            ctx.fs.set_base(VirtualFs::from_manifest(&combined_manifest));
             ctx.terminal.push_output(OutputLine::success(format!(
                 "{} Total: {} files mounted",
                 format_elapsed(elapsed()),
@@ -109,9 +109,9 @@ pub fn run(ctx: AppContext) {
                 "{} No mounts configured",
                 format_elapsed(elapsed())
             )));
-            ctx.fs.set(VirtualFs::empty());
+            ctx.fs.set_base(VirtualFs::empty());
         } else {
-            ctx.fs.set(VirtualFs::empty());
+            ctx.fs.set_base(VirtualFs::empty());
         }
 
         // Check wallet connection (only if previously logged in)

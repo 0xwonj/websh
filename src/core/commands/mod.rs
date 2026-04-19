@@ -22,8 +22,9 @@ pub use result::CommandResult;
 use std::fmt;
 
 use crate::app::TerminalState;
-use crate::core::VirtualFs;
+use crate::core::MergedFs;
 use crate::core::parser::Pipeline;
+use crate::core::storage::{PendingChanges, StagedChanges};
 use crate::models::{AppRoute, OutputLine, WalletState};
 
 // =============================================================================
@@ -108,6 +109,34 @@ pub enum Command {
     /// Switch to explorer view mode with optional path
     #[allow(dead_code)]
     Explorer(Option<PathArg>),
+
+    // === Admin Commands ===
+    /// Create a new file (admin only)
+    Touch(PathArg),
+    /// Create a new directory (admin only)
+    Mkdir(PathArg),
+    /// Remove a file (admin only)
+    Rm(PathArg),
+    /// Remove a directory (admin only)
+    Rmdir(PathArg),
+
+    // === Sync Commands (Git-like workflow) ===
+    /// Show pending/staged changes
+    SyncStatus,
+    /// Stage changes for commit
+    SyncAdd(Option<PathArg>),
+    /// Unstage changes
+    SyncReset(Option<PathArg>),
+    /// Commit staged changes
+    SyncCommit(Option<String>),
+    /// Discard pending changes
+    SyncDiscard(Option<PathArg>),
+    /// Set authentication token
+    SyncAuth {
+        provider: String,
+        token: Option<String>,
+    },
+
     Unknown(String),
 }
 
@@ -118,8 +147,14 @@ impl Command {
     pub fn names() -> &'static [&'static str] {
         &[
             "cat", "cd", "clear", "cls", "echo", "explorer", "export", "grep", "head", "help",
-            "id", "login", "logout", "ls", "pwd", "tail", "unset", "wc", "whoami",
+            "id", "login", "logout", "ls", "mkdir", "pwd", "rm", "rmdir", "sync", "tail", "touch",
+            "unset", "wc", "whoami",
         ]
+    }
+
+    /// Get sync subcommand names for autocomplete.
+    pub fn sync_subcommands() -> &'static [&'static str] {
+        &["status", "add", "reset", "commit", "discard", "auth"]
     }
 
     /// Parse command from name and arguments.
@@ -172,7 +207,76 @@ impl Command {
             "login" => Self::Login,
             "logout" => Self::Logout,
             "explorer" => Self::Explorer(args.first().map(PathArg::new)),
+
+            // Admin commands
+            "touch" => {
+                if let Some(path) = args.first() {
+                    Self::Touch(PathArg::new(path))
+                } else {
+                    Self::Unknown("touch: missing file operand".to_string())
+                }
+            }
+            "mkdir" => {
+                if let Some(path) = args.first() {
+                    Self::Mkdir(PathArg::new(path))
+                } else {
+                    Self::Unknown("mkdir: missing directory operand".to_string())
+                }
+            }
+            "rm" => {
+                if let Some(path) = args.first() {
+                    Self::Rm(PathArg::new(path))
+                } else {
+                    Self::Unknown("rm: missing file operand".to_string())
+                }
+            }
+            "rmdir" => {
+                if let Some(path) = args.first() {
+                    Self::Rmdir(PathArg::new(path))
+                } else {
+                    Self::Unknown("rmdir: missing directory operand".to_string())
+                }
+            }
+
+            // Sync commands (git-like workflow)
+            "sync" => Self::parse_sync(args),
+
             _ => Self::Unknown(name.to_string()),
+        }
+    }
+
+    /// Parse sync subcommands.
+    fn parse_sync(args: &[String]) -> Self {
+        let subcommand = args.first().map(|s| s.to_lowercase());
+        let sub_args = if args.len() > 1 { &args[1..] } else { &[] };
+
+        match subcommand.as_deref() {
+            Some("status") | Some("st") => Self::SyncStatus,
+            Some("add") => Self::SyncAdd(sub_args.first().map(PathArg::new)),
+            Some("reset") => Self::SyncReset(sub_args.first().map(PathArg::new)),
+            Some("commit") | Some("ci") => {
+                // Handle -m flag for commit message
+                let message = if sub_args.first().map(|s| s.as_str()) == Some("-m") {
+                    if sub_args.len() > 1 {
+                        Some(sub_args[1..].join(" "))
+                    } else {
+                        None
+                    }
+                } else if !sub_args.is_empty() {
+                    Some(sub_args.join(" "))
+                } else {
+                    None
+                };
+                Self::SyncCommit(message)
+            }
+            Some("discard") => Self::SyncDiscard(sub_args.first().map(PathArg::new)),
+            Some("auth") => {
+                let provider = sub_args.first().cloned().unwrap_or_default();
+                let token = sub_args.get(1).cloned();
+                Self::SyncAuth { provider, token }
+            }
+            Some(cmd) => Self::Unknown(format!("sync: unknown subcommand '{}'. Try 'sync status', 'sync add', 'sync commit', etc.", cmd)),
+            None => Self::Unknown("sync: missing subcommand. Try 'sync status', 'sync add <path>', 'sync commit', etc.".to_string()),
         }
     }
 }
@@ -185,12 +289,16 @@ impl Command {
 ///
 /// A pipeline consists of a main command followed by optional filter commands
 /// separated by `|`. For example: `ls | grep foo | head -5`
+///
+/// The `pending` and `staged` parameters contain current changes for sync commands.
 pub fn execute_pipeline(
     pipeline: &Pipeline,
     state: &TerminalState,
     wallet_state: &WalletState,
-    fs: &VirtualFs,
+    fs: &MergedFs,
     current_route: &AppRoute,
+    pending: &PendingChanges,
+    staged: &StagedChanges,
 ) -> CommandResult {
     // Check for syntax errors first
     if let Some(ref err) = pipeline.error {
@@ -204,14 +312,14 @@ pub fn execute_pipeline(
     // Execute first command
     let first = &pipeline.commands[0];
     let cmd = Command::parse(&first.name, &first.args);
-    let result = execute_command(cmd, state, wallet_state, fs, current_route);
+    let result = execute_command(cmd, state, wallet_state, fs, current_route, pending, staged);
 
-    // If there are no filters, return directly (preserving navigation)
+    // If there are no filters, return directly (preserving navigation, pending, staged)
     if pipeline.commands.len() == 1 {
         return result;
     }
 
-    // Apply pipe filters (navigation is discarded when piping)
+    // Apply pipe filters (navigation, pending, staged are discarded when piping)
     let mut lines = result.output;
     for filter_cmd in pipeline.commands.iter().skip(1) {
         lines = apply_filter(&filter_cmd.name, &filter_cmd.args, lines);

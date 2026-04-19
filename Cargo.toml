@@ -11,6 +11,9 @@ wasm-bindgen-futures = "0.4"
 web-sys = { version = "0.3", features = [
     "console",
     "Document",
+    "File",
+    "FileList",
+    "FileReader",
     "FocusEvent",
     "Headers",
     "History",
@@ -36,7 +39,9 @@ pulldown-cmark = "0.13"
 ammonia = "4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+base64 = "0.22"
 stylance = "0.7"
+urlencoding = "2.1"
 leptos_icons = "0.7"
 icondata = { version = "0.7", default-features = false, features = ["bootstrap-icons", "lucide"] }
 

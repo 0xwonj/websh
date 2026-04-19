@@ -1,7 +1,9 @@
 //! Status bar component.
 //!
-//! Displays session, location, and network information.
+//! Displays session, location, network information, and sync status.
 //! Provides view toggle button to switch between Terminal and Explorer.
+
+mod sync_panel;
 
 use leptos::prelude::*;
 use leptos_icons::Icon;
@@ -11,10 +13,11 @@ use crate::components::icons as ic;
 use crate::components::terminal::RouteContext;
 use crate::core::wallet;
 use crate::models::ViewMode;
+use sync_panel::SyncPanel;
 
 stylance::import_crate_style!(css, "src/components/status/status.module.css");
 
-/// Status bar component displaying session, location, and network information.
+/// Status bar component displaying session, location, network, and sync status.
 ///
 /// ## Responsive behavior
 ///
@@ -38,6 +41,16 @@ pub fn Status() -> impl IntoView {
                 .unwrap_or_else(|| "—".to_string())
         })
     });
+
+    // Sync status signals
+    let pending_count = Signal::derive(move || ctx.fs.pending().with(|p| p.len()));
+    let staged_count = Signal::derive(move || ctx.fs.staged().with(|s| s.len()));
+    let has_changes = Signal::derive(move || pending_count.get() > 0);
+
+    // Sync panel state
+    let (is_panel_open, set_is_panel_open) = signal(false);
+    let toggle_panel = move |_| set_is_panel_open.update(|open| *open = !*open);
+    let close_panel = Callback::new(move |_| set_is_panel_open.set(false));
 
     // View toggle
     let view_mode = ctx.view_mode;
@@ -68,6 +81,20 @@ pub fn Status() -> impl IntoView {
                 </span>
             </div>
 
+            // Sync badge (only shown when there are changes)
+            <Show when=move || has_changes.get()>
+                <button
+                    class=css::syncBadge
+                    title="Click to view changes"
+                    on:click=toggle_panel
+                >
+                    <Icon icon=ic::SYNC />
+                    <span class=css::syncCount>
+                        {move || format!("{}/{}", staged_count.get(), pending_count.get())}
+                    </span>
+                </button>
+            </Show>
+
             // View toggle (segmented control)
             <div class=css::toggleGroup>
                 <button
@@ -94,5 +121,8 @@ pub fn Status() -> impl IntoView {
                 </button>
             </div>
         </header>
+
+        // Sync panel
+        <SyncPanel is_open=is_panel_open on_close=close_panel />
     }
 }

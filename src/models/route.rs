@@ -148,9 +148,7 @@ impl AppRoute {
                     format!("/{}/{}/", mount.alias(), path)
                 }
             }
-            Self::Read { mount, path } => {
-                format!("/{}/{}", mount.alias(), path)
-            }
+            Self::Read { mount, path } => format!("/{}/{}", mount.alias(), path),
         }
     }
 
@@ -208,7 +206,7 @@ impl AppRoute {
     /// Returns `None` for non-file routes.
     pub fn content_url(&self) -> Option<String> {
         match self {
-            Self::Read { mount, path } => Some(format!("{}/{}", mount.content_base_url(), path)),
+            Self::Read { mount, path, .. } => Some(format!("{}/{}", mount.content_base_url(), path)),
             _ => None,
         }
     }
@@ -237,7 +235,7 @@ impl AppRoute {
     pub fn parent(&self) -> Self {
         match self {
             Self::Root => Self::Root,
-            Self::Browse { mount, path } | Self::Read { mount, path } => {
+            Self::Browse { mount, path } | Self::Read { mount, path, .. } => {
                 if path.is_empty() {
                     // At mount root, go up to Root (mount selection)
                     Self::Root
@@ -266,7 +264,7 @@ impl AppRoute {
     pub fn display_path(&self) -> String {
         match self {
             Self::Root => "/".to_string(),
-            Self::Browse { mount, path } | Self::Read { mount, path } => {
+            Self::Browse { mount, path } | Self::Read { mount, path, .. } => {
                 let alias = mount.alias();
                 let prefix = if alias == "~" { "~" } else { alias };
                 if path.is_empty() {
@@ -291,7 +289,7 @@ impl AppRoute {
         let (mount, current_path) = match self {
             Self::Root => (home_mount(), ""),
             Self::Browse { mount, path } => (mount.clone(), path.as_str()),
-            Self::Read { mount, path } => {
+            Self::Read { mount, path, .. } => {
                 // For files, join relative to parent directory
                 let parent = path.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
                 (mount.clone(), parent)
@@ -372,7 +370,7 @@ mod tests {
     use super::*;
 
     fn test_mount() -> Mount {
-        Mount::github("~", "https://example.com")
+        Mount::github("~", "user", "repo", "main")
     }
 
     // ------------------------------------------------------------------------
@@ -526,7 +524,7 @@ mod tests {
         };
         assert_eq!(
             read.content_url(),
-            Some("https://example.com/blog/post.md".to_string())
+            Some("https://raw.githubusercontent.com/user/repo/main/blog/post.md".to_string())
         );
     }
 }

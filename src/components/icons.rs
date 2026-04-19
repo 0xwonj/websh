@@ -15,27 +15,29 @@ mod lucide {
     pub use icondata::{
         LuAArrowDown as FontDecrease, LuAArrowUp as FontIncrease, LuBookOpen as FilePdf,
         LuChevronLeft as ChevronLeft, LuChevronRight as ChevronRight, LuCircleAlert as Warning,
-        LuDownload as Download, LuEllipsisVertical as More, LuExternalLink as ExternalLink,
-        LuFile as File, LuFileText as FileText, LuFolder as Folder, LuFolderOpen as Explorer,
-        LuGlobe as Network, LuHardDrive as Server, LuHouse as Home, LuImage as FileImage,
-        LuLayoutGrid as Grid, LuLink as FileLink, LuList as List, LuLock as Lock,
-        LuMapPin as Location, LuPencil as Edit, LuPlus as Plus, LuSearch as Search,
+        LuCircleDot as Staged, LuCloud as Cloud, LuColumns2 as Columns, LuDownload as Download,
+        LuEllipsisVertical as More, LuExternalLink as ExternalLink, LuEye as Eye, LuFile as File,
+        LuFileText as FileText, LuFolder as Folder, LuFolderOpen as Explorer, LuGlobe as Network,
+        LuHardDrive as Server, LuHouse as Home, LuImage as FileImage, LuLayoutGrid as Grid,
+        LuLink as FileLink, LuList as List, LuLock as Lock, LuMapPin as Location,
+        LuPencil as Edit, LuPlus as Plus, LuRefreshCw as Sync, LuSearch as Search,
         LuShare2 as Share, LuTerminal as Terminal, LuUser as User, LuX as Close,
     };
 }
 
 mod bootstrap {
     pub use icondata::{
-        BsBoxArrowUpRight as ExternalLink, BsChevronLeft as ChevronLeft,
-        BsChevronRight as ChevronRight, BsDownload as Download,
-        BsExclamationTriangleFill as Warning, BsFileEarmark as File,
-        BsFileEarmarkImage as FileImage, BsFileEarmarkPdf as FilePdf,
+        BsArrowRepeat as Sync, BsBoxArrowUpRight as ExternalLink, BsChevronLeft as ChevronLeft,
+        BsChevronRight as ChevronRight, BsCircleFill as Staged, BsCloudFill as Cloud,
+        BsDownload as Download, BsExclamationTriangleFill as Warning, BsEye as Eye,
+        BsFileEarmark as File, BsFileEarmarkImage as FileImage, BsFileEarmarkPdf as FilePdf,
         BsFileEarmarkText as FileText, BsFolder2 as Explorer, BsFolderFill as Folder,
         BsGeoAltFill as Location, BsGlobe as Network, BsGrid as Grid, BsHddFill as Server,
-        BsHouseFill as Home, BsLink45deg as FileLink, BsListUl as List, BsLockFill as Lock,
-        BsPencil as Edit, BsPerson as User, BsPlusLg as Plus, BsSearch as Search, BsShare as Share,
-        BsTerminal as Terminal, BsThreeDotsVertical as More, BsTypeBold as FontDecrease,
-        BsTypeBold as FontIncrease, BsXLg as Close,
+        BsHouseFill as Home, BsLayoutSplit as Columns, BsLink45deg as FileLink, BsListUl as List,
+        BsLockFill as Lock, BsPencil as Edit, BsPerson as User, BsPlusLg as Plus,
+        BsSearch as Search, BsShare as Share, BsTerminal as Terminal,
+        BsThreeDotsVertical as More, BsTypeBold as FontDecrease, BsTypeBold as FontIncrease,
+        BsXLg as Close,
     };
 }
 
@@ -81,3 +83,8 @@ themed_icon!(LOCATION, Location);
 themed_icon!(NETWORK, Network);
 themed_icon!(SERVER, Server);
 themed_icon!(WARNING, Warning);
+themed_icon!(COLUMNS, Columns);
+themed_icon!(EYE, Eye);
+themed_icon!(SYNC, Sync);
+themed_icon!(STAGED, Staged);
+themed_icon!(CLOUD, Cloud);

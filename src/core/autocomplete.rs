@@ -10,7 +10,7 @@
 //! - Multiple matches: Show common prefix and all options
 //! - Ghost text hints while typing
 
-use crate::core::{Command, DirEntry, VirtualFs};
+use crate::core::{Command, DirEntry, MergedFs};
 use crate::models::AppRoute;
 
 // ============================================================================
@@ -98,7 +98,7 @@ struct ParsedPath<'a> {
 
 impl<'a> ParsedPath<'a> {
     /// Parse a partial path and resolve the search directory.
-    fn parse(partial: &'a str, current_path: &str, fs: &VirtualFs) -> Option<Self> {
+    fn parse(partial: &'a str, current_path: &str, fs: &MergedFs) -> Option<Self> {
         let (dir_part, name_part) = match partial.rfind('/') {
             Some(idx) => (&partial[..=idx], &partial[idx + 1..]),
             None => ("", partial),
@@ -125,7 +125,7 @@ impl<'a> ParsedPath<'a> {
 /// Perform autocomplete on Tab press.
 ///
 /// Returns a completion result based on the current input and filesystem state.
-pub fn autocomplete(input: &str, current_route: &AppRoute, fs: &VirtualFs) -> AutocompleteResult {
+pub fn autocomplete(input: &str, current_route: &AppRoute, fs: &MergedFs) -> AutocompleteResult {
     let input = input.trim_start();
     if input.is_empty() {
         return AutocompleteResult::None;
@@ -146,7 +146,7 @@ pub fn autocomplete(input: &str, current_route: &AppRoute, fs: &VirtualFs) -> Au
 /// Get autocomplete suggestion for ghost text hint (while typing).
 ///
 /// Returns the suffix that would complete the current input.
-pub fn get_hint(input: &str, current_route: &AppRoute, fs: &VirtualFs) -> Option<String> {
+pub fn get_hint(input: &str, current_route: &AppRoute, fs: &MergedFs) -> Option<String> {
     let input = input.trim_start();
     if input.is_empty() {
         return None;
@@ -205,7 +205,7 @@ fn complete_path(
     cmd: &str,
     partial: &str,
     current_path: &str,
-    fs: &VirtualFs,
+    fs: &MergedFs,
     dirs_only: bool,
 ) -> AutocompleteResult {
     let Some(parsed) = ParsedPath::parse(partial, current_path, fs) else {
@@ -224,7 +224,7 @@ fn complete_path(
 fn get_path_hint(
     partial: &str,
     current_path: &str,
-    fs: &VirtualFs,
+    fs: &MergedFs,
     dirs_only: bool,
 ) -> Option<String> {
     let parsed = ParsedPath::parse(partial, current_path, fs)?;
