@@ -214,7 +214,7 @@ pub fn execute_pipeline(
     // Apply pipe filters (navigation is discarded when piping)
     let mut lines = result.output;
     for filter_cmd in pipeline.commands.iter().skip(1) {
-        lines = apply_filter(&filter_cmd.name, &filter_cmd.args, lines);
+        lines = apply_filter(&filter_cmd.name, &filter_cmd.args, lines).output;
     }
 
     CommandResult::output(lines)
