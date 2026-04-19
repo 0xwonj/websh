@@ -113,7 +113,7 @@ pub fn Terminal(output_ref: NodeRef<leptos::html::Div>) -> impl IntoView {
         <div class=css::container on:click=handle_click>
             <div node_ref=output_ref class=css::output>
                 <For
-                    each=move || history_signal.get().to_vec()
+                    each=move || history_signal.with(|buf| buf.iter().cloned().collect::<Vec<_>>())
                     key=|line| line.id
                     children=|line| view! { <Output line=line /> }
                 />
@@ -152,15 +152,16 @@ fn create_submit_callback(ctx: AppContext, route_ctx: RouteContext) -> Callback<
             .command_history
             .with(|history| parse_input(&input, history));
 
-        let current_fs = ctx.fs.get();
         let wallet_state = ctx.wallet.get();
-        let result = execute_pipeline(
-            &pipeline,
-            &ctx.terminal,
-            &wallet_state,
-            &current_fs,
-            &current_route,
-        );
+        let result = ctx.fs.with(|current_fs| {
+            execute_pipeline(
+                &pipeline,
+                &ctx.terminal,
+                &wallet_state,
+                current_fs,
+                &current_route,
+            )
+        });
 
         ctx.terminal.push_lines(result.output);
 

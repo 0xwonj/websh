@@ -1,6 +1,10 @@
 //! Terminal-related data types for output rendering.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Unique identifier for an `OutputLine`, used as a stable key in Leptos `For` lists.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub struct OutputLineId(pub u64);
 
 /// Text styling for file listings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -27,10 +31,10 @@ pub enum ListFormat {
 }
 
 /// Represents a single line of output in the terminal with a unique ID
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct OutputLine {
     /// Unique ID for efficient keying in For loops
-    pub id: usize,
+    pub id: OutputLineId,
     /// The actual output data
     pub data: OutputLineData,
 }
@@ -63,22 +67,15 @@ pub enum OutputLineData {
 }
 
 // Global counter for generating unique IDs
-static OUTPUT_LINE_COUNTER: AtomicUsize = AtomicUsize::new(0);
+static OUTPUT_LINE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 impl OutputLine {
     /// Create a new OutputLine with a unique ID
     fn new(data: OutputLineData) -> Self {
         Self {
-            id: OUTPUT_LINE_COUNTER.fetch_add(1, Ordering::Relaxed),
+            id: OutputLineId(OUTPUT_LINE_COUNTER.fetch_add(1, Ordering::Relaxed)),
             data,
         }
-    }
-}
-
-impl PartialEq for OutputLine {
-    fn eq(&self, other: &Self) -> bool {
-        // Only compare data, not ID
-        self.data == other.data
     }
 }
 
@@ -269,5 +266,31 @@ mod tests {
 
         // But content equality works
         assert_eq!(line1.data, line3.data);
+    }
+
+    #[test]
+    fn test_output_line_ids_are_unique_and_monotonic() {
+        let a = OutputLine::text("a");
+        let b = OutputLine::text("b");
+        assert_ne!(a.id, b.id);
+        // Newtype: compare via .0
+        assert!(a.id.0 < b.id.0);
+    }
+
+    #[test]
+    fn test_output_line_id_is_copy() {
+        let a = OutputLine::text("a");
+        let _copy = a.id; // Copy trait
+        let _copy2 = a.id; // can copy twice
+    }
+
+    #[test]
+    fn test_output_line_structural_eq() {
+        let a = OutputLine::text("hello");
+        let b = OutputLine::text("hello");
+        // Different ids → structural PartialEq says not equal.
+        assert_ne!(a, b);
+        // But .data equality still works.
+        assert_eq!(a.data, b.data);
     }
 }
