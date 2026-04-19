@@ -189,26 +189,6 @@ pub fn mounts() -> &'static MountRegistry {
     REGISTRY.get_or_init(|| MountRegistry::from_mounts(mount_list()))
 }
 
-// --- Backwards-compat shims (to be removed in Task 1.7) ---
-
-/// DEPRECATED: use `mounts().all().cloned().collect()`.
-#[doc(hidden)]
-pub fn configured_mounts() -> Vec<Mount> {
-    mounts().all().cloned().collect()
-}
-
-/// DEPRECATED: use `mounts().home().clone()`.
-#[doc(hidden)]
-pub fn default_mount() -> Mount {
-    mounts().home().clone()
-}
-
-/// DEPRECATED: use `mounts().home().content_base_url()`.
-#[doc(hidden)]
-pub fn default_base_url() -> String {
-    mounts().home().content_base_url()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
