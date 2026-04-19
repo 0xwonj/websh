@@ -106,7 +106,6 @@ pub enum Command {
     Login,
     Logout,
     /// Switch to explorer view mode with optional path
-    #[allow(dead_code)]
     Explorer(Option<PathArg>),
     Unknown(String),
 }
