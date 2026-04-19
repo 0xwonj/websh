@@ -4,7 +4,7 @@
 //! against the virtual filesystem and returns results.
 
 use crate::app::TerminalState;
-use crate::config::{ASCII_PROFILE, HELP_TEXT, PROFILE_FILE, configured_mounts};
+use crate::config::{ASCII_PROFILE, HELP_TEXT, PROFILE_FILE, mounts};
 use crate::core::{VirtualFs, env, wallet};
 use crate::models::{AppRoute, Mount, OutputLine, WalletState};
 use crate::utils::sysinfo;
@@ -162,11 +162,11 @@ fn format_ls_output(
 
 /// List available mounts as directory entries.
 fn list_mounts(long: bool) -> CommandResult {
-    let mounts = configured_mounts();
+    let registry = mounts();
 
     let output: Vec<OutputLine> = if long {
-        mounts
-            .iter()
+        registry
+            .all()
             .map(|mount| {
                 let perms = crate::models::DisplayPermissions {
                     is_dir: true,
@@ -184,8 +184,8 @@ fn list_mounts(long: bool) -> CommandResult {
             })
             .collect()
     } else {
-        mounts
-            .iter()
+        registry
+            .all()
             .map(|mount| OutputLine::dir_entry(mount.alias(), mount.description()))
             .collect()
     };
@@ -195,7 +195,7 @@ fn list_mounts(long: bool) -> CommandResult {
 
 /// Resolve a mount alias to a Mount.
 fn resolve_mount_alias(alias: &str) -> Option<Mount> {
-    configured_mounts().into_iter().find(|m| m.alias() == alias)
+    mounts().resolve(alias).cloned()
 }
 
 /// Execute `cd` command.
@@ -238,12 +238,10 @@ fn execute_cd(path: super::PathArg, fs: &VirtualFs, current_route: &AppRoute) ->
 
     // Normal filesystem cd within a mount
     let current_path = current_route.fs_path();
-    let current_mount = current_route.mount().cloned().unwrap_or_else(|| {
-        configured_mounts()
-            .into_iter()
-            .next()
-            .expect("At least one mount must be configured")
-    });
+    let current_mount = current_route
+        .mount()
+        .cloned()
+        .unwrap_or_else(|| mounts().home().clone());
 
     match fs.resolve_path(current_path, target) {
         Some(new_path) if fs.is_directory(&new_path) => CommandResult::navigate(AppRoute::Browse {
@@ -276,12 +274,10 @@ fn execute_cat(
         ))]);
     }
 
-    let current_mount = current_route.mount().cloned().unwrap_or_else(|| {
-        configured_mounts()
-            .into_iter()
-            .next()
-            .expect("At least one mount must be configured")
-    });
+    let current_mount = current_route
+        .mount()
+        .cloned()
+        .unwrap_or_else(|| mounts().home().clone());
 
     let resolved = fs.resolve_path(current_path, file.as_str());
 
