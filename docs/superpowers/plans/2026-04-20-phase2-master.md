@@ -118,3 +118,17 @@ Per-track detailed plans will be created at `docs/superpowers/plans/2026-MM-DD-p
 - Track I → `phase2-i-cleanup.md`
 
 Each per-track plan is self-contained; readers start there, not here.
+
+---
+
+## Decision Log (autonomous execution)
+
+Recording decisions made during Phase 2 execution, in the order they happen. Each entry: decision + brief rationale.
+
+### Track D — Route/FS resolve (merged `ca379ce`)
+- **Test context for `test_cd_empty_string_exit_1` switched from `Root` to `Browse`**: the Root-context path already errored on `""` through a different branch, so the test wouldn't have proven the new fix. Browse context exercises the actual silent-stay bug.
+- **Added `#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]` on `AppRoute::resolve`**: the only wasm-gated caller in `AppRouter` means native builds see it as dead code even though tests use it. Not a design smell — tests run under `cfg(test)` which doesn't trigger dead-code check for the attribute's target.
+- **FS resolution runs in `AppRouter`, not in `AppRoute::from_path`**: kept `from_path` pure (parse only); resolution is a separate explicit step that can depend on the reactive `fs` signal via Memo. Decouples hash parsing (synchronous, early) from fs knowledge (loads async after boot).
+- **Heuristic fallback in `resolve`**: when fs has no entry for the path, keep the extension-based decision instead of defaulting to one variant. Covers the "loading window" between boot and manifest fetch.
+- **Minor suggestions deferred**: M1 (extract heuristic helper) and M2 (stronger test of fallback) from the code review are noted; small QoL, not blocking. Revisit if Track P or another track touches route.rs.
+
