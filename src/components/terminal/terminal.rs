@@ -113,7 +113,7 @@ pub fn Terminal(output_ref: NodeRef<leptos::html::Div>) -> impl IntoView {
         <div class=css::container on:click=handle_click>
             <div node_ref=output_ref class=css::output>
                 <For
-                    each=move || history_signal.get().to_vec()
+                    each=move || history_signal.with(|buf| buf.iter().cloned().collect::<Vec<_>>())
                     key=|line| line.id
                     children=|line| view! { <Output line=line /> }
                 />
