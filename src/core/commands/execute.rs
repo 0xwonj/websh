@@ -9,7 +9,7 @@ use crate::core::{VirtualFs, env, wallet};
 use crate::models::{AppRoute, Mount, OutputLine, WalletState};
 use crate::utils::sysinfo;
 
-use super::{Command, CommandResult};
+use super::{Command, CommandResult, SideEffect};
 
 /// Execute a parsed command and return output lines.
 ///
@@ -50,12 +50,14 @@ pub fn execute_command(
         Command::Echo(text) => CommandResult::output(vec![OutputLine::text(text)]),
         Command::Export(arg) => execute_export(arg),
         Command::Unset(key) => execute_unset(key),
-        Command::Unknown(cmd) => CommandResult::output(vec![OutputLine::error(format!(
+        Command::Login => CommandResult::login(),
+        Command::Logout => CommandResult::logout(),
+        Command::Explorer(path) => execute_explorer(path, fs, current_route),
+        Command::Unknown(cmd) => CommandResult::error_line(format!(
             "Command not found: {}. Type 'help' for available commands.",
             cmd
-        ))]),
-        // Login/Logout/Explorer are handled in terminal.rs
-        Command::Login | Command::Logout | Command::Explorer(_) => CommandResult::empty(),
+        ))
+        .with_exit_code(127),
     }
 }
 
@@ -230,10 +232,10 @@ fn execute_cd(path: super::PathArg, fs: &VirtualFs, current_route: &AppRoute) ->
                 path: String::new(),
             });
         }
-        return CommandResult::output(vec![OutputLine::error(format!(
+        return CommandResult::error_line(format!(
             "cd: no such file or directory: {}",
             target
-        ))]);
+        ));
     }
 
     // Normal filesystem cd within a mount
@@ -248,14 +250,8 @@ fn execute_cd(path: super::PathArg, fs: &VirtualFs, current_route: &AppRoute) ->
             mount: current_mount,
             path: new_path,
         }),
-        Some(_) => CommandResult::output(vec![OutputLine::error(format!(
-            "cd: not a directory: {}",
-            path
-        ))]),
-        None => CommandResult::output(vec![OutputLine::error(format!(
-            "cd: no such file or directory: {}",
-            path
-        ))]),
+        Some(_) => CommandResult::error_line(format!("cd: not a directory: {}", path)),
+        None => CommandResult::error_line(format!("cd: no such file or directory: {}", path)),
     }
 }
 
@@ -268,10 +264,7 @@ fn execute_cat(
 ) -> CommandResult {
     // cat doesn't work at Root (no files there)
     if matches!(current_route, AppRoute::Root) {
-        return CommandResult::output(vec![OutputLine::error(format!(
-            "cat: {}: No such file or directory",
-            file
-        ))]);
+        return CommandResult::error_line(format!("cat: {}: No such file or directory", file));
     }
 
     let current_mount = current_route
@@ -284,10 +277,7 @@ fn execute_cat(
     match resolved {
         Some(resolved_path) => {
             if fs.is_directory(&resolved_path) {
-                CommandResult::output(vec![OutputLine::error(format!(
-                    "cat: {}: Is a directory",
-                    file
-                ))])
+                CommandResult::error_line(format!("cat: {}: Is a directory", file))
             } else if resolved_path == PROFILE_FILE {
                 // Dynamic .profile from environment variables
                 let content = env::generate_profile();
@@ -304,16 +294,10 @@ fn execute_cat(
                     path: resolved_path,
                 })
             } else {
-                CommandResult::output(vec![OutputLine::error(format!(
-                    "cat: {}: No content available",
-                    file
-                ))])
+                CommandResult::error_line(format!("cat: {}: No content available", file))
             }
         }
-        None => CommandResult::output(vec![OutputLine::error(format!(
-            "cat: {}: No such file or directory",
-            file
-        ))]),
+        None => CommandResult::error_line(format!("cat: {}: No such file or directory", file)),
     }
 }
 
@@ -419,5 +403,100 @@ fn execute_unset(key: String) -> CommandResult {
         }
     } else {
         CommandResult::empty() // Silently succeed if variable doesn't exist
+    }
+}
+
+/// Execute `explorer` command.
+fn execute_explorer(
+    path: Option<super::PathArg>,
+    fs: &VirtualFs,
+    current_route: &AppRoute,
+) -> CommandResult {
+    use crate::models::ViewMode;
+
+    let Some(path_arg) = path else {
+        return CommandResult::switch_view(ViewMode::Explorer);
+    };
+
+    let current_path = current_route.fs_path();
+    match fs.resolve_path(current_path, path_arg.as_str()) {
+        Some(new_path) if fs.is_directory(&new_path) => {
+            let mount = current_route
+                .mount()
+                .cloned()
+                .unwrap_or_else(|| mounts().home().clone());
+            CommandResult::open_explorer(AppRoute::Browse {
+                mount,
+                path: new_path,
+            })
+        }
+        Some(_) => CommandResult::error_line(format!(
+            "explorer: not a directory: {}",
+            path_arg
+        )),
+        None => CommandResult::error_line(format!(
+            "explorer: no such file or directory: {}",
+            path_arg
+        )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::TerminalState;
+    use crate::core::VirtualFs;
+    use crate::models::{AppRoute, ViewMode, WalletState};
+
+    fn empty_state() -> (TerminalState, WalletState, VirtualFs) {
+        (
+            TerminalState::new(),
+            WalletState::Disconnected,
+            VirtualFs::empty(),
+        )
+    }
+
+    #[test]
+    fn test_login_returns_login_side_effect() {
+        let (ts, ws, fs) = empty_state();
+        let result = execute_command(Command::Login, &ts, &ws, &fs, &AppRoute::Root);
+        assert_eq!(result.side_effect, Some(SideEffect::Login));
+        assert_eq!(result.exit_code, 0);
+    }
+
+    #[test]
+    fn test_logout_returns_logout_side_effect() {
+        let (ts, ws, fs) = empty_state();
+        let result = execute_command(Command::Logout, &ts, &ws, &fs, &AppRoute::Root);
+        assert_eq!(result.side_effect, Some(SideEffect::Logout));
+    }
+
+    #[test]
+    fn test_explorer_no_arg_switches_view() {
+        let (ts, ws, fs) = empty_state();
+        let result = execute_command(
+            Command::Explorer(None),
+            &ts,
+            &ws,
+            &fs,
+            &AppRoute::Root,
+        );
+        assert_eq!(
+            result.side_effect,
+            Some(SideEffect::SwitchView(ViewMode::Explorer))
+        );
+    }
+
+    #[test]
+    fn test_unknown_command_exit_127() {
+        let (ts, ws, fs) = empty_state();
+        let result = execute_command(
+            Command::Unknown("foobar".into()),
+            &ts,
+            &ws,
+            &fs,
+            &AppRoute::Root,
+        );
+        assert_eq!(result.exit_code, 127);
     }
 }
