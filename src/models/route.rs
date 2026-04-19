@@ -14,7 +14,7 @@
 //! | `#/work/docs/` | Custom mount with alias "work" |
 
 use super::mount::Mount;
-use crate::config::configured_mounts;
+use crate::config::mounts;
 use crate::utils::dom;
 
 // ============================================================================
@@ -350,17 +350,14 @@ impl AppRoute {
 // Helper Functions
 // ============================================================================
 
-/// Get the home mount from configuration (first configured mount).
+/// Get the home mount from the global registry.
 fn home_mount() -> Mount {
-    configured_mounts()
-        .into_iter()
-        .next()
-        .expect("At least one mount must be configured")
+    mounts().home().clone()
 }
 
-/// Resolve an alias to a mount from configuration.
+/// Resolve an alias to a mount via the global registry.
 fn resolve_mount(alias: &str) -> Option<Mount> {
-    configured_mounts().into_iter().find(|m| m.alias() == alias)
+    mounts().resolve(alias).cloned()
 }
 
 // ============================================================================
