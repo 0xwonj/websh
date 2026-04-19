@@ -14,7 +14,6 @@ pub mod parser;
 pub mod wallet;
 
 pub use autocomplete::{AutocompleteResult, autocomplete, get_hint};
-#[allow(unused_imports)]
-pub use commands::{Command, CommandResult, SideEffect, execute_pipeline};
+pub use commands::{Command, SideEffect, execute_pipeline};
 pub use filesystem::{DirEntry, VirtualFs};
 pub use parser::parse_input;
