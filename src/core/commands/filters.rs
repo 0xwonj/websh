@@ -24,30 +24,103 @@ pub fn apply_filter(cmd: &str, args: &[String], lines: Vec<OutputLine>) -> Comma
 }
 
 fn filter_grep(args: &[String], lines: Vec<OutputLine>) -> CommandResult {
-    let pattern = args.first().map(|s| s.as_str()).unwrap_or("");
-    if pattern.is_empty() {
-        return CommandResult::error_line("grep: missing pattern").with_exit_code(2);
+    // Parse flags and pattern.
+    let mut ignore_case = false;
+    let mut invert = false;
+    let mut pattern: Option<&str> = None;
+
+    for arg in args {
+        if arg.starts_with("--") {
+            match arg.as_str() {
+                "--ignore-case" => ignore_case = true,
+                "--invert-match" => invert = true,
+                "--extended-regexp" => {} // no-op: regex crate is always extended
+                _ => {
+                    return CommandResult::error_line(format!(
+                        "grep: unknown option: {}",
+                        arg
+                    ))
+                    .with_exit_code(2);
+                }
+            }
+        } else if let Some(rest) = arg.strip_prefix('-') {
+            if rest.is_empty() {
+                // A bare "-" is not a flag; treat as pattern if pattern is None.
+                if pattern.is_none() {
+                    pattern = Some(arg.as_str());
+                } else {
+                    return CommandResult::error_line(
+                        "grep: unexpected extra argument".to_string(),
+                    )
+                    .with_exit_code(2);
+                }
+            } else {
+                for ch in rest.chars() {
+                    match ch {
+                        'i' => ignore_case = true,
+                        'v' => invert = true,
+                        'E' => {} // no-op
+                        other => {
+                            return CommandResult::error_line(format!(
+                                "grep: unknown option: -{}",
+                                other
+                            ))
+                            .with_exit_code(2);
+                        }
+                    }
+                }
+            }
+        } else if pattern.is_none() {
+            pattern = Some(arg.as_str());
+        } else {
+            // extra positional arg: not supported
+            return CommandResult::error_line(
+                "grep: unexpected extra argument".to_string(),
+            )
+            .with_exit_code(2);
+        }
     }
 
-    let pattern_lower = pattern.to_lowercase();
+    let Some(pat) = pattern else {
+        return CommandResult::error_line("grep: missing pattern").with_exit_code(2);
+    };
+
+    // Compile regex (with case-insensitive flag if requested).
+    let regex = match build_grep_regex(pat, ignore_case) {
+        Ok(r) => r,
+        Err(e) => {
+            return CommandResult::error_line(format!("grep: invalid regex: {}", e))
+                .with_exit_code(2);
+        }
+    };
+
     let matched: Vec<OutputLine> = lines
         .into_iter()
-        .filter(|line| line_contains(&line.data, &pattern_lower))
+        .filter(|line| {
+            let is_match = regex_matches_line(&regex, &line.data);
+            is_match ^ invert
+        })
         .collect();
 
     let exit_code = if matched.is_empty() { 1 } else { 0 };
     CommandResult::output(matched).with_exit_code(exit_code)
 }
 
-fn line_contains(data: &OutputLineData, pattern: &str) -> bool {
+fn build_grep_regex(pattern: &str, ignore_case: bool) -> Result<regex::Regex, regex::Error> {
+    regex::RegexBuilder::new(pattern)
+        .case_insensitive(ignore_case)
+        .build()
+}
+
+fn regex_matches_line(re: &regex::Regex, data: &OutputLineData) -> bool {
     match data {
         OutputLineData::Text(s)
         | OutputLineData::Error(s)
         | OutputLineData::Success(s)
         | OutputLineData::Info(s)
-        | OutputLineData::Ascii(s) => s.to_lowercase().contains(pattern),
-        OutputLineData::ListEntry { name, .. } => name.to_lowercase().contains(pattern),
-        OutputLineData::Command { input, .. } => input.to_lowercase().contains(pattern),
+        | OutputLineData::Ascii(s) => re.is_match(s),
+        OutputLineData::ListEntry { name, .. } => re.is_match(name),
+        OutputLineData::Command { input, .. } => re.is_match(input),
         OutputLineData::Empty => false,
     }
 }
@@ -105,12 +178,100 @@ mod tests {
     }
 
     #[test]
-    fn test_grep_case_insensitive() {
+    fn test_grep_case_sensitive_default_rejects_uppercase() {
         let lines = vec![OutputLine::text("APPLE"), OutputLine::text("banana")];
         let result = apply_filter("grep", &args(&["apple"]), lines);
+        // default is case-sensitive, so "APPLE" doesn't match
+        assert_eq!(result.exit_code, 1);
+        assert!(result.output.is_empty());
+    }
+
+    #[test]
+    fn test_grep_regex_match() {
+        let lines = vec![
+            OutputLine::text("apple"),
+            OutputLine::text("banana"),
+            OutputLine::text("cherry"),
+        ];
+        let result = apply_filter("grep", &args(&["^b"]), lines);
         assert_eq!(result.exit_code, 0);
         assert_eq!(result.output.len(), 1);
-        assert!(matches!(&result.output[0].data, OutputLineData::Text(s) if s == "APPLE"));
+        assert!(matches!(&result.output[0].data, OutputLineData::Text(s) if s == "banana"));
+    }
+
+    #[test]
+    fn test_grep_case_sensitive_by_default() {
+        let lines = vec![
+            OutputLine::text("Apple"),
+            OutputLine::text("apple"),
+        ];
+        let result = apply_filter("grep", &args(&["apple"]), lines);
+        // default is case-sensitive now (was case-insensitive previously)
+        assert_eq!(result.exit_code, 0);
+        assert_eq!(result.output.len(), 1);
+        assert!(matches!(&result.output[0].data, OutputLineData::Text(s) if s == "apple"));
+    }
+
+    #[test]
+    fn test_grep_ignore_case_flag() {
+        let lines = vec![
+            OutputLine::text("Apple"),
+            OutputLine::text("apple"),
+            OutputLine::text("banana"),
+        ];
+        let result = apply_filter("grep", &args(&["-i", "apple"]), lines);
+        assert_eq!(result.exit_code, 0);
+        assert_eq!(result.output.len(), 2);
+    }
+
+    #[test]
+    fn test_grep_invert_flag() {
+        let lines = vec![
+            OutputLine::text("apple"),
+            OutputLine::text("banana"),
+            OutputLine::text("cherry"),
+        ];
+        let result = apply_filter("grep", &args(&["-v", "apple"]), lines);
+        assert_eq!(result.exit_code, 0);
+        assert_eq!(result.output.len(), 2);
+    }
+
+    #[test]
+    fn test_grep_combined_short_flags() {
+        let lines = vec![
+            OutputLine::text("Apple"),
+            OutputLine::text("banana"),
+        ];
+        let result = apply_filter("grep", &args(&["-iv", "apple"]), lines);
+        // -i case-insensitive AND -v invert: "Apple" matches case-insensitive so is excluded;
+        // "banana" doesn't match, so is kept
+        assert_eq!(result.exit_code, 0);
+        assert_eq!(result.output.len(), 1);
+        assert!(matches!(&result.output[0].data, OutputLineData::Text(s) if s == "banana"));
+    }
+
+    #[test]
+    fn test_grep_extended_flag_accepted() {
+        // -E is accepted as alias (regex crate always uses extended syntax)
+        let lines = vec![OutputLine::text("apple")];
+        let result = apply_filter("grep", &args(&["-E", "a.*e"]), lines);
+        assert_eq!(result.exit_code, 0);
+        assert_eq!(result.output.len(), 1);
+    }
+
+    #[test]
+    fn test_grep_invalid_regex_exit_2() {
+        let lines = vec![OutputLine::text("anything")];
+        // unbalanced parens
+        let result = apply_filter("grep", &args(&["("]), lines);
+        assert_eq!(result.exit_code, 2);
+    }
+
+    #[test]
+    fn test_grep_unknown_flag_exit_2() {
+        let lines = vec![OutputLine::text("anything")];
+        let result = apply_filter("grep", &args(&["-x", "pat"]), lines);
+        assert_eq!(result.exit_code, 2);
     }
 
     #[test]
