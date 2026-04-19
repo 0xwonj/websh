@@ -250,13 +250,8 @@ fn create_hint_callback(
 
 /// Convert a filesystem path (relative) to a Browse route.
 fn fs_path_to_browse_route(fs_path: &str) -> AppRoute {
-    let mount = crate::config::configured_mounts()
-        .into_iter()
-        .next()
-        .expect("At least one mount must be configured");
-
     AppRoute::Browse {
-        mount,
+        mount: crate::config::mounts().home().clone(),
         path: fs_path.to_string(),
     }
 }

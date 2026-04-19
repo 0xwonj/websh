@@ -12,7 +12,7 @@ use leptos_icons::Icon;
 use crate::app::AppContext;
 use crate::components::icons as ic;
 use crate::components::terminal::RouteContext;
-use crate::config::configured_mounts;
+use crate::config::mounts;
 use crate::core::DirEntry;
 use crate::models::{AppRoute, DisplayPermissions, FileType};
 use crate::utils::format::{format_date_iso, format_size, join_path};
@@ -36,8 +36,8 @@ fn get_icon(entry: &DirEntry) -> IconData {
 
 /// Convert mounts to DirEntry list for display.
 fn mounts_to_entries() -> Vec<DirEntry> {
-    configured_mounts()
-        .into_iter()
+    mounts()
+        .all()
         .map(|mount| DirEntry {
             name: mount.alias().to_string(),
             is_dir: true,
@@ -163,9 +163,7 @@ fn FileListItem(entry: DirEntry) -> impl IntoView {
 
             // If at Root, navigate to mount
             if matches!(route, AppRoute::Root)
-                && let Some(mount) = configured_mounts()
-                    .into_iter()
-                    .find(|m| m.alias() == entry_name_for_nav)
+                && let Some(mount) = mounts().resolve(&entry_name_for_nav).cloned()
             {
                 AppRoute::Browse {
                     mount,
@@ -183,7 +181,7 @@ fn FileListItem(entry: DirEntry) -> impl IntoView {
             let mount = route
                 .mount()
                 .cloned()
-                .unwrap_or_else(crate::config::default_mount);
+                .unwrap_or_else(|| mounts().home().clone());
             AppRoute::Read {
                 mount,
                 path: item_fs_path.clone(),

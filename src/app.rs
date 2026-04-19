@@ -255,11 +255,9 @@ impl AppContext {
     /// - Filesystem: Empty
     /// - View: Terminal mode
     pub fn new() -> Self {
-        use crate::config::configured_mounts;
-
         Self {
             // Shared state
-            mounts: StoredValue::new(MountRegistry::from_mounts(configured_mounts())),
+            mounts: StoredValue::new(crate::config::mounts().clone()),
             fs: RwSignal::new(VirtualFs::empty()),
             wallet: RwSignal::new(WalletState::default()),
 
