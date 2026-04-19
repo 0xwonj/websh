@@ -278,6 +278,43 @@ impl AppRoute {
         }
     }
 
+    /// Refine route against the filesystem.
+    ///
+    /// `AppRoute::from_path` uses an extension heuristic: it cannot distinguish
+    /// a file named `Makefile` (no extension) from a directory, or a directory
+    /// named `archive.2024` (dot in name) from a file. `resolve` queries the
+    /// actual `VirtualFs` and corrects the variant.
+    ///
+    /// When the path is not known to the filesystem, the route is returned
+    /// unchanged (heuristic fallback).
+    ///
+    /// Only called from the wasm `AppRouter`; tests cover the logic on native.
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    pub fn resolve(self, fs: &crate::core::VirtualFs) -> Self {
+        match self {
+            Self::Root => Self::Root,
+            Self::Browse { mount, path } | Self::Read { mount, path } => {
+                if path.is_empty() {
+                    return Self::Browse { mount, path };
+                }
+                if fs.is_directory(&path) {
+                    Self::Browse { mount, path }
+                } else if fs.get_entry(&path).is_some() {
+                    Self::Read { mount, path }
+                } else {
+                    // FS has no info — fall back to heuristic
+                    // by reconstructing from_path's decision.
+                    let last = path.rsplit('/').next().unwrap_or(&path);
+                    if last.contains('.') {
+                        Self::Read { mount, path }
+                    } else {
+                        Self::Browse { mount, path }
+                    }
+                }
+            }
+        }
+    }
+
     /// Join a relative path to this route (for navigation).
     ///
     /// # Arguments
@@ -525,5 +562,147 @@ mod tests {
             read.content_url(),
             Some("https://example.com/blog/post.md".to_string())
         );
+    }
+
+    // ------------------------------------------------------------------------
+    // AppRoute::resolve tests
+    // ------------------------------------------------------------------------
+
+    use crate::core::VirtualFs;
+    use crate::models::{DirectoryEntry, FileEntry, Manifest};
+
+    fn fs_with_entries() -> VirtualFs {
+        // Build a manifest with:
+        //   /Makefile                 (file, no extension)
+        //   /archive.2024/            (directory, dot in name)
+        //   /archive.2024/index.md    (file)
+        //   /blog/                    (directory)
+        //   /blog/post.md             (file)
+        let manifest = Manifest {
+            files: vec![
+                FileEntry {
+                    path: "Makefile".into(),
+                    title: "Makefile".into(),
+                    size: None,
+                    modified: None,
+                    tags: vec![],
+                    encryption: None,
+                },
+                FileEntry {
+                    path: "archive.2024/index.md".into(),
+                    title: "Archive".into(),
+                    size: None,
+                    modified: None,
+                    tags: vec![],
+                    encryption: None,
+                },
+                FileEntry {
+                    path: "blog/post.md".into(),
+                    title: "Post".into(),
+                    size: None,
+                    modified: None,
+                    tags: vec![],
+                    encryption: None,
+                },
+            ],
+            directories: vec![
+                DirectoryEntry {
+                    path: "archive.2024".into(),
+                    title: "Archive".into(),
+                    tags: vec![],
+                    description: None,
+                    icon: None,
+                    thumbnail: None,
+                },
+                DirectoryEntry {
+                    path: "blog".into(),
+                    title: "Blog".into(),
+                    tags: vec![],
+                    description: None,
+                    icon: None,
+                    thumbnail: None,
+                },
+            ],
+        };
+        VirtualFs::from_manifest(&manifest)
+    }
+
+    #[test]
+    fn test_resolve_root_stays_root() {
+        let fs = fs_with_entries();
+        assert_eq!(AppRoute::Root.resolve(&fs), AppRoute::Root);
+    }
+
+    #[test]
+    fn test_resolve_promotes_makefile_to_read() {
+        // `Makefile` has no extension → heuristic parses as Browse, but it IS a file.
+        let fs = fs_with_entries();
+        let parsed = AppRoute::Browse {
+            mount: test_mount(),
+            path: "Makefile".to_string(),
+        };
+        let resolved = parsed.resolve(&fs);
+        assert!(matches!(resolved, AppRoute::Read { ref path, .. } if path == "Makefile"));
+    }
+
+    #[test]
+    fn test_resolve_demotes_archive_dir_to_browse() {
+        // `archive.2024` has a `.` → heuristic parses as Read, but it IS a directory.
+        let fs = fs_with_entries();
+        let parsed = AppRoute::Read {
+            mount: test_mount(),
+            path: "archive.2024".to_string(),
+        };
+        let resolved = parsed.resolve(&fs);
+        assert!(matches!(resolved, AppRoute::Browse { ref path, .. } if path == "archive.2024"));
+    }
+
+    #[test]
+    fn test_resolve_keeps_correct_browse() {
+        let fs = fs_with_entries();
+        let parsed = AppRoute::Browse {
+            mount: test_mount(),
+            path: "blog".to_string(),
+        };
+        let resolved = parsed.clone().resolve(&fs);
+        assert_eq!(resolved, parsed);
+    }
+
+    #[test]
+    fn test_resolve_keeps_correct_read() {
+        let fs = fs_with_entries();
+        let parsed = AppRoute::Read {
+            mount: test_mount(),
+            path: "blog/post.md".to_string(),
+        };
+        let resolved = parsed.clone().resolve(&fs);
+        assert_eq!(resolved, parsed);
+    }
+
+    #[test]
+    fn test_resolve_unknown_path_keeps_heuristic() {
+        // When fs has no info about the path, resolve must be a no-op —
+        // falls back to whatever from_path produced.
+        let fs = fs_with_entries();
+        let parsed = AppRoute::Read {
+            mount: test_mount(),
+            path: "nonexistent.md".to_string(),
+        };
+        let resolved = parsed.clone().resolve(&fs);
+        assert_eq!(resolved, parsed);
+    }
+
+    #[test]
+    fn test_resolve_empty_path_is_browse_root() {
+        let fs = fs_with_entries();
+        let parsed = AppRoute::Read {
+            mount: test_mount(),
+            path: String::new(),
+        };
+        let resolved = parsed.resolve(&fs);
+        assert!(matches!(
+            resolved,
+            AppRoute::Browse { ref path, .. } if path.is_empty()
+        ));
     }
 }

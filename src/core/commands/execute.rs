@@ -213,6 +213,11 @@ fn execute_cd(path: super::PathArg, fs: &VirtualFs, current_route: &AppRoute) ->
 
     // Handle special paths
     match target {
+        // cd "" — POSIX: error (bash prints "cd: : No such file or directory")
+        "" => {
+            return CommandResult::error_line("cd: : No such file or directory");
+        }
+
         // cd / always goes to Root
         "/" => return CommandResult::navigate(AppRoute::Root),
 
@@ -540,5 +545,34 @@ mod tests {
         let (ts, ws, fs) = empty_state();
         let result = execute_command(Command::Unset(None), &ts, &ws, &fs, &AppRoute::Root);
         assert_eq!(result.exit_code, 1);
+    }
+
+    #[test]
+    fn test_cd_empty_string_exit_1() {
+        // POSIX bash: `cd ""` errors with "cd: : No such file or directory".
+        // Must exercise a non-Root route so the early `at_root` branch doesn't
+        // short-circuit to the generic mount-alias error.
+        let (ts, ws, fs) = empty_state();
+        let browse_route = AppRoute::Browse {
+            mount: crate::config::mounts().home().clone(),
+            path: String::new(),
+        };
+        let result = execute_command(
+            Command::Cd(super::super::PathArg::new("")),
+            &ts,
+            &ws,
+            &fs,
+            &browse_route,
+        );
+        assert_eq!(result.exit_code, 1);
+        assert!(result.side_effect.is_none());
+        assert!(
+            result.output.iter().any(|l| matches!(
+                &l.data,
+                crate::models::OutputLineData::Error(s) if s == "cd: : No such file or directory"
+            )),
+            "expected POSIX cd error; got: {:?}",
+            result.output
+        );
     }
 }

@@ -35,15 +35,18 @@ use crate::utils::dom::focus_terminal_input;
 /// - `#/~/path/file.ext` → Read file (with overlay)
 #[component]
 pub fn AppRouter() -> impl IntoView {
-    // Create route signal from current URL hash
-    let route = RwSignal::new(AppRoute::current());
+    #[cfg(target_arch = "wasm32")]
+    let ctx = use_context::<AppContext>().expect("AppContext must be provided");
 
-    // Set up hashchange event listener (runs once on mount)
+    // Raw route from URL hash (updated on hashchange).
+    let raw_route = RwSignal::new(AppRoute::current());
+
+    // Set up hashchange event listener (runs once on mount).
     #[cfg(target_arch = "wasm32")]
     {
         use wasm_bindgen::JsCast;
         let closure = Closure::wrap(Box::new(move || {
-            route.set(AppRoute::current());
+            raw_route.set(AppRoute::current());
         }) as Box<dyn Fn()>);
 
         if let Some(window) = web_sys::window() {
@@ -55,8 +58,12 @@ pub fn AppRouter() -> impl IntoView {
         closure.forget();
     }
 
-    // Note: Root is now a valid route showing mount selection
-    // No redirect needed
+    // Resolved route: re-runs whenever the hash changes OR fs loads/changes.
+    // Heuristic-only on non-wasm tests (no ctx.fs).
+    #[cfg(target_arch = "wasm32")]
+    let route = Memo::new(move |_| ctx.fs.with(|fs| raw_route.get().resolve(fs)));
+    #[cfg(not(target_arch = "wasm32"))]
+    let route = Memo::new(move |_| raw_route.get());
 
     // Focus terminal input when returning from reader overlay
     Effect::new(move |prev_was_file: Option<bool>| {
@@ -68,16 +75,13 @@ pub fn AppRouter() -> impl IntoView {
         is_file
     });
 
-    // Convert to Memo for Shell (which expects Memo<AppRoute>)
-    let route_memo = Memo::new(move |_| route.get());
-
     view! {
         // Shell is always rendered (stable across route changes)
-        <Shell route=route_memo />
+        <Shell route=route />
 
         // ReaderOverlay is shown only for file routes
         <Show when=move || route.get().is_file()>
-            <ReaderOverlay route=route_memo />
+            <ReaderOverlay route=route />
         </Show>
     }
 }
