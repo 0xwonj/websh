@@ -1,21 +1,16 @@
-//! Token expansion for variables and history.
+//! Token expansion for history.
 //!
-//! Handles:
-//! - Variable expansion (`$VAR` → value)
-//! - History expansion (`!!` → last command, `!n` → nth command)
+//! Variable expansion is performed inline by the lexer while building
+//! `Word` tokens. This module only handles history references (`!!`,
+//! `!n`, `!-n`).
 
 use super::lexer::{Lexer, Token};
-use crate::core::env;
 
-/// Expand variables and history references in tokens.
+/// Expand history references in tokens.
 pub fn expand_tokens(tokens: Vec<Token>, history: &[String]) -> Vec<Token> {
     tokens
         .into_iter()
         .flat_map(|token| match token {
-            Token::Variable(name) => {
-                let value = env::get_user_var(&name).unwrap_or_default();
-                vec![Token::Word(value)]
-            }
             Token::HistoryLast => {
                 let cmd = history.last().cloned().unwrap_or_default();
                 // Re-tokenize the history command (without further history expansion)

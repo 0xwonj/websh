@@ -6,9 +6,20 @@ use wasm_bindgen::JsCast;
 use web_sys::{Storage, Window};
 
 /// Get the browser window object.
+///
+/// On non-wasm targets (e.g. cargo test on host), the underlying
+/// `web_sys::window()` tries to touch imported JS statics and panics.
+/// Return `None` there so callers gracefully degrade.
 #[inline]
 pub fn window() -> Option<Window> {
-    web_sys::window()
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_sys::window()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        None
+    }
 }
 
 /// Get localStorage.

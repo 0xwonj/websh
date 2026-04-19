@@ -27,6 +27,8 @@ pub enum ParseError {
     EmptyPipeStage { position: usize },
     /// Pipe at the end with no following command: `ls |`
     TrailingPipe { position: usize },
+    /// Unclosed single or double quote starting at `position`.
+    UnclosedQuote { kind: char, position: usize },
 }
 
 impl fmt::Display for ParseError {
@@ -51,6 +53,14 @@ impl fmt::Display for ParseError {
                     f,
                     "syntax error near token {}: unexpected end after '|'",
                     position + 1
+                )
+            }
+            Self::UnclosedQuote { kind, position } => {
+                write!(
+                    f,
+                    "syntax error: unclosed {} quote starting at position {}",
+                    if *kind == '"' { "double" } else { "single" },
+                    position
                 )
             }
         }
@@ -103,8 +113,15 @@ impl Pipeline {
 
 /// Parse input with variable and history expansion, then build pipeline
 pub fn parse_input(input: &str, history: &[String]) -> Pipeline {
-    let lexer = Lexer::new(input);
-    let tokens = lexer.tokenize();
+    let mut lexer = Lexer::new(input);
+    let tokens: Vec<Token> = (&mut lexer).collect();
+
+    if let Some(err) = lexer.error().cloned() {
+        return Pipeline {
+            commands: vec![],
+            error: Some(err),
+        };
+    }
 
     // Expand variables and history
     let expanded = expand_tokens(tokens, history);
@@ -122,7 +139,11 @@ fn parse_pipeline(tokens: Vec<Token>) -> Pipeline {
 
     for (idx, token) in tokens.into_iter().enumerate() {
         match token {
-            Token::Word(w) if !w.is_empty() => {
+            Token::Word(w) => {
+                // Preserve empty words: the lexer already drops words that
+                // should disappear (unquoted `$UNDEF`). Remaining empties
+                // come from explicit quoting like `""` or `"$UNDEF"` and
+                // must stay as argv slots.
                 current_words.push(w);
                 expect_command = false;
             }
@@ -239,5 +260,48 @@ mod tests {
         let pipeline = parse_input("ls | grep foo | head -5", &[]);
         assert!(!pipeline.has_error());
         assert_eq!(pipeline.commands.len(), 3);
+    }
+
+    #[test]
+    fn test_unclosed_single_quote() {
+        let pipeline = parse_input("echo 'hello", &[]);
+        assert!(pipeline.has_error());
+        assert!(matches!(
+            pipeline.error,
+            Some(ParseError::UnclosedQuote { kind: '\'', .. })
+        ));
+    }
+
+    #[test]
+    fn test_unclosed_double_quote() {
+        let pipeline = parse_input("echo \"world", &[]);
+        assert!(pipeline.has_error());
+        assert!(matches!(
+            pipeline.error,
+            Some(ParseError::UnclosedQuote { kind: '"', .. })
+        ));
+    }
+
+    #[test]
+    fn test_closed_quotes_ok() {
+        let pipeline = parse_input("echo 'hi'", &[]);
+        assert!(!pipeline.has_error());
+        assert_eq!(pipeline.commands[0].args, vec!["hi"]);
+    }
+
+    #[test]
+    fn test_unquoted_undef_drops_argv_slot() {
+        let pipeline = parse_input("echo $NO_SUCH_VAR hello", &[]);
+        assert!(!pipeline.has_error());
+        assert_eq!(pipeline.commands[0].name, "echo");
+        // $NO_SUCH_VAR is unquoted and empty → the word disappears.
+        assert_eq!(pipeline.commands[0].args, vec!["hello"]);
+    }
+
+    #[test]
+    fn test_quoted_undef_keeps_empty_arg() {
+        let pipeline = parse_input("echo \"$NO_SUCH_VAR\" hello", &[]);
+        assert!(!pipeline.has_error());
+        assert_eq!(pipeline.commands[0].args, vec!["", "hello"]);
     }
 }

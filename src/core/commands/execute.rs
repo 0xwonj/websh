@@ -51,7 +51,7 @@ pub fn execute_command(
             CommandResult::empty()
         }
         Command::Echo(text) => CommandResult::output(vec![OutputLine::text(text)]),
-        Command::Export(arg) => execute_export(arg),
+        Command::Export(assignments) => execute_export(assignments),
         Command::Unset(key) => match key {
             Some(k) => execute_unset(k),
             None => CommandResult::error_line("unset: missing variable name"),
@@ -368,39 +368,48 @@ fn execute_id(wallet_state: &WalletState) -> CommandResult {
 }
 
 /// Execute `export` command.
-fn execute_export(arg: Option<String>) -> CommandResult {
-    match arg {
-        None => {
-            // No argument: show all variables
-            let lines = env::format_export_output();
-            let mut output = vec![OutputLine::empty()];
-            for line in lines {
-                output.push(OutputLine::text(line));
-            }
-            output.push(OutputLine::empty());
-            CommandResult::output(output)
+///
+/// Each element of `assignments` is processed independently:
+///   - `KEY=value` → set the variable
+///   - `KEY` alone → print `KEY=<value>` if set (silent otherwise)
+/// An empty list prints all user variables. When any assignment fails,
+/// an error line is emitted and the first failure sets exit_code=1;
+/// subsequent assignments are still attempted (bash-compatible).
+fn execute_export(assignments: Vec<String>) -> CommandResult {
+    if assignments.is_empty() {
+        // No args: show all variables
+        let lines = env::format_export_output();
+        let mut output = vec![OutputLine::empty()];
+        for line in lines {
+            output.push(OutputLine::text(line));
         }
-        Some(assignment) => {
-            // Parse KEY=value
-            if let Some((key, value)) = assignment.split_once('=') {
-                let key = key.trim();
-                let value = value.trim().trim_matches('"').trim_matches('\'');
+        output.push(OutputLine::empty());
+        return CommandResult::output(output);
+    }
 
-                match env::set_user_var(key, value) {
-                    Ok(()) => CommandResult::empty(),
-                    Err(e) => CommandResult::error_line(format!("export: {}", e)),
-                }
-            } else {
-                // Just a key without value - show current value
-                let key = assignment.trim();
-                if let Some(value) = env::get_user_var(key) {
-                    CommandResult::output(vec![OutputLine::text(format!("{}={}", key, value))])
-                } else {
-                    CommandResult::empty()
+    let mut output: Vec<OutputLine> = Vec::new();
+    let mut exit_code = 0;
+    for arg in assignments {
+        if let Some((key, value)) = arg.split_once('=') {
+            let key = key.trim();
+            let value = value.trim().trim_matches('"').trim_matches('\'');
+            if let Err(e) = env::set_user_var(key, value) {
+                output.push(OutputLine::error(format!("export: {}", e)));
+                if exit_code == 0 {
+                    exit_code = 1;
                 }
             }
+        } else {
+            // Just a key without value — show current value if set.
+            let key = arg.trim();
+            if let Some(value) = env::get_user_var(key) {
+                output.push(OutputLine::text(format!("{}={}", key, value)));
+            }
+            // silent if not set (matches prior behavior)
         }
     }
+
+    CommandResult::output(output).with_exit_code(exit_code)
 }
 
 /// Execute `unset` command.
@@ -545,6 +554,47 @@ mod tests {
         let (ts, ws, fs) = empty_state();
         let result = execute_command(Command::Unset(None), &ts, &ws, &fs, &AppRoute::Root);
         assert_eq!(result.exit_code, 1);
+    }
+
+    #[test]
+    fn test_execute_export_multi_processes_each_assignment() {
+        // On native (no localStorage), each assignment triggers an
+        // EnvironmentError::StorageUnavailable. We verify:
+        //   - exit code is non-zero (at least one assignment errored)
+        //   - there is one error line per assignment
+        // This confirms the loop iterates per arg rather than joining them.
+        let (ts, ws, fs) = empty_state();
+        let result = execute_command(
+            Command::Export(vec![
+                "FOO_P2_A=alpha".to_string(),
+                "BAR_P2_A=beta".to_string(),
+            ]),
+            &ts,
+            &ws,
+            &fs,
+            &AppRoute::Root,
+        );
+        let error_count = result
+            .output
+            .iter()
+            .filter(|l| matches!(&l.data, crate::models::OutputLineData::Error(_)))
+            .count();
+        // On native: both fail → 2 errors, exit 1.
+        // On wasm (if ever run): both succeed → 0 errors, exit 0.
+        // Either way, the count matches the number of actual outcomes
+        // (we cannot get 1 error unless the loop malfunctioned).
+        assert!(
+            error_count == 0 || error_count == 2,
+            "expected 0 or 2 errors, got {}",
+            error_count
+        );
+        if error_count == 2 {
+            assert_eq!(result.exit_code, 1);
+        }
+
+        // Cleanup (best effort — no-op on native, succeeds on wasm)
+        let _ = crate::core::env::unset_user_var("FOO_P2_A");
+        let _ = crate::core::env::unset_user_var("BAR_P2_A");
     }
 
     #[test]
