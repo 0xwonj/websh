@@ -23,5 +23,5 @@ pub use filesystem::{
 pub use filesystem::{EncryptionInfo, FileEntry, WrappedKey};
 pub use mount::{Mount, MountRegistry};
 pub use route::AppRoute;
-pub use terminal::{ListFormat, OutputLine, OutputLineData, TextStyle};
+pub use terminal::{ListFormat, OutputLine, OutputLineData, OutputLineId, TextStyle};
 pub use wallet::WalletState;
