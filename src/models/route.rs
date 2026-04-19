@@ -287,6 +287,9 @@ impl AppRoute {
     ///
     /// When the path is not known to the filesystem, the route is returned
     /// unchanged (heuristic fallback).
+    ///
+    /// Only called from the wasm `AppRouter`; tests cover the logic on native.
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
     pub fn resolve(self, fs: &crate::core::VirtualFs) -> Self {
         match self {
             Self::Root => Self::Root,
