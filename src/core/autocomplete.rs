@@ -310,6 +310,8 @@ fn build_path_result(
 // ============================================================================
 
 /// Find the common prefix of multiple strings (case-insensitive).
+///
+/// Operates on Unicode codepoints (chars), not bytes — safe for multi-byte UTF-8.
 fn find_common_prefix(strings: &[String]) -> String {
     if strings.is_empty() {
         return String::new();
@@ -319,18 +321,22 @@ fn find_common_prefix(strings: &[String]) -> String {
     }
 
     let first = &strings[0];
-    let mut prefix_len = first.len();
+    let mut prefix_chars = first.chars().count();
 
     for s in &strings[1..] {
-        prefix_len = first
+        let matching = first
             .chars()
             .zip(s.chars())
-            .take(prefix_len)
+            .take(prefix_chars)
             .take_while(|(a, b)| a.to_lowercase().eq(b.to_lowercase()))
             .count();
+        prefix_chars = matching;
+        if prefix_chars == 0 {
+            break;
+        }
     }
 
-    first[..prefix_len].to_string()
+    first.chars().take(prefix_chars).collect()
 }
 
 // ============================================================================
@@ -375,6 +381,32 @@ mod tests {
             "helicopter".to_string(),
         ];
         assert_eq!(find_common_prefix(&strings), "hel");
+    }
+
+    #[test]
+    fn test_common_prefix_multibyte() {
+        // Korean characters (3 bytes each in UTF-8)
+        let strings = vec!["한국어".to_string(), "한국인".to_string()];
+        assert_eq!(find_common_prefix(&strings), "한국");
+    }
+
+    #[test]
+    fn test_common_prefix_emoji() {
+        // Emoji (4-byte sequences)
+        let strings = vec!["café_1".to_string(), "café_2".to_string()];
+        assert_eq!(find_common_prefix(&strings), "café_");
+    }
+
+    #[test]
+    fn test_common_prefix_mixed_ascii_multibyte() {
+        let strings = vec!["abc한".to_string(), "abc中".to_string()];
+        assert_eq!(find_common_prefix(&strings), "abc");
+    }
+
+    #[test]
+    fn test_common_prefix_no_common() {
+        let strings = vec!["한".to_string(), "中".to_string()];
+        assert_eq!(find_common_prefix(&strings), "");
     }
 
     #[test]
