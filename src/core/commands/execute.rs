@@ -90,10 +90,10 @@ fn execute_ls(
                 return CommandResult::output(output);
             }
         }
-        return CommandResult::output(vec![OutputLine::error(format!(
+        return CommandResult::error_line(format!(
             "ls: cannot access '{}': No such file or directory",
             target
-        ))]);
+        ));
     }
 
     // Normal filesystem ls
@@ -106,16 +106,16 @@ fn execute_ls(
                 let output = format_ls_output(&entries, &resolved_path, long, wallet_state, fs);
                 CommandResult::output(output)
             } else {
-                CommandResult::output(vec![OutputLine::error(format!(
+                CommandResult::error_line(format!(
                     "ls: cannot access '{}': Not a directory",
                     target
-                ))])
+                ))
             }
         }
-        None => CommandResult::output(vec![OutputLine::error(format!(
+        None => CommandResult::error_line(format!(
             "ls: cannot access '{}': No such file or directory",
             target
-        ))]),
+        )),
     }
 }
 
@@ -377,9 +377,7 @@ fn execute_export(arg: Option<String>) -> CommandResult {
 
                 match env::set_user_var(key, value) {
                     Ok(()) => CommandResult::empty(),
-                    Err(e) => {
-                        CommandResult::output(vec![OutputLine::error(format!("export: {}", e))])
-                    }
+                    Err(e) => CommandResult::error_line(format!("export: {}", e)),
                 }
             } else {
                 // Just a key without value - show current value
@@ -399,7 +397,7 @@ fn execute_unset(key: String) -> CommandResult {
     if env::get_user_var(&key).is_some() {
         match env::unset_user_var(&key) {
             Ok(()) => CommandResult::empty(),
-            Err(e) => CommandResult::output(vec![OutputLine::error(format!("unset: {}", e))]),
+            Err(e) => CommandResult::error_line(format!("unset: {}", e)),
         }
     } else {
         CommandResult::empty() // Silently succeed if variable doesn't exist
@@ -499,5 +497,22 @@ mod tests {
             &AppRoute::Root,
         );
         assert_eq!(result.exit_code, 127);
+    }
+
+    #[test]
+    fn test_ls_nonexistent_exit_1() {
+        let (ts, ws, fs) = empty_state();
+        let result = execute_command(
+            Command::Ls {
+                path: Some(super::super::PathArg::new("nonexistent")),
+                long: false,
+            },
+            &ts,
+            &ws,
+            &fs,
+            &AppRoute::Root,
+        );
+        assert_eq!(result.exit_code, 1);
+        assert!(!result.output.is_empty());
     }
 }
