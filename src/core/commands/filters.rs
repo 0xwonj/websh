@@ -126,12 +126,22 @@ fn regex_matches_line(re: &regex::Regex, data: &OutputLineData) -> bool {
 }
 
 fn filter_head(args: &[String], lines: Vec<OutputLine>) -> CommandResult {
-    let n = parse_count_arg(args, pipe_filters::DEFAULT_HEAD_LINES);
+    let n = match parse_count(args, pipe_filters::DEFAULT_HEAD_LINES) {
+        Ok(n) => n,
+        Err(msg) => {
+            return CommandResult::error_line(format!("head: {}", msg)).with_exit_code(2);
+        }
+    };
     CommandResult::output(lines.into_iter().take(n).collect())
 }
 
 fn filter_tail(args: &[String], lines: Vec<OutputLine>) -> CommandResult {
-    let n = parse_count_arg(args, pipe_filters::DEFAULT_TAIL_LINES);
+    let n = match parse_count(args, pipe_filters::DEFAULT_TAIL_LINES) {
+        Ok(n) => n,
+        Err(msg) => {
+            return CommandResult::error_line(format!("tail: {}", msg)).with_exit_code(2);
+        }
+    };
     let len = lines.len();
     CommandResult::output(lines.into_iter().skip(len.saturating_sub(n)).collect())
 }
@@ -144,10 +154,50 @@ fn filter_wc(lines: Vec<OutputLine>) -> CommandResult {
     CommandResult::output(vec![OutputLine::text(format!("{}", count))])
 }
 
-fn parse_count_arg(args: &[String], default: usize) -> usize {
-    args.first()
-        .and_then(|s| s.trim_start_matches('-').parse().ok())
-        .unwrap_or(default)
+/// Parse the count argument for head/tail.
+///
+/// Supports:
+/// - No args: returns `default`.
+/// - `-N` where N is a non-negative integer (e.g., `-5`).
+/// - `-n N` where N is a non-negative integer (e.g., `-n 5`).
+///
+/// Rejects:
+/// - `--N`, `---N`, etc.
+/// - Non-numeric: `-abc`, `abc`.
+/// - Unknown flags.
+fn parse_count(args: &[String], default: usize) -> Result<usize, String> {
+    match args.len() {
+        0 => Ok(default),
+        1 => {
+            let arg = &args[0];
+            // `-n` alone is incomplete; fallthrough to error below
+            if arg == "-n" {
+                return Err("option requires an argument: -n".to_string());
+            }
+            // Bulk reject any double-dash prefix
+            if arg.starts_with("--") {
+                return Err(format!("unknown option: {}", arg));
+            }
+            if let Some(rest) = arg.strip_prefix('-') {
+                // must be `-N` where N is integer
+                rest.parse::<usize>()
+                    .map_err(|_| format!("invalid option: -{}", rest))
+            } else {
+                // bare positional like "5" is not POSIX but also not accepted
+                Err(format!("unexpected argument: {}", arg))
+            }
+        }
+        2 => {
+            if args[0] == "-n" {
+                args[1]
+                    .parse::<usize>()
+                    .map_err(|_| format!("invalid number: {}", args[1]))
+            } else {
+                Err(format!("unknown options: {} {}", args[0], args[1]))
+            }
+        }
+        _ => Err("too many arguments".to_string()),
+    }
 }
 
 #[cfg(test)]
@@ -299,7 +349,7 @@ mod tests {
     #[test]
     fn test_head_filter() {
         let lines = test_lines();
-        let result = apply_filter("head", &args(&["3"]), lines);
+        let result = apply_filter("head", &args(&["-3"]), lines);
         assert_eq!(result.exit_code, 0);
         assert_eq!(result.output.len(), 3);
         assert!(matches!(&result.output[0].data, OutputLineData::Text(s) if s == "apple"));
@@ -325,7 +375,7 @@ mod tests {
     #[test]
     fn test_tail_filter() {
         let lines = test_lines();
-        let result = apply_filter("tail", &args(&["2"]), lines);
+        let result = apply_filter("tail", &args(&["-2"]), lines);
         assert_eq!(result.exit_code, 0);
         assert_eq!(result.output.len(), 2);
         assert!(matches!(&result.output[0].data, OutputLineData::Text(s) if s == "date"));
@@ -393,5 +443,51 @@ mod tests {
         let lines = test_lines();
         let result = apply_filter("zzz", &[], lines);
         assert_eq!(result.exit_code, 127);
+    }
+
+    #[test]
+    fn test_head_double_dash_rejected() {
+        let lines = test_lines();
+        let result = apply_filter("head", &args(&["--5"]), lines);
+        assert_eq!(result.exit_code, 2);
+    }
+
+    #[test]
+    fn test_head_n_flag() {
+        let lines = test_lines();
+        let result = apply_filter("head", &args(&["-n", "3"]), lines);
+        assert_eq!(result.exit_code, 0);
+        assert_eq!(result.output.len(), 3);
+    }
+
+    #[test]
+    fn test_head_non_numeric_rejected() {
+        let lines = test_lines();
+        let result = apply_filter("head", &args(&["-abc"]), lines);
+        assert_eq!(result.exit_code, 2);
+    }
+
+    #[test]
+    fn test_head_default_no_args() {
+        let lines = test_lines();
+        let result = apply_filter("head", &[], lines);
+        // default DEFAULT_HEAD_LINES = 10, test_lines has 5
+        assert_eq!(result.exit_code, 0);
+        assert_eq!(result.output.len(), 5);
+    }
+
+    #[test]
+    fn test_tail_double_dash_rejected() {
+        let lines = test_lines();
+        let result = apply_filter("tail", &args(&["--2"]), lines);
+        assert_eq!(result.exit_code, 2);
+    }
+
+    #[test]
+    fn test_tail_n_flag() {
+        let lines = test_lines();
+        let result = apply_filter("tail", &args(&["-n", "2"]), lines);
+        assert_eq!(result.exit_code, 0);
+        assert_eq!(result.output.len(), 2);
     }
 }
