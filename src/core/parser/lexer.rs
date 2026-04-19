@@ -13,15 +13,16 @@ use crate::core::env;
 // Token Types
 // =============================================================================
 
-/// Token types produced by the lexer
+/// Token types produced by the lexer.
+///
+/// Variable expansion is performed inline by the lexer while building
+/// `Word` tokens, so no dedicated `Variable` variant is emitted.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     /// A word (command name or argument)
     Word(String),
     /// Pipe operator `|`
     Pipe,
-    /// Variable reference `$VAR` or `${VAR}`
-    Variable(String),
     /// Last command `!!`
     HistoryLast,
     /// History by index `!n` or `!-n`
@@ -59,10 +60,13 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    /// Tokenize the entire input into a vector
+    /// Tokenize the entire input into a vector.
     ///
-    /// This is a convenience method that collects all tokens.
+    /// This is a convenience method that collects all tokens. It consumes
+    /// the lexer, so callers that need to inspect `error()` after iteration
+    /// must use `(&mut lexer).collect()` instead.
     /// For lazy evaluation, use the `Iterator` implementation directly.
+    #[allow(dead_code)]
     pub fn tokenize(self) -> Vec<Token> {
         self.collect()
     }
@@ -96,25 +100,8 @@ impl<'a> Lexer<'a> {
                 self.pos += 1;
                 Some(Token::Pipe)
             }
-            '$' => self.parse_variable(),
             '!' => self.parse_history(),
-            '"' => self.parse_double_quoted(),
-            '\'' => self.parse_single_quoted(),
-            _ => self.parse_word(),
-        }
-    }
-
-    fn parse_variable(&mut self) -> Option<Token> {
-        self.pos += 1; // skip $
-
-        if self.pos >= self.input.len() {
-            return Some(Token::Word("$".to_string()));
-        }
-
-        match self.read_variable_name() {
-            VariableRead::Name(name) => Some(Token::Variable(name)),
-            VariableRead::Empty => Some(Token::Word("$".to_string())),
-            VariableRead::UnclosedBrace(partial) => Some(Token::Word(format!("${{{}", partial))),
+            _ => self.parse_word_segment(),
         }
     }
 
@@ -161,6 +148,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn parse_history(&mut self) -> Option<Token> {
+        let hist_start = self.pos;
         self.pos += 1; // skip first !
 
         if self.pos >= self.input.len() {
@@ -191,110 +179,161 @@ impl<'a> Lexer<'a> {
         if let Ok(n) = num_str.parse::<i32>() {
             Some(Token::HistoryIndex(n))
         } else {
-            // Not a valid history reference, treat as word starting with !
-            self.pos = start;
-            self.parse_word_with_prefix("!")
-        }
-    }
-
-    fn parse_double_quoted(&mut self) -> Option<Token> {
-        let quote_start = self.pos;
-        self.pos += 1; // skip opening "
-        let mut result = String::new();
-
-        while self.pos < self.input.len() {
-            let c = self.current_char();
-            self.pos += c.len_utf8();
-
-            if c == '"' {
-                return Some(Token::Word(result));
-            } else if c == '\\' && self.pos < self.input.len() {
-                // Handle escape sequences
-                let escaped = self.current_char();
-                self.pos += escaped.len_utf8();
-                match escaped {
-                    'n' => result.push('\n'),
-                    't' => result.push('\t'),
-                    _ => result.push(escaped),
-                }
-            } else if c == '$' && self.pos < self.input.len() {
-                // Variable expansion inside double quotes
-                let used_braces = self.current_char() == '{';
-                match self.read_variable_name() {
-                    VariableRead::Name(name) => {
-                        if let Some(value) = env::get_user_var(&name) {
-                            result.push_str(&value);
-                        } else {
-                            // Keep original if variable not found
-                            result.push('$');
-                            if used_braces {
-                                result.push_str(&format!("{{{}}}", name));
-                            } else {
-                                result.push_str(&name);
-                            }
-                        }
-                    }
-                    VariableRead::Empty => result.push('$'),
-                    VariableRead::UnclosedBrace(partial) => {
-                        result.push_str(&format!("${{{}", partial));
-                    }
-                }
-            } else {
-                result.push(c);
+            // Not a valid history reference: treat the `!` as a literal prefix
+            // and continue word-segment accumulation from where we are.
+            // Rewind past `!` and keep `self.pos` pointed at the char after `!`.
+            self.pos = hist_start + 1;
+            let mut word = String::from("!");
+            if let Some(Token::Word(rest)) = self.parse_word_segment() {
+                word.push_str(&rest);
             }
+            Some(Token::Word(word))
         }
-
-        // EOF before closing `"`: record error, end iteration.
-        self.error = Some(super::ParseError::UnclosedQuote {
-            kind: '"',
-            position: quote_start,
-        });
-        None
     }
 
-    fn parse_single_quoted(&mut self) -> Option<Token> {
-        let quote_start = self.pos;
-        self.pos += 1; // skip opening '
-        let start = self.pos;
+    /// Parse a single word composed of adjacent segments.
+    ///
+    /// A word accumulates until whitespace, `|`, or `!` (which may start
+    /// history expansion). Segments include plain literals,
+    /// `$VAR`/`${VAR}` expansions, and `"..."`/`'...'` quoted strings.
+    ///
+    /// If the word is composed *entirely* of empty unquoted-variable
+    /// expansions (e.g., `$UNDEF` alone), it is dropped from the output
+    /// (POSIX: an unquoted empty expansion is removed). If any quoted
+    /// segment (even empty), any literal char, or any non-empty variable
+    /// expansion appears, the word is emitted (possibly empty).
+    fn parse_word_segment(&mut self) -> Option<Token> {
+        let mut acc = String::new();
+        let mut had_quoted = false;
+        let mut had_literal = false;
+        let mut any_var_nonempty = false;
 
         while self.pos < self.input.len() {
             let c = self.current_char();
-            if c == '\'' {
-                let content = self.input[start..self.pos].to_string();
-                self.pos += 1;
-                return Some(Token::Word(content));
-            }
-            self.pos += c.len_utf8();
-        }
-
-        // EOF before closing `'`: record error, end iteration.
-        self.error = Some(super::ParseError::UnclosedQuote {
-            kind: '\'',
-            position: quote_start,
-        });
-        None
-    }
-
-    fn parse_word(&mut self) -> Option<Token> {
-        self.parse_word_with_prefix("")
-    }
-
-    fn parse_word_with_prefix(&mut self, prefix: &str) -> Option<Token> {
-        let start = self.pos;
-
-        while self.pos < self.input.len() {
-            let c = self.current_char();
-            if c.is_whitespace() || c == '|' || c == '$' || c == '!' || c == '"' || c == '\'' {
+            if c.is_whitespace() || c == '|' || c == '!' {
                 break;
             }
-            self.pos += c.len_utf8();
+
+            match c {
+                '\'' => {
+                    let quote_start = self.pos;
+                    self.pos += 1; // skip opening '
+                    let start = self.pos;
+                    let mut closed = false;
+                    while self.pos < self.input.len() {
+                        let cc = self.current_char();
+                        if cc == '\'' {
+                            acc.push_str(&self.input[start..self.pos]);
+                            self.pos += 1;
+                            closed = true;
+                            break;
+                        }
+                        self.pos += cc.len_utf8();
+                    }
+                    if !closed {
+                        self.error = Some(super::ParseError::UnclosedQuote {
+                            kind: '\'',
+                            position: quote_start,
+                        });
+                        return None;
+                    }
+                    had_quoted = true;
+                }
+                '"' => {
+                    let quote_start = self.pos;
+                    self.pos += 1; // skip opening "
+                    let mut closed = false;
+                    while self.pos < self.input.len() {
+                        let cc = self.current_char();
+                        self.pos += cc.len_utf8();
+
+                        if cc == '"' {
+                            closed = true;
+                            break;
+                        } else if cc == '\\' && self.pos < self.input.len() {
+                            let escaped = self.current_char();
+                            self.pos += escaped.len_utf8();
+                            match escaped {
+                                'n' => acc.push('\n'),
+                                't' => acc.push('\t'),
+                                _ => acc.push(escaped),
+                            }
+                        } else if cc == '$' && self.pos < self.input.len() {
+                            // Variable expansion inside double quotes.
+                            // Quoted context: undefined/empty expansion
+                            // contributes nothing; the word is still emitted
+                            // because `had_quoted` is true (preserving
+                            // POSIX semantics of `"$UNDEF"` → empty arg).
+                            match self.read_variable_name() {
+                                VariableRead::Name(name) => {
+                                    if let Some(value) = env::get_user_var(&name) {
+                                        acc.push_str(&value);
+                                    }
+                                    // undefined var → empty, no contribution
+                                }
+                                VariableRead::Empty => acc.push('$'),
+                                VariableRead::UnclosedBrace(partial) => {
+                                    acc.push_str(&format!("${{{}", partial));
+                                }
+                            }
+                        } else {
+                            acc.push(cc);
+                        }
+                    }
+                    if !closed {
+                        self.error = Some(super::ParseError::UnclosedQuote {
+                            kind: '"',
+                            position: quote_start,
+                        });
+                        return None;
+                    }
+                    had_quoted = true;
+                }
+                '$' => {
+                    self.pos += 1; // skip $
+                    if self.pos >= self.input.len() {
+                        // bare `$` at EOF → literal $
+                        acc.push('$');
+                        had_literal = true;
+                        break;
+                    }
+                    match self.read_variable_name() {
+                        VariableRead::Name(name) => {
+                            if let Some(v) = env::get_user_var(&name) {
+                                if !v.is_empty() {
+                                    acc.push_str(&v);
+                                    any_var_nonempty = true;
+                                }
+                                // empty value: contributes nothing, doesn't
+                                // count as content — preserves empty-drop
+                                // semantics when there's no other content.
+                            }
+                            // else: undefined var, same treatment as empty.
+                        }
+                        VariableRead::Empty => {
+                            // `$` followed by non-name char → literal $
+                            acc.push('$');
+                            had_literal = true;
+                        }
+                        VariableRead::UnclosedBrace(partial) => {
+                            acc.push_str(&format!("${{{}", partial));
+                            had_literal = true;
+                        }
+                    }
+                }
+                _ => {
+                    acc.push(c);
+                    self.pos += c.len_utf8();
+                    had_literal = true;
+                }
+            }
         }
 
-        let word = format!("{}{}", prefix, &self.input[start..self.pos]);
-        if word.is_empty() {
-            None
+        if had_quoted || had_literal || any_var_nonempty {
+            Some(Token::Word(acc))
         } else {
-            Some(Token::Word(word))
+            // Pure-empty-unquoted-var word → drop.
+            None
         }
     }
 }
@@ -303,11 +342,26 @@ impl Iterator for Lexer<'_> {
     type Item = Token;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.skip_whitespace();
-        if self.pos >= self.input.len() {
-            return None;
+        loop {
+            self.skip_whitespace();
+            if self.pos >= self.input.len() {
+                return None;
+            }
+            let before = self.pos;
+            if let Some(tok) = self.next_token() {
+                return Some(tok);
+            }
+            // `next_token` returned None. Two cases:
+            //   - an error was recorded (unclosed quote) → terminate.
+            //   - a word segment was dropped (empty unquoted var) → retry.
+            if self.error.is_some() {
+                return None;
+            }
+            // Defensive: if pos didn't advance, break to avoid infinite loop.
+            if self.pos == before {
+                return None;
+            }
         }
-        self.next_token()
     }
 }
 
@@ -356,27 +410,70 @@ mod tests {
     }
 
     #[test]
-    fn test_variable() {
-        let lexer = Lexer::new("echo $HOME");
-        let tokens = lexer.tokenize();
+    fn test_variable_undefined_drops_word() {
+        // $NOT_A_VAR alone in an unquoted segment → word drops.
+        let mut lexer = Lexer::new("echo $NOT_A_VAR foo");
+        let tokens: Vec<_> = (&mut lexer).collect();
         assert_eq!(
             tokens,
             vec![
                 Token::Word("echo".to_string()),
-                Token::Variable("HOME".to_string()),
+                Token::Word("foo".to_string()),
             ]
         );
     }
 
     #[test]
-    fn test_variable_braces() {
-        let lexer = Lexer::new("echo ${HOME}");
-        let tokens = lexer.tokenize();
+    fn test_variable_undefined_with_literal_keeps_word() {
+        // "x$NOT_A_VAR" → "x" (literal content keeps the word).
+        let mut lexer = Lexer::new("echo x$NOT_A_VAR");
+        let tokens: Vec<_> = (&mut lexer).collect();
         assert_eq!(
             tokens,
             vec![
                 Token::Word("echo".to_string()),
-                Token::Variable("HOME".to_string()),
+                Token::Word("x".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_quoted_empty_variable_keeps_word() {
+        // "$UNDEF" quoted → empty word preserved.
+        let mut lexer = Lexer::new("echo \"$NOT_A_VAR\"");
+        let tokens: Vec<_> = (&mut lexer).collect();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Word("echo".to_string()),
+                Token::Word("".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_adjacent_word_and_quoted() {
+        let mut lexer = Lexer::new("echo x\"y\"z");
+        let tokens: Vec<_> = (&mut lexer).collect();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Word("echo".to_string()),
+                Token::Word("xyz".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_adjacent_literal_and_variable() {
+        // env var not set → "x$UNDEF" → "x"
+        let mut lexer = Lexer::new("echo x$UNDEFINED_HERE");
+        let tokens: Vec<_> = (&mut lexer).collect();
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Word("echo".to_string()),
+                Token::Word("x".to_string()),
             ]
         );
     }
