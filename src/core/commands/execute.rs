@@ -37,7 +37,10 @@ pub fn execute_command(
         Command::Ls { path, long } => execute_ls(path, long, wallet_state, fs, current_route),
         Command::Cd(path) => execute_cd(path, fs, current_route),
         Command::Pwd => CommandResult::output(vec![OutputLine::text(current_route.display_path())]),
-        Command::Cat(file) => execute_cat(file, fs, current_path, current_route),
+        Command::Cat(file) => match file {
+            Some(f) => execute_cat(f, fs, current_path, current_route),
+            None => CommandResult::error_line("cat: missing file operand"),
+        },
         Command::Whoami => {
             CommandResult::output(vec![OutputLine::ascii(ASCII_PROFILE.to_string())])
         }
@@ -49,7 +52,10 @@ pub fn execute_command(
         }
         Command::Echo(text) => CommandResult::output(vec![OutputLine::text(text)]),
         Command::Export(arg) => execute_export(arg),
-        Command::Unset(key) => execute_unset(key),
+        Command::Unset(key) => match key {
+            Some(k) => execute_unset(k),
+            None => CommandResult::error_line("unset: missing variable name"),
+        },
         Command::Login => CommandResult::login(),
         Command::Logout => CommandResult::logout(),
         Command::Explorer(path) => execute_explorer(path, fs, current_route),
@@ -514,5 +520,25 @@ mod tests {
         );
         assert_eq!(result.exit_code, 1);
         assert!(!result.output.is_empty());
+    }
+
+    #[test]
+    fn test_cat_missing_operand_exit_1() {
+        let (ts, ws, fs) = empty_state();
+        let result = execute_command(Command::Cat(None), &ts, &ws, &fs, &AppRoute::Root);
+        assert_eq!(result.exit_code, 1);
+        assert!(
+            result
+                .output
+                .iter()
+                .any(|l| matches!(&l.data, crate::models::OutputLineData::Error(s) if s == "cat: missing file operand"))
+        );
+    }
+
+    #[test]
+    fn test_unset_missing_operand_exit_1() {
+        let (ts, ws, fs) = empty_state();
+        let result = execute_command(Command::Unset(None), &ts, &ws, &fs, &AppRoute::Root);
+        assert_eq!(result.exit_code, 1);
     }
 }

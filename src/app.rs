@@ -213,7 +213,6 @@ impl Default for ExplorerState {
 ///
 /// The URL is the single source of truth for navigation state.
 /// AppContext only manages non-navigation state:
-/// - **Mounts**: Registry of mounted filesystems
 /// - **Filesystem**: Virtual filesystem for file operations
 /// - **Terminal state**: Command history, output
 /// - **Explorer state**: File browser UI state
@@ -242,7 +241,6 @@ impl AppContext {
     /// Creates a new application context with default state.
     ///
     /// All signals are initialized to their default values:
-    /// - Mounts: Registry from configured mounts
     /// - Terminal: Empty history
     /// - Explorer: No selection, list view
     /// - Wallet: Disconnected

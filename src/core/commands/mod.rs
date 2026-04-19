@@ -95,14 +95,14 @@ pub enum Command {
     },
     Cd(PathArg),
     Pwd,
-    Cat(PathArg),
+    Cat(Option<PathArg>),
     Whoami,
     Id,
     Help,
     Clear,
     Echo(String),
     Export(Option<String>),
-    Unset(String),
+    Unset(Option<String>),
     Login,
     Logout,
     /// Switch to explorer view mode with optional path
@@ -142,13 +142,7 @@ impl Command {
                     .unwrap_or_else(|| PathArg::new("~")),
             ),
             "pwd" => Self::Pwd,
-            "cat" => {
-                if let Some(file) = args.first() {
-                    Self::Cat(PathArg::new(file))
-                } else {
-                    Self::Unknown("cat: missing file operand".to_string())
-                }
-            }
+            "cat" => Self::Cat(args.first().map(PathArg::new)),
             "whoami" => Self::Whoami,
             "id" => Self::Id,
             "help" | "?" => Self::Help,
@@ -161,13 +155,7 @@ impl Command {
                     Self::Export(Some(args.join(" ")))
                 }
             }
-            "unset" => {
-                if let Some(key) = args.first() {
-                    Self::Unset(key.clone())
-                } else {
-                    Self::Unknown("unset: missing variable name".to_string())
-                }
-            }
+            "unset" => Self::Unset(args.first().cloned()),
             "login" => Self::Login,
             "logout" => Self::Logout,
             "explorer" => Self::Explorer(args.first().map(PathArg::new)),
@@ -192,7 +180,7 @@ pub fn execute_pipeline(
     current_route: &AppRoute,
 ) -> CommandResult {
     if let Some(ref err) = pipeline.error {
-        return CommandResult::error_line(err.to_string());
+        return CommandResult::error_line(err.to_string()).with_exit_code(2);
     }
 
     if pipeline.is_empty() {
@@ -276,7 +264,7 @@ mod tests {
     fn test_parse_cat() {
         assert!(matches!(
             Command::parse("cat", &args(&["file.md"])),
-            Command::Cat(ref f) if f == "file.md"
+            Command::Cat(Some(ref f)) if f == "file.md"
         ));
     }
 
@@ -298,7 +286,7 @@ mod tests {
 
     #[test]
     fn test_parse_cat_missing_file() {
-        assert!(matches!(Command::parse("cat", &[]), Command::Unknown(_)));
+        assert!(matches!(Command::parse("cat", &[]), Command::Cat(None)));
     }
 
     #[test]
@@ -317,9 +305,9 @@ mod tests {
     fn test_parse_unset() {
         assert!(matches!(
             Command::parse("unset", &args(&["FOO"])),
-            Command::Unset(ref k) if k == "FOO"
+            Command::Unset(Some(ref k)) if k == "FOO"
         ));
-        assert!(matches!(Command::parse("unset", &[]), Command::Unknown(_)));
+        assert!(matches!(Command::parse("unset", &[]), Command::Unset(None)));
     }
 
     #[test]
@@ -426,5 +414,23 @@ mod tests {
         let pipeline = parse_input("help | grep xyzzy", &[]);
         let result = execute_pipeline(&pipeline, &state, &wallet, &fs, &route);
         assert_eq!(result.exit_code, 1);
+    }
+
+    #[test]
+    fn test_parser_error_exit_2() {
+        use crate::app::TerminalState;
+        use crate::core::VirtualFs;
+        use crate::core::parser::parse_input;
+        use crate::models::WalletState;
+
+        let state = TerminalState::new();
+        let wallet = WalletState::Disconnected;
+        let fs = VirtualFs::empty();
+        let route = AppRoute::Root;
+
+        // Pipe with nothing on the right-hand side → parse error
+        let pipeline = parse_input("ls |", &[]);
+        let result = execute_pipeline(&pipeline, &state, &wallet, &fs, &route);
+        assert_eq!(result.exit_code, 2);
     }
 }
