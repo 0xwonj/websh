@@ -46,12 +46,17 @@ enum VariableRead {
 pub struct Lexer<'a> {
     input: &'a str,
     pos: usize,
+    error: Option<super::ParseError>,
 }
 
 impl<'a> Lexer<'a> {
     /// Create a new lexer for the given input
     pub fn new(input: &'a str) -> Self {
-        Self { input, pos: 0 }
+        Self {
+            input,
+            pos: 0,
+            error: None,
+        }
     }
 
     /// Tokenize the entire input into a vector
@@ -60,6 +65,13 @@ impl<'a> Lexer<'a> {
     /// For lazy evaluation, use the `Iterator` implementation directly.
     pub fn tokenize(self) -> Vec<Token> {
         self.collect()
+    }
+
+    /// Returns a parse error if one was encountered during tokenization
+    /// (e.g., an unclosed quote). Callers that need to surface lexer errors
+    /// should iterate via `(&mut lexer).collect()` and then check `.error()`.
+    pub fn error(&self) -> Option<&super::ParseError> {
+        self.error.as_ref()
     }
 
     fn skip_whitespace(&mut self) {
@@ -186,6 +198,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn parse_double_quoted(&mut self) -> Option<Token> {
+        let quote_start = self.pos;
         self.pos += 1; // skip opening "
         let mut result = String::new();
 
@@ -194,7 +207,7 @@ impl<'a> Lexer<'a> {
             self.pos += c.len_utf8();
 
             if c == '"' {
-                break;
+                return Some(Token::Word(result));
             } else if c == '\\' && self.pos < self.input.len() {
                 // Handle escape sequences
                 let escaped = self.current_char();
@@ -231,10 +244,16 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        Some(Token::Word(result))
+        // EOF before closing `"`: record error, end iteration.
+        self.error = Some(super::ParseError::UnclosedQuote {
+            kind: '"',
+            position: quote_start,
+        });
+        None
     }
 
     fn parse_single_quoted(&mut self) -> Option<Token> {
+        let quote_start = self.pos;
         self.pos += 1; // skip opening '
         let start = self.pos;
 
@@ -248,8 +267,12 @@ impl<'a> Lexer<'a> {
             self.pos += c.len_utf8();
         }
 
-        // Unclosed quote, return what we have
-        Some(Token::Word(self.input[start..].to_string()))
+        // EOF before closing `'`: record error, end iteration.
+        self.error = Some(super::ParseError::UnclosedQuote {
+            kind: '\'',
+            position: quote_start,
+        });
+        None
     }
 
     fn parse_word(&mut self) -> Option<Token> {
