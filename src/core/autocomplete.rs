@@ -3,7 +3,7 @@
 //! This module provides intelligent autocompletion for:
 //! - Command names (e.g., "cl" → "clear")
 //! - Directory paths for `cd`, `ls` commands
-//! - File paths for `cat`, `less`, `more` commands
+//! - File paths for `cat` commands
 //!
 //! The autocomplete system supports:
 //! - Single match: Complete immediately
@@ -36,7 +36,7 @@ pub enum AutocompleteResult {
 const DIR_COMMANDS: &[&str] = &["cd", "ls"];
 
 /// Commands that accept file paths as arguments.
-const FILE_COMMANDS: &[&str] = &["cat", "less", "more"];
+const FILE_COMMANDS: &[&str] = &["cat"];
 
 // ============================================================================
 // Completion Context
@@ -49,7 +49,7 @@ enum CompletionMode {
     Command,
     /// Complete directory paths (for cd, ls).
     DirectoryPath,
-    /// Complete file paths (for cat, less, more).
+    /// Complete file paths (for cat).
     FilePath,
     /// No completion available.
     None,
@@ -389,6 +389,19 @@ mod tests {
         assert_eq!(mode, CompletionMode::FilePath);
 
         let (mode, _) = CompletionMode::from_input("whoami arg");
+        assert_eq!(mode, CompletionMode::None);
+    }
+
+    #[test]
+    fn test_completion_mode_less_no_longer_file() {
+        // less is not an implemented command; it should not trigger file-path completion
+        let (mode, _) = CompletionMode::from_input("less file.txt");
+        assert_eq!(mode, CompletionMode::None);
+    }
+
+    #[test]
+    fn test_completion_mode_more_no_longer_file() {
+        let (mode, _) = CompletionMode::from_input("more file.txt");
         assert_eq!(mode, CompletionMode::None);
     }
 }
