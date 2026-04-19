@@ -2275,6 +2275,7 @@ dependencies = [
  "leptos",
  "leptos_icons",
  "pulldown-cmark",
+ "regex",
  "serde",
  "serde_json",
  "stylance",
