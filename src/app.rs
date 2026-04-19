@@ -8,9 +8,7 @@ use leptos::prelude::*;
 use crate::components::AppRouter;
 use crate::config::{APP_NAME, MAX_COMMAND_HISTORY, MAX_TERMINAL_HISTORY};
 use crate::core::VirtualFs;
-use crate::models::{
-    AppRoute, ExplorerViewType, MountRegistry, OutputLine, Selection, ViewMode, WalletState,
-};
+use crate::models::{AppRoute, ExplorerViewType, OutputLine, Selection, ViewMode, WalletState};
 use crate::utils::RingBuffer;
 
 // ============================================================================
@@ -224,10 +222,6 @@ impl Default for ExplorerState {
 #[derive(Clone, Copy)]
 pub struct AppContext {
     // === Shared State ===
-    /// Mount registry for managing multiple filesystem backends.
-    /// This is not a signal because mounts are configured once at startup
-    /// and never change during the application lifecycle.
-    pub mounts: StoredValue<MountRegistry>,
     /// Virtual filesystem for file navigation.
     pub fs: RwSignal<VirtualFs>,
     /// Wallet connection state.
@@ -257,7 +251,6 @@ impl AppContext {
     pub fn new() -> Self {
         Self {
             // Shared state
-            mounts: StoredValue::new(crate::config::mounts().clone()),
             fs: RwSignal::new(VirtualFs::empty()),
             wallet: RwSignal::new(WalletState::default()),
 

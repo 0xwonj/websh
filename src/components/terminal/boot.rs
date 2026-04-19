@@ -60,14 +60,13 @@ pub fn run(ctx: AppContext) {
         )));
 
         // Fetch manifests for all configured mounts
-        let mounts = ctx.mounts.get_value();
         let mut combined_manifest = Manifest {
             files: Vec::new(),
             directories: Vec::new(),
         };
         let mut mount_errors = Vec::new();
 
-        for mount in mounts.all() {
+        for mount in crate::config::mounts().all() {
             let manifest_url = mount.manifest_url();
             let cache_key = format!("{}_{}", cache::MANIFEST_KEY, mount.alias());
 
