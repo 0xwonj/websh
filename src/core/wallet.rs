@@ -4,6 +4,7 @@
 //! direct JavaScript interop via Reflect API.
 
 use js_sys::{Array, Function, Object, Promise, Reflect};
+use leptos::prelude::Set;
 use serde::Deserialize;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
@@ -145,6 +146,17 @@ pub fn clear_session() {
     if let Some(storage) = dom::local_storage() {
         let _ = storage.remove_item(WALLET_SESSION_KEY);
     }
+}
+
+/// Disconnect the wallet: clear the stored session and reset the reactive
+/// wallet state to `Disconnected`.
+///
+/// This is the canonical way to "log out" of a wallet connection from any
+/// UI call site, keeping session-storage cleanup and signal updates in
+/// lockstep.
+pub fn disconnect(ctx: &crate::app::AppContext) {
+    clear_session();
+    ctx.wallet.set(crate::models::WalletState::Disconnected);
 }
 
 // ============================================================================

@@ -75,8 +75,7 @@ fn handle_login(ctx: AppContext) {
 /// Execute wallet logout command.
 fn handle_logout(ctx: &AppContext) {
     if ctx.wallet.with(|w| w.is_connected()) {
-        wallet::clear_session();
-        ctx.wallet.set(WalletState::Disconnected);
+        wallet::disconnect(ctx);
         ctx.terminal
             .push_output(OutputLine::success("Disconnected from wallet."));
     } else {
