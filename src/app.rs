@@ -7,6 +7,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use leptos::prelude::*;
+use wasm_bindgen_futures::spawn_local;
 
 use crate::components::AppRouter;
 use crate::config::{APP_NAME, MAX_COMMAND_HISTORY, MAX_TERMINAL_HISTORY};
@@ -252,7 +253,6 @@ pub struct AppContext {
 
     // === Phase 3: Write-direct-commit state ===
     /// Staged + working-tree edits awaiting commit.
-    #[allow(dead_code)]
     pub changes: RwSignal<ChangeSet>,
     /// Merged view of the filesystem with `changes` overlaid on top of `fs`.
     // Signal::derive_local — Rc<VirtualFs> is neither Send nor Sync (and
@@ -262,10 +262,8 @@ pub struct AppContext {
     pub view_fs: Signal<Rc<VirtualFs>, LocalStorage>,
     /// Write backend for the home mount (None when no token or mount is read-only).
     // LocalStorage — `dyn StorageBackend` is !Send+!Sync.
-    #[allow(dead_code)]
     pub backend: StoredValue<Option<Arc<dyn StorageBackend>>, LocalStorage>,
     /// Last observed remote HEAD OID for the writable mount (optimistic-concurrency token).
-    #[allow(dead_code)]
     pub remote_head: StoredValue<Option<String>>,
 }
 
@@ -356,6 +354,27 @@ pub fn App() -> impl IntoView {
     // Create and provide application context
     let ctx = AppContext::new();
     provide_context(ctx);
+
+    let token = crate::utils::session::get_gh_token();
+
+    let home = crate::config::mounts().home();
+    let initial_backend = crate::core::storage::boot::build_backend_for_mount(home, token.as_deref());
+    ctx.backend.set_value(initial_backend);
+
+    let mount_id = home.alias().to_string();
+    let changes_signal = ctx.changes;
+    let head_store = ctx.remote_head;
+    spawn_local(async move {
+        match crate::core::storage::boot::hydrate_drafts(&mount_id).await {
+            Ok(cs) if !cs.is_empty() => changes_signal.set(cs),
+            Ok(_) => {}
+            Err(e) => web_sys::console::error_1(&format!("hydrate drafts: {e}").into()),
+        }
+        match crate::core::storage::boot::hydrate_remote_head(&mount_id).await {
+            Ok(h) => head_store.set_value(h),
+            Err(e) => web_sys::console::error_1(&format!("hydrate head: {e}").into()),
+        }
+    });
 
     view! {
         <ErrorBoundary

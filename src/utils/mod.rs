@@ -13,6 +13,7 @@ mod fetch;
 pub mod format;
 mod markdown;
 mod ring_buffer;
+pub mod session;
 pub mod sysinfo;
 mod time;
 mod url;

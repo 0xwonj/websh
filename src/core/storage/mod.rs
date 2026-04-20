@@ -1,6 +1,7 @@
 //! Storage abstraction for write operations. See spec §4.
 
 mod backend;
+pub mod boot;
 mod error;
 mod github;
 pub mod idb;
