@@ -11,6 +11,7 @@ mod commands;
 pub mod env;
 pub mod error;
 mod filesystem;
+pub mod merge;
 pub mod parser;
 pub mod wallet;
 

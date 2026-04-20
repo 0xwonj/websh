@@ -1,6 +1,6 @@
 use crate::models::{
     DirectoryEntry, DirectoryMetadata, DisplayPermissions, FileMetadata, FsEntry, Manifest,
-    WalletState,
+    VirtualPath, WalletState,
 };
 use std::collections::HashMap;
 
@@ -28,6 +28,11 @@ pub struct DirEntry {
 pub struct VirtualFs {
     /// Root directory entry containing all files
     root: FsEntry,
+    /// Locally-staged content for files with pending writes. Keyed by the
+    /// relative path used throughout VirtualFs (no leading slash). Populated
+    /// by `upsert_file` / `update_file_content`; cleared by `remove_entry` /
+    /// `remove_subtree`. Not persisted — exists only during a local session.
+    pending_content: HashMap<String, String>,
 }
 
 impl VirtualFs {
@@ -86,7 +91,10 @@ impl VirtualFs {
             meta: root_meta,
         };
 
-        Self { root }
+        Self {
+            root,
+            pending_content: HashMap::new(),
+        }
     }
 
     /// Insert a path into the tree using iteration instead of recursion.
@@ -215,7 +223,10 @@ impl VirtualFs {
             meta: DirectoryMetadata::default(),
         };
 
-        Self { root }
+        Self {
+            root,
+            pending_content: HashMap::new(),
+        }
     }
 
     /// Resolve a path relative to current directory.
@@ -334,6 +345,97 @@ impl VirtualFs {
         Some(current)
     }
 
+    /// Get an entry by absolute [`VirtualPath`].
+    pub fn get(&self, path: &VirtualPath) -> Option<&FsEntry> {
+        self.get_entry(path.as_str().trim_start_matches('/'))
+    }
+
+    /// Read the locally-staged text content for a file with a pending write,
+    /// if any. Returns `None` for files that have no staged content (including
+    /// canonical manifest files whose content lives in remote storage).
+    pub fn read_file(&self, path: &VirtualPath) -> Option<String> {
+        let rel = path.as_str().trim_start_matches('/');
+        self.pending_content.get(rel).cloned()
+    }
+
+    /// Create or replace a text file at `path`, recording the staged content
+    /// in `pending_content`.
+    pub fn upsert_file(&mut self, path: VirtualPath, content: String, meta: FileMetadata) {
+        let rel = path.as_str().trim_start_matches('/').to_string();
+        self.pending_content.insert(rel.clone(), content);
+        insert_tree_entry(
+            &mut self.root,
+            &rel,
+            FsEntry::content_file_with_meta(&rel, "", meta),
+        );
+    }
+
+    /// Create or replace a binary file placeholder at `path`. The blob is
+    /// carried out-of-band (in the ChangeSet); no content is stored in
+    /// `pending_content`.
+    pub fn upsert_binary_placeholder(&mut self, path: VirtualPath, meta: FileMetadata) {
+        let rel = path.as_str().trim_start_matches('/').to_string();
+        insert_tree_entry(
+            &mut self.root,
+            &rel,
+            FsEntry::content_file_with_meta(&rel, "", meta),
+        );
+    }
+
+    /// Update the staged content (and optionally description) of an existing
+    /// file. No-op if `path` does not resolve to a file entry.
+    pub fn update_file_content(
+        &mut self,
+        path: &VirtualPath,
+        content: String,
+        description: Option<String>,
+    ) {
+        let rel = path.as_str().trim_start_matches('/').to_string();
+        let Some(FsEntry::File { description: d, .. }) =
+            get_tree_entry_mut(&mut self.root, &rel)
+        else {
+            return;
+        };
+        if let Some(new_d) = description {
+            *d = new_d;
+        }
+        self.pending_content.insert(rel, content);
+    }
+
+    /// Create or replace a directory at `path` with the given metadata.
+    pub fn upsert_directory(&mut self, path: VirtualPath, meta: DirectoryMetadata) {
+        let rel = path.as_str().trim_start_matches('/').to_string();
+        insert_tree_entry(
+            &mut self.root,
+            &rel,
+            FsEntry::Directory {
+                children: HashMap::new(),
+                meta,
+            },
+        );
+    }
+
+    /// Remove a single entry at `path` and its staged content (if any).
+    pub fn remove_entry(&mut self, path: &VirtualPath) {
+        let rel = path.as_str().trim_start_matches('/').to_string();
+        self.pending_content.remove(&rel);
+        remove_tree_entry(&mut self.root, &rel);
+    }
+
+    /// Remove a subtree rooted at `path`, including all descendants' staged
+    /// content entries.
+    pub fn remove_subtree(&mut self, path: &VirtualPath) {
+        let rel = path.as_str().trim_start_matches('/').to_string();
+        let prefix = if rel.is_empty() {
+            String::new()
+        } else {
+            format!("{}/", rel)
+        };
+        self.pending_content
+            .retain(|k, _| k != &rel && !k.starts_with(&prefix));
+        remove_tree_entry(&mut self.root, &rel);
+    }
+
     /// List directory contents with metadata.
     ///
     /// # Arguments
@@ -440,6 +542,96 @@ impl Default for VirtualFs {
     fn default() -> Self {
         Self::empty()
     }
+}
+
+/// Walk/create parents, then insert `entry` at the final path segment.
+/// If any intermediate segment is a File, overwrite it with a Directory.
+/// No-op if `rel_path` is empty (cannot replace root via this helper).
+fn insert_tree_entry(root: &mut FsEntry, rel_path: &str, entry: FsEntry) {
+    let parts: Vec<&str> = rel_path.split('/').filter(|s| !s.is_empty()).collect();
+    if parts.is_empty() {
+        return;
+    }
+    let mut current = match root {
+        FsEntry::Directory { children, .. } => children,
+        FsEntry::File { .. } => return,
+    };
+    for (i, part) in parts.iter().enumerate() {
+        let is_last = i == parts.len() - 1;
+        if is_last {
+            current.insert((*part).to_string(), entry);
+            return;
+        }
+        let slot = current
+            .entry((*part).to_string())
+            .or_insert_with(|| FsEntry::Directory {
+                children: HashMap::new(),
+                meta: DirectoryMetadata {
+                    title: (*part).to_string(),
+                    ..Default::default()
+                },
+            });
+        if !slot.is_directory() {
+            *slot = FsEntry::Directory {
+                children: HashMap::new(),
+                meta: DirectoryMetadata {
+                    title: (*part).to_string(),
+                    ..Default::default()
+                },
+            };
+        }
+        current = match slot {
+            FsEntry::Directory { children, .. } => children,
+            FsEntry::File { .. } => unreachable!(),
+        };
+    }
+}
+
+/// Remove the entry at `rel_path`. No-op if any segment is missing or if `rel_path` is empty.
+fn remove_tree_entry(root: &mut FsEntry, rel_path: &str) {
+    let parts: Vec<&str> = rel_path.split('/').filter(|s| !s.is_empty()).collect();
+    if parts.is_empty() {
+        return;
+    }
+    let mut current = match root {
+        FsEntry::Directory { children, .. } => children,
+        FsEntry::File { .. } => return,
+    };
+    for (i, part) in parts.iter().enumerate() {
+        let is_last = i == parts.len() - 1;
+        if is_last {
+            current.remove(*part);
+            return;
+        }
+        let next = match current.get_mut(*part) {
+            Some(FsEntry::Directory { children, .. }) => children,
+            _ => return,
+        };
+        current = next;
+    }
+}
+
+/// Get a mutable reference to the entry at `rel_path`. Returns `Some(root)` when `rel_path` is empty.
+fn get_tree_entry_mut<'a>(root: &'a mut FsEntry, rel_path: &str) -> Option<&'a mut FsEntry> {
+    let parts: Vec<&str> = rel_path.split('/').filter(|s| !s.is_empty()).collect();
+    if parts.is_empty() {
+        return Some(root);
+    }
+    let mut current = match root {
+        FsEntry::Directory { children, .. } => children,
+        FsEntry::File { .. } => return None,
+    };
+    for (i, part) in parts.iter().enumerate() {
+        let is_last = i == parts.len() - 1;
+        if is_last {
+            return current.get_mut(*part);
+        }
+        match current.get_mut(*part)? {
+            FsEntry::Directory { children, .. } => current = children,
+            FsEntry::File { .. } => return None,
+        }
+    }
+    None
 }
 
 #[cfg(test)]
