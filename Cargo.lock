@@ -2290,6 +2290,7 @@ name = "websh"
 version = "0.1.0"
 dependencies = [
  "ammonia",
+ "base64",
  "console_error_panic_hook",
  "icondata",
  "js-sys",

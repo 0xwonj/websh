@@ -2,6 +2,7 @@
 
 mod backend;
 mod error;
+mod github;
 
 pub use backend::{BoxFuture, CommitOutcome, StorageBackend};
 pub use error::{StorageError, StorageResult};
