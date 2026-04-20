@@ -997,14 +997,9 @@ pub fn upsert_file(&mut self, path: VirtualPath, content: String, meta: FileMeta
 
 /// Insert or replace a binary placeholder. Parent directories are created.
 /// Binary bytes are NOT placed in `pending_content` (text map) — the
-/// ChangeSet entry carries the blob out-of-band until upload.
-pub fn upsert_binary_placeholder(
-    &mut self,
-    path: VirtualPath,
-    _blob_id: String,
-    _mime: String,
-    meta: FileMetadata,
-) {
+/// ChangeSet entry carries the blob (`blob_id` + `mime`) out-of-band until
+/// upload, so they're intentionally not accepted here.
+pub fn upsert_binary_placeholder(&mut self, path: VirtualPath, meta: FileMetadata) {
     let rel = path.as_str().trim_start_matches('/').to_string();
     insert_tree_entry(
         &mut self.root,
@@ -1014,7 +1009,8 @@ pub fn upsert_binary_placeholder(
 }
 
 /// Replace the `pending_content` of an existing file and optionally update
-/// its description. No-op if no file exists at `path`.
+/// its description. No-op if no file exists at `path` — nothing is written
+/// to `pending_content` in that case.
 pub fn update_file_content(
     &mut self,
     path: &VirtualPath,
@@ -1022,14 +1018,15 @@ pub fn update_file_content(
     description: Option<String>,
 ) {
     let rel = path.as_str().trim_start_matches('/').to_string();
-    self.pending_content.insert(rel.clone(), content);
-    if let Some(FsEntry::File { description: d, .. }) =
+    let Some(FsEntry::File { description: d, .. }) =
         get_tree_entry_mut(&mut self.root, &rel)
-    {
-        if let Some(new_d) = description {
-            *d = new_d;
-        }
+    else {
+        return;
+    };
+    if let Some(new_d) = description {
+        *d = new_d;
     }
+    self.pending_content.insert(rel, content);
 }
 
 /// Insert or replace a directory at `path`, creating ancestors as needed.
@@ -1092,13 +1089,10 @@ fn apply_change(fs: &mut VirtualFs, path: &VirtualPath, change: &ChangeType) {
         ChangeType::CreateFile { content, meta } => {
             fs.upsert_file(path.clone(), content.clone(), meta.clone());
         }
-        ChangeType::CreateBinary { blob_id, mime, meta } => {
-            fs.upsert_binary_placeholder(
-                path.clone(),
-                blob_id.clone(),
-                mime.clone(),
-                meta.clone(),
-            );
+        ChangeType::CreateBinary { blob_id: _, mime: _, meta } => {
+            // blob_id/mime are carried out-of-band by the ChangeSet entry until upload;
+            // the overlay view only needs a placeholder file with metadata.
+            fs.upsert_binary_placeholder(path.clone(), meta.clone());
         }
         ChangeType::UpdateFile { content, description } => {
             fs.update_file_content(path, content.clone(), description.clone());
