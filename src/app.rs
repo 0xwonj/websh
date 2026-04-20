@@ -11,6 +11,8 @@ use crate::core::VirtualFs;
 use crate::models::{AppRoute, ExplorerViewType, OutputLine, Selection, ViewMode, WalletState};
 use crate::utils::RingBuffer;
 
+stylance::import_crate_style!(err_css, "src/components/error_boundary.module.css");
+
 // ============================================================================
 // TerminalState
 // ============================================================================
@@ -287,43 +289,19 @@ pub fn App() -> impl IntoView {
     view! {
         <ErrorBoundary
             fallback=|errors| view! {
-                <div style="
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    justify-content: center;
-                    height: 100vh;
-                    padding: 2rem;
-                    background: #0a0e27;
-                    color: #e0e0e0;
-                    font-family: 'Courier New', monospace;
-                ">
-                    <div style="
-                        max-width: 600px;
-                        text-align: center;
-                    ">
-                        <h1 style="color: #ff6b6b; margin-bottom: 1rem;">
+                <div class=err_css::container>
+                    <div class=err_css::inner>
+                        <h1 class=err_css::title>
                             "Something went wrong"
                         </h1>
-                        <p style="color: #a0a0a0; margin-bottom: 2rem;">
+                        <p class=err_css::message>
                             "An unexpected error occurred. Please try reloading the page."
                         </p>
-                        <details style="
-                            text-align: left;
-                            background: #151a35;
-                            padding: 1rem;
-                            border-radius: 4px;
-                            margin-bottom: 1rem;
-                        ">
-                            <summary style="cursor: pointer; color: #6c7a89;">
+                        <details class=err_css::details>
+                            <summary class=err_css::summary>
                                 "Error details"
                             </summary>
-                            <ul style="
-                                margin: 1rem 0 0 0;
-                                padding-left: 1.5rem;
-                                color: #ff6b6b;
-                                font-size: 0.9rem;
-                            ">
+                            <ul class=err_css::detailsList>
                                 {move || errors.get()
                                     .into_iter()
                                     .map(|(_, e)| view! { <li>{e.to_string()}</li> })
@@ -332,21 +310,12 @@ pub fn App() -> impl IntoView {
                             </ul>
                         </details>
                         <button
+                            class=err_css::reloadButton
                             on:click=move |_| {
                                 if let Some(window) = web_sys::window() {
                                     let _ = window.location().reload();
                                 }
                             }
-                            style="
-                                background: #4a90e2;
-                                color: white;
-                                border: none;
-                                padding: 0.75rem 2rem;
-                                border-radius: 4px;
-                                cursor: pointer;
-                                font-family: 'Courier New', monospace;
-                                font-size: 1rem;
-                            "
                         >
                             "Reload Page"
                         </button>
