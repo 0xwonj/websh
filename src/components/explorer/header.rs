@@ -25,7 +25,6 @@ pub fn Header() -> impl IntoView {
     // Derived signals
     let is_root = Signal::derive(move || matches!(route_ctx.0.get(), AppRoute::Root));
     let is_home = Signal::derive(move || route_ctx.0.get() == AppRoute::home());
-    let can_forward = Signal::derive(move || ctx.explorer.can_go_forward());
     let view_type = Signal::derive(move || ctx.explorer.view_type.get());
 
     // Derive current location name for header title
@@ -64,10 +63,8 @@ pub fn Header() -> impl IntoView {
     view! {
         <header class=css::header>
             <NavButtons
-                route_ctx=route_ctx
                 is_root=is_root
                 is_home=is_home
-                can_forward=can_forward
             />
 
             // Current location title (center)
@@ -90,29 +87,22 @@ pub fn Header() -> impl IntoView {
 }
 
 /// Navigation buttons (back, forward, home).
+///
+/// Back/forward delegate to the browser's own history, so the URL hash
+/// and the browser's native back/forward buttons stay in sync.
 #[component]
-fn NavButtons(
-    route_ctx: RouteContext,
-    is_root: Signal<bool>,
-    is_home: Signal<bool>,
-    can_forward: Signal<bool>,
-) -> impl IntoView {
-    let ctx = use_context::<AppContext>().expect("AppContext must be provided");
-
-    // Back: navigate to parent directory
+fn NavButtons(is_root: Signal<bool>, is_home: Signal<bool>) -> impl IntoView {
+    // Back: browser history back (equivalent to user's browser back button)
     let on_back = move |_: leptos::ev::MouseEvent| {
-        let route = route_ctx.0.get();
-        let parent = route.parent();
-        if parent != route {
-            ctx.explorer.push_forward(route);
-            parent.push();
+        if let Some(window) = web_sys::window() {
+            let _ = window.history().and_then(|h| h.back());
         }
     };
 
-    // Forward: pop from forward stack
+    // Forward: browser history forward
     let on_forward = move |_: leptos::ev::MouseEvent| {
-        if let Some(forward_route) = ctx.explorer.pop_forward() {
-            forward_route.push();
+        if let Some(window) = web_sys::window() {
+            let _ = window.history().and_then(|h| h.forward());
         }
     };
 
@@ -127,14 +117,13 @@ fn NavButtons(
                 class=move || nav_button_class(is_root.get())
                 on:click=on_back
                 disabled=move || is_root.get()
-                title="Go to parent directory"
+                title="Go back"
             >
                 <Icon icon=ic::CHEVRON_LEFT />
             </button>
             <button
-                class=move || nav_button_class(!can_forward.get())
+                class=css::navButton
                 on:click=on_forward
-                disabled=move || !can_forward.get()
                 title="Go forward"
             >
                 <Icon icon=ic::CHEVRON_RIGHT />

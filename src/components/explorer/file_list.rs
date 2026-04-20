@@ -158,9 +158,6 @@ fn FileListItem(entry: DirEntry) -> impl IntoView {
         let route = route_ctx.0.get();
 
         if is_dir {
-            // Clear forward stack only when navigating to a new directory (not opening a file)
-            ctx.explorer.clear_forward();
-
             // If at Root, navigate to mount
             if matches!(route, AppRoute::Root)
                 && let Some(mount) = mounts().resolve(&entry_name_for_nav).cloned()
