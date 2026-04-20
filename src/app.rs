@@ -14,6 +14,7 @@ use crate::config::{APP_NAME, MAX_COMMAND_HISTORY, MAX_TERMINAL_HISTORY};
 use crate::core::changes::ChangeSet;
 use crate::core::merge;
 use crate::core::storage::StorageBackend;
+use crate::core::storage::persist::DraftPersister;
 use crate::core::VirtualFs;
 use crate::models::{AppRoute, ExplorerViewType, OutputLine, Selection, ViewMode, WalletState};
 use crate::utils::RingBuffer;
@@ -374,6 +375,13 @@ pub fn App() -> impl IntoView {
             Ok(h) => head_store.set_value(h),
             Err(e) => web_sys::console::error_1(&format!("hydrate head: {e}").into()),
         }
+    });
+
+    let persister = Rc::new(DraftPersister::new(home.alias()));
+    let persister_for_effect = persister.clone();
+    Effect::new(move |_| {
+        let snapshot = ctx.changes.get();
+        persister_for_effect.schedule(snapshot);
     });
 
     view! {
