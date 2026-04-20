@@ -67,7 +67,7 @@ pub fn AppRouter() -> impl IntoView {
         if matches!(raw, AppRoute::Root) {
             return raw;
         }
-        ctx.fs.with(|fs| raw.resolve(fs))
+        ctx.view_fs.with(|fs| raw.resolve(fs))
     });
     #[cfg(not(target_arch = "wasm32"))]
     let route = Memo::new(move |_| raw_route.get());

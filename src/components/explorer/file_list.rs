@@ -62,7 +62,7 @@ pub fn FileList() -> impl IntoView {
         }
 
         let path = route.fs_path();
-        ctx.fs.with(|fs| fs.list_dir(path).unwrap_or_default())
+        ctx.view_fs.with(|fs| fs.list_dir(path).unwrap_or_default())
     });
 
     view! {
@@ -118,7 +118,7 @@ fn FileListItem(entry: DirEntry) -> impl IntoView {
     let item_fs_path = join_path(current_path, &entry_name);
 
     // Get permissions from VirtualFs (same as ls -l)
-    let perms = ctx.fs.with_untracked(|fs| {
+    let perms = ctx.view_fs.with_untracked(|fs| {
         let wallet = ctx.wallet.get_untracked();
         fs.get_entry(&item_fs_path)
             .map(|e| fs.get_permissions(e, &wallet).to_string())

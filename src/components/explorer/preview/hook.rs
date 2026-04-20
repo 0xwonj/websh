@@ -113,7 +113,7 @@ pub fn use_preview() -> PreviewData {
             .get()
             .filter(|s| !s.is_dir)
             .map(|s| {
-                ctx.fs.with(|fs| {
+                ctx.view_fs.with(|fs| {
                     fs.get_entry(&s.path)
                         .map(|entry| entry.is_restricted())
                         .unwrap_or(false)
@@ -127,7 +127,7 @@ pub fn use_preview() -> PreviewData {
         selection
             .get()
             .filter(|s| !s.is_dir)
-            .and_then(|s| ctx.fs.with(|fs| fs.get_file_content_path(&s.path)))
+            .and_then(|s| ctx.view_fs.with(|fs| fs.get_file_content_path(&s.path)))
     });
 
     // Detect file type
@@ -141,7 +141,7 @@ pub fn use_preview() -> PreviewData {
     // Get file metadata
     let file_meta = Signal::derive(move || {
         selection.get().filter(|s| !s.is_dir).and_then(|s| {
-            ctx.fs.with(|fs| {
+            ctx.view_fs.with(|fs| {
                 fs.get_entry(&s.path).and_then(|entry| match entry {
                     FsEntry::File {
                         meta, description, ..
@@ -155,7 +155,7 @@ pub fn use_preview() -> PreviewData {
     // Get directory metadata from FsEntry
     let dir_meta = Signal::derive(move || {
         selection.get().filter(|s| s.is_dir).map(|s| {
-            ctx.fs.with(|fs| {
+            ctx.view_fs.with(|fs| {
                 let mut meta = fs
                     .get_entry(&s.path)
                     .and_then(|e| e.dir_meta())
