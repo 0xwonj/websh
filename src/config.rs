@@ -205,4 +205,11 @@ mod tests {
         let home = mounts().home();
         assert_eq!(home.alias(), "~");
     }
+
+    #[test]
+    fn help_mentions_all_commands() {
+        for cmd in &["touch", "mkdir", "rm", "rmdir", "edit", "sync"] {
+            assert!(HELP_TEXT.contains(cmd), "HELP_TEXT missing {cmd}");
+        }
+    }
 }
