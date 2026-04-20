@@ -19,6 +19,19 @@ pub enum SideEffect {
     SwitchView(ViewMode),
     /// Switch view mode and navigate in one step.
     SwitchViewAndNavigate(ViewMode, AppRoute),
+
+    // Phase 3
+    ApplyChange    { path: crate::models::VirtualPath, change: crate::core::changes::ChangeType },
+    StageChange    { path: crate::models::VirtualPath },
+    UnstageChange  { path: crate::models::VirtualPath },
+    DiscardChange  { path: crate::models::VirtualPath },
+    StageAll,
+    UnstageAll,
+    Commit         { message: String, expected_head: Option<String> },
+    RefreshManifest,
+    SetAuthToken   { token: String },
+    ClearAuthToken,
+    OpenEditor     { path: crate::models::VirtualPath },
 }
 
 /// Result of executing a command.

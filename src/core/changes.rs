@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::models::{DirectoryMetadata, FileMetadata, VirtualPath};
 use crate::utils::current_timestamp;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChangeType {
     CreateFile { content: String, meta: FileMetadata },
     CreateBinary { blob_id: String, mime: String, meta: FileMetadata },

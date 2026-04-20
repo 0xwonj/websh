@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 /// Note: `FileMetadata` is never serialized standalone — only `FileEntry` and
 /// `Manifest` hit the wire. That lets us add new fields (like `tags` below)
 /// without needing `#[serde(default)]` guards.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileMetadata {
     /// File size in bytes (None for directories or unknown)
     pub size: Option<u64>,
@@ -33,7 +33,7 @@ impl FileMetadata {
 }
 
 /// Metadata for directories (from .meta.json).
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DirectoryMetadata {
     /// Display title
     pub title: String,
@@ -51,14 +51,14 @@ pub struct DirectoryMetadata {
 ///
 /// "Access" is advisory — it filters who the UI shows content to. Actual
 /// cryptographic confidentiality is NOT provided in Phase 3/4 Option B.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct AccessFilter {
     /// Wallet addresses listed as recipients.
     pub recipients: Vec<Recipient>,
 }
 
 /// A single listed recipient.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Recipient {
     /// Wallet address (checksum or lowercase).
     pub address: String,
