@@ -176,7 +176,7 @@ fn create_submit_callback(ctx: AppContext, route_ctx: RouteContext) -> Callback<
 }
 
 /// Perform a side effect requested by a command.
-fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
+pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
     match effect {
         SideEffect::Navigate(route) => route.push(),
         SideEffect::Login => handle_login(*ctx),
@@ -215,10 +215,7 @@ fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
             ctx.backend.set_value(None);
         }
         SideEffect::OpenEditor { path } => {
-            // Phase 5 wires this to the EditModal. For 3a, emit an info line.
-            ctx.terminal.push_output(crate::models::OutputLine::info(
-                format!("edit: opening {}", path.as_str())
-            ));
+            ctx.editor_open.set(Some(path));
         }
         SideEffect::Commit { message, expected_head } => {
             let Some(backend) = ctx.backend.get_value() else {

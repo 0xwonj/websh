@@ -265,6 +265,10 @@ pub struct AppContext {
     pub backend: StoredValue<Option<Arc<dyn StorageBackend>>, LocalStorage>,
     /// Last observed remote HEAD OID for the writable mount (optimistic-concurrency token).
     pub remote_head: StoredValue<Option<String>>,
+
+    // === Phase 5: Editor modal ===
+    /// When `Some(path)`, the `EditModal` is open editing that path. `None` = closed.
+    pub editor_open: RwSignal<Option<crate::models::VirtualPath>>,
 }
 
 impl AppContext {
@@ -291,6 +295,8 @@ impl AppContext {
             StoredValue::new_local(None);
         let remote_head: StoredValue<Option<String>> = StoredValue::new(None);
 
+        let editor_open = RwSignal::new(None);
+
         Self {
             // Shared state
             fs,
@@ -308,6 +314,9 @@ impl AppContext {
             view_fs,
             backend,
             remote_head,
+
+            // Phase 5 editor state
+            editor_open,
         }
     }
 
