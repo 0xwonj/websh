@@ -56,7 +56,7 @@ Websh is a browser-based virtual filesystem with a Unix-like terminal interface,
 - `VirtualFs` is built from a manifest (JSON) fetched from external storage
 - Paths are absolute Unix-style (`/home/wonjae/blog/post.md`)
 - Content files have a `content_path` that maps to remote storage
-- File permissions computed at runtime based on encryption metadata and wallet state
+- File permissions computed at runtime based on access filter metadata and wallet state
 
 ### Styling
 - CSS modules via Stylance (`.module.css` files alongside components)
@@ -79,7 +79,7 @@ let ctx = use_context::<AppContext>().expect("AppContext");
 
 ### Wallet Integration
 - EIP-1193 wallet connection (MetaMask, etc.)
-- ECIES encryption for private content
+- Access filter for restricted content (advisory, non-cryptographic)
 - Wallet state: `Disconnected`, `Connecting`, `Connected { address, ens_name, chain_id }`
 
 ### Public APIs added in Phase 2

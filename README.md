@@ -8,9 +8,9 @@
 
 ```
 
-Websh is a decentralized personal vault designed to persist and secure personal archives. Built as a Virtual File System (VFS) with a terminal-based interface, it provides a familiar Unix-shell experience within the browser.
+Websh is a decentralized personal vault designed to persist and organize personal archives. Built as a Virtual File System (VFS) with a terminal-based interface, it provides a familiar Unix-shell experience within the browser.
 
-Inspired by the cypherpunk ethos, the platform is designed to achieve privacy and decentralization through cryptographic foundations. By hosting both the application and its data on decentralized storage, it functions without reliance on centralized infrastructure. While the underlying storage is public, privacy is secured through mathematical models—specifically wallet-based asymmetric cryptography, utilizing ECIES and digital signatures to maintain the confidentiality of sensitive information.
+By hosting both the application and its data on decentralized storage, it functions without reliance on centralized infrastructure. Some files are access-restricted to listed recipients; those entries are filtered from the UI for other visitors. The underlying storage is public and no cryptographic confidentiality is provided in the current release.
 
 [![Built with Rust](https://img.shields.io/badge/built%20with-Rust-orange.svg)](https://www.rust-lang.org/)
 [![WebAssembly](https://img.shields.io/badge/WebAssembly-654FF0?logo=webassembly&logoColor=white)](https://webassembly.org/)
@@ -31,17 +31,15 @@ Inspired by the cypherpunk ethos, the platform is designed to achieve privacy an
 - **XSS Protection**: Content sanitization with ammonia
 - **Remote Content**: Dynamic loading from remote storage
 
-### Identity & Privacy
-- **Wallet-based Identity (EIP-1193)**: Connects Ethereum wallets to establish identity and provide the cryptographic seed for all secure operations.
-- **Deterministic Key Derivation**: Derives application-specific encryption keys from wallet signatures, isolating the master private key from encryption tasks.
-- **Asymmetric Hybrid Encryption (ECIES)**: Implementation of Elliptic Curve Integrated Encryption Scheme (secp256k1) for secure, one-way messaging.
-- **Data Integrity**: Uses wallet signatures to verify authorship and protect archived content from tampering on public storage.
-- **Privacy-Preserving Archives**: Use of asymmetric encryption to maintain data confidentiality within decentralized, permissionless storage environments.
+### Identity & Access
+- **Wallet-based Identity (EIP-1193)**: Connects Ethereum wallets to establish identity and sign operations.
+- **Access Filter**: Files may designate a recipient list; the UI hides access-restricted entries from visitors whose wallet address is not on that list. This is an advisory filter — content on public storage is not cryptographically protected.
+- **Data Integrity**: Uses wallet signatures to verify authorship of published content.
 - **ENS Resolution**: Native resolution of ENS names for user identification and profile mapping.
 
 ### Deployment
 - **Decentralized Static Hosting**: Optimized for serverless, decentralized hosting using purely static assets.
-- **Zero-Backend**: Executes all system logic and cryptographic operations client-side via WebAssembly, requiring no traditional backend.
+- **Zero-Backend**: Executes all system logic client-side via WebAssembly, requiring no traditional backend.
 - **Decoupled Content**: Separates application logic from data. Content is dynamically fetched from remote repositories without the need to redeploy the core shell.
 - **WASM Runtime**: Compiled from Rust to an optimized WebAssembly binary for consistent performance and security across any hosting environment.
 
@@ -139,7 +137,7 @@ src/
 - **Framework**: [Leptos 0.8](https://leptos.dev/) - Fine-grained reactive UI
 - **Styling**: [Stylance](https://github.com/basro/stylance) - Type-safe CSS modules
 - **Build Tool**: [Trunk](https://trunkrs.dev/) - WASM application bundler
-- **Cryptography**: secp256k1, ECIES, AES-256-GCM
+- **Wallet**: secp256k1 signatures via EIP-1193
 
 ## Security
 
