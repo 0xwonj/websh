@@ -218,6 +218,31 @@ These were considered in Phase 2 scope but deferred with explicit reasoning:
 - 2 Opus agent timeouts during the run (Track E — partial work rescued and committed manually); otherwise clean.
 - Wave 1 through I took one autonomous session end-to-end.
 
+## Phase 2 Follow-ups (merged, `phase2-complete` tag moved)
+
+After the first `phase2-complete` tag (`9037f4c`), a 6-agent multi-perspective review (Architecture, POSIX/Shell, Leptos idioms, WASM perf, Test coverage, Backward-compat) surfaced additional actionable items. All were addressed in a single follow-up track merged as `d7d0e88`; the tag now points there.
+
+### Fixes applied
+- **D-FU-1**: `DisplayPermissions` format corrected from `"d r - x"` (spaced) to `"dr-x"` (Unix `ls -l` canonical). One-line fix cleared all 4 pre-existing `test_permissions_*` failures.
+- **D-FU-2**: `assets/text/help.txt` and `CLAUDE.md` updated to reflect Phase 2 semantics (grep case-sensitivity + `-i`, head/tail dash form, multi-assign export, new public APIs section).
+- **D-FU-3**: `src/components/breadcrumb.rs` extracted `build_segment_path(segments, idx)` helper + 4 native unit tests (closes the Track P test gap). `test_resolve_unknown_path_keeps_heuristic` strengthened to exercise both heuristic-promote and heuristic-demote branches. Duplicate `test_head_default_no_args` removed.
+- **D-FU-4**: `AppError` enum introduced in `src/core/error.rs` with `From` impls for `WalletError` / `FetchError` / `EnvironmentError` + `std::error::Error::source` chain. `#[allow(dead_code)]` for now — no current callers; preempts the cross-domain `?` friction flagged in architecture review. 5 tests.
+- **D-FU-5**: `grep -F` / `--fixed-strings` added (uses `regex::escape`). Extra-positional error message improved to explicitly mention pipes-only model. 4 tests.
+- **D-FU-6**: `AppRouter` `Memo` fast-paths `AppRoute::Root` (skips `ctx.fs` tracking when route doesn't depend on fs). `TerminalState::navigate_history` uses `.with()` instead of `.get()` — avoids cloning the entire command history on every arrow-key press.
+
+### Test delta
+- **189 pass / 4 fail → 205 pass / 0 fail** (+16 new tests, 4 pre-existing failures fixed).
+
+### Explicitly deferred to Phase 3 (write-mode prep)
+- Async `SideEffect` variant / `dispatch_side_effect` async path — requires a concrete write-command spec to design correctly.
+- `FsState` / `MergedFs` overlay (pending/staged layer) — same reason.
+- These two will be designed alongside the first write command; doing them speculatively now would be YAGNI.
+
+### Also deferred
+- `grep pat1 pat2` as bash-compat filename handling (we have no file I/O in the browser shell — the clearer error message is sufficient).
+- BRE (POSIX basic regex) mode for grep — the `regex` crate is always ERE; users needing BRE can escape explicitly. Not worth a second regex engine.
+- Help-text in-terminal `man` / `--help` per-command — each command showing its own help is a UX project, not a Phase 2 follow-up.
+
 
 
 
