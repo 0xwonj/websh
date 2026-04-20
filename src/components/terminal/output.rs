@@ -1,6 +1,8 @@
+use crate::components::icons as ic;
 use crate::models::{ListFormat, OutputLine, OutputLineData, TextStyle};
 use crate::utils::format::{format_date_short, format_size};
 use leptos::prelude::*;
+use leptos_icons::Icon;
 
 stylance::import_crate_style!(css, "src/components/terminal/output.module.css");
 
@@ -42,12 +44,22 @@ pub fn Output(line: OutputLine) -> impl IntoView {
                 style_class(style).to_string()
             };
             let suffix = if is_dir { "/" } else { "" };
-            let lock_icon = if encrypted { " 🔒" } else { "" };
+            let display_name = format!("{}{}", name, suffix);
+            let lock_marker = encrypted.then(|| {
+                view! {
+                    <span class=css::lockIcon aria-label="encrypted">
+                        <Icon icon=ic::LOCK />
+                    </span>
+                }
+            });
 
             match format {
                 ListFormat::Short => view! {
                     <div class=css::listEntry>
-                        <span class=name_class>{format!("{}{}{}", name, suffix, lock_icon)}</span>
+                        <span class=name_class>
+                            {display_name}
+                            {lock_marker}
+                        </span>
                         <span class=css::textDim>{description}</span>
                     </div>
                 }
@@ -61,7 +73,10 @@ pub fn Output(line: OutputLine) -> impl IntoView {
                         <span class=css::textDim>{permissions}</span>
                         <span class=css::textDim>{format_size(size, true)}</span>
                         <span class=css::textDim>{format_date_short(modified)}</span>
-                        <span class=name_class>{format!("{}{}{}", name, suffix, lock_icon)}</span>
+                        <span class=name_class>
+                            {display_name}
+                            {lock_marker}
+                        </span>
                     </div>
                 }
                 .into_any(),

@@ -79,4 +79,15 @@
   font-weight: 700;
 }
 
+/* Lock icon marker for encrypted entries. Mirrors the explorer file_list
+   treatment so terminal listings share a consistent visual language. */
+.lockIcon {
+  display: inline-flex;
+  align-items: center;
+  margin-left: var(--space-1);
+  font-size: 0.75em;
+  color: var(--terminal-yellow);
+  vertical-align: middle;
+}
+
 /* Removed: .glowSubtle - use .glow class from base.css instead */
