@@ -109,3 +109,98 @@ impl fmt::Display for FetchError {
 }
 
 impl std::error::Error for FetchError {}
+
+/// Unified application error wrapping the three domain errors.
+///
+/// Use this when code needs to propagate errors across domain boundaries
+/// (e.g., a function that may hit both fetch and environment failures).
+/// Each domain-specific error type remains preferred within its own module.
+///
+/// Implements `From` for each domain error to enable `?` across boundaries.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub enum AppError {
+    Wallet(WalletError),
+    Fetch(FetchError),
+    Environment(EnvironmentError),
+}
+
+impl fmt::Display for AppError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Wallet(e) => write!(f, "{}", e),
+            Self::Fetch(e) => write!(f, "{}", e),
+            Self::Environment(e) => write!(f, "{}", e),
+        }
+    }
+}
+
+impl std::error::Error for AppError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Wallet(e) => Some(e),
+            Self::Fetch(e) => Some(e),
+            Self::Environment(e) => Some(e),
+        }
+    }
+}
+
+impl From<WalletError> for AppError {
+    fn from(e: WalletError) -> Self {
+        Self::Wallet(e)
+    }
+}
+
+impl From<FetchError> for AppError {
+    fn from(e: FetchError) -> Self {
+        Self::Fetch(e)
+    }
+}
+
+impl From<EnvironmentError> for AppError {
+    fn from(e: EnvironmentError) -> Self {
+        Self::Environment(e)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_app_error_from_wallet() {
+        let wallet_err = WalletError::NoWindow;
+        let app_err: AppError = wallet_err.into();
+        assert!(matches!(app_err, AppError::Wallet(WalletError::NoWindow)));
+    }
+
+    #[test]
+    fn test_app_error_from_fetch() {
+        let fetch_err = FetchError::HttpError(404);
+        let app_err: AppError = fetch_err.into();
+        assert!(matches!(app_err, AppError::Fetch(FetchError::HttpError(404))));
+    }
+
+    #[test]
+    fn test_app_error_from_environment() {
+        let env_err = EnvironmentError::InvalidVariableName;
+        let app_err: AppError = env_err.into();
+        assert!(matches!(
+            app_err,
+            AppError::Environment(EnvironmentError::InvalidVariableName)
+        ));
+    }
+
+    #[test]
+    fn test_app_error_display_delegates() {
+        let app_err = AppError::Fetch(FetchError::HttpError(500));
+        assert_eq!(app_err.to_string(), "HTTP error: 500");
+    }
+
+    #[test]
+    fn test_app_error_source_chain() {
+        let app_err = AppError::Wallet(WalletError::NoAccount);
+        let source = std::error::Error::source(&app_err);
+        assert!(source.is_some());
+    }
+}
