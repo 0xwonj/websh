@@ -58,7 +58,7 @@ pub fn PreviewBody(
     view! {
         {move || {
             let is_directory = data.is_dir.get();
-            let encrypted = data.is_encrypted.get();
+            let encrypted = data.is_restricted.get();
             let ftype = data.file_type.get();
 
             if is_directory {
@@ -265,7 +265,7 @@ fn TextPreview(
 #[component]
 pub fn OpenButton(
     selection: RwSignal<Option<Selection>>,
-    is_encrypted: Signal<bool>,
+    is_restricted: Signal<bool>,
     class: &'static str,
     #[prop(default = "Open")] label: &'static str,
 ) -> impl IntoView {
@@ -274,7 +274,7 @@ pub fn OpenButton(
     let show_button = Signal::derive(move || {
         selection
             .get()
-            .map(|s| !s.is_dir && !is_encrypted.get())
+            .map(|s| !s.is_dir && !is_restricted.get())
             .unwrap_or(false)
     });
 

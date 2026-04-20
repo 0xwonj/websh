@@ -65,8 +65,8 @@ pub struct PreviewData {
     pub item_name: Signal<String>,
     /// Whether the selection is a directory
     pub is_dir: Signal<bool>,
-    /// Whether the file is encrypted
-    pub is_encrypted: Signal<bool>,
+    /// Whether the file is access-restricted
+    pub is_restricted: Signal<bool>,
     /// The file type (Markdown, Image, etc.)
     pub file_type: Signal<FileType>,
     /// Directory metadata from manifest (includes item counts)
@@ -108,15 +108,14 @@ pub fn use_preview() -> PreviewData {
     // Check if selection is a directory
     let is_dir = Signal::derive(move || selection.get().map(|s| s.is_dir).unwrap_or(false));
 
-    // Check if file is encrypted
-    let is_encrypted = Signal::derive(move || {
+    let is_restricted = Signal::derive(move || {
         selection
             .get()
             .filter(|s| !s.is_dir)
             .map(|s| {
                 ctx.fs.with(|fs| {
                     fs.get_entry(&s.path)
-                        .map(|entry| entry.is_encrypted())
+                        .map(|entry| entry.is_restricted())
                         .unwrap_or(false)
                 })
             })
@@ -198,7 +197,7 @@ pub fn use_preview() -> PreviewData {
     let content = LocalResource::new(move || {
         let path = content_path.get();
         let ftype = file_type.get();
-        let encrypted = is_encrypted.get();
+        let encrypted = is_restricted.get();
         let url_base = base_url.get();
 
         async move {
@@ -228,7 +227,7 @@ pub fn use_preview() -> PreviewData {
     PreviewData {
         item_name,
         is_dir,
-        is_encrypted,
+        is_restricted,
         file_type,
         dir_meta,
         file_meta,

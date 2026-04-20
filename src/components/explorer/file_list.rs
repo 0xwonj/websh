@@ -97,10 +97,10 @@ fn FileListItem(entry: DirEntry) -> impl IntoView {
 
     let entry_name = entry.name.clone();
     let is_dir = entry.is_dir;
-    let is_encrypted = entry
+    let is_restricted = entry
         .file_meta
         .as_ref()
-        .map(|m| m.is_encrypted())
+        .map(|m| m.is_restricted())
         .unwrap_or(false);
     let is_hidden = entry.name.starts_with('.');
     let icon = get_icon(&entry);
@@ -258,7 +258,7 @@ fn FileListItem(entry: DirEntry) -> impl IntoView {
             <div class=css::nameWrapper>
                 <span class=name_class>
                     {display_name}
-                    {is_encrypted.then(|| view! { <span class=css::lockIcon><Icon icon=ic::LOCK /></span> })}
+                    {is_restricted.then(|| view! { <span class=css::lockIcon><Icon icon=ic::LOCK /></span> })}
                 </span>
                 <div class=css::mobileMeta>
                     {mobile_date.as_ref().map(|d: &String| {

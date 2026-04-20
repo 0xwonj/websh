@@ -156,12 +156,12 @@ fn format_ls_output(
                 if entry.is_dir {
                     OutputLine::dir_entry(&entry.name, &entry.title)
                 } else {
-                    let is_encrypted = entry
+                    let is_restricted = entry
                         .file_meta
                         .as_ref()
-                        .map(|m| m.is_encrypted())
+                        .map(|m| m.is_restricted())
                         .unwrap_or(false);
-                    OutputLine::file_entry(&entry.name, &entry.title, is_encrypted)
+                    OutputLine::file_entry(&entry.name, &entry.title, is_restricted)
                 }
             })
             .collect()
