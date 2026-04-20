@@ -33,10 +33,20 @@ pub enum AutocompleteResult {
 // ============================================================================
 
 /// Commands that accept directory paths as arguments.
-const DIR_COMMANDS: &[&str] = &["cd", "ls"];
+const DIR_COMMANDS: &[&str] = &["cd", "ls", "mkdir", "rmdir"];
 
 /// Commands that accept file paths as arguments.
-const FILE_COMMANDS: &[&str] = &["cat"];
+///
+/// These commands also match directories during tab completion so users
+/// can drill into subdirectories — the filter just doesn't restrict to
+/// directories only (unlike `DIR_COMMANDS`).
+const FILE_COMMANDS: &[&str] = &["cat", "touch", "rm", "edit"];
+
+/// Subcommands for `sync` (first positional arg).
+const SYNC_SUBCOMMANDS: &[&str] = &["status", "commit", "refresh", "auth"];
+
+/// Subcommands for `sync auth` (second positional arg).
+const SYNC_AUTH_SUBCOMMANDS: &[&str] = &["set", "clear"];
 
 // ============================================================================
 // Completion Context
@@ -134,6 +144,12 @@ pub fn autocomplete(input: &str, current_route: &AppRoute, fs: &VirtualFs) -> Au
     let current_path = current_route.fs_path();
     let (mode, parts) = CompletionMode::from_input(input);
 
+    // `sync` has its own subcommand grammar (not a path). Handle it before
+    // the generic mode dispatch.
+    if mode != CompletionMode::Command && parts[0].eq_ignore_ascii_case("sync") {
+        return complete_sync(parts[1]);
+    }
+
     match mode {
         CompletionMode::Command => complete_command(parts[0]),
         CompletionMode::DirectoryPath | CompletionMode::FilePath => {
@@ -154,6 +170,10 @@ pub fn get_hint(input: &str, current_route: &AppRoute, fs: &VirtualFs) -> Option
 
     let current_path = current_route.fs_path();
     let (mode, parts) = CompletionMode::from_input(input);
+
+    if mode != CompletionMode::Command && parts[0].eq_ignore_ascii_case("sync") {
+        return get_sync_hint(parts[1]);
+    }
 
     match mode {
         CompletionMode::Command => get_command_hint(parts[0]),
@@ -194,6 +214,74 @@ fn get_command_hint(partial: &str) -> Option<String> {
         .iter()
         .find(|cmd| cmd.starts_with(&partial_lower) && **cmd != partial_lower)
         .map(|cmd| cmd[partial.len()..].to_string())
+}
+
+// ============================================================================
+// Sync Subcommand Completion
+// ============================================================================
+
+/// Complete `sync` subcommands.
+///
+/// `tail` is everything after `sync ` — e.g. `""`, `"s"`, `"auth "`, `"auth s"`,
+/// `"commit my message"`. Returns completions for the first subcommand level
+/// (`status`/`commit`/`refresh`/`auth`), and — when the first token is `auth`
+/// and there is a trailing space — for the second level (`set`/`clear`).
+/// Free-text arguments (after `commit` or `auth set`) receive no completion.
+fn complete_sync(tail: &str) -> AutocompleteResult {
+    // Split once on the first space to detect the two-level `sync auth ...`
+    // grammar. If the tail has no space, we're still completing the first
+    // subcommand name.
+    match tail.split_once(' ') {
+        None => suggest_subcommand("sync", tail, SYNC_SUBCOMMANDS),
+        Some(("auth", sub_tail)) => match sub_tail.split_once(' ') {
+            // `sync auth <partial>` with no further space
+            None => suggest_subcommand("sync auth", sub_tail, SYNC_AUTH_SUBCOMMANDS),
+            // `sync auth set <opaque token>` — no completion
+            Some(_) => AutocompleteResult::None,
+        },
+        // `sync commit <message>` / `sync status <junk>` / etc — no completion.
+        Some(_) => AutocompleteResult::None,
+    }
+}
+
+/// Return matches for a subcommand partial against the given list.
+fn suggest_subcommand(prefix: &str, partial: &str, options: &[&str]) -> AutocompleteResult {
+    let partial_lower = partial.to_lowercase();
+    let matches: Vec<String> = options
+        .iter()
+        .filter(|opt| opt.starts_with(&partial_lower))
+        .map(|s| s.to_string())
+        .collect();
+
+    match matches.len() {
+        0 => AutocompleteResult::None,
+        1 => AutocompleteResult::Single(format!("{} {} ", prefix, matches[0])),
+        _ => {
+            let common = find_common_prefix(&matches);
+            AutocompleteResult::Multiple(format!("{} {}", prefix, common), matches)
+        }
+    }
+}
+
+/// Ghost-text hint for `sync` subcommands.
+fn get_sync_hint(tail: &str) -> Option<String> {
+    match tail.split_once(' ') {
+        None => subcommand_hint(tail, SYNC_SUBCOMMANDS),
+        Some(("auth", sub_tail)) => match sub_tail.split_once(' ') {
+            None => subcommand_hint(sub_tail, SYNC_AUTH_SUBCOMMANDS),
+            Some(_) => None,
+        },
+        Some(_) => None,
+    }
+}
+
+/// Return the first subcommand that extends the partial, as a suffix hint.
+fn subcommand_hint(partial: &str, options: &[&str]) -> Option<String> {
+    let partial_lower = partial.to_lowercase();
+    options
+        .iter()
+        .find(|opt| opt.starts_with(&partial_lower) && **opt != partial_lower)
+        .map(|opt| opt[partial.len()..].to_string())
 }
 
 // ============================================================================
@@ -435,5 +523,276 @@ mod tests {
     fn test_completion_mode_more_no_longer_file() {
         let (mode, _) = CompletionMode::from_input("more file.txt");
         assert_eq!(mode, CompletionMode::None);
+    }
+
+    // ------------------------------------------------------------------------
+    // Phase 3a: write-command + sync-subcommand completion
+    // ------------------------------------------------------------------------
+
+    /// Build a small fixture VFS with two files and two dirs at mount root:
+    /// - `home/` (dir), `help/` (dir)
+    /// - `hello.md` (file), `hero.md` (file)
+    ///
+    /// These names all share the prefix `h`, so a `/h`-style partial
+    /// exercises both the dir-only and file+dir classification paths.
+    fn write_cmd_fixture() -> VirtualFs {
+        use crate::models::{DirectoryEntry, FileEntry, Manifest};
+        let manifest = Manifest {
+            files: vec![
+                FileEntry {
+                    path: "hello.md".to_string(),
+                    title: "Hello".to_string(),
+                    size: None,
+                    modified: None,
+                    tags: vec![],
+                    access: None,
+                },
+                FileEntry {
+                    path: "hero.md".to_string(),
+                    title: "Hero".to_string(),
+                    size: None,
+                    modified: None,
+                    tags: vec![],
+                    access: None,
+                },
+                // Give the dirs a file each so they exist as directories.
+                FileEntry {
+                    path: "home/readme.md".to_string(),
+                    title: "Home readme".to_string(),
+                    size: None,
+                    modified: None,
+                    tags: vec![],
+                    access: None,
+                },
+                FileEntry {
+                    path: "help/readme.md".to_string(),
+                    title: "Help readme".to_string(),
+                    size: None,
+                    modified: None,
+                    tags: vec![],
+                    access: None,
+                },
+            ],
+            directories: vec![
+                DirectoryEntry {
+                    path: "home".to_string(),
+                    title: "Home".to_string(),
+                    tags: vec![],
+                    description: None,
+                    icon: None,
+                    thumbnail: None,
+                },
+                DirectoryEntry {
+                    path: "help".to_string(),
+                    title: "Help".to_string(),
+                    tags: vec![],
+                    description: None,
+                    icon: None,
+                    thumbnail: None,
+                },
+            ],
+        };
+        VirtualFs::from_manifest(&manifest)
+    }
+
+    /// Collect the display names from any AutocompleteResult for easier
+    /// assertion — works for both Single and Multiple.
+    fn matches_set(result: &AutocompleteResult) -> Vec<String> {
+        match result {
+            AutocompleteResult::Multiple(_, names) => names.clone(),
+            AutocompleteResult::Single(s) => vec![s.clone()],
+            AutocompleteResult::None => vec![],
+        }
+    }
+
+    // --- file-or-dir-completing commands --------------------------------
+
+    #[test]
+    fn test_touch_completes_files_and_dirs() {
+        let fs = write_cmd_fixture();
+        let result = complete_path("touch", "h", "", &fs, /* dirs_only */ false);
+        let names = matches_set(&result);
+        // Should include both files and dirs.
+        assert!(
+            names.iter().any(|n| n == "hello.md"),
+            "touch should surface files; got {:?}",
+            names
+        );
+        assert!(
+            names.iter().any(|n| n == "hero.md"),
+            "touch should surface files; got {:?}",
+            names
+        );
+        assert!(
+            names.iter().any(|n| n == "home/"),
+            "touch should surface dirs; got {:?}",
+            names
+        );
+        assert!(
+            names.iter().any(|n| n == "help/"),
+            "touch should surface dirs; got {:?}",
+            names
+        );
+    }
+
+    #[test]
+    fn test_rm_completes_files_and_dirs() {
+        let fs = write_cmd_fixture();
+        let result = complete_path("rm", "h", "", &fs, /* dirs_only */ false);
+        let names = matches_set(&result);
+        assert!(names.iter().any(|n| n == "hello.md"), "got {:?}", names);
+        assert!(names.iter().any(|n| n == "home/"), "got {:?}", names);
+    }
+
+    #[test]
+    fn test_edit_completes_files_and_dirs() {
+        let fs = write_cmd_fixture();
+        let result = complete_path("edit", "h", "", &fs, /* dirs_only */ false);
+        let names = matches_set(&result);
+        assert!(names.iter().any(|n| n == "hello.md"), "got {:?}", names);
+        assert!(names.iter().any(|n| n == "home/"), "got {:?}", names);
+    }
+
+    // --- dir-only-completing commands -----------------------------------
+
+    #[test]
+    fn test_mkdir_completes_dirs_only() {
+        let fs = write_cmd_fixture();
+        let result = complete_path("mkdir", "h", "", &fs, /* dirs_only */ true);
+        let names = matches_set(&result);
+        // Dirs yes, files no.
+        assert!(names.iter().any(|n| n == "home/"), "got {:?}", names);
+        assert!(names.iter().any(|n| n == "help/"), "got {:?}", names);
+        assert!(
+            !names.iter().any(|n| n == "hello.md"),
+            "mkdir must NOT surface files; got {:?}",
+            names
+        );
+        assert!(
+            !names.iter().any(|n| n == "hero.md"),
+            "mkdir must NOT surface files; got {:?}",
+            names
+        );
+    }
+
+    #[test]
+    fn test_rmdir_completes_dirs_only() {
+        let fs = write_cmd_fixture();
+        let result = complete_path("rmdir", "h", "", &fs, /* dirs_only */ true);
+        let names = matches_set(&result);
+        assert!(names.iter().any(|n| n == "home/"), "got {:?}", names);
+        assert!(
+            !names.iter().any(|n| n == "hello.md"),
+            "rmdir must NOT surface files; got {:?}",
+            names
+        );
+    }
+
+    // --- classification through CompletionMode ---------------------------
+
+    #[test]
+    fn test_classification_write_commands() {
+        let (mode, _) = CompletionMode::from_input("touch foo");
+        assert_eq!(mode, CompletionMode::FilePath);
+        let (mode, _) = CompletionMode::from_input("rm foo");
+        assert_eq!(mode, CompletionMode::FilePath);
+        let (mode, _) = CompletionMode::from_input("edit foo");
+        assert_eq!(mode, CompletionMode::FilePath);
+        let (mode, _) = CompletionMode::from_input("mkdir foo");
+        assert_eq!(mode, CompletionMode::DirectoryPath);
+        let (mode, _) = CompletionMode::from_input("rmdir foo");
+        assert_eq!(mode, CompletionMode::DirectoryPath);
+    }
+
+    // --- sync subcommand completion --------------------------------------
+
+    #[test]
+    fn test_sync_empty_suggests_all_subcommands() {
+        let result = complete_sync("");
+        match result {
+            AutocompleteResult::Multiple(_, names) => {
+                for expected in &["status", "commit", "refresh", "auth"] {
+                    assert!(
+                        names.iter().any(|n| n == expected),
+                        "missing {}: got {:?}",
+                        expected,
+                        names
+                    );
+                }
+            }
+            other => panic!("expected Multiple, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_sync_s_suggests_status() {
+        let result = complete_sync("s");
+        match result {
+            AutocompleteResult::Single(s) => assert_eq!(s, "sync status "),
+            other => panic!("expected Single(\"sync status \"), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_sync_auth_suggests_set_and_clear() {
+        let result = complete_sync("auth ");
+        match result {
+            AutocompleteResult::Multiple(_, names) => {
+                assert!(names.iter().any(|n| n == "set"), "got {:?}", names);
+                assert!(names.iter().any(|n| n == "clear"), "got {:?}", names);
+                assert_eq!(names.len(), 2);
+            }
+            other => panic!("expected Multiple, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_sync_auth_s_suggests_set() {
+        let result = complete_sync("auth s");
+        match result {
+            AutocompleteResult::Single(s) => assert_eq!(s, "sync auth set "),
+            other => panic!("expected Single(\"sync auth set \"), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_sync_commit_no_completion() {
+        // `sync commit ` (empty message body) → no suggestions.
+        assert_eq!(complete_sync("commit "), AutocompleteResult::None);
+        // Mid-message — also nothing.
+        assert_eq!(complete_sync("commit fixing the"), AutocompleteResult::None);
+    }
+
+    #[test]
+    fn test_sync_auth_set_no_completion() {
+        // Opaque token after `set` — no suggestions.
+        assert_eq!(complete_sync("auth set "), AutocompleteResult::None);
+        assert_eq!(complete_sync("auth set ghp_"), AutocompleteResult::None);
+    }
+
+    #[test]
+    fn test_sync_routes_through_autocomplete() {
+        // Sanity check that the top-level `autocomplete()` dispatcher
+        // routes `sync ...` to `complete_sync`, not to the generic
+        // mode-based branches. An empty VFS is fine because `complete_sync`
+        // never touches the filesystem.
+        let fs = VirtualFs::empty();
+        let route = AppRoute::home();
+        let result = autocomplete("sync s", &route, &fs);
+        match result {
+            AutocompleteResult::Single(s) => assert_eq!(s, "sync status "),
+            other => panic!("expected Single, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_sync_hint_extends_partial() {
+        assert_eq!(get_sync_hint("s"), Some("tatus".to_string()));
+        assert_eq!(get_sync_hint("auth c"), Some("lear".to_string()));
+        // Already complete — no hint.
+        assert_eq!(get_sync_hint("status"), None);
+        // Free-text regions don't get hints.
+        assert_eq!(get_sync_hint("commit message"), None);
+        assert_eq!(get_sync_hint("auth set token"), None);
     }
 }
