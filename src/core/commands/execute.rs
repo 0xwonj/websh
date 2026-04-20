@@ -741,10 +741,10 @@ fn execute_edit(
     };
 
     // Path must either not exist yet (create-on-save) or be a file.
-    if let Some(entry) = fs.get_entry(&rel) {
-        if entry.is_directory() {
-            return CommandResult::error_line(format!("edit: {}: is a directory", path));
-        }
+    if let Some(entry) = fs.get_entry(&rel)
+        && entry.is_directory()
+    {
+        return CommandResult::error_line(format!("edit: {}: is a directory", path));
     }
 
     CommandResult {
