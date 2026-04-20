@@ -1,0 +1,64 @@
+/* ==========================================================================
+   ErrorBoundary Fallback
+   Fullscreen error screen shown by Leptos <ErrorBoundary/> when rendering
+   fails. Kept independent from the rest of the app theming so it stays
+   rendering even if the main stylesheet is broken.
+   ========================================================================== */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  padding: 2rem;
+  background: #0a0e27;
+  color: #e0e0e0;
+  font-family: 'Courier New', monospace;
+}
+
+.inner {
+  max-width: 600px;
+  text-align: center;
+}
+
+.title {
+  color: #ff6b6b;
+  margin-bottom: 1rem;
+}
+
+.message {
+  color: #a0a0a0;
+  margin-bottom: 2rem;
+}
+
+.details {
+  text-align: left;
+  background: #151a35;
+  padding: 1rem;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+}
+
+.summary {
+  cursor: pointer;
+  color: #6c7a89;
+}
+
+.detailsList {
+  margin: 1rem 0 0 0;
+  padding-left: 1.5rem;
+  color: #ff6b6b;
+  font-size: 0.9rem;
+}
+
+.reloadButton {
+  background: #4a90e2;
+  color: white;
+  border: none;
+  padding: 0.75rem 2rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: 'Courier New', monospace;
+  font-size: 1rem;
+}

@@ -63,8 +63,7 @@ fn setup_wallet_events(ctx: AppContext) {
             });
         }
         None => {
-            wallet::clear_session();
-            ctx_for_accounts.wallet.set(WalletState::Disconnected);
+            wallet::disconnect(&ctx_for_accounts);
         }
     });
 
