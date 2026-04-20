@@ -3,6 +3,7 @@
 mod backend;
 mod error;
 mod github;
+pub mod idb;
 
 pub use backend::{BoxFuture, CommitOutcome, StorageBackend};
 pub use error::{StorageError, StorageResult};
