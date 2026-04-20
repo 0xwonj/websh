@@ -2292,6 +2292,7 @@ dependencies = [
  "ammonia",
  "base64",
  "console_error_panic_hook",
+ "gloo-net",
  "icondata",
  "js-sys",
  "leptos",

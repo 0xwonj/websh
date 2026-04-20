@@ -6,6 +6,8 @@ mod github;
 
 pub use backend::{BoxFuture, CommitOutcome, StorageBackend};
 pub use error::{StorageError, StorageResult};
+#[allow(dead_code)]
+pub use github::GitHubBackend;
 
 #[cfg(test)]
 mod mock;

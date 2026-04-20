@@ -41,6 +41,7 @@ leptos_icons = "0.7"
 icondata = { version = "0.7", default-features = false, features = ["bootstrap-icons", "lucide"] }
 regex = { version = "1", default-features = false, features = ["std", "perf"] }
 base64 = "0.22"
+gloo-net = "0.6"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt"] }
