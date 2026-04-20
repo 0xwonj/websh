@@ -119,22 +119,23 @@ impl TerminalState {
     }
 
     pub fn navigate_history(&self, direction: i32) -> Option<String> {
-        let history = self.command_history.get();
-        if history.is_empty() {
-            return None;
-        }
-
         let current_index = self.history_index.get();
-        let new_index = match current_index {
-            None if direction < 0 => Some(history.len() - 1),
-            Some(i) if direction < 0 && i > 0 => Some(i - 1),
-            Some(i) if direction > 0 && i < history.len() - 1 => Some(i + 1),
-            Some(_) if direction > 0 => None,
-            _ => current_index,
-        };
-
+        let (new_index, result) = self.command_history.with(|history| {
+            if history.is_empty() {
+                return (None, None);
+            }
+            let new_index = match current_index {
+                None if direction < 0 => Some(history.len() - 1),
+                Some(i) if direction < 0 && i > 0 => Some(i - 1),
+                Some(i) if direction > 0 && i < history.len() - 1 => Some(i + 1),
+                Some(_) if direction > 0 => None,
+                _ => current_index,
+            };
+            let result = new_index.map(|i| history[i].clone());
+            (new_index, result)
+        });
         self.history_index.set(new_index);
-        new_index.map(|i| history[i].clone())
+        result
     }
 }
 
