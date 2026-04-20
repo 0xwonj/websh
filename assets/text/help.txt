@@ -17,23 +17,24 @@ Available commands:
     echo <text>   Display text
 
   Environment:
-    export              Show user variables
-    export KEY=value    Set variable (stored in localStorage)
-    unset KEY           Remove variable
-    cat .profile        View all localStorage data
+    export                    Show all variables
+    export KEY=value [...]    Set one or more variables (localStorage)
+    unset KEY                 Remove variable
+    cat .profile              View all localStorage data
 
   Wallet:
     login         Connect MetaMask wallet
     logout        Disconnect wallet
 
   Pipe Filters:
-    grep <pattern>  Filter lines matching pattern
-    head [-n]       Show first n lines (default: 10)
-    tail [-n]       Show last n lines (default: 10)
-    wc              Count lines
+    grep [-i] [-v] [-F] <pattern>   Filter lines (regex by default; -i case-insensitive; -v invert; -F literal)
+    head -N | head -n N             First N lines (default: 10)
+    tail -N | tail -n N             Last N lines (default: 10)
+    wc                              Count non-empty lines
 
   Tips:
     - Use Tab for autocomplete
-    - Use Up/Down arrows to navigate command history
-    - Use pipes to chain commands (e.g., ls | grep md)
+    - Up/Down arrows navigate command history
+    - Chain commands with pipes: ls | grep -i md | head -5
     - Press 'q' or 'Esc' to exit reader view
+    - grep is case-sensitive by default; pass -i for case-insensitive matching

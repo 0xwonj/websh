@@ -79,7 +79,7 @@ impl fmt::Display for DisplayPermissions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{} {} {} {}",
+            "{}{}{}{}",
             if self.is_dir { 'd' } else { '-' },
             if self.read { 'r' } else { '-' },
             if self.write { 'w' } else { '-' },

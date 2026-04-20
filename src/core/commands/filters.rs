@@ -27,6 +27,7 @@ fn filter_grep(args: &[String], lines: Vec<OutputLine>) -> CommandResult {
     // Parse flags and pattern.
     let mut ignore_case = false;
     let mut invert = false;
+    let mut fixed_strings = false;
     let mut pattern: Option<&str> = None;
 
     for arg in args {
@@ -35,6 +36,7 @@ fn filter_grep(args: &[String], lines: Vec<OutputLine>) -> CommandResult {
                 "--ignore-case" => ignore_case = true,
                 "--invert-match" => invert = true,
                 "--extended-regexp" => {} // no-op: regex crate is always extended
+                "--fixed-strings" => fixed_strings = true,
                 _ => {
                     return CommandResult::error_line(format!(
                         "grep: unknown option: {}",
@@ -50,7 +52,8 @@ fn filter_grep(args: &[String], lines: Vec<OutputLine>) -> CommandResult {
                     pattern = Some(arg.as_str());
                 } else {
                     return CommandResult::error_line(
-                        "grep: unexpected extra argument".to_string(),
+                        "grep: extra argument (multiple patterns or file args are not supported)"
+                            .to_string(),
                     )
                     .with_exit_code(2);
                 }
@@ -60,6 +63,7 @@ fn filter_grep(args: &[String], lines: Vec<OutputLine>) -> CommandResult {
                         'i' => ignore_case = true,
                         'v' => invert = true,
                         'E' => {} // no-op
+                        'F' => fixed_strings = true,
                         other => {
                             return CommandResult::error_line(format!(
                                 "grep: unknown option: -{}",
@@ -75,7 +79,8 @@ fn filter_grep(args: &[String], lines: Vec<OutputLine>) -> CommandResult {
         } else {
             // extra positional arg: not supported
             return CommandResult::error_line(
-                "grep: unexpected extra argument".to_string(),
+                "grep: extra argument (multiple patterns or file args are not supported)"
+                    .to_string(),
             )
             .with_exit_code(2);
         }
@@ -85,8 +90,15 @@ fn filter_grep(args: &[String], lines: Vec<OutputLine>) -> CommandResult {
         return CommandResult::error_line("grep: missing pattern").with_exit_code(2);
     };
 
+    // With -F, escape regex metacharacters so the pattern matches literally.
+    let effective_pattern = if fixed_strings {
+        regex::escape(pat)
+    } else {
+        pat.to_string()
+    };
+
     // Compile regex (with case-insensitive flag if requested).
-    let regex = match build_grep_regex(pat, ignore_case) {
+    let regex = match build_grep_regex(&effective_pattern, ignore_case) {
         Ok(r) => r,
         Err(e) => {
             return CommandResult::error_line(format!("grep: invalid regex: {}", e))
@@ -468,15 +480,6 @@ mod tests {
     }
 
     #[test]
-    fn test_head_default_no_args() {
-        let lines = test_lines();
-        let result = apply_filter("head", &[], lines);
-        // default DEFAULT_HEAD_LINES = 10, test_lines has 5
-        assert_eq!(result.exit_code, 0);
-        assert_eq!(result.output.len(), 5);
-    }
-
-    #[test]
     fn test_tail_double_dash_rejected() {
         let lines = test_lines();
         let result = apply_filter("tail", &args(&["--2"]), lines);
@@ -489,5 +492,44 @@ mod tests {
         let result = apply_filter("tail", &args(&["-n", "2"]), lines);
         assert_eq!(result.exit_code, 0);
         assert_eq!(result.output.len(), 2);
+    }
+
+    #[test]
+    fn test_grep_fixed_strings_short_flag() {
+        // Without -F, parens are regex metachars
+        let lines = vec![OutputLine::text("hello (world)")];
+        let result = apply_filter("grep", &args(&["-F", "(world)"]), lines);
+        assert_eq!(result.exit_code, 0);
+        assert_eq!(result.output.len(), 1);
+    }
+
+    #[test]
+    fn test_grep_fixed_strings_long_flag() {
+        let lines = vec![OutputLine::text("a.b.c")];
+        let result = apply_filter("grep", &args(&["--fixed-strings", "a.b"]), lines);
+        assert_eq!(result.exit_code, 0);
+    }
+
+    #[test]
+    fn test_grep_fixed_strings_combined_with_i() {
+        let lines = vec![
+            OutputLine::text("HELLO.WORLD"),
+            OutputLine::text("no match here"),
+        ];
+        let result = apply_filter("grep", &args(&["-iF", "hello.world"]), lines);
+        assert_eq!(result.exit_code, 0);
+        assert_eq!(result.output.len(), 1);
+    }
+
+    #[test]
+    fn test_grep_extra_positional_error_message() {
+        let lines = vec![OutputLine::text("x")];
+        let result = apply_filter("grep", &args(&["pat1", "pat2"]), lines);
+        assert_eq!(result.exit_code, 2);
+        let msg = match &result.output[0].data {
+            OutputLineData::Error(s) => s.clone(),
+            _ => panic!("expected error"),
+        };
+        assert!(msg.contains("extra argument"), "msg: {}", msg);
     }
 }

@@ -84,8 +84,7 @@ pub fn Breadcrumb(
                         Some(AppRoute::home())
                     } else if let Some(mount) = route.mount() {
                         // Build absolute path from segments up to this index
-                        let start_idx = if segments.first() == Some(&"~") { 1 } else { 0 };
-                        let path = segments[start_idx..=idx].join("/");
+                        let path = build_segment_path(&segments, idx);
                         Some(AppRoute::Browse {
                             mount: mount.clone(),
                             path,
@@ -165,5 +164,53 @@ fn SegmentCurrent(icon: icondata::Icon, label: String) -> impl IntoView {
             <span class=css::icon><Icon icon=icon /></span>
             <span class=css::label>{label}</span>
         </button>
+    }
+}
+
+/// Build the absolute path for a breadcrumb segment click.
+///
+/// `segments`: full breadcrumb segments from the current route, including
+/// any leading "~" mount alias.
+/// `idx`: the clicked segment's index into `segments`.
+///
+/// If segments starts with "~", the home mount alias is skipped when joining.
+fn build_segment_path(segments: &[&str], idx: usize) -> String {
+    let start_idx = if segments.first() == Some(&"~") { 1 } else { 0 };
+    if idx < start_idx {
+        return String::new();
+    }
+    segments[start_idx..=idx].join("/")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_segment_path;
+
+    #[test]
+    fn test_build_path_simple() {
+        let segments = vec!["~", "blog", "posts"];
+        assert_eq!(build_segment_path(&segments, 1), "blog");
+        assert_eq!(build_segment_path(&segments, 2), "blog/posts");
+    }
+
+    #[test]
+    fn test_build_path_no_home_prefix() {
+        let segments = vec!["work", "notes"];
+        assert_eq!(build_segment_path(&segments, 0), "work");
+        assert_eq!(build_segment_path(&segments, 1), "work/notes");
+    }
+
+    #[test]
+    fn test_build_path_home_at_zero_returns_empty() {
+        // Clicking the "~" segment itself — the caller handles this via
+        // is_home_segment branch, but the builder gracefully returns "".
+        let segments = vec!["~", "blog"];
+        assert_eq!(build_segment_path(&segments, 0), "");
+    }
+
+    #[test]
+    fn test_build_path_deep_nesting() {
+        let segments = vec!["~", "a", "b", "c", "d"];
+        assert_eq!(build_segment_path(&segments, 4), "a/b/c/d");
     }
 }

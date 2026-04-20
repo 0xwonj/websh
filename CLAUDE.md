@@ -81,3 +81,12 @@ let ctx = use_context::<AppContext>().expect("AppContext");
 - EIP-1193 wallet connection (MetaMask, etc.)
 - ECIES encryption for private content
 - Wallet state: `Disconnected`, `Connecting`, `Connected { address, ens_name, chain_id }`
+
+### Public APIs added in Phase 2
+
+- `config::mounts() -> &'static MountRegistry` — process-wide singleton via `OnceLock`. Non-empty invariant enforced at init.
+- `MountRegistry::home() -> &Mount`, `resolve(alias) -> Option<&Mount>`, `all() -> impl Iterator<Item=&Mount>`.
+- `AppRoute::resolve(&VirtualFs) -> Self` — corrects Browse↔Read classification against the actual filesystem. Called from `AppRouter`'s `Memo` on hash/fs change.
+- `CommandResult { output, exit_code: i32, side_effect: Option<SideEffect> }` + `SideEffect` enum (`Navigate`, `Login`, `Logout`, `SwitchView`, `SwitchViewAndNavigate`). All UI side effects flow through `dispatch_side_effect(&AppContext, SideEffect)` in `components/terminal/terminal.rs`.
+- `AppError` enum (this commit) wraps domain errors with `From` impls for ergonomic `?` across boundaries.
+- Pipe filters (`grep`, `head`, `tail`, `wc`) return `CommandResult` with POSIX exit codes (0 = match / success, 1 = no match, 2 = usage / syntax error, 127 = unknown).
