@@ -129,14 +129,18 @@ impl Default for TerminalState {
 /// # Note
 ///
 /// This struct is `Copy` because all fields are Leptos signals.
+///
+/// Back/forward navigation is delegated to the browser's own history
+/// (`window.history().back()` / `.forward()`), so no in-app forward stack
+/// is needed. The browser's history is the single source of truth, which
+/// eliminates desync with the URL hash when users click the browser's
+/// native back/forward buttons.
 #[derive(Clone, Copy)]
 pub struct ExplorerState {
     /// Currently selected item (file or directory).
     pub selection: RwSignal<Option<Selection>>,
     /// Current view type (list or grid).
     pub view_type: RwSignal<ExplorerViewType>,
-    /// Forward navigation stack (stores routes to go forward to after going back/up).
-    pub forward_stack: RwSignal<Vec<AppRoute>>,
 }
 
 impl ExplorerState {
@@ -145,7 +149,6 @@ impl ExplorerState {
         Self {
             selection: RwSignal::new(None),
             view_type: RwSignal::new(ExplorerViewType::default()),
-            forward_stack: RwSignal::new(Vec::new()),
         }
     }
 
@@ -157,30 +160,6 @@ impl ExplorerState {
     /// Clears the selection.
     pub fn clear_selection(&self) {
         self.selection.set(None);
-    }
-
-    /// Push current route to forward stack (called when navigating back/up).
-    pub fn push_forward(&self, route: AppRoute) {
-        self.forward_stack.update(|stack| stack.push(route));
-    }
-
-    /// Pop from forward stack (called when navigating forward).
-    pub fn pop_forward(&self) -> Option<AppRoute> {
-        let mut result = None;
-        self.forward_stack.update(|stack| {
-            result = stack.pop();
-        });
-        result
-    }
-
-    /// Clear forward stack (called when navigating to a new location, not back/forward).
-    pub fn clear_forward(&self) {
-        self.forward_stack.update(|stack| stack.clear());
-    }
-
-    /// Check if forward navigation is available.
-    pub fn can_go_forward(&self) -> bool {
-        self.forward_stack.with(|stack| !stack.is_empty())
     }
 
     /// Toggle between list and grid view.

@@ -93,18 +93,14 @@ pub fn AppRouter() -> impl IntoView {
 /// Overlay component for reading files.
 ///
 /// Renders on top of Shell when the current route is a file.
-/// Closes by navigating to the parent directory.
+/// Closes by navigating to the parent directory. The browser's own
+/// history tracks the closed file, so forward navigation works without
+/// any in-app stack.
 #[component]
 fn ReaderOverlay(route: Memo<AppRoute>) -> impl IntoView {
-    #[cfg(target_arch = "wasm32")]
-    let ctx = use_context::<AppContext>().expect("AppContext must be provided");
-
-    // Close handler - navigate to parent directory, push current file to forward stack
+    // Close handler - navigate to parent directory
     let on_close = Callback::new(move |_: ()| {
-        let current = route.get();
-        #[cfg(target_arch = "wasm32")]
-        ctx.explorer.push_forward(current.clone());
-        current.parent().push();
+        route.get().parent().push();
     });
 
     view! {
