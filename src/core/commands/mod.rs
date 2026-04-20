@@ -23,6 +23,7 @@ use std::fmt;
 
 use crate::app::TerminalState;
 use crate::core::VirtualFs;
+use crate::core::changes::ChangeSet;
 use crate::core::parser::Pipeline;
 use crate::models::{AppRoute, WalletState};
 
@@ -109,7 +110,35 @@ pub enum Command {
     Logout,
     /// Switch to explorer view mode with optional path
     Explorer(Option<PathArg>),
+
+    // Phase 4 — write / sync commands. Parsing wired in Task 4.2 / 4.3;
+    // these variants are reachable directly from tests for now.
+    Touch { path: PathArg },
+    Mkdir { path: PathArg },
+    Rm { path: PathArg, recursive: bool },
+    Rmdir { path: PathArg },
+    Edit { path: PathArg },
+    Sync(SyncSubcommand),
+    EchoRedirect { body: String, path: PathArg },
+
     Unknown(String),
+}
+
+/// `sync` subcommands — surface the in-progress change set, commit, refresh,
+/// or set/clear the auth token.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SyncSubcommand {
+    Status,
+    Commit { message: String },
+    Refresh,
+    Auth(AuthAction),
+}
+
+/// Auth token actions for `sync auth`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AuthAction {
+    Set { token: String },
+    Clear,
 }
 
 impl Command {
@@ -118,8 +147,9 @@ impl Command {
     /// Includes both regular commands and pipe filter commands.
     pub fn names() -> &'static [&'static str] {
         &[
-            "cat", "cd", "clear", "cls", "echo", "explorer", "export", "grep", "head", "help",
-            "id", "login", "logout", "ls", "pwd", "tail", "unset", "wc", "whoami",
+            "cat", "cd", "clear", "cls", "echo", "edit", "explorer", "export", "grep", "head",
+            "help", "id", "login", "logout", "ls", "mkdir", "pwd", "rm", "rmdir", "sync", "tail",
+            "touch", "unset", "wc", "whoami",
         ]
     }
 
@@ -174,6 +204,8 @@ pub fn execute_pipeline(
     wallet_state: &WalletState,
     fs: &VirtualFs,
     current_route: &AppRoute,
+    changes: &ChangeSet,
+    remote_head: Option<&str>,
 ) -> CommandResult {
     if let Some(ref err) = pipeline.error {
         return CommandResult::error_line(err.to_string()).with_exit_code(2);
@@ -186,7 +218,15 @@ pub fn execute_pipeline(
     // Execute first command.
     let first = &pipeline.commands[0];
     let cmd = Command::parse(&first.name, &first.args);
-    let mut result = execute_command(cmd, state, wallet_state, fs, current_route);
+    let mut result = execute_command(
+        cmd,
+        state,
+        wallet_state,
+        fs,
+        current_route,
+        changes,
+        remote_head,
+    );
 
     if pipeline.commands.len() == 1 {
         return result;
@@ -371,6 +411,7 @@ mod tests {
         // when there are no filters.
         use crate::app::TerminalState;
         use crate::core::VirtualFs;
+        use crate::core::changes::ChangeSet;
         use crate::core::parser::parse_input;
         use crate::models::WalletState;
 
@@ -378,9 +419,10 @@ mod tests {
         let wallet = WalletState::Disconnected;
         let fs = VirtualFs::empty();
         let route = AppRoute::Root;
+        let changes = ChangeSet::new();
 
         let pipeline = parse_input("login", &[]);
-        let result = execute_pipeline(&pipeline, &state, &wallet, &fs, &route);
+        let result = execute_pipeline(&pipeline, &state, &wallet, &fs, &route, &changes, None);
         assert_eq!(result.side_effect, Some(super::SideEffect::Login));
     }
 
@@ -389,6 +431,7 @@ mod tests {
         // When a command has filters attached, side effects are discarded.
         use crate::app::TerminalState;
         use crate::core::VirtualFs;
+        use crate::core::changes::ChangeSet;
         use crate::core::parser::parse_input;
         use crate::models::WalletState;
 
@@ -396,9 +439,10 @@ mod tests {
         let wallet = WalletState::Disconnected;
         let fs = VirtualFs::empty();
         let route = AppRoute::Root;
+        let changes = ChangeSet::new();
 
         let pipeline = parse_input("help | head -1", &[]);
-        let result = execute_pipeline(&pipeline, &state, &wallet, &fs, &route);
+        let result = execute_pipeline(&pipeline, &state, &wallet, &fs, &route, &changes, None);
         assert!(result.side_effect.is_none());
     }
 
@@ -406,6 +450,7 @@ mod tests {
     fn test_pipeline_exit_code_is_last_stage() {
         use crate::app::TerminalState;
         use crate::core::VirtualFs;
+        use crate::core::changes::ChangeSet;
         use crate::core::parser::parse_input;
         use crate::models::WalletState;
 
@@ -413,10 +458,11 @@ mod tests {
         let wallet = WalletState::Disconnected;
         let fs = VirtualFs::empty();
         let route = AppRoute::Root;
+        let changes = ChangeSet::new();
 
         // `help | grep xyzzy` should exit 1 (grep no match)
         let pipeline = parse_input("help | grep xyzzy", &[]);
-        let result = execute_pipeline(&pipeline, &state, &wallet, &fs, &route);
+        let result = execute_pipeline(&pipeline, &state, &wallet, &fs, &route, &changes, None);
         assert_eq!(result.exit_code, 1);
     }
 
@@ -424,6 +470,7 @@ mod tests {
     fn test_parser_error_exit_2() {
         use crate::app::TerminalState;
         use crate::core::VirtualFs;
+        use crate::core::changes::ChangeSet;
         use crate::core::parser::parse_input;
         use crate::models::WalletState;
 
@@ -431,10 +478,11 @@ mod tests {
         let wallet = WalletState::Disconnected;
         let fs = VirtualFs::empty();
         let route = AppRoute::Root;
+        let changes = ChangeSet::new();
 
         // Pipe with nothing on the right-hand side → parse error
         let pipeline = parse_input("ls |", &[]);
-        let result = execute_pipeline(&pipeline, &state, &wallet, &fs, &route);
+        let result = execute_pipeline(&pipeline, &state, &wallet, &fs, &route, &changes, None);
         assert_eq!(result.exit_code, 2);
     }
 }

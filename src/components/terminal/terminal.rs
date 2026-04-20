@@ -152,14 +152,19 @@ fn create_submit_callback(ctx: AppContext, route_ctx: RouteContext) -> Callback<
             .with(|history| parse_input(&input, history));
 
         let wallet_state = ctx.wallet.get();
-        let result = ctx.fs.with(|current_fs| {
-            execute_pipeline(
-                &pipeline,
-                &ctx.terminal,
-                &wallet_state,
-                current_fs,
-                &current_route,
-            )
+        let remote_head = ctx.remote_head.get_value();
+        let result = ctx.changes.with_untracked(|changes| {
+            ctx.fs.with(|current_fs| {
+                execute_pipeline(
+                    &pipeline,
+                    &ctx.terminal,
+                    &wallet_state,
+                    current_fs,
+                    &current_route,
+                    changes,
+                    remote_head.as_deref(),
+                )
+            })
         });
 
         ctx.terminal.push_lines(result.output);

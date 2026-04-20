@@ -502,6 +502,17 @@ impl VirtualFs {
         matches!(self.get_entry(path), Some(FsEntry::Directory { .. }))
     }
 
+    /// Check if a directory contains any children.
+    ///
+    /// Returns `false` if `path` does not exist or is not a directory, and
+    /// `true` only if it is a non-empty directory.
+    pub fn has_children(&self, path: &str) -> bool {
+        match self.get_entry(path) {
+            Some(FsEntry::Directory { children, .. }) => !children.is_empty(),
+            _ => false,
+        }
+    }
+
     /// Compute display permissions for an entry at runtime.
     ///
     /// Permissions are computed based on:
