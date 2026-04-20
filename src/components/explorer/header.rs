@@ -166,6 +166,35 @@ fn nav_button_class(disabled: bool) -> String {
     }
 }
 
+/// Build a focusout handler that closes a menu when focus leaves the wrapper.
+///
+/// Intended for use on the dropdown container's `on:focusout`. If the newly
+/// focused element is outside the container's subtree (or no longer inside the
+/// document), the menu closes. Used by both `NewMenu` and `MoreMenu` to avoid
+/// duplication.
+fn close_on_focus_out(
+    set_open: WriteSignal<bool>,
+) -> impl Fn(web_sys::FocusEvent) + 'static {
+    move |event: web_sys::FocusEvent| {
+        use wasm_bindgen::JsCast;
+        if let Some(related) = event.related_target() {
+            // Focus moving to another element: only close if it's outside the wrapper.
+            if let Some(current) = event.current_target()
+                && let (Some(wrapper), Some(target)) = (
+                    current.dyn_ref::<web_sys::Node>(),
+                    related.dyn_ref::<web_sys::Node>(),
+                )
+                && !wrapper.contains(Some(target))
+            {
+                set_open.set(false);
+            }
+        } else {
+            // Focus moved outside the document (e.g., clicked elsewhere).
+            set_open.set(false);
+        }
+    }
+}
+
 /// Action buttons (search, view toggle, new, more).
 #[component]
 fn ActionButtons(
@@ -234,34 +263,10 @@ fn NewMenu(menu_open: ReadSignal<bool>, set_menu_open: WriteSignal<bool>) -> imp
         set_menu_open.set(false);
     };
 
-    // Close menu when focus leaves the dropdown wrapper
-    let on_focusout = move |event: web_sys::FocusEvent| {
-        // Check if the new focus target is outside the dropdown
-        // Use a small delay to allow focus to settle on the new target
-        let set_menu = set_menu_open;
-        if let Some(related) = event.related_target() {
-            // If focus is moving to another element, check if it's within the dropdown
-            if let Some(current) = event.current_target() {
-                use wasm_bindgen::JsCast;
-                if let (Some(wrapper), Some(target)) = (
-                    current.dyn_ref::<web_sys::Node>(),
-                    related.dyn_ref::<web_sys::Node>(),
-                )
-                    && !wrapper.contains(Some(target))
-                {
-                    set_menu.set(false);
-                }
-            }
-        } else {
-            // Focus moved outside the document (e.g., clicked elsewhere)
-            set_menu.set(false);
-        }
-    };
-
     view! {
         <div
             class=css::dropdownWrapper
-            on:focusout=on_focusout
+            on:focusout=close_on_focus_out(set_menu_open)
         >
             <button
                 class=css::actionButton
@@ -317,30 +322,10 @@ fn MoreMenu(
         set_menu_open.set(false);
     };
 
-    // Close menu when focus leaves the dropdown wrapper
-    let on_focusout = move |event: web_sys::FocusEvent| {
-        let set_menu = set_menu_open;
-        if let Some(related) = event.related_target() {
-            if let Some(current) = event.current_target() {
-                use wasm_bindgen::JsCast;
-                if let (Some(wrapper), Some(target)) = (
-                    current.dyn_ref::<web_sys::Node>(),
-                    related.dyn_ref::<web_sys::Node>(),
-                )
-                    && !wrapper.contains(Some(target))
-                {
-                    set_menu.set(false);
-                }
-            }
-        } else {
-            set_menu.set(false);
-        }
-    };
-
     view! {
         <div
             class=css::dropdownWrapper
-            on:focusout=on_focusout
+            on:focusout=close_on_focus_out(set_menu_open)
         >
             <button
                 class=css::actionButton
