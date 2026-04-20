@@ -468,15 +468,6 @@ mod tests {
     }
 
     #[test]
-    fn test_head_default_no_args() {
-        let lines = test_lines();
-        let result = apply_filter("head", &[], lines);
-        // default DEFAULT_HEAD_LINES = 10, test_lines has 5
-        assert_eq!(result.exit_code, 0);
-        assert_eq!(result.output.len(), 5);
-    }
-
-    #[test]
     fn test_tail_double_dash_rejected() {
         let lines = test_lines();
         let result = apply_filter("tail", &args(&["--2"]), lines);

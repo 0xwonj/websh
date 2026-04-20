@@ -681,15 +681,30 @@ mod tests {
 
     #[test]
     fn test_resolve_unknown_path_keeps_heuristic() {
-        // When fs has no info about the path, resolve must be a no-op —
-        // falls back to whatever from_path produced.
+        // When fs has no info, resolve falls back to the extension heuristic.
+        // Feed a Browse route for a dotted path — heuristic says "file", and
+        // the fallback should promote it.
         let fs = fs_with_entries();
-        let parsed = AppRoute::Read {
+        let unknown_file = AppRoute::Browse {
             mount: test_mount(),
             path: "nonexistent.md".to_string(),
         };
-        let resolved = parsed.clone().resolve(&fs);
-        assert_eq!(resolved, parsed);
+        let resolved = unknown_file.resolve(&fs);
+        assert!(
+            matches!(resolved, AppRoute::Read { ref path, .. } if path == "nonexistent.md"),
+            "fallback should promote dotted path to Read"
+        );
+
+        // And the inverse: a non-dotted path should fall back to Browse.
+        let unknown_dir = AppRoute::Read {
+            mount: test_mount(),
+            path: "nonexistent_dir".to_string(),
+        };
+        let resolved = unknown_dir.resolve(&fs);
+        assert!(
+            matches!(resolved, AppRoute::Browse { ref path, .. } if path == "nonexistent_dir"),
+            "fallback should demote non-dotted path to Browse"
+        );
     }
 
     #[test]
