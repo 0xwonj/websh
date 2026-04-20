@@ -3,10 +3,16 @@
 //! Contains the main App component, AppContext definition, TerminalState,
 //! and application-level setup logic following Leptos conventions.
 
+use std::rc::Rc;
+use std::sync::Arc;
+
 use leptos::prelude::*;
 
 use crate::components::AppRouter;
 use crate::config::{APP_NAME, MAX_COMMAND_HISTORY, MAX_TERMINAL_HISTORY};
+use crate::core::changes::ChangeSet;
+use crate::core::merge;
+use crate::core::storage::StorageBackend;
 use crate::core::VirtualFs;
 use crate::models::{AppRoute, ExplorerViewType, OutputLine, Selection, ViewMode, WalletState};
 use crate::utils::RingBuffer;
@@ -243,6 +249,24 @@ pub struct AppContext {
     pub terminal: TerminalState,
     /// Explorer state (selection, view type, sheet).
     pub explorer: ExplorerState,
+
+    // === Phase 3: Write-direct-commit state ===
+    /// Staged + working-tree edits awaiting commit.
+    #[allow(dead_code)]
+    pub changes: RwSignal<ChangeSet>,
+    /// Merged view of the filesystem with `changes` overlaid on top of `fs`.
+    // Signal::derive_local — Rc<VirtualFs> is neither Send nor Sync (and
+    // VirtualFs doesn't derive PartialEq), so default SyncStorage Memo/Signal
+    // are unusable. WASM CSR is single-threaded, so LocalStorage is correct.
+    #[allow(dead_code)]
+    pub view_fs: Signal<Rc<VirtualFs>, LocalStorage>,
+    /// Write backend for the home mount (None when no token or mount is read-only).
+    // LocalStorage — `dyn StorageBackend` is !Send+!Sync.
+    #[allow(dead_code)]
+    pub backend: StoredValue<Option<Arc<dyn StorageBackend>>, LocalStorage>,
+    /// Last observed remote HEAD OID for the writable mount (optimistic-concurrency token).
+    #[allow(dead_code)]
+    pub remote_head: StoredValue<Option<String>>,
 }
 
 impl AppContext {
@@ -255,9 +279,23 @@ impl AppContext {
     /// - Filesystem: Empty
     /// - View: Terminal mode
     pub fn new() -> Self {
+        let fs = RwSignal::new(VirtualFs::empty());
+        let changes = RwSignal::new(ChangeSet::new());
+
+        // Merged view: `changes` overlaid on top of `fs`. Recomputed on each read
+        // (no PartialEq caching). `merge_view` is O(staged changes) — bounded
+        // small for MVP. Uses LocalStorage because `Rc<VirtualFs>` is !Send+!Sync.
+        let view_fs = Signal::derive_local(move || {
+            Rc::new(fs.with(|base| changes.with(|cs| merge::merge_view(base, cs))))
+        });
+
+        let backend: StoredValue<Option<Arc<dyn StorageBackend>>, LocalStorage> =
+            StoredValue::new_local(None);
+        let remote_head: StoredValue<Option<String>> = StoredValue::new(None);
+
         Self {
             // Shared state
-            fs: RwSignal::new(VirtualFs::empty()),
+            fs,
             wallet: RwSignal::new(WalletState::default()),
 
             // View management
@@ -266,6 +304,12 @@ impl AppContext {
             // View-specific state
             terminal: TerminalState::new(),
             explorer: ExplorerState::new(),
+
+            // Phase 3 write-direct-commit state
+            changes,
+            view_fs,
+            backend,
+            remote_head,
         }
     }
 
