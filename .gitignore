@@ -7,6 +7,9 @@
 # Claude Code artifacts
 /.claude
 
+# Git worktrees (isolated per-feature workspaces)
+/.worktrees
+
 # Environment variables (secrets)
 .env
 .last-cid
