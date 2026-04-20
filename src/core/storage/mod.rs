@@ -5,3 +5,8 @@ mod error;
 
 pub use backend::{BoxFuture, CommitOutcome, StorageBackend};
 pub use error::{StorageError, StorageResult};
+
+#[cfg(test)]
+mod mock;
+#[cfg(test)]
+pub use mock::MockBackend;

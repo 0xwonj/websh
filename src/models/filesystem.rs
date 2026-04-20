@@ -99,7 +99,7 @@ impl fmt::Display for DisplayPermissions {
 // =============================================================================
 
 /// Root manifest structure from manifest.json
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Manifest {
     /// File entries
     pub files: Vec<FileEntry>,

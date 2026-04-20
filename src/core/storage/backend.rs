@@ -12,6 +12,7 @@ use super::error::StorageResult;
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 
 #[allow(dead_code)]
+#[derive(Debug)]
 pub struct CommitOutcome {
     pub new_head: String,
     /// Some if the backend produced a manifest synchronously as part of the

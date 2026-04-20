@@ -41,6 +41,9 @@ leptos_icons = "0.7"
 icondata = { version = "0.7", default-features = false, features = ["bootstrap-icons", "lucide"] }
 regex = { version = "1", default-features = false, features = ["std", "perf"] }
 
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }
+
 [package.metadata.stylance]
 output_file = "assets/bundle.css"
 folders = ["src"]
