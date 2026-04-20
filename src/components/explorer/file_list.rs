@@ -144,16 +144,16 @@ fn FileListItem(entry: DirEntry) -> impl IntoView {
             .unwrap_or(false)
     });
 
-    // Single click: select the item (this is standard Finder/Explorer behavior)
-    let handle_click = move |_: leptos::ev::MouseEvent| {
+    // Clone entry name for use in open handler
+    let entry_name_for_nav = entry.name.clone();
+
+    // Select action (single click or Space key): standard Finder/Explorer behavior
+    let do_select = move || {
         ctx.explorer.select(item_fs_path_for_click.clone(), is_dir);
     };
 
-    // Clone entry name for use in dblclick handler
-    let entry_name_for_nav = entry.name.clone();
-
-    // Double click: navigate into directory or open file
-    let handle_dblclick = move |_: leptos::ev::MouseEvent| {
+    // Open action (double click or Enter key): navigate into directory or open file
+    let do_open = move || {
         ctx.explorer.clear_selection();
         let route = route_ctx.0.get();
 
@@ -188,6 +188,26 @@ fn FileListItem(entry: DirEntry) -> impl IntoView {
             }
             .push();
         }
+    };
+
+    let handle_click = {
+        let do_select = do_select.clone();
+        move |_: leptos::ev::MouseEvent| do_select()
+    };
+    let handle_dblclick = {
+        let do_open = do_open.clone();
+        move |_: leptos::ev::MouseEvent| do_open()
+    };
+    let handle_keydown = move |ev: leptos::ev::KeyboardEvent| match ev.key().as_str() {
+        "Enter" => {
+            ev.prevent_default();
+            do_open();
+        }
+        " " => {
+            ev.prevent_default();
+            do_select();
+        }
+        _ => {}
     };
 
     let name_class = if is_dir {
@@ -228,6 +248,7 @@ fn FileListItem(entry: DirEntry) -> impl IntoView {
             class=item_class
             on:click=handle_click
             on:dblclick=handle_dblclick
+            on:keydown=handle_keydown
             role="row"
             tabindex="0"
             aria-label=aria_label

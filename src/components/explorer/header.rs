@@ -166,6 +166,35 @@ fn nav_button_class(disabled: bool) -> String {
     }
 }
 
+/// Build a focusout handler that closes a menu when focus leaves the wrapper.
+///
+/// Intended for use on the dropdown container's `on:focusout`. If the newly
+/// focused element is outside the container's subtree (or no longer inside the
+/// document), the menu closes. Used by both `NewMenu` and `MoreMenu` to avoid
+/// duplication.
+fn close_on_focus_out(
+    set_open: WriteSignal<bool>,
+) -> impl Fn(web_sys::FocusEvent) + 'static {
+    move |event: web_sys::FocusEvent| {
+        use wasm_bindgen::JsCast;
+        if let Some(related) = event.related_target() {
+            // Focus moving to another element: only close if it's outside the wrapper.
+            if let Some(current) = event.current_target()
+                && let (Some(wrapper), Some(target)) = (
+                    current.dyn_ref::<web_sys::Node>(),
+                    related.dyn_ref::<web_sys::Node>(),
+                )
+                && !wrapper.contains(Some(target))
+            {
+                set_open.set(false);
+            }
+        } else {
+            // Focus moved outside the document (e.g., clicked elsewhere).
+            set_open.set(false);
+        }
+    }
+}
+
 /// Action buttons (search, view toggle, new, more).
 #[component]
 fn ActionButtons(
@@ -177,10 +206,7 @@ fn ActionButtons(
 ) -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
 
-    let on_search = move |_: leptos::ev::MouseEvent| {
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&"Search clicked".into());
-    };
+    let on_search = move |_: leptos::ev::MouseEvent| {};
 
     let on_view_toggle = move |_: leptos::ev::MouseEvent| {
         ctx.explorer.toggle_view_type();
@@ -231,44 +257,16 @@ fn ActionButtons(
 fn NewMenu(menu_open: ReadSignal<bool>, set_menu_open: WriteSignal<bool>) -> impl IntoView {
     let on_new_file = move |_: leptos::ev::MouseEvent| {
         set_menu_open.set(false);
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&"New file clicked".into());
     };
 
     let on_new_folder = move |_: leptos::ev::MouseEvent| {
         set_menu_open.set(false);
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&"New folder clicked".into());
-    };
-
-    // Close menu when focus leaves the dropdown wrapper
-    let on_focusout = move |event: web_sys::FocusEvent| {
-        // Check if the new focus target is outside the dropdown
-        // Use a small delay to allow focus to settle on the new target
-        let set_menu = set_menu_open;
-        if let Some(related) = event.related_target() {
-            // If focus is moving to another element, check if it's within the dropdown
-            if let Some(current) = event.current_target() {
-                use wasm_bindgen::JsCast;
-                if let (Some(wrapper), Some(target)) = (
-                    current.dyn_ref::<web_sys::Node>(),
-                    related.dyn_ref::<web_sys::Node>(),
-                )
-                    && !wrapper.contains(Some(target))
-                {
-                    set_menu.set(false);
-                }
-            }
-        } else {
-            // Focus moved outside the document (e.g., clicked elsewhere)
-            set_menu.set(false);
-        }
     };
 
     view! {
         <div
             class=css::dropdownWrapper
-            on:focusout=on_focusout
+            on:focusout=close_on_focus_out(set_menu_open)
         >
             <button
                 class=css::actionButton
@@ -304,8 +302,6 @@ fn MoreMenu(
 
     let on_search = move |_: leptos::ev::MouseEvent| {
         set_menu_open.set(false);
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&"Search clicked".into());
     };
 
     let on_view_toggle = move |_: leptos::ev::MouseEvent| {
@@ -320,40 +316,16 @@ fn MoreMenu(
 
     let on_zoom_in = move |_: leptos::ev::MouseEvent| {
         set_menu_open.set(false);
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&"Zoom in clicked".into());
     };
 
     let on_zoom_out = move |_: leptos::ev::MouseEvent| {
         set_menu_open.set(false);
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&"Zoom out clicked".into());
-    };
-
-    // Close menu when focus leaves the dropdown wrapper
-    let on_focusout = move |event: web_sys::FocusEvent| {
-        let set_menu = set_menu_open;
-        if let Some(related) = event.related_target() {
-            if let Some(current) = event.current_target() {
-                use wasm_bindgen::JsCast;
-                if let (Some(wrapper), Some(target)) = (
-                    current.dyn_ref::<web_sys::Node>(),
-                    related.dyn_ref::<web_sys::Node>(),
-                )
-                    && !wrapper.contains(Some(target))
-                {
-                    set_menu.set(false);
-                }
-            }
-        } else {
-            set_menu.set(false);
-        }
     };
 
     view! {
         <div
             class=css::dropdownWrapper
-            on:focusout=on_focusout
+            on:focusout=close_on_focus_out(set_menu_open)
         >
             <button
                 class=css::actionButton
