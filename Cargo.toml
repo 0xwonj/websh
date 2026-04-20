@@ -50,6 +50,13 @@ serde-wasm-bindgen = "0.6"
 tokio = { version = "1", features = ["macros", "rt"] }
 wasm-bindgen-test = "0.3"
 
+[features]
+mock = []
+
+[[test]]
+name = "commit_integration"
+required-features = ["mock"]
+
 [package.metadata.stylance]
 output_file = "assets/bundle.css"
 folders = ["src"]
