@@ -404,37 +404,27 @@ impl VirtualFs {
     ///
     /// Permissions are computed based on:
     /// - `d`: Directory or file
-    /// - `r`: Encrypted files require wallet address in wrapped_keys
+    /// - `r`: Access-restricted files require wallet address in the recipients list
     /// - `w`: Admin login (not yet implemented, always false for now)
     /// - `x`: Directories only
     pub fn get_permissions(&self, entry: &FsEntry, wallet: &WalletState) -> DisplayPermissions {
         let is_dir = entry.is_directory();
 
-        // Read permission: unencrypted = always readable, encrypted = check wrapped_keys
         let read = match entry {
             FsEntry::Directory { .. } => true,
-            FsEntry::File { meta, .. } => {
-                if let Some(ref enc) = meta.encryption {
-                    // Encrypted: check if wallet address is in recipients
-                    match wallet {
-                        WalletState::Connected { address, .. } => enc
-                            .wrapped_keys
-                            .iter()
-                            .any(|k| k.recipient.eq_ignore_ascii_case(address)),
-                        _ => false,
-                    }
-                } else {
-                    // Unencrypted: always readable
-                    true
-                }
-            }
+            FsEntry::File { meta, .. } => match &meta.access {
+                None => true,
+                Some(filter) => match wallet {
+                    WalletState::Connected { address, .. } => filter
+                        .recipients
+                        .iter()
+                        .any(|r| r.address.eq_ignore_ascii_case(address)),
+                    _ => false,
+                },
+            },
         };
 
-        // Write permission: TODO - implement admin check, permissionless mount check
-        // For now, always false (read-only)
         let write = false;
-
-        // Execute permission: directories only
         let execute = is_dir;
 
         DisplayPermissions {
@@ -466,7 +456,7 @@ mod tests {
                     size: Some(1234),
                     modified: Some(1704153600),
                     tags: vec!["rust".to_string(), "intro".to_string()],
-                    encryption: None,
+                    access: None,
                 },
                 FileEntry {
                     path: "blog/rust.md".to_string(),
@@ -474,7 +464,7 @@ mod tests {
                     size: Some(2048),
                     modified: None,
                     tags: vec![],
-                    encryption: None,
+                    access: None,
                 },
                 FileEntry {
                     path: "projects/web/app.md".to_string(),
@@ -482,7 +472,7 @@ mod tests {
                     size: None,
                     modified: None,
                     tags: vec![],
-                    encryption: None,
+                    access: None,
                 },
             ],
             directories: vec![
@@ -720,18 +710,14 @@ mod tests {
     }
 
     #[test]
-    fn test_permissions_encrypted_no_access() {
-        use crate::models::EncryptionInfo;
+    fn test_permissions_restricted_no_access() {
+        use crate::models::AccessFilter;
 
-        // Create encrypted file entry
         let entry = FsEntry::content_file_with_meta(
             "secret.enc",
-            "Encrypted file",
+            "Restricted file",
             FileMetadata {
-                encryption: Some(EncryptionInfo {
-                    algorithm: "AES-256-GCM".to_string(),
-                    wrapped_keys: vec![],
-                }),
+                access: Some(AccessFilter { recipients: vec![] }),
                 ..Default::default()
             },
         );
@@ -744,8 +730,8 @@ mod tests {
     }
 
     #[test]
-    fn test_permissions_encrypted_with_access() {
-        use crate::models::{EncryptionInfo, WrappedKey};
+    fn test_permissions_restricted_with_access() {
+        use crate::models::{AccessFilter, Recipient};
 
         let wallet = WalletState::Connected {
             address: "0x1234abcd".to_string(),
@@ -753,16 +739,13 @@ mod tests {
             chain_id: Some(1),
         };
 
-        // Create encrypted file entry with our address in recipients
         let entry = FsEntry::content_file_with_meta(
             "secret.enc",
-            "Encrypted file",
+            "Restricted file",
             FileMetadata {
-                encryption: Some(EncryptionInfo {
-                    algorithm: "AES-256-GCM".to_string(),
-                    wrapped_keys: vec![WrappedKey {
-                        recipient: "0x1234ABCD".to_string(),
-                        encrypted_key: "base64key".to_string(),
+                access: Some(AccessFilter {
+                    recipients: vec![Recipient {
+                        address: "0x1234ABCD".to_string(),
                     }],
                 }),
                 ..Default::default()

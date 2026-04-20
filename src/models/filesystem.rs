@@ -14,14 +14,14 @@ pub struct FileMetadata {
     pub size: Option<u64>,
     /// Last modification time as Unix timestamp
     pub modified: Option<u64>,
-    /// Encryption details (None = unencrypted)
-    pub encryption: Option<EncryptionInfo>,
+    /// Access filter (None = publicly readable)
+    pub access: Option<AccessFilter>,
 }
 
 impl FileMetadata {
-    /// Check if this file is encrypted.
-    pub fn is_encrypted(&self) -> bool {
-        self.encryption.is_some()
+    /// Check if this file is access-restricted.
+    pub fn is_restricted(&self) -> bool {
+        self.access.is_some()
     }
 }
 
@@ -40,22 +40,21 @@ pub struct DirectoryMetadata {
     pub tags: Vec<String>,
 }
 
-/// Encryption information for access control.
+/// Access-control metadata for a file.
+///
+/// "Access" is advisory — it filters who the UI shows content to. Actual
+/// cryptographic confidentiality is NOT provided in Phase 3/4 Option B.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct EncryptionInfo {
-    /// Encryption algorithm (e.g., "AES-256-GCM")
-    pub algorithm: String,
-    /// Wrapped symmetric keys for each authorized recipient
-    pub wrapped_keys: Vec<WrappedKey>,
+pub struct AccessFilter {
+    /// Wallet addresses listed as recipients.
+    pub recipients: Vec<Recipient>,
 }
 
-/// A symmetric key wrapped with a recipient's public key.
+/// A single listed recipient.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct WrappedKey {
-    /// Recipient identifier (wallet address or public key)
-    pub recipient: String,
-    /// Symmetric key encrypted with recipient's public key (base64)
-    pub encrypted_key: String,
+pub struct Recipient {
+    /// Wallet address (checksum or lowercase).
+    pub address: String,
 }
 
 // =============================================================================
@@ -67,7 +66,7 @@ pub struct WrappedKey {
 pub struct DisplayPermissions {
     /// Is this a directory?
     pub is_dir: bool,
-    /// Read permission (based on encryption status)
+    /// Read permission (based on access filter)
     pub read: bool,
     /// Write permission (based on admin/mount status)
     pub write: bool,
@@ -114,8 +113,8 @@ pub struct FileEntry {
     pub modified: Option<u64>,
     /// Tags for categorization
     pub tags: Vec<String>,
-    /// Encryption details (None = unencrypted)
-    pub encryption: Option<EncryptionInfo>,
+    /// Access filter (None = publicly readable)
+    pub access: Option<AccessFilter>,
 }
 
 impl FileEntry {
@@ -124,7 +123,7 @@ impl FileEntry {
         FileMetadata {
             size: self.size,
             modified: self.modified,
-            encryption: self.encryption.clone(),
+            access: self.access.clone(),
         }
     }
 }
@@ -227,10 +226,10 @@ impl FsEntry {
         matches!(self, FsEntry::Directory { .. })
     }
 
-    /// Check if this file is encrypted.
-    pub fn is_encrypted(&self) -> bool {
+    /// Check if this file is access-restricted.
+    pub fn is_restricted(&self) -> bool {
         match self {
-            FsEntry::File { meta, .. } => meta.is_encrypted(),
+            FsEntry::File { meta, .. } => meta.is_restricted(),
             FsEntry::Directory { .. } => false,
         }
     }

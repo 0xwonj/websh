@@ -20,7 +20,7 @@ pub use filesystem::{
     Manifest,
 };
 #[cfg(test)]
-pub use filesystem::{EncryptionInfo, FileEntry, WrappedKey};
+pub use filesystem::{AccessFilter, FileEntry, Recipient};
 pub use mount::{Mount, MountRegistry};
 pub use route::AppRoute;
 pub use terminal::{ListFormat, OutputLine, OutputLineData, OutputLineId, TextStyle};
