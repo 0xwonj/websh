@@ -116,6 +116,26 @@ trunk build --release
 - `tail [-n]` - Show last n lines (default: 10)
 - `wc` - Count lines
 
+### Writing to the filesystem (Phase 3a)
+
+Admins (wallets listed in the allowlist) can edit `~` and commit atomically to GitHub.
+
+Commands:
+- `touch <path>`, `mkdir <path>`, `rm [-r] <path>`, `rmdir <path>`, `edit <path>`
+- `echo "body" > <path>` — write-or-replace file content
+- `sync status` — show drafted changes
+- `sync commit -m "<msg>"` — push staged changes atomically
+- `sync refresh` — re-fetch remote manifest
+- `sync auth <github_pat>` / `sync auth clear` — session-scoped token
+
+Drafts persist in IndexedDB across reloads. Commits use GraphQL
+`createCommitOnBranch` with `expectedHeadOid` compare-and-swap, so if the
+remote moved since you started drafting, the commit fails with
+"remote changed — run `sync refresh`" rather than clobbering.
+
+**Security caveat:** the GitHub PAT lives in sessionStorage. Any injected
+script can read it. See Phase 5 (CSP hardening) before wider admin rollout.
+
 ## Architecture
 
 ### Project Structure

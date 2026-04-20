@@ -90,3 +90,16 @@ let ctx = use_context::<AppContext>().expect("AppContext");
 - `CommandResult { output, exit_code: i32, side_effect: Option<SideEffect> }` + `SideEffect` enum (`Navigate`, `Login`, `Logout`, `SwitchView`, `SwitchViewAndNavigate`). All UI side effects flow through `dispatch_side_effect(&AppContext, SideEffect)` in `components/terminal/terminal.rs`.
 - `AppError` enum (this commit) wraps domain errors with `From` impls for ergonomic `?` across boundaries.
 - Pipe filters (`grep`, `head`, `tail`, `wc`) return `CommandResult` with POSIX exit codes (0 = match / success, 1 = no match, 2 = usage / syntax error, 127 = unknown).
+
+### Public APIs added in Phase 3a
+
+- `core::changes::{ChangeSet, Entry, ChangeType, Summary}` — single-source-of-truth for in-progress edits.
+- `core::merge::merge_view(base, changes) -> VirtualFs` — pure overlay.
+- `core::admin::{admin_status, can_write_to, AdminStatus}` — allowlist gate.
+- `core::storage::{StorageBackend, StorageError, CommitOutcome, GitHubBackend, idb, persist, boot}` — commit-path abstraction.
+- `VirtualFs::serialize_manifest()` — byte-stable re-emission; covered by `tests/manifest_roundtrip.rs`.
+- `Mount::is_writable()`, `Mount::github_writable(...)` — writability metadata.
+- New `Command` variants: `Touch`, `Mkdir`, `Rm`, `Rmdir`, `Edit`, `EchoRedirect`, `Sync(SyncSubcommand)`.
+- New `SideEffect` variants: `ApplyChange`, `StageChange`, `UnstageChange`, `DiscardChange`, `StageAll`, `UnstageAll`, `Commit`, `RefreshManifest`, `SetAuthToken`, `ClearAuthToken`, `OpenEditor`.
+- `AppError::Storage(StorageError)` — commit-path errors surface through the existing error funnel.
+- `AppContext` gains: `changes`, `view_fs`, `backend`, `remote_head`, `editor_open`.
