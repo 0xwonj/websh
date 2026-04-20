@@ -171,32 +171,22 @@ pub fn Reader(route: Memo<AppRoute>, on_close: Callback<()>) -> impl IntoView {
     // Placeholder handlers for menu items (UI only)
     let on_edit = move |_: ev::MouseEvent| {
         set_more_menu_open.set(false);
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&"Edit clicked".into());
     };
 
     let on_font_increase = move |_: ev::MouseEvent| {
         set_more_menu_open.set(false);
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&"Font increase clicked".into());
     };
 
     let on_font_decrease = move |_: ev::MouseEvent| {
         set_more_menu_open.set(false);
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&"Font decrease clicked".into());
     };
 
     let on_share = move |_: ev::MouseEvent| {
         set_more_menu_open.set(false);
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&"Share clicked".into());
     };
 
     let on_download = move |_: ev::MouseEvent| {
         set_more_menu_open.set(false);
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&"Download clicked".into());
     };
 
     view! {

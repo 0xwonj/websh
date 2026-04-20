@@ -177,10 +177,7 @@ fn ActionButtons(
 ) -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
 
-    let on_search = move |_: leptos::ev::MouseEvent| {
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&"Search clicked".into());
-    };
+    let on_search = move |_: leptos::ev::MouseEvent| {};
 
     let on_view_toggle = move |_: leptos::ev::MouseEvent| {
         ctx.explorer.toggle_view_type();
@@ -231,14 +228,10 @@ fn ActionButtons(
 fn NewMenu(menu_open: ReadSignal<bool>, set_menu_open: WriteSignal<bool>) -> impl IntoView {
     let on_new_file = move |_: leptos::ev::MouseEvent| {
         set_menu_open.set(false);
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&"New file clicked".into());
     };
 
     let on_new_folder = move |_: leptos::ev::MouseEvent| {
         set_menu_open.set(false);
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&"New folder clicked".into());
     };
 
     // Close menu when focus leaves the dropdown wrapper
@@ -304,8 +297,6 @@ fn MoreMenu(
 
     let on_search = move |_: leptos::ev::MouseEvent| {
         set_menu_open.set(false);
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&"Search clicked".into());
     };
 
     let on_view_toggle = move |_: leptos::ev::MouseEvent| {
@@ -320,14 +311,10 @@ fn MoreMenu(
 
     let on_zoom_in = move |_: leptos::ev::MouseEvent| {
         set_menu_open.set(false);
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&"Zoom in clicked".into());
     };
 
     let on_zoom_out = move |_: leptos::ev::MouseEvent| {
         set_menu_open.set(false);
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&"Zoom out clicked".into());
     };
 
     // Close menu when focus leaves the dropdown wrapper
