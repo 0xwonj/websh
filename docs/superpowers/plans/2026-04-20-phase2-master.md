@@ -147,5 +147,77 @@ Recording decisions made during Phase 2 execution, in the order they happen. Eac
 - **Known gaps documented as follow-ups**: `echo foo!bar` / `echo foo!!` do NOT coalesce (`!` breaks word). POSIX bash would merge. Out of scope for Track A. Track for future.
 - **Pre-existing bug flagged**: `export FOO='"quoted"'` — `execute_export` trims surrounding quotes twice. Not introduced here; Track I candidate.
 
+### Track C — Autocomplete (merged)
+- **D-C-1: `less`, `more` removed from `FILE_COMMANDS`.** They were never implemented commands — autocomplete advertised them as file-path accepting, but `Command::parse` mapped them to `Unknown(127)`. Inconsistency removed.
+- **D-C-2: `find_common_prefix` switched from byte-slice to char-iterator.** `first[..prefix_chars].to_string()` was a UTF-8 panic waiting to happen (Korean, emoji, etc.). Now `first.chars().take(prefix_chars).collect()`.
+
+### Track P — Cherry-pick from WIP (merged)
+- **D-P-1: CSP `api.ensideas.com` added to `connect-src`.** Phase 1 final review flagged that ENS resolution silently fails because the API host wasn't whitelisted. One-line fix from WIP.
+- **D-P-2: Breadcrumb absolute-path construction.** Verified as a genuine bugfix — the old `route.join(segment)` path broke for nested navigation from a `Read` route (which joins relative to parent). New code builds `Browse { mount, path: abs_path }` directly.
+
+### Track F — Terminal render perf (merged)
+- **D-F-1: `ctx.fs.get()` → `ctx.fs.with()`** in `create_submit_callback`. Old code cloned the entire `VirtualFs` (recursive `HashMap<String, FsEntry>`) per command dispatch.
+- **D-F-2: `OutputLineId(u64)` newtype.** Atomic counter `AtomicU64`; `PartialEq` on `OutputLine` now derived structurally (includes id). The hand-written id-ignoring `PartialEq` was a footgun — pattern matching on `.data` is the right comparison point anyway.
+- **D-F-3: `history_signal.get().to_vec()` → `history_signal.with(|buf| buf.iter().cloned().collect())`.** Dropped one full RingBuffer clone per render.
+
+### Track E — Reader race (merged)
+- **D-E-1: `Effect + spawn_local` → `LocalResource`.** Closed a real race where stale fetches could overwrite current content. `LocalResource` cancels previous futures on input change. Mirrors the existing `preview/hook.rs::use_preview` pattern.
+
+### Track G — Explorer UI a11y (merged)
+- **D-G-1: 11 `console::log_1` debug calls removed** from stub UI handlers (`explorer/header.rs`, `reader/mod.rs`). No TODO comments left — stubs are empty-bodied.
+- **D-G-2: `FileListItem` keyboard nav.** Enter = open, Space = select. Implemented by extracting `do_select` / `do_open` as shared closures, called from both mouse and keyboard handlers.
+- **D-G-3: `close_on_focus_out` helper extracted.** `NewMenu`/`MoreMenu` in `header.rs` now share the focus-out close logic (-15 net lines).
+
+### Track H — Navigation (merged)
+- **D-H-1: Deleted `ExplorerState.forward_stack` entirely; delegated to browser history.** The in-app stack couldn't see navigations initiated by the browser's own back/forward buttons (the router listens on hashchange but the stack isn't wired into that path). Delegating `window.history().back()` / `.forward()` makes the browser the authoritative source. Forward button is now always-active — a no-op click is the browser's own behavior.
+- **D-H-2: Back button stays `is_root`-disabled.** At Root, `history.back()` would take the user out of the app. Keep the guard.
+
+### Track I — Cleanup (merged)
+- **D-I-1: ErrorBoundary styles moved from inline to `src/components/error_boundary.module.css`.** Kept literal color values (the site's design tokens in `assets/base.css` use a different palette — Tokyo-Night — and the ErrorBoundary intentionally uses the legacy dark-blue scheme).
+- **D-I-2: `wallet::disconnect(ctx)` helper** dedupes the `clear_session + set Disconnected` pair in `terminal.rs:78` and `shell.rs:66`.
+- **D-I-3: Lock emoji `🔒` replaced with `<Icon icon=ic::LOCK />` SVG** in `output.rs` list-entry rendering. Added `.lockIcon` class in `output.module.css`. `aria-label="encrypted"` for screen-reader context.
+- **D-I-4: BottomSheet drag handle a11y** — `role="button"`, `aria-label`, `tabindex=0`, Enter/Space binding that calls `close()` (best-effort; no prior click handler to reuse, and the handle has no persistent snap-point state for ArrowUp/Down).
+- **D-I-5: Convention note added** in `src/app.rs` documenting why signal-container structs derive `Clone, Copy` (all fields are Leptos signals which are `Copy`-cheap arena pointers).
+
+## Phase 2 Deferred Items (Phase 3+ candidates)
+
+These were considered in Phase 2 scope but deferred with explicit reasoning:
+
+- **H4 (iterator streaming for pipe filters)**: buffered `Vec<OutputLine>` is adequate for current workloads. See D-B-1.
+- **M4 (`AppError` unification + `From` chain)**: three domain errors are cleanly used locally. Unifying is refactor-for-refactor's-sake until a concrete cross-domain path appears.
+- **L5 (`PathArg` newtype thinness)**: wraps `String` with no unique methods. Deletion or thickening both churn command match arms without user payoff.
+- **`!`-coalescing in lexer**: `echo foo!bar` splits into two tokens; POSIX bash would concat. Out of Track A scope; documented follow-up.
+- **`export FOO='"quoted"'` quote double-trimming**: pre-existing bug in `execute_export`; not introduced by Phase 2 changes.
+- **All Track D minor suggestions** (M1/M2 from Track D code review): heuristic helper extraction, stronger fallback test. QoL, not blocking.
+- **All Track B minor suggestions**: flag-after-pattern test, mixed short/long form test, error-message polish for `-abc`.
+
+## Phase 2 Retrospective
+
+**Merged to main** (17 tracks including Phase 1, 9 Phase 2 tracks):
+- `df5a53d` → `phase2-complete` tag
+- Tests: 148 → 189 passing (+41); 4 pre-existing permission-string failures remain, flagged for a separate bug fix.
+- `cargo build --release --target wasm32-unknown-unknown`: clean throughout.
+
+**Issues addressed** (26 items):
+- **CRITICAL**: C1, C2
+- **HIGH**: H1, H2, H5, H6, H8, H9, H10, H11 + H3, H7 from Phase 1
+- **MEDIUM**: M1, M2, M3, M5, M6, M7, M8, M9, M10, M11, M12
+- **LOW**: L1, L2, L10, L12
+- **Cherry-pick from WIP Jan 2026**: CSP ENS, breadcrumb fix
+
+**Key architectural wins**:
+1. Mount registry is a single `&'static` singleton with compile-time non-empty invariant.
+2. `CommandResult { exit_code, side_effect }` gives POSIX-correct error propagation and a unified UI dispatcher.
+3. Reader fetches are race-safe via `LocalResource`.
+4. Forward navigation now uses the browser's own history, eliminating a whole class of desync bugs.
+5. Parser respects POSIX word-coalescing and unclosed-quote errors.
+
+**Cycle notes**:
+- Phase 2 ran in 3 waves: foundation (D, B, A, C, P), UI/state (F, E, G, H), cleanup (I).
+- Each track: write plan → dispatch Opus implementer → dispatch Opus reviewer(s) → fix review issues → merge to main with `--no-ff`.
+- 2 Opus agent timeouts during the run (Track E — partial work rescued and committed manually); otherwise clean.
+- Wave 1 through I took one autonomous session end-to-end.
+
+
 
 
