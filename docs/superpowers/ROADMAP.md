@@ -8,7 +8,7 @@ This document is the single entry point for someone picking up WebSH development
 
 ## Snapshot
 
-**Current main**: `phase2-complete` tag (Phase 1 + Phase 2 + follow-ups merged).
+**Current main**: Phase 1 + Phase 2 + follow-ups merged.
 **Build**: `cargo build --release --target wasm32-unknown-unknown` — clean.
 **Tests**: `cargo test --bin websh` — **205 pass / 0 fail**.
 
@@ -19,13 +19,7 @@ This document is the single entry point for someone picking up WebSH development
 | `main` | Active development. Phase 1 + Phase 2 merged. |
 | `wip/january-2026-restructure` | **Preserved reference** — the abandoned Jan 2026 write-mode refactor (editor, storage backend, FsState overlay, sync UI). Contains ~5000 lines of candidate code for Phase 3. Not merged; cherry-pick or rewrite as needed. |
 
-### Tags
-
-| Tag | Points to | Meaning |
-|---|---|---|
-| `phase1-section1-complete` | mid-Phase-1 checkpoint | Mount registry refactor only |
-| `phase1-complete` | end of Phase 1 | Core contracts (Mount singleton, CommandResult/SideEffect, exit codes) |
-| `phase2-complete` | current main | Phase 2 + follow-ups (POSIX polish, a11y, perf, tests) |
+Phase boundaries are identifiable from commit messages (`Merge Phase 1: ...`, `Merge Phase 2 Track ...: ...`) — use `git log --oneline --graph --first-parent main` to navigate.
 
 ---
 
@@ -166,14 +160,13 @@ On a fresh clone (e.g., on the server):
 ```bash
 git clone <repo-url> websh
 cd websh
-git fetch --tags
-
-# Verify phase state
-git log --oneline phase2-complete | head -20
 
 # See what's planned
 cat docs/superpowers/ROADMAP.md
 cat docs/superpowers/plans/2026-04-20-phase2-master.md   # Phase 2 decision log
+
+# Navigate phase history
+git log --oneline --graph --first-parent main | head -30
 ```
 
 To explore the WIP Jan 2026 write-mode prototype before Phase 3:
