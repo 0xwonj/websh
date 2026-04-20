@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 // =============================================================================
 
 /// Metadata for files and directories.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct FileMetadata {
     /// File size in bytes (None for directories or unknown)
     pub size: Option<u64>,
@@ -26,7 +26,7 @@ impl FileMetadata {
 }
 
 /// Metadata for directories (from .meta.json).
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct DirectoryMetadata {
     /// Display title
     pub title: String,
