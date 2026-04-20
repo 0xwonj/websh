@@ -7,7 +7,6 @@
 
 use leptos::{ev, prelude::*};
 use leptos_icons::Icon;
-use wasm_bindgen_futures::spawn_local;
 
 use crate::components::Breadcrumb;
 use crate::components::icons as ic;
@@ -15,6 +14,19 @@ use crate::models::{AppRoute, FileType};
 use crate::utils::{UrlValidation, fetch_content, markdown_to_html, validate_redirect_url};
 
 stylance::import_crate_style!(css, "src/components/reader/reader.module.css");
+
+/// Async result variants produced by the reader's content fetch.
+#[derive(Clone)]
+enum ReaderContent {
+    /// Markdown rendered to sanitized HTML.
+    Html(String),
+    /// Unknown type, plain text.
+    Text(String),
+    /// Link type: navigation was triggered.
+    Redirected,
+    /// An error occurred while fetching or processing.
+    Error(String),
+}
 
 /// Reader component for displaying file content.
 ///
@@ -63,77 +75,68 @@ pub fn Reader(route: Memo<AppRoute>, on_close: Callback<()>) -> impl IntoView {
         }
     });
 
-    let (content, set_content) = signal(String::new());
-    let (loading, set_loading) = signal(false); // Start as false, only true for async content
-    let (error, set_error) = signal::<Option<String>>(None);
-
-    // Load content when content_path changes
-    Effect::new(move |_| {
+    // Async resource: fetches content for types that need it. Using LocalResource
+    // ensures stale futures are dropped when inputs change (fixes race condition
+    // where a late-returning fetch could overwrite a newer result).
+    let resource = LocalResource::new(move || {
         let url = content_url.get();
         let ft = file_type.get();
-
-        set_error.set(None);
-        set_content.set(String::new());
-
-        // Only set loading for types that need async fetch
-        match ft {
-            FileType::Markdown | FileType::Link | FileType::Unknown => {
-                set_loading.set(true);
-                spawn_local(async move {
-                    match ft {
-                        FileType::Markdown => match fetch_content(&url).await {
-                            Ok(md) => {
-                                let html = markdown_to_html(&md);
-                                set_content.set(html);
-                                set_loading.set(false);
-                            }
-                            Err(e) => {
-                                set_error.set(Some(e.to_string()));
-                                set_loading.set(false);
-                            }
-                        },
-                        FileType::Link => match fetch_content(&url).await {
-                            Ok(url) => {
-                                let url = url.trim();
-                                match validate_redirect_url(url) {
-                                    UrlValidation::Valid(safe_url) => {
-                                        if let Some(window) = web_sys::window()
-                                            && window.location().set_href(&safe_url).is_err()
-                                        {
-                                            set_error.set(Some("Failed to redirect".to_string()));
-                                            set_loading.set(false);
-                                        }
-                                    }
-                                    UrlValidation::Invalid(err) => {
-                                        set_error.set(Some(format!("Redirect blocked: {}", err)));
-                                        set_loading.set(false);
-                                    }
+        async move {
+            match ft {
+                FileType::Markdown => match fetch_content(&url).await {
+                    Ok(md) => ReaderContent::Html(markdown_to_html(&md)),
+                    Err(e) => ReaderContent::Error(e.to_string()),
+                },
+                FileType::Unknown => match fetch_content(&url).await {
+                    Ok(text) => ReaderContent::Text(text),
+                    Err(e) => ReaderContent::Error(e.to_string()),
+                },
+                FileType::Link => match fetch_content(&url).await {
+                    Ok(target) => {
+                        let target = target.trim();
+                        match validate_redirect_url(target) {
+                            UrlValidation::Valid(safe_url) => {
+                                if let Some(window) = web_sys::window()
+                                    && window.location().set_href(&safe_url).is_err()
+                                {
+                                    return ReaderContent::Error(
+                                        "Failed to redirect".to_string(),
+                                    );
                                 }
+                                ReaderContent::Redirected
                             }
-                            Err(e) => {
-                                set_error.set(Some(e.to_string()));
-                                set_loading.set(false);
+                            UrlValidation::Invalid(err) => {
+                                ReaderContent::Error(format!("Redirect blocked: {}", err))
                             }
-                        },
-                        FileType::Unknown => match fetch_content(&url).await {
-                            Ok(text) => {
-                                set_content.set(text);
-                                set_loading.set(false);
-                            }
-                            Err(e) => {
-                                set_error.set(Some(e.to_string()));
-                                set_loading.set(false);
-                            }
-                        },
-                        _ => {}
+                        }
                     }
-                });
-            }
-            // PDF, Image don't need loading - render immediately
-            _ => {
-                set_loading.set(false);
+                    Err(e) => ReaderContent::Error(e.to_string()),
+                },
+                // PDF / Image: no fetch needed; render paths don't consume the resource.
+                _ => ReaderContent::Text(String::new()),
             }
         }
+    });
+
+    // Loading: true while the resource has no value yet for types that async-fetch.
+    let loading = Signal::derive(move || {
+        matches!(
+            file_type.get(),
+            FileType::Markdown | FileType::Link | FileType::Unknown
+        ) && resource.get().is_none()
+    });
+
+    // Content text/html for display. Empty string when not applicable.
+    let content = Signal::derive(move || match resource.get() {
+        Some(ReaderContent::Html(h)) => h,
+        Some(ReaderContent::Text(t)) => t,
+        _ => String::new(),
+    });
+
+    // Error message if the fetch failed.
+    let error = Signal::derive(move || match resource.get() {
+        Some(ReaderContent::Error(e)) => Some(e),
+        _ => None,
     });
 
     // Handle keyboard events for closing
