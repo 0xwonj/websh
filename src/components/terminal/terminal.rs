@@ -154,7 +154,7 @@ fn create_submit_callback(ctx: AppContext, route_ctx: RouteContext) -> Callback<
         let wallet_state = ctx.wallet.get();
         let remote_head = ctx.remote_head.get_value();
         let result = ctx.changes.with_untracked(|changes| {
-            ctx.fs.with(|current_fs| {
+            ctx.view_fs.with(|current_fs| {
                 execute_pipeline(
                     &pipeline,
                     &ctx.terminal,
@@ -331,7 +331,7 @@ fn create_autocomplete_callback(
 ) -> Callback<String, crate::core::AutocompleteResult> {
     Callback::new(move |input: String| {
         let current_route = route_ctx.0.get();
-        ctx.fs
+        ctx.view_fs
             .with(|current_fs| autocomplete(&input, &current_route, current_fs))
     })
 }
@@ -342,7 +342,7 @@ fn create_hint_callback(
 ) -> Callback<String, Option<String>> {
     Callback::new(move |input: String| {
         let current_route = route_ctx.0.get();
-        ctx.fs
+        ctx.view_fs
             .with(|current_fs| get_hint(&input, &current_route, current_fs))
     })
 }

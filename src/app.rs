@@ -259,7 +259,6 @@ pub struct AppContext {
     // Signal::derive_local — Rc<VirtualFs> is neither Send nor Sync (and
     // VirtualFs doesn't derive PartialEq), so default SyncStorage Memo/Signal
     // are unusable. WASM CSR is single-threaded, so LocalStorage is correct.
-    #[allow(dead_code)]
     pub view_fs: Signal<Rc<VirtualFs>, LocalStorage>,
     /// Write backend for the home mount (None when no token or mount is read-only).
     // LocalStorage — `dyn StorageBackend` is !Send+!Sync.

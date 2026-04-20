@@ -68,9 +68,11 @@ pub fn execute_command(
         Command::Touch { path } => execute_touch(path, wallet_state, fs, current_route),
         Command::Mkdir { path } => execute_mkdir(path, wallet_state, fs, current_route),
         Command::Rm { path, recursive } => {
-            execute_rm(path, recursive, wallet_state, fs, current_route)
+            execute_rm(path, recursive, wallet_state, fs, current_route, changes)
         }
-        Command::Rmdir { path } => execute_rmdir(path, wallet_state, fs, current_route),
+        Command::Rmdir { path } => {
+            execute_rmdir(path, wallet_state, fs, current_route, changes)
+        }
         Command::Edit { path } => execute_edit(path, wallet_state, fs, current_route),
         Command::EchoRedirect { body, path } => {
             execute_echo_redirect(body, path, wallet_state, fs, current_route)
@@ -605,12 +607,20 @@ fn execute_mkdir(
 }
 
 /// Execute `rm` — delete a file or directory (with `-r` for directories).
+///
+/// When the target exists only as a pending `Create*` in `changes` (not in the
+/// base VFS), `rm` emits `SideEffect::DiscardChange` to drop the pending create
+/// entirely instead of stacking a `DeleteFile`/`DeleteDirectory` on top. For
+/// `rm -r` on a pending `CreateDirectory` with pending children, only the
+/// target's create is discarded — any orphan pending children are left for the
+/// user to clean up via `sync status`.
 fn execute_rm(
     path: PathArg,
     recursive: bool,
     wallet_state: &WalletState,
     fs: &VirtualFs,
     current_route: &AppRoute,
+    changes: &ChangeSet,
 ) -> CommandResult {
     if let Err(e) = require_write_access("rm", wallet_state, current_route) {
         return e;
@@ -625,13 +635,21 @@ fn execute_rm(
         return CommandResult::error_line(format!("rm: {}: no such file or directory", path));
     };
 
+    if entry.is_directory() && !recursive {
+        return CommandResult::error_line(format!("rm: {}: is a directory (use -r)", path));
+    }
+
+    // If the target exists only as a pending create in the ChangeSet, discard
+    // the create rather than emitting a Delete change on top.
+    if is_pending_create(changes, &vp) {
+        return CommandResult {
+            output: vec![],
+            exit_code: 0,
+            side_effect: Some(SideEffect::DiscardChange { path: vp }),
+        };
+    }
+
     let change = if entry.is_directory() {
-        if !recursive {
-            return CommandResult::error_line(format!(
-                "rm: {}: is a directory (use -r)",
-                path
-            ));
-        }
         ChangeType::DeleteDirectory
     } else {
         ChangeType::DeleteFile
@@ -650,6 +668,7 @@ fn execute_rmdir(
     wallet_state: &WalletState,
     fs: &VirtualFs,
     current_route: &AppRoute,
+    changes: &ChangeSet,
 ) -> CommandResult {
     if let Err(e) = require_write_access("rmdir", wallet_state, current_route) {
         return e;
@@ -672,6 +691,15 @@ fn execute_rmdir(
         return CommandResult::error_line(format!("rmdir: {}: directory not empty", path));
     }
 
+    // Pending-create on an empty dir → discard the create.
+    if is_pending_create(changes, &vp) {
+        return CommandResult {
+            output: vec![],
+            exit_code: 0,
+            side_effect: Some(SideEffect::DiscardChange { path: vp }),
+        };
+    }
+
     CommandResult {
         output: vec![],
         exit_code: 0,
@@ -680,6 +708,20 @@ fn execute_rmdir(
             change: ChangeType::DeleteDirectory,
         }),
     }
+}
+
+/// True iff `changes` has an entry at `path` whose `ChangeType` is one of the
+/// `Create*` variants (i.e., the path exists only as a pending create, not in
+/// the base VFS).
+fn is_pending_create(changes: &ChangeSet, path: &VirtualPath) -> bool {
+    matches!(
+        changes.get(path).map(|e| &e.change),
+        Some(
+            ChangeType::CreateFile { .. }
+                | ChangeType::CreateBinary { .. }
+                | ChangeType::CreateDirectory { .. }
+        )
+    )
 }
 
 /// Execute `edit` — request the editor UI open for a file.
@@ -1752,5 +1794,180 @@ mod tests {
             FileMetadata::default(),
         );
         assert!(!fs.has_children("file.md"));
+    }
+
+    // ======================================================================
+    // Phase 3a follow-up: view_fs + discard-on-pending-create (rm/rmdir)
+    // ======================================================================
+
+    use crate::core::merge::merge_view;
+
+    /// Build the merged "current view" that the terminal dispatcher sees.
+    fn view(base: &VirtualFs, changes: &ChangeSet) -> VirtualFs {
+        merge_view(base, changes)
+    }
+
+    #[test]
+    fn test_rm_on_pending_create_file_emits_discard_change() {
+        // Base VFS empty; ChangeSet has a pending CreateFile at /a.md.
+        let base = VirtualFs::empty();
+        let mut cs = ChangeSet::new();
+        cs.upsert(
+            VirtualPath::from_absolute("/a.md").unwrap(),
+            ChangeType::CreateFile {
+                content: String::new(),
+                meta: FileMetadata::default(),
+            },
+        );
+        let merged = view(&base, &cs);
+
+        let ts = TerminalState::new();
+        let ws = admin_wallet();
+        let result = execute_command(
+            Command::Rm { path: PathArg::new("a.md"), recursive: false },
+            &ts,
+            &ws,
+            &merged,
+            &home_browse(""),
+            &cs,
+            None,
+        );
+        assert_eq!(result.exit_code, 0);
+        match result.side_effect {
+            Some(SideEffect::DiscardChange { ref path }) => {
+                assert_eq!(path.as_str(), "/a.md");
+            }
+            other => panic!("expected DiscardChange, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_rm_recursive_on_pending_create_directory_emits_discard_change() {
+        let base = VirtualFs::empty();
+        let mut cs = ChangeSet::new();
+        cs.upsert(
+            VirtualPath::from_absolute("/d").unwrap(),
+            ChangeType::CreateDirectory {
+                meta: crate::models::DirectoryMetadata::default(),
+            },
+        );
+        let merged = view(&base, &cs);
+
+        let ts = TerminalState::new();
+        let ws = admin_wallet();
+        let result = execute_command(
+            Command::Rm { path: PathArg::new("d"), recursive: true },
+            &ts,
+            &ws,
+            &merged,
+            &home_browse(""),
+            &cs,
+            None,
+        );
+        assert_eq!(result.exit_code, 0);
+        match result.side_effect {
+            Some(SideEffect::DiscardChange { ref path }) => {
+                assert_eq!(path.as_str(), "/d");
+            }
+            other => panic!("expected DiscardChange, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_rmdir_on_pending_create_directory_emits_discard_change() {
+        let base = VirtualFs::empty();
+        let mut cs = ChangeSet::new();
+        cs.upsert(
+            VirtualPath::from_absolute("/d").unwrap(),
+            ChangeType::CreateDirectory {
+                meta: crate::models::DirectoryMetadata::default(),
+            },
+        );
+        let merged = view(&base, &cs);
+
+        let ts = TerminalState::new();
+        let ws = admin_wallet();
+        let result = execute_command(
+            Command::Rmdir { path: PathArg::new("d") },
+            &ts,
+            &ws,
+            &merged,
+            &home_browse(""),
+            &cs,
+            None,
+        );
+        assert_eq!(result.exit_code, 0);
+        match result.side_effect {
+            Some(SideEffect::DiscardChange { ref path }) => {
+                assert_eq!(path.as_str(), "/d");
+            }
+            other => panic!("expected DiscardChange, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_rm_on_base_file_still_emits_apply_change_delete() {
+        // File is in base VFS, NOT in ChangeSet → Delete, not Discard.
+        let mut base = VirtualFs::empty();
+        base.upsert_file(
+            VirtualPath::from_absolute("/existing.md").unwrap(),
+            "hi".into(),
+            FileMetadata::default(),
+        );
+        let cs = ChangeSet::new();
+        let merged = view(&base, &cs);
+
+        let ts = TerminalState::new();
+        let ws = admin_wallet();
+        let result = execute_command(
+            Command::Rm { path: PathArg::new("existing.md"), recursive: false },
+            &ts,
+            &ws,
+            &merged,
+            &home_browse(""),
+            &cs,
+            None,
+        );
+        assert_eq!(result.exit_code, 0);
+        match result.side_effect {
+            Some(SideEffect::ApplyChange {
+                ref path,
+                change: ChangeType::DeleteFile,
+            }) => {
+                assert_eq!(path.as_str(), "/existing.md");
+            }
+            other => panic!("expected ApplyChange(DeleteFile), got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_touch_errors_when_path_is_pending_create_in_view_fs() {
+        // Base does not contain /a.md, but the ChangeSet does as CreateFile.
+        // After view_fs is computed via merge_view and passed to execute, the
+        // existing `fs.get_entry(...).is_some()` guard must fire.
+        let base = VirtualFs::empty();
+        let mut cs = ChangeSet::new();
+        cs.upsert(
+            VirtualPath::from_absolute("/a.md").unwrap(),
+            ChangeType::CreateFile {
+                content: String::new(),
+                meta: FileMetadata::default(),
+            },
+        );
+        let merged = view(&base, &cs);
+
+        let ts = TerminalState::new();
+        let ws = admin_wallet();
+        let result = execute_command(
+            Command::Touch { path: PathArg::new("a.md") },
+            &ts,
+            &ws,
+            &merged,
+            &home_browse(""),
+            &cs,
+            None,
+        );
+        assert_eq!(result.exit_code, 1);
+        assert!(result.side_effect.is_none());
     }
 }
