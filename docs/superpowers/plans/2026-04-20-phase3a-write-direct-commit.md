@@ -964,7 +964,11 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 
 pub struct CommitOutcome {
     pub new_head: String,
-    pub manifest: Manifest,
+    /// Some if the backend produced a manifest synchronously as part of the
+    /// commit response. GitHubBackend returns `None` (GraphQL's
+    /// `createCommitOnBranch` does not echo file contents); the dispatcher
+    /// re-fetches via `fetch_manifest()` after a successful commit.
+    pub manifest: Option<Manifest>,
     pub committed_paths: Vec<VirtualPath>,
 }
 
@@ -1061,9 +1065,18 @@ git commit -m "feat(error): AppError::Storage variant + From impl"
 - Create: `tests/fixtures/manifest_golden.json` (golden fixture)
 - Create: `tests/manifest_roundtrip.rs` (integration test)
 
-- [ ] **Step 1: Audit determinism of existing serde shapes**
+- [ ] **Step 1: Confirm the actual Manifest schema — READ FIRST, CODE SECOND**
 
-Read `src/models/filesystem.rs` and `src/models/manifest.rs` (or wherever `Manifest` lives — grep `struct Manifest`). Check for nondeterministic sources:
+Before drafting any code below, open and read the real definitions — the code blocks in this task are illustrative, not authoritative:
+
+1. `grep -rn "struct Manifest" src/models/` → find the exact file.
+2. Read that file in full (typical candidates: `src/models/manifest.rs`, `src/models/filesystem.rs`).
+3. Read `src/models/filesystem.rs` for `FileEntry` / `FsEntry` / `DirectoryMetadata`.
+4. Write down, on paper or in scratch, the **complete** field list for `Manifest`, `FileEntry`, and anything `Manifest` directly owns. Note every `#[serde(...)]` attribute.
+
+Only proceed once you can answer: "what exact struct will `serialize_manifest` return, and how is each field populated from the current `VirtualFs` state?" If any field can't be reconstructed losslessly from `VirtualFs` (because `VirtualFs` dropped the info at load time), that's a gap — surface it before writing code. Either extend `VirtualFs` to keep the field, or document the known-lossy field as a spec gap.
+
+Then, in the same pass, audit for nondeterministic sources:
 
 - `HashMap<K, V>` fields → replace with `BTreeMap<K, V>` or enforce sorted iteration before serialization.
 - Optional `#[serde(skip_serializing_if = "Option::is_none")]` consistency — either all Options skip or none do; mixed is fine but commit to one choice per field documented at the type.
@@ -2928,7 +2941,7 @@ git commit -m "feat(parser): touch/mkdir/rm/rmdir/edit/sync parsing"
 
 Read `src/core/parser.rs` for the pipe/command split. Redirection is a **top-level** concern (like pipe `|`), not an `echo`-only feature, but in 3a only `echo > path` is supported. Simplest path: handle `>` inside the `echo` arm of `Command::parse` — reject if encountered in any other command arm.
 
-- [ ] **Step 2: Write failing tests**
+- [ ] **Step 2: Write failing tests — including the quote-trap**
 
 In `src/core/commands/mod.rs:mod tests`:
 
@@ -2956,6 +2969,30 @@ fn parse_echo_redirect_quoted_body() {
     }
 }
 
+// CRITICAL quote-trap: a `>` inside a quoted body must NOT be treated as the
+// redirect operator. A naive `rsplit_once('>')` would split `"a>b" > /tmp/x`
+// at the WRONG `>`, corrupting the file contents.
+#[test]
+fn parse_echo_redirect_ignores_gt_inside_quotes() {
+    let cmd = Command::parse("echo \"a > b\" > /tmp/x.md").unwrap();
+    match cmd {
+        Command::EchoRedirect { body, path } => {
+            assert_eq!(body, "a > b");
+            assert_eq!(path.as_str(), "/tmp/x.md");
+        }
+        _ => panic!("wrong variant"),
+    }
+}
+
+#[test]
+fn parse_echo_redirect_ignores_gt_inside_single_quotes() {
+    let cmd = Command::parse("echo 'x>y' > /tmp/x.md").unwrap();
+    match cmd {
+        Command::EchoRedirect { body, .. } => assert_eq!(body, "x>y"),
+        _ => panic!("wrong variant"),
+    }
+}
+
 #[test]
 fn parse_echo_multiword_without_redirect_is_plain_echo() {
     let cmd = Command::parse("echo hello world").unwrap();
@@ -2971,22 +3008,47 @@ In `Command`:
     EchoRedirect { body: String, path: PathArg },
 ```
 
-- [ ] **Step 4: Parse**
+- [ ] **Step 4: Parse — quote-aware**
 
-In the `echo` arm, scan the token stream for `>`:
+In the `echo` arm, find the redirect `>` while respecting quotes. **Do NOT use `rsplit_once('>')`** — it splits inside quoted bodies and corrupts content. Scan left-to-right, tracking quote state, and split at the first unquoted `>`:
 
 ```rust
     "echo" => {
         let raw_tail = tokens.rest_raw();  // original substring after "echo "
-        if let Some((body_part, path_part)) = raw_tail.rsplit_once('>') {
-            let body = unquote(body_part.trim()).to_string();
-            let path = path_part.trim();
-            if path.is_empty() {
+
+        // Scan for an unquoted top-level `>`. Returns byte index of the `>`
+        // or None if all `>` are inside quotes (or there are none).
+        fn find_unquoted_redirect(s: &str) -> Option<usize> {
+            let mut in_single = false;
+            let mut in_double = false;
+            let mut escaped = false;
+            for (i, ch) in s.char_indices() {
+                if escaped { escaped = false; continue; }
+                match ch {
+                    '\\' if in_double => escaped = true,
+                    '\'' if !in_double => in_single = !in_single,
+                    '"'  if !in_single => in_double = !in_double,
+                    '>'  if !in_single && !in_double => return Some(i),
+                    _ => {}
+                }
+            }
+            None
+        }
+
+        if let Some(gt) = find_unquoted_redirect(raw_tail) {
+            let body_part = raw_tail[..gt].trim();
+            let path_part = raw_tail[gt + 1..].trim();
+            if path_part.is_empty() {
                 return Err(ParseError::MissingOperand("echo > "));
             }
+            // Reject a second unquoted `>` (we only support single redirect in 3a).
+            if find_unquoted_redirect(path_part).is_some() {
+                return Err(ParseError::UnsupportedSyntax("multiple '>' not supported"));
+            }
+            let body = unquote(body_part).to_string();
             Ok(Command::EchoRedirect {
                 body,
-                path: PathArg::from(path),
+                path: PathArg::from(path_part),
             })
         } else {
             // existing echo path
@@ -2995,9 +3057,9 @@ In the `echo` arm, scan the token stream for `>`:
     }
 ```
 
-Where `unquote(s)` strips a single pair of surrounding single or double quotes, passes through otherwise. If `unquote` doesn't exist, implement as a 10-line helper.
+Where `unquote(s)` strips a single pair of surrounding single or double quotes, passes through otherwise. If `unquote` doesn't exist, implement as a 10-line helper. For `"..."` bodies, also interpret `\"` and `\\` escapes consistent with `find_unquoted_redirect`'s escape handling — otherwise round-tripping is inconsistent.
 
-> If tokens are already split and `>` becomes its own token (common), then iterate and pick up body-tokens until `>`, then the next token is the path. Match whichever tokenizer already ships.
+> If the existing tokenizer already strips quotes and splits `>` as its own token, prefer that: iterate tokens, collect body tokens until an unquoted `>` token, then the next token is the path. Use this handwritten scan only if the existing tokenizer doesn't preserve quote boundaries (many shell-lite parsers don't).
 
 - [ ] **Step 5: Run tests**
 
@@ -3587,6 +3649,11 @@ pub fn EditModal() -> impl IntoView {
         }
     });
 
+    // Spec §9.1: ALL state transitions route through `dispatch_side_effect`.
+    // The modal is a UI surface, not a mutation source — it emits
+    // `SideEffect::ApplyChange` and lets the dispatcher update `ctx.changes`,
+    // triggering persistence, autosave debounce, and any future hooks in one
+    // place. Do NOT call `ctx.changes.update(...)` from here.
     let on_save = move |_| {
         if let Some(path) = ctx.editor_open.get_untracked() {
             let body = content.get_untracked();
@@ -3596,7 +3663,10 @@ pub fn EditModal() -> impl IntoView {
             } else {
                 ChangeType::CreateFile { content: body, meta: Default::default() }
             };
-            ctx.changes.update(|cs| cs.upsert(path, change));
+            crate::components::terminal::terminal::dispatch_side_effect(
+                &ctx,
+                SideEffect::ApplyChange { path, change },
+            );
             ctx.editor_open.set(None);
         }
     };
@@ -3879,16 +3949,40 @@ git commit -m "docs(phase3a): manual QA checklist"
 
 ### Task 6.3: Phase 3a exit check — full suite + build + lint
 
-- [ ] **Step 1: Full suite**
+- [ ] **Step 1: SHIP BLOCKER — replace the admin placeholder address**
+
+`src/core/admin.rs` currently contains:
+
+```rust
+const ADMIN_ADDRESSES: &[&str] = &[
+    "0x0000000000000000000000000000000000000000", // placeholder
+];
+```
+
+The zero address is unspendable and unreachable — shipping with only this entry means nobody can actually write. Before tagging 3a:
+
+1. Ask the operator for their real admin wallet address.
+2. Replace the placeholder in `ADMIN_ADDRESSES` with that address (lowercased).
+3. `grep -n "0x0000000000000000000000000000000000000000" src/core/admin.rs` → must return **no matches** after the edit (if the placeholder is still there, the release is not ready).
+4. Commit:
+
+```bash
+git add src/core/admin.rs
+git commit -m "chore(admin): wire real admin address for Phase 3a launch"
+```
+
+Do not proceed to Step 2 until this is done.
+
+- [ ] **Step 2: Full suite**
 
 Run: `cargo test && cargo clippy --target wasm32-unknown-unknown -- -D warnings && cargo build --target wasm32-unknown-unknown && trunk build --release`
 Expected: all green.
 
-- [ ] **Step 2: Run the manual QA checklist**
+- [ ] **Step 3: Run the manual QA checklist**
 
 Work through `docs/superpowers/checklists/2026-04-20-phase3a-manual-qa.md` end-to-end. Do not declare 3a complete until all boxes are checked on an actual browser + actual throwaway repo.
 
-- [ ] **Step 3: Final commit — update phase status docs**
+- [ ] **Step 4: Final commit — update phase status docs**
 
 If there's a master decision log for phase tracking (e.g. `docs/superpowers/plans/2026-04-20-phase-roadmap.md` or similar — grep), mark 3a complete there:
 
