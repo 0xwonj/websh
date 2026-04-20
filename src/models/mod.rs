@@ -17,11 +17,9 @@ mod wallet;
 
 pub use explorer::{ExplorerViewType, Selection, ViewMode};
 pub use filesystem::{
-    DirectoryEntry, DirectoryMetadata, DisplayPermissions, FileMetadata, FileType, FsEntry,
-    Manifest,
+    AccessFilter, DirectoryEntry, DirectoryMetadata, DisplayPermissions, FileEntry, FileMetadata,
+    FileType, FsEntry, Manifest, Recipient,
 };
-#[cfg(test)]
-pub use filesystem::{AccessFilter, FileEntry, Recipient};
 pub use mount::{Mount, MountRegistry};
 pub use route::AppRoute;
 pub use terminal::{ListFormat, OutputLine, OutputLineData, OutputLineId, TextStyle};

@@ -1,13 +1,6 @@
-mod app;
-mod components;
-mod config;
-mod core;
-mod models;
-mod utils;
-
-use app::App;
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
+use websh::app::App;
 
 fn main() {
     console_error_panic_hook::set_once();

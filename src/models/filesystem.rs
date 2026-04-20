@@ -8,12 +8,19 @@ use serde::{Deserialize, Serialize};
 // =============================================================================
 
 /// Metadata for files and directories.
+///
+/// Note: `FileMetadata` is never serialized standalone — only `FileEntry` and
+/// `Manifest` hit the wire. That lets us add new fields (like `tags` below)
+/// without needing `#[serde(default)]` guards.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct FileMetadata {
     /// File size in bytes (None for directories or unknown)
     pub size: Option<u64>,
     /// Last modification time as Unix timestamp
     pub modified: Option<u64>,
+    /// Tags for categorization (mirrors `FileEntry.tags` — needed to round-trip
+    /// tags through `VirtualFs` back into a `Manifest`).
+    pub tags: Vec<String>,
     /// Access filter (None = publicly readable)
     pub access: Option<AccessFilter>,
 }
@@ -118,12 +125,47 @@ pub struct FileEntry {
 }
 
 impl FileEntry {
-    /// Convert to FileMetadata
+    /// Convert to FileMetadata.
     pub fn to_metadata(&self) -> FileMetadata {
         FileMetadata {
             size: self.size,
             modified: self.modified,
+            tags: self.tags.clone(),
             access: self.access.clone(),
+        }
+    }
+
+    /// Convert a runtime `FsEntry` back to a manifest `FileEntry`.
+    ///
+    /// Notes:
+    /// - The manifest `path` is the *content path* (what the manifest
+    ///   originally carried), not the VFS absolute path. We mirror
+    ///   `VirtualFs::from_manifest`, which stores `file.path` into
+    ///   `FsEntry::File.content_path`. If that's missing (synthetic file with
+    ///   no manifest origin — e.g. `.profile`), callers are expected to
+    ///   filter the entry out before calling this; we fall back to the VFS
+    ///   path as a defensive default rather than panicking.
+    /// - `title` reverses `from_manifest`'s mapping: it goes into
+    ///   `FsEntry::File.description` on load, so we read it back from there.
+    ///
+    /// Panics if `entry` is a directory.
+    pub fn from_fs(path: &crate::models::VirtualPath, entry: &FsEntry) -> FileEntry {
+        match entry {
+            FsEntry::File {
+                content_path,
+                description,
+                meta,
+            } => FileEntry {
+                path: content_path
+                    .clone()
+                    .unwrap_or_else(|| path.as_str().trim_start_matches('/').to_string()),
+                title: description.clone(),
+                size: meta.size,
+                modified: meta.modified,
+                tags: meta.tags.clone(),
+                access: meta.access.clone(),
+            },
+            FsEntry::Directory { .. } => panic!("FileEntry::from_fs called on directory"),
         }
     }
 }
@@ -143,6 +185,22 @@ pub struct DirectoryEntry {
     pub icon: Option<String>,
     /// Thumbnail image path (relative to content root)
     pub thumbnail: Option<String>,
+}
+
+impl DirectoryEntry {
+    /// Convert directory metadata back to a manifest `DirectoryEntry`.
+    ///
+    /// `path` is the relative path (empty string for root).
+    pub fn from_meta(path: String, meta: &DirectoryMetadata) -> DirectoryEntry {
+        DirectoryEntry {
+            path,
+            title: meta.title.clone(),
+            tags: meta.tags.clone(),
+            description: meta.description.clone(),
+            icon: meta.icon.clone(),
+            thumbnail: meta.thumbnail.clone(),
+        }
+    }
 }
 
 /// Supported file types for the reader

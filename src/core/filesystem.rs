@@ -538,10 +538,160 @@ impl VirtualFs {
     }
 }
 
+impl VirtualFs {
+    /// Iterate all *content-backed* files in the VFS in depth-first order.
+    ///
+    /// Yields `(absolute_virtual_path, entry)` pairs. Synthetic files (those
+    /// with `content_path: None`, e.g. `.profile`) are filtered out — they
+    /// have no manifest origin and would corrupt a round-trip.
+    pub fn iter_files(&self) -> Vec<(VirtualPath, &FsEntry)> {
+        let mut out = Vec::new();
+        if let FsEntry::Directory { children, .. } = &self.root {
+            collect_files("", children, &mut out);
+        }
+        out
+    }
+
+    /// Iterate all directories in the VFS, starting with the root (path `""`).
+    ///
+    /// Yields `(relative_path, metadata)` pairs. The root directory is
+    /// included as `("", meta)`.
+    pub fn iter_directories(&self) -> Vec<(String, &DirectoryMetadata)> {
+        let mut out = Vec::new();
+        if let FsEntry::Directory { children, meta } = &self.root {
+            out.push((String::new(), meta));
+            collect_directories("", children, &mut out);
+        }
+        out
+    }
+
+    /// Re-serialize the current VFS state into a [`Manifest`] suitable for
+    /// commit.
+    ///
+    /// **Byte-stable** (see spec §4.2): the same logical state must produce
+    /// identical bytes across sessions/machines/rust versions. We guarantee
+    /// this by:
+    /// - collecting files in a deterministic walk and sorting the result
+    ///   lexicographically by `path`;
+    /// - collecting directories and sorting the same way;
+    /// - filtering out synthetic files (no `content_path`) and "implicit"
+    ///   directories (no manifest-origin metadata);
+    /// - leaving Option fields (`size`, `modified`, `access`, ...) for serde
+    ///   to emit as `null` consistently — no `skip_serializing_if`.
+    pub fn serialize_manifest(&self) -> Manifest {
+        let mut files: Vec<crate::models::FileEntry> = self
+            .iter_files()
+            .into_iter()
+            .map(|(path, entry)| crate::models::FileEntry::from_fs(&path, entry))
+            .collect();
+        files.sort_by(|a, b| a.path.cmp(&b.path));
+
+        let mut directories: Vec<crate::models::DirectoryEntry> = self
+            .iter_directories()
+            .into_iter()
+            .filter(|(path, meta)| has_manifest_metadata(path, meta))
+            .map(|(path, meta)| crate::models::DirectoryEntry::from_meta(path, meta))
+            .collect();
+        directories.sort_by(|a, b| a.path.cmp(&b.path));
+
+        Manifest { files, directories }
+    }
+}
+
 impl Default for VirtualFs {
     fn default() -> Self {
         Self::empty()
     }
+}
+
+/// Recursive helper: append every content-backed file under `children` to `out`.
+/// `prefix` is the parent directory's relative path (empty at root); we build
+/// `{prefix}/{name}` for each entry and normalize through
+/// `VirtualPath::from_absolute(&format!("/{rel}"))`.
+fn collect_files<'a>(
+    prefix: &str,
+    children: &'a HashMap<String, FsEntry>,
+    out: &mut Vec<(VirtualPath, &'a FsEntry)>,
+) {
+    // Sort children by name so the output order is stable at every level.
+    let mut names: Vec<&String> = children.keys().collect();
+    names.sort();
+    for name in names {
+        let entry = &children[name];
+        let rel = if prefix.is_empty() {
+            name.clone()
+        } else {
+            format!("{}/{}", prefix, name)
+        };
+        match entry {
+            FsEntry::File { content_path, .. } => {
+                // Filter VFS-synthetic files (no manifest origin).
+                if content_path.is_none() {
+                    continue;
+                }
+                let vp = VirtualPath::from_absolute(format!("/{}", rel))
+                    .expect("non-empty relative path produces absolute");
+                out.push((vp, entry));
+            }
+            FsEntry::Directory { children, .. } => {
+                collect_files(&rel, children, out);
+            }
+        }
+    }
+}
+
+fn collect_directories<'a>(
+    prefix: &str,
+    children: &'a HashMap<String, FsEntry>,
+    out: &mut Vec<(String, &'a DirectoryMetadata)>,
+) {
+    let mut names: Vec<&String> = children.keys().collect();
+    names.sort();
+    for name in names {
+        let entry = &children[name];
+        if let FsEntry::Directory {
+            children: sub,
+            meta,
+        } = entry
+        {
+            let rel = if prefix.is_empty() {
+                name.clone()
+            } else {
+                format!("{}/{}", prefix, name)
+            };
+            out.push((rel.clone(), meta));
+            collect_directories(&rel, sub, out);
+        }
+    }
+}
+
+/// Heuristic: does this directory's metadata look like it came from an
+/// explicit manifest entry (vs. being auto-created from a file path)?
+///
+/// We emit directories in `serialize_manifest` only when this returns `true`,
+/// so round-trips don't invent `DirectoryEntry` rows for every implicit
+/// parent directory. Rules:
+///
+/// - Any non-empty `description`, `icon`, `thumbnail`, or `tags` → manifest.
+/// - Non-empty `title` that differs from the last path segment → manifest.
+/// - Root (`path == ""`) with any non-default field → manifest.
+///
+/// Note: a pathological manifest entry that sets only `title` equal to the
+/// segment name is indistinguishable from an implicit one; that's a known
+/// round-trip edge case documented in the spec.
+fn has_manifest_metadata(path: &str, meta: &DirectoryMetadata) -> bool {
+    if meta.description.is_some()
+        || meta.icon.is_some()
+        || meta.thumbnail.is_some()
+        || !meta.tags.is_empty()
+    {
+        return true;
+    }
+    if path.is_empty() {
+        return !meta.title.is_empty();
+    }
+    let last_segment = path.rsplit('/').next().unwrap_or("");
+    !meta.title.is_empty() && meta.title != last_segment
 }
 
 /// Walk/create parents, then insert `entry` at the final path segment.
