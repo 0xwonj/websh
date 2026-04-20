@@ -14,6 +14,27 @@ use crate::utils::RingBuffer;
 stylance::import_crate_style!(err_css, "src/components/error_boundary.module.css");
 
 // ============================================================================
+// Convention: `#[derive(Clone, Copy)]` on signal containers
+// ============================================================================
+//
+// The state container structs in this module — `AppContext`, `TerminalState`,
+// and `ExplorerState` — all derive `Clone` and `Copy`. This is intentional:
+// every field is a Leptos reactive handle (`RwSignal`, `Memo`, `StoredValue`),
+// which itself is a cheap `Copy` pointer into Leptos' reactive arena. Copying
+// one of these containers therefore duplicates a handful of pointers, not the
+// underlying state — near free.
+//
+// The payoff: closures (effects, event handlers, callbacks) can capture these
+// containers by move without an explicit `.clone()` at every call site, and
+// any number of closures can each own their own copy while still observing
+// and mutating the same reactive state.
+//
+// Rule of thumb: only derive `Copy` on a container here if every field is
+// itself `Copy` (i.e. another signal-like handle). The moment a non-signal
+// field (e.g. an owned `String`, `Vec`, or `Rc`) is added, drop the `Copy`
+// derive — otherwise you silently duplicate owned data per closure capture.
+
+// ============================================================================
 // TerminalState
 // ============================================================================
 
@@ -27,6 +48,7 @@ stylance::import_crate_style!(err_css, "src/components/error_boundary.module.css
 ///
 /// This struct is `Copy` because all fields are Leptos signals, which are
 /// cheap to copy (they're just pointers to the underlying reactive state).
+/// See the module-level convention note on signal containers.
 ///
 /// The current path is now derived from the URL via `RouteContext`, not stored here.
 #[derive(Clone, Copy)]
@@ -130,7 +152,8 @@ impl Default for TerminalState {
 ///
 /// # Note
 ///
-/// This struct is `Copy` because all fields are Leptos signals.
+/// This struct is `Copy` because all fields are Leptos signals. See the
+/// module-level convention note on signal containers.
 ///
 /// Back/forward navigation is delegated to the browser's own history
 /// (`window.history().back()` / `.forward()`), so no in-app forward stack
@@ -199,6 +222,9 @@ impl Default for ExplorerState {
 /// - **Explorer state**: File browser UI state
 /// - **Wallet state**: Connection status, address, ENS name
 /// - **View mode**: Terminal or Explorer view
+///
+/// `Clone + Copy` because every field is a signal handle or a nested
+/// signal-container struct — see the module-level convention note.
 #[derive(Clone, Copy)]
 pub struct AppContext {
     // === Shared State ===
