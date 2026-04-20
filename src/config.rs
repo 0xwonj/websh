@@ -173,7 +173,7 @@ use std::sync::OnceLock;
 
 /// Static mount list. Private — external callers use `mounts()`.
 fn mount_list() -> Vec<Mount> {
-    vec![Mount::github_with_prefix(
+    vec![Mount::github_writable(
         "~",
         "https://raw.githubusercontent.com/0xwonj/db/main",
         "~",

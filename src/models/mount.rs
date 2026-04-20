@@ -23,6 +23,8 @@ pub enum Mount {
         base_url: String,
         /// Optional prefix for content paths (e.g., "~" if content is in ~/*)
         content_prefix: Option<String>,
+        /// Whether this mount accepts write operations (commits).
+        writable: bool,
     },
 
     /// IPFS gateway
@@ -52,6 +54,7 @@ impl Mount {
             alias: alias.into(),
             base_url: base_url.into(),
             content_prefix: None,
+            writable: false,
         }
     }
 
@@ -65,6 +68,21 @@ impl Mount {
             alias: alias.into(),
             base_url: base_url.into(),
             content_prefix: Some(content_prefix.into()),
+            writable: false,
+        }
+    }
+
+    /// Create a writable GitHub mount.
+    pub fn github_writable(
+        alias: impl Into<String>,
+        base_url: impl Into<String>,
+        content_prefix: impl Into<String>,
+    ) -> Self {
+        Self::GitHub {
+            alias: alias.into(),
+            base_url: base_url.into(),
+            content_prefix: Some(content_prefix.into()),
+            writable: true,
         }
     }
 
@@ -152,6 +170,14 @@ impl Mount {
             Self::GitHub { .. } => "github".to_string(),
             Self::Ipfs { cid, .. } => format!("ipfs:{}", &cid[..8.min(cid.len())]),
             Self::Ens { name, .. } => format!("ens:{}", name),
+        }
+    }
+
+    /// Whether this mount supports write operations.
+    pub fn is_writable(&self) -> bool {
+        match self {
+            Self::GitHub { writable, .. } => *writable,
+            _ => false,
         }
     }
 }
@@ -317,5 +343,33 @@ mod tests {
     #[should_panic(expected = "at least one mount")]
     fn test_registry_from_empty_panics() {
         let _ = MountRegistry::from_mounts(vec![]);
+    }
+
+    #[test]
+    fn test_mount_is_writable_github_true() {
+        let mount = Mount::GitHub {
+            alias: "~".to_string(),
+            base_url: "https://example.com".to_string(),
+            content_prefix: None,
+            writable: true,
+        };
+        assert!(mount.is_writable());
+    }
+
+    #[test]
+    fn test_mount_is_writable_github_false() {
+        let mount = Mount::GitHub {
+            alias: "~".to_string(),
+            base_url: "https://example.com".to_string(),
+            content_prefix: None,
+            writable: false,
+        };
+        assert!(!mount.is_writable());
+    }
+
+    #[test]
+    fn test_mount_is_writable_ipfs_false() {
+        let mount = Mount::ipfs("data", "QmXyz");
+        assert!(!mount.is_writable());
     }
 }
