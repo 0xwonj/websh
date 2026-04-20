@@ -6,6 +6,7 @@
 //! - [`autocomplete`] and [`get_hint`] for tab completion
 
 mod autocomplete;
+pub mod admin;
 pub mod changes;
 mod commands;
 pub mod env;
