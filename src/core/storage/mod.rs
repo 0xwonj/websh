@@ -1,0 +1,7 @@
+//! Storage abstraction for write operations. See spec §4.
+
+mod backend;
+mod error;
+
+pub use backend::{BoxFuture, CommitOutcome, StorageBackend};
+pub use error::{StorageError, StorageResult};

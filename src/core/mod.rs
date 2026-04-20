@@ -14,6 +14,7 @@ pub mod error;
 mod filesystem;
 pub mod merge;
 pub mod parser;
+pub mod storage;
 pub mod wallet;
 
 pub use autocomplete::{AutocompleteResult, autocomplete, get_hint};
