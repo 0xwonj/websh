@@ -430,6 +430,7 @@ pub fn App() -> impl IntoView {
             }
         >
             <AppRouter />
+            <crate::components::editor::EditModal />
         </ErrorBoundary>
     }
 }
