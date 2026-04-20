@@ -161,6 +161,24 @@ pub fn BottomSheet(data: PreviewData) -> impl IntoView {
         end_drag();
     };
 
+    // Keyboard activation for the drag handle.
+    //
+    // The handle is primarily a pointer/touch affordance — dragging down
+    // closes the sheet, dragging up navigates into the item. Implementing a
+    // full keyboard drag UX is out of scope here; this is a best-effort
+    // accessibility shim so keyboard-only users can at least dismiss the
+    // sheet via the handle (Enter/Space mirror the "drag down to close"
+    // gesture).
+    let on_handle_keydown = move |ev: leptos::ev::KeyboardEvent| {
+        match ev.key().as_str() {
+            "Enter" | " " => {
+                ev.prevent_default();
+                data.close();
+            }
+            _ => {}
+        }
+    };
+
     // Compute inline transform style during drag
     let drag_style = move || {
         if is_dragging.get() {
@@ -193,6 +211,9 @@ pub fn BottomSheet(data: PreviewData) -> impl IntoView {
             // Drag handle
             <div
                 class=css::handle
+                role="button"
+                tabindex="0"
+                aria-label="Drag to resize preview"
                 on:touchstart=on_touch_start
                 on:touchmove=on_touch_move
                 on:touchend=on_touch_end
@@ -200,6 +221,7 @@ pub fn BottomSheet(data: PreviewData) -> impl IntoView {
                 on:mousemove=on_mouse_move
                 on:mouseup=on_mouse_up
                 on:mouseleave=on_mouse_leave
+                on:keydown=on_handle_keydown
             >
                 <div class=css::handleBar></div>
             </div>
