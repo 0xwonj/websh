@@ -937,10 +937,10 @@ mod tests {
 
     /// Admin wallet constructor for write-path tests.
     ///
-    /// Mirrors the placeholder in `crate::core::admin::ADMIN_ADDRESSES`.
+    /// Mirrors the single entry in `crate::core::admin::ADMIN_ADDRESSES`.
     fn admin_wallet() -> WalletState {
         WalletState::Connected {
-            address: "0x0000000000000000000000000000000000000000".to_string(),
+            address: "0x2c4b04a4aeb6e18c2f8a5c8b4a3f62c0cf33795a".to_string(),
             ens_name: None,
             chain_id: Some(1),
         }

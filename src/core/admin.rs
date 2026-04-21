@@ -5,9 +5,7 @@ use crate::models::{Mount, WalletState};
 /// Hard-coded allowlist. Single-admin model per design.
 ///
 /// Store lowercased. `admin_status` compares case-insensitively.
-const ADMIN_ADDRESSES: &[&str] = &[
-    "0x0000000000000000000000000000000000000000", // placeholder — replace with real admin address before shipping
-];
+const ADMIN_ADDRESSES: &[&str] = &["0x2c4b04a4aeb6e18c2f8a5c8b4a3f62c0cf33795a"];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AdminStatus {
