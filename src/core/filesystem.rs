@@ -1,6 +1,6 @@
 use crate::models::{
     DirectoryEntry, DirectoryMetadata, DisplayPermissions, FileMetadata, FsEntry, Manifest,
-    WalletState,
+    VirtualPath, WalletState,
 };
 use std::collections::HashMap;
 
@@ -28,6 +28,11 @@ pub struct DirEntry {
 pub struct VirtualFs {
     /// Root directory entry containing all files
     root: FsEntry,
+    /// Locally-staged content for files with pending writes. Keyed by the
+    /// relative path used throughout VirtualFs (no leading slash). Populated
+    /// by `upsert_file` / `update_file_content`; cleared by `remove_entry` /
+    /// `remove_subtree`. Not persisted — exists only during a local session.
+    pending_content: HashMap<String, String>,
 }
 
 impl VirtualFs {
@@ -86,7 +91,10 @@ impl VirtualFs {
             meta: root_meta,
         };
 
-        Self { root }
+        Self {
+            root,
+            pending_content: HashMap::new(),
+        }
     }
 
     /// Insert a path into the tree using iteration instead of recursion.
@@ -215,7 +223,10 @@ impl VirtualFs {
             meta: DirectoryMetadata::default(),
         };
 
-        Self { root }
+        Self {
+            root,
+            pending_content: HashMap::new(),
+        }
     }
 
     /// Resolve a path relative to current directory.
@@ -334,6 +345,97 @@ impl VirtualFs {
         Some(current)
     }
 
+    /// Get an entry by absolute [`VirtualPath`].
+    pub fn get(&self, path: &VirtualPath) -> Option<&FsEntry> {
+        self.get_entry(path.as_str().trim_start_matches('/'))
+    }
+
+    /// Read the locally-staged text content for a file with a pending write,
+    /// if any. Returns `None` for files that have no staged content (including
+    /// canonical manifest files whose content lives in remote storage).
+    pub fn read_file(&self, path: &VirtualPath) -> Option<String> {
+        let rel = path.as_str().trim_start_matches('/');
+        self.pending_content.get(rel).cloned()
+    }
+
+    /// Create or replace a text file at `path`, recording the staged content
+    /// in `pending_content`.
+    pub fn upsert_file(&mut self, path: VirtualPath, content: String, meta: FileMetadata) {
+        let rel = path.as_str().trim_start_matches('/').to_string();
+        self.pending_content.insert(rel.clone(), content);
+        insert_tree_entry(
+            &mut self.root,
+            &rel,
+            FsEntry::content_file_with_meta(&rel, "", meta),
+        );
+    }
+
+    /// Create or replace a binary file placeholder at `path`. The blob is
+    /// carried out-of-band (in the ChangeSet); no content is stored in
+    /// `pending_content`.
+    pub fn upsert_binary_placeholder(&mut self, path: VirtualPath, meta: FileMetadata) {
+        let rel = path.as_str().trim_start_matches('/').to_string();
+        insert_tree_entry(
+            &mut self.root,
+            &rel,
+            FsEntry::content_file_with_meta(&rel, "", meta),
+        );
+    }
+
+    /// Update the staged content (and optionally description) of an existing
+    /// file. No-op if `path` does not resolve to a file entry.
+    pub fn update_file_content(
+        &mut self,
+        path: &VirtualPath,
+        content: String,
+        description: Option<String>,
+    ) {
+        let rel = path.as_str().trim_start_matches('/').to_string();
+        let Some(FsEntry::File { description: d, .. }) =
+            get_tree_entry_mut(&mut self.root, &rel)
+        else {
+            return;
+        };
+        if let Some(new_d) = description {
+            *d = new_d;
+        }
+        self.pending_content.insert(rel, content);
+    }
+
+    /// Create or replace a directory at `path` with the given metadata.
+    pub fn upsert_directory(&mut self, path: VirtualPath, meta: DirectoryMetadata) {
+        let rel = path.as_str().trim_start_matches('/').to_string();
+        insert_tree_entry(
+            &mut self.root,
+            &rel,
+            FsEntry::Directory {
+                children: HashMap::new(),
+                meta,
+            },
+        );
+    }
+
+    /// Remove a single entry at `path` and its staged content (if any).
+    pub fn remove_entry(&mut self, path: &VirtualPath) {
+        let rel = path.as_str().trim_start_matches('/').to_string();
+        self.pending_content.remove(&rel);
+        remove_tree_entry(&mut self.root, &rel);
+    }
+
+    /// Remove a subtree rooted at `path`, including all descendants' staged
+    /// content entries.
+    pub fn remove_subtree(&mut self, path: &VirtualPath) {
+        let rel = path.as_str().trim_start_matches('/').to_string();
+        let prefix = if rel.is_empty() {
+            String::new()
+        } else {
+            format!("{}/", rel)
+        };
+        self.pending_content
+            .retain(|k, _| k != &rel && !k.starts_with(&prefix));
+        remove_tree_entry(&mut self.root, &rel);
+    }
+
     /// List directory contents with metadata.
     ///
     /// # Arguments
@@ -400,41 +502,42 @@ impl VirtualFs {
         matches!(self.get_entry(path), Some(FsEntry::Directory { .. }))
     }
 
+    /// Check if a directory contains any children.
+    ///
+    /// Returns `false` if `path` does not exist or is not a directory, and
+    /// `true` only if it is a non-empty directory.
+    pub fn has_children(&self, path: &str) -> bool {
+        match self.get_entry(path) {
+            Some(FsEntry::Directory { children, .. }) => !children.is_empty(),
+            _ => false,
+        }
+    }
+
     /// Compute display permissions for an entry at runtime.
     ///
     /// Permissions are computed based on:
     /// - `d`: Directory or file
-    /// - `r`: Encrypted files require wallet address in wrapped_keys
+    /// - `r`: Access-restricted files require wallet address in the recipients list
     /// - `w`: Admin login (not yet implemented, always false for now)
     /// - `x`: Directories only
     pub fn get_permissions(&self, entry: &FsEntry, wallet: &WalletState) -> DisplayPermissions {
         let is_dir = entry.is_directory();
 
-        // Read permission: unencrypted = always readable, encrypted = check wrapped_keys
         let read = match entry {
             FsEntry::Directory { .. } => true,
-            FsEntry::File { meta, .. } => {
-                if let Some(ref enc) = meta.encryption {
-                    // Encrypted: check if wallet address is in recipients
-                    match wallet {
-                        WalletState::Connected { address, .. } => enc
-                            .wrapped_keys
-                            .iter()
-                            .any(|k| k.recipient.eq_ignore_ascii_case(address)),
-                        _ => false,
-                    }
-                } else {
-                    // Unencrypted: always readable
-                    true
-                }
-            }
+            FsEntry::File { meta, .. } => match &meta.access {
+                None => true,
+                Some(filter) => match wallet {
+                    WalletState::Connected { address, .. } => filter
+                        .recipients
+                        .iter()
+                        .any(|r| r.address.eq_ignore_ascii_case(address)),
+                    _ => false,
+                },
+            },
         };
 
-        // Write permission: TODO - implement admin check, permissionless mount check
-        // For now, always false (read-only)
         let write = false;
-
-        // Execute permission: directories only
         let execute = is_dir;
 
         DisplayPermissions {
@@ -446,10 +549,250 @@ impl VirtualFs {
     }
 }
 
+impl VirtualFs {
+    /// Iterate all *content-backed* files in the VFS in depth-first order.
+    ///
+    /// Yields `(absolute_virtual_path, entry)` pairs. Synthetic files (those
+    /// with `content_path: None`, e.g. `.profile`) are filtered out — they
+    /// have no manifest origin and would corrupt a round-trip.
+    pub fn iter_files(&self) -> Vec<(VirtualPath, &FsEntry)> {
+        let mut out = Vec::new();
+        if let FsEntry::Directory { children, .. } = &self.root {
+            collect_files("", children, &mut out);
+        }
+        out
+    }
+
+    /// Iterate all directories in the VFS, starting with the root (path `""`).
+    ///
+    /// Yields `(relative_path, metadata)` pairs. The root directory is
+    /// included as `("", meta)`.
+    pub fn iter_directories(&self) -> Vec<(String, &DirectoryMetadata)> {
+        let mut out = Vec::new();
+        if let FsEntry::Directory { children, meta } = &self.root {
+            out.push((String::new(), meta));
+            collect_directories("", children, &mut out);
+        }
+        out
+    }
+
+    /// Re-serialize the current VFS state into a [`Manifest`] suitable for
+    /// commit.
+    ///
+    /// **Byte-stable** (see spec §4.2): the same logical state must produce
+    /// identical bytes across sessions/machines/rust versions. We guarantee
+    /// this by:
+    /// - collecting files in a deterministic walk and sorting the result
+    ///   lexicographically by `path`;
+    /// - collecting directories and sorting the same way;
+    /// - filtering out synthetic files (no `content_path`) and "implicit"
+    ///   directories (no manifest-origin metadata);
+    /// - leaving Option fields (`size`, `modified`, `access`, ...) for serde
+    ///   to emit as `null` consistently — no `skip_serializing_if`.
+    pub fn serialize_manifest(&self) -> Manifest {
+        let mut files: Vec<crate::models::FileEntry> = self
+            .iter_files()
+            .into_iter()
+            .map(|(path, entry)| crate::models::FileEntry::from_fs(&path, entry))
+            .collect();
+        files.sort_by(|a, b| a.path.cmp(&b.path));
+
+        let mut directories: Vec<crate::models::DirectoryEntry> = self
+            .iter_directories()
+            .into_iter()
+            .filter(|(path, meta)| has_manifest_metadata(path, meta))
+            .map(|(path, meta)| crate::models::DirectoryEntry::from_meta(path, meta))
+            .collect();
+        directories.sort_by(|a, b| a.path.cmp(&b.path));
+
+        Manifest { files, directories }
+    }
+}
+
 impl Default for VirtualFs {
     fn default() -> Self {
         Self::empty()
     }
+}
+
+/// Recursive helper: append every content-backed file under `children` to `out`.
+/// `prefix` is the parent directory's relative path (empty at root); we build
+/// `{prefix}/{name}` for each entry and normalize through
+/// `VirtualPath::from_absolute(&format!("/{rel}"))`.
+fn collect_files<'a>(
+    prefix: &str,
+    children: &'a HashMap<String, FsEntry>,
+    out: &mut Vec<(VirtualPath, &'a FsEntry)>,
+) {
+    // Sort children by name so the output order is stable at every level.
+    let mut names: Vec<&String> = children.keys().collect();
+    names.sort();
+    for name in names {
+        let entry = &children[name];
+        let rel = if prefix.is_empty() {
+            name.clone()
+        } else {
+            format!("{}/{}", prefix, name)
+        };
+        match entry {
+            FsEntry::File { content_path, .. } => {
+                // Filter VFS-synthetic files (no manifest origin).
+                if content_path.is_none() {
+                    continue;
+                }
+                let vp = VirtualPath::from_absolute(format!("/{}", rel))
+                    .expect("non-empty relative path produces absolute");
+                out.push((vp, entry));
+            }
+            FsEntry::Directory { children, .. } => {
+                collect_files(&rel, children, out);
+            }
+        }
+    }
+}
+
+fn collect_directories<'a>(
+    prefix: &str,
+    children: &'a HashMap<String, FsEntry>,
+    out: &mut Vec<(String, &'a DirectoryMetadata)>,
+) {
+    let mut names: Vec<&String> = children.keys().collect();
+    names.sort();
+    for name in names {
+        let entry = &children[name];
+        if let FsEntry::Directory {
+            children: sub,
+            meta,
+        } = entry
+        {
+            let rel = if prefix.is_empty() {
+                name.clone()
+            } else {
+                format!("{}/{}", prefix, name)
+            };
+            out.push((rel.clone(), meta));
+            collect_directories(&rel, sub, out);
+        }
+    }
+}
+
+/// Heuristic: does this directory's metadata look like it came from an
+/// explicit manifest entry (vs. being auto-created from a file path)?
+///
+/// We emit directories in `serialize_manifest` only when this returns `true`,
+/// so round-trips don't invent `DirectoryEntry` rows for every implicit
+/// parent directory. Rules:
+///
+/// - Any non-empty `description`, `icon`, `thumbnail`, or `tags` → manifest.
+/// - Non-empty `title` that differs from the last path segment → manifest.
+/// - Root (`path == ""`) with any non-default field → manifest.
+///
+/// Note: a pathological manifest entry that sets only `title` equal to the
+/// segment name is indistinguishable from an implicit one; that's a known
+/// round-trip edge case documented in the spec.
+fn has_manifest_metadata(path: &str, meta: &DirectoryMetadata) -> bool {
+    if meta.description.is_some()
+        || meta.icon.is_some()
+        || meta.thumbnail.is_some()
+        || !meta.tags.is_empty()
+    {
+        return true;
+    }
+    if path.is_empty() {
+        return !meta.title.is_empty();
+    }
+    let last_segment = path.rsplit('/').next().unwrap_or("");
+    !meta.title.is_empty() && meta.title != last_segment
+}
+
+/// Walk/create parents, then insert `entry` at the final path segment.
+/// If any intermediate segment is a File, overwrite it with a Directory.
+/// No-op if `rel_path` is empty (cannot replace root via this helper).
+fn insert_tree_entry(root: &mut FsEntry, rel_path: &str, entry: FsEntry) {
+    let parts: Vec<&str> = rel_path.split('/').filter(|s| !s.is_empty()).collect();
+    if parts.is_empty() {
+        return;
+    }
+    let mut current = match root {
+        FsEntry::Directory { children, .. } => children,
+        FsEntry::File { .. } => return,
+    };
+    for (i, part) in parts.iter().enumerate() {
+        let is_last = i == parts.len() - 1;
+        if is_last {
+            current.insert((*part).to_string(), entry);
+            return;
+        }
+        let slot = current
+            .entry((*part).to_string())
+            .or_insert_with(|| FsEntry::Directory {
+                children: HashMap::new(),
+                meta: DirectoryMetadata {
+                    title: (*part).to_string(),
+                    ..Default::default()
+                },
+            });
+        if !slot.is_directory() {
+            *slot = FsEntry::Directory {
+                children: HashMap::new(),
+                meta: DirectoryMetadata {
+                    title: (*part).to_string(),
+                    ..Default::default()
+                },
+            };
+        }
+        current = match slot {
+            FsEntry::Directory { children, .. } => children,
+            FsEntry::File { .. } => unreachable!(),
+        };
+    }
+}
+
+/// Remove the entry at `rel_path`. No-op if any segment is missing or if `rel_path` is empty.
+fn remove_tree_entry(root: &mut FsEntry, rel_path: &str) {
+    let parts: Vec<&str> = rel_path.split('/').filter(|s| !s.is_empty()).collect();
+    if parts.is_empty() {
+        return;
+    }
+    let mut current = match root {
+        FsEntry::Directory { children, .. } => children,
+        FsEntry::File { .. } => return,
+    };
+    for (i, part) in parts.iter().enumerate() {
+        let is_last = i == parts.len() - 1;
+        if is_last {
+            current.remove(*part);
+            return;
+        }
+        let next = match current.get_mut(*part) {
+            Some(FsEntry::Directory { children, .. }) => children,
+            _ => return,
+        };
+        current = next;
+    }
+}
+
+/// Get a mutable reference to the entry at `rel_path`. Returns `Some(root)` when `rel_path` is empty.
+fn get_tree_entry_mut<'a>(root: &'a mut FsEntry, rel_path: &str) -> Option<&'a mut FsEntry> {
+    let parts: Vec<&str> = rel_path.split('/').filter(|s| !s.is_empty()).collect();
+    if parts.is_empty() {
+        return Some(root);
+    }
+    let mut current = match root {
+        FsEntry::Directory { children, .. } => children,
+        FsEntry::File { .. } => return None,
+    };
+    for (i, part) in parts.iter().enumerate() {
+        let is_last = i == parts.len() - 1;
+        if is_last {
+            return current.get_mut(*part);
+        }
+        match current.get_mut(*part)? {
+            FsEntry::Directory { children, .. } => current = children,
+            FsEntry::File { .. } => return None,
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -466,7 +809,7 @@ mod tests {
                     size: Some(1234),
                     modified: Some(1704153600),
                     tags: vec!["rust".to_string(), "intro".to_string()],
-                    encryption: None,
+                    access: None,
                 },
                 FileEntry {
                     path: "blog/rust.md".to_string(),
@@ -474,7 +817,7 @@ mod tests {
                     size: Some(2048),
                     modified: None,
                     tags: vec![],
-                    encryption: None,
+                    access: None,
                 },
                 FileEntry {
                     path: "projects/web/app.md".to_string(),
@@ -482,7 +825,7 @@ mod tests {
                     size: None,
                     modified: None,
                     tags: vec![],
-                    encryption: None,
+                    access: None,
                 },
             ],
             directories: vec![
@@ -720,18 +1063,14 @@ mod tests {
     }
 
     #[test]
-    fn test_permissions_encrypted_no_access() {
-        use crate::models::EncryptionInfo;
+    fn test_permissions_restricted_no_access() {
+        use crate::models::AccessFilter;
 
-        // Create encrypted file entry
         let entry = FsEntry::content_file_with_meta(
             "secret.enc",
-            "Encrypted file",
+            "Restricted file",
             FileMetadata {
-                encryption: Some(EncryptionInfo {
-                    algorithm: "AES-256-GCM".to_string(),
-                    wrapped_keys: vec![],
-                }),
+                access: Some(AccessFilter { recipients: vec![] }),
                 ..Default::default()
             },
         );
@@ -744,8 +1083,8 @@ mod tests {
     }
 
     #[test]
-    fn test_permissions_encrypted_with_access() {
-        use crate::models::{EncryptionInfo, WrappedKey};
+    fn test_permissions_restricted_with_access() {
+        use crate::models::{AccessFilter, Recipient};
 
         let wallet = WalletState::Connected {
             address: "0x1234abcd".to_string(),
@@ -753,16 +1092,13 @@ mod tests {
             chain_id: Some(1),
         };
 
-        // Create encrypted file entry with our address in recipients
         let entry = FsEntry::content_file_with_meta(
             "secret.enc",
-            "Encrypted file",
+            "Restricted file",
             FileMetadata {
-                encryption: Some(EncryptionInfo {
-                    algorithm: "AES-256-GCM".to_string(),
-                    wrapped_keys: vec![WrappedKey {
-                        recipient: "0x1234ABCD".to_string(),
-                        encrypted_key: "base64key".to_string(),
+                access: Some(AccessFilter {
+                    recipients: vec![Recipient {
+                        address: "0x1234ABCD".to_string(),
                     }],
                 }),
                 ..Default::default()

@@ -208,6 +208,225 @@ git commit -m "docs(4b): remove cryptographic claims; document access filter as 
 
 All data types and pure-logic helpers. No I/O, no signals, no reactive code. Every task is `cargo test` only — we do not touch `src/app.rs` or the wasm build in this phase.
 
+**Task 1.0 introduces `VirtualPath`, `current_timestamp`, and serde derives on metadata structs; every subsequent task in Phase 1 and beyond depends on them.** Do not skip.
+
+### Task 1.0: Phase 1 prerequisites — `VirtualPath`, `current_timestamp`, metadata serde
+
+**Why:** Task 1.2 (`ChangeSet`) imports `crate::models::VirtualPath` and `crate::utils::current_timestamp`, and uses `#[derive(Serialize, Deserialize)]` on `Entry` / `ChangeType` which embed `FileMetadata` and `DirectoryMetadata`. None of these exist today. This task introduces them in isolation so Task 1.2 can compile against a stable surface.
+
+**Scope discipline:** Do **not** change `VirtualFs::get_entry(&str)` or any other existing `&str`-path API. `VirtualPath` is a new key type used only by new code (ChangeSet, merge, storage); legacy callers are untouched. Existing callers that happen to need a `VirtualPath` pay the cost at the boundary with `.as_str()` / `VirtualPath::from_absolute(...)`.
+
+**Files:**
+- Create: `src/models/virtual_path.rs`
+- Create: `src/utils/time.rs`
+- Modify: `src/models/mod.rs` (register module, add `pub use`)
+- Modify: `src/utils/mod.rs` (register module, add `pub use`)
+- Modify: `src/models/filesystem.rs:11` (`FileMetadata` derives)
+- Modify: `src/models/filesystem.rs:29` (`DirectoryMetadata` derives)
+
+- [ ] **Step 1: Write `VirtualPath` with failing tests**
+
+Create `src/models/virtual_path.rs`:
+
+```rust
+//! Absolute Unix-style path newtype used as the key in `ChangeSet` and storage layers.
+//!
+//! Constructed via `from_absolute` which enforces:
+//! - non-empty
+//! - begins with `/`
+//!
+//! No normalization (`.` / `..` / duplicate slashes) — the caller must pass a canonical path.
+//! Legacy `VirtualFs::get_entry(&str)` is intentionally left alone; this type is for new code.
+
+use std::fmt;
+
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+pub struct VirtualPath(String);
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum ParseError {
+    Empty,
+    NotAbsolute(String),
+}
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ParseError::Empty => write!(f, "path is empty"),
+            ParseError::NotAbsolute(s) => write!(f, "path is not absolute: {}", s),
+        }
+    }
+}
+
+impl std::error::Error for ParseError {}
+
+impl VirtualPath {
+    pub fn from_absolute(s: impl Into<String>) -> Result<Self, ParseError> {
+        let s = s.into();
+        if s.is_empty() {
+            return Err(ParseError::Empty);
+        }
+        if !s.starts_with('/') {
+            return Err(ParseError::NotAbsolute(s));
+        }
+        Ok(Self(s))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for VirtualPath {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_absolute_path() {
+        let p = VirtualPath::from_absolute("/home/wonjae/a.md").unwrap();
+        assert_eq!(p.as_str(), "/home/wonjae/a.md");
+    }
+
+    #[test]
+    fn rejects_empty() {
+        assert_eq!(VirtualPath::from_absolute(""), Err(ParseError::Empty));
+    }
+
+    #[test]
+    fn rejects_relative() {
+        match VirtualPath::from_absolute("foo/bar") {
+            Err(ParseError::NotAbsolute(s)) => assert_eq!(s, "foo/bar"),
+            other => panic!("expected NotAbsolute, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn display_round_trips() {
+        let p = VirtualPath::from_absolute("/x").unwrap();
+        assert_eq!(format!("{}", p), "/x");
+    }
+
+    #[test]
+    fn btreemap_orders_lexicographically() {
+        use std::collections::BTreeMap;
+        let mut m: BTreeMap<VirtualPath, u32> = BTreeMap::new();
+        m.insert(VirtualPath::from_absolute("/b").unwrap(), 2);
+        m.insert(VirtualPath::from_absolute("/a").unwrap(), 1);
+        let keys: Vec<_> = m.keys().map(|k| k.as_str().to_string()).collect();
+        assert_eq!(keys, vec!["/a".to_string(), "/b".to_string()]);
+    }
+}
+```
+
+- [ ] **Step 2: Write `current_timestamp` with failing tests**
+
+Create `src/utils/time.rs`:
+
+```rust
+//! Wall-clock current time as Unix milliseconds.
+//!
+//! On `wasm32`, uses `js_sys::Date::now()` (browser clock).
+//! On non-wasm targets (the `cargo test` runner on the host), uses `SystemTime`.
+//! Both return `u64` milliseconds since the Unix epoch. The split exists because
+//! tests run on the host but production runs in the browser.
+
+#[cfg(target_arch = "wasm32")]
+pub fn current_timestamp() -> u64 {
+    js_sys::Date::now() as u64
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn current_timestamp() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn returns_positive_millisecond_epoch() {
+        let t = current_timestamp();
+        // 2020-01-01T00:00:00Z = 1_577_836_800_000 ms — sanity guard that we're returning ms, not s.
+        assert!(t > 1_577_836_800_000, "timestamp looked like seconds: {}", t);
+    }
+
+    #[test]
+    fn monotonic_across_two_calls() {
+        let a = current_timestamp();
+        let b = current_timestamp();
+        assert!(b >= a);
+    }
+}
+```
+
+- [ ] **Step 3: Register modules**
+
+Edit `src/models/mod.rs` — add `mod virtual_path;` alongside other submodules, and add `pub use virtual_path::VirtualPath;` alongside other re-exports.
+
+Edit `src/utils/mod.rs` — add `mod time;` alongside other private submodules, and add `pub use time::current_timestamp;` alongside other re-exports.
+
+- [ ] **Step 4: Add `Serialize, Deserialize` derives to metadata structs**
+
+Edit `src/models/filesystem.rs`:
+
+At line 11, change `#[derive(Clone, Debug, Default)]` on `FileMetadata` to:
+
+```rust
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+```
+
+At line 29, change `#[derive(Clone, Debug, Default)]` on `DirectoryMetadata` to:
+
+```rust
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+```
+
+The `use serde::{Deserialize, Serialize};` line already exists at the top of the file (line 4).
+
+- [ ] **Step 5: Verify tests and build**
+
+Run: `cargo test --lib virtual_path`
+Expected: 5 passing.
+
+Run: `cargo test --lib time`
+Expected: 2 passing (host target only).
+
+Run: `cargo test`
+Expected: entire crate test suite passes. No existing test should regress — the serde derives are additive.
+
+Run: `cargo check --target wasm32-unknown-unknown`
+Expected: clean. Confirms `js_sys::Date::now()` is reachable without adding a new dependency (`js-sys` is already in `Cargo.toml`).
+
+If `js-sys` is NOT in `Cargo.toml`, stop and report — that's outside this task's scope.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/models/virtual_path.rs src/utils/time.rs src/models/mod.rs src/utils/mod.rs src/models/filesystem.rs
+git commit -m "feat(models): VirtualPath + current_timestamp + metadata serde
+
+Preparatory types for Phase 1 ChangeSet (Task 1.2). VirtualPath
+is an absolute-path newtype used as BTreeMap key in new code
+only; legacy VirtualFs::get_entry(&str) is untouched.
+current_timestamp splits by target_arch so the host test runner
+can measure time without wasm-bindgen.
+
+Phase 3a / Task 1.0"
+```
+
 ### Task 1.1: `Mount::is_writable()` + `writable` field
 
 **Files:**
@@ -599,9 +818,251 @@ git commit -m "feat(changes): ChangeSet with per-entry staged flag"
 
 **Files:**
 - Create: `src/core/merge.rs`
-- Modify: `src/core/mod.rs`
+- Modify: `src/core/filesystem.rs`, `src/core/mod.rs`
 
-- [ ] **Step 1: Write the failing tests**
+**Context — read before starting:**
+
+`VirtualFs` is NOT a flat `BTreeMap<VirtualPath, FsEntry>`. It is a recursive
+tree (`struct VirtualFs { root: FsEntry }`) where `FsEntry::Directory` holds a
+`HashMap<String, FsEntry>`. Existing traversal via `get_entry(&str)` uses
+RELATIVE paths (no leading `/`; empty string = root; `"blog/post.md"` = nested).
+
+`FsEntry::File` holds no inline content — only `content_path: Option<String>`,
+which the caller resolves via an async remote fetch. Since `merge_view` is
+synchronous, it cannot reach through to canonical content. To carry
+locally-staged content for files that have pending writes, add a sidecar map:
+
+```rust
+pub struct VirtualFs {
+    root: FsEntry,
+    /// Locally-staged content for files with pending writes. Keyed by the
+    /// relative path used throughout VirtualFs (no leading slash). Populated
+    /// by `upsert_file` / `update_file_content`; cleared by `remove_entry` /
+    /// `remove_subtree`. Not persisted — exists only during a local session.
+    pending_content: HashMap<String, String>,
+}
+```
+
+All new mutation methods accept `&VirtualPath` (absolute) and internally strip
+the leading `/` via `path.as_str().trim_start_matches('/')`. Binaries are
+NOT placed in `pending_content` (it's a text map); the ChangeSet entry carries
+the blob out-of-band until upload.
+
+- [ ] **Step 1: Add `pending_content` field to `VirtualFs`**
+
+In `src/core/filesystem.rs`, extend the struct and initialize the new field in
+both constructors:
+
+```rust
+#[derive(Clone)]
+pub struct VirtualFs {
+    root: FsEntry,
+    pending_content: HashMap<String, String>,
+}
+```
+
+In `VirtualFs::from_manifest(&manifest)` (after `let root = FsEntry::Directory { ... };`):
+```rust
+Self { root, pending_content: HashMap::new() }
+```
+
+In `VirtualFs::empty()` (same):
+```rust
+Self { root, pending_content: HashMap::new() }
+```
+
+- [ ] **Step 2: Add tree-mutation private helpers**
+
+In `src/core/filesystem.rs`, add these module-private free functions next to
+the existing `insert_path` / `ensure_directory` (they follow the same borrow
+pattern — iterate-and-reassign into child `HashMap`s):
+
+```rust
+/// Walk/create parents, then insert `entry` at the final path segment.
+/// If any intermediate segment is a File, overwrite it with a Directory.
+/// No-op if `rel_path` is empty (cannot replace root via this helper).
+fn insert_tree_entry(root: &mut FsEntry, rel_path: &str, entry: FsEntry) {
+    let parts: Vec<&str> = rel_path.split('/').filter(|s| !s.is_empty()).collect();
+    if parts.is_empty() {
+        return;
+    }
+    let mut current = match root {
+        FsEntry::Directory { children, .. } => children,
+        FsEntry::File { .. } => return,
+    };
+    for (i, part) in parts.iter().enumerate() {
+        let is_last = i == parts.len() - 1;
+        if is_last {
+            current.insert((*part).to_string(), entry);
+            return;
+        }
+        let slot = current.entry((*part).to_string()).or_insert_with(|| FsEntry::Directory {
+            children: HashMap::new(),
+            meta: DirectoryMetadata { title: (*part).to_string(), ..Default::default() },
+        });
+        if !slot.is_directory() {
+            *slot = FsEntry::Directory {
+                children: HashMap::new(),
+                meta: DirectoryMetadata { title: (*part).to_string(), ..Default::default() },
+            };
+        }
+        current = match slot {
+            FsEntry::Directory { children, .. } => children,
+            FsEntry::File { .. } => unreachable!(),
+        };
+    }
+}
+
+/// Remove the entry at `rel_path`. No-op if any segment is missing or if
+/// `rel_path` is empty.
+fn remove_tree_entry(root: &mut FsEntry, rel_path: &str) {
+    let parts: Vec<&str> = rel_path.split('/').filter(|s| !s.is_empty()).collect();
+    if parts.is_empty() {
+        return;
+    }
+    let mut current = match root {
+        FsEntry::Directory { children, .. } => children,
+        FsEntry::File { .. } => return,
+    };
+    for (i, part) in parts.iter().enumerate() {
+        let is_last = i == parts.len() - 1;
+        if is_last {
+            current.remove(*part);
+            return;
+        }
+        let next = match current.get_mut(*part) {
+            Some(FsEntry::Directory { children, .. }) => children,
+            _ => return,
+        };
+        current = next;
+    }
+}
+
+/// Get a mutable reference to the entry at `rel_path`. Returns `Some(root)`
+/// when `rel_path` is empty.
+fn get_tree_entry_mut<'a>(root: &'a mut FsEntry, rel_path: &str) -> Option<&'a mut FsEntry> {
+    let parts: Vec<&str> = rel_path.split('/').filter(|s| !s.is_empty()).collect();
+    if parts.is_empty() {
+        return Some(root);
+    }
+    let mut current = match root {
+        FsEntry::Directory { children, .. } => children,
+        FsEntry::File { .. } => return None,
+    };
+    for (i, part) in parts.iter().enumerate() {
+        let is_last = i == parts.len() - 1;
+        if is_last {
+            return current.get_mut(*part);
+        }
+        match current.get_mut(*part)? {
+            FsEntry::Directory { children, .. } => current = children,
+            FsEntry::File { .. } => return None,
+        }
+    }
+    None
+}
+```
+
+- [ ] **Step 3: Add public mutation + content-read methods on `VirtualFs`**
+
+In the same `impl VirtualFs` block, next to `get_entry`, add:
+
+```rust
+/// Look up an entry by absolute `VirtualPath`. Strips the leading `/` and
+/// delegates to `get_entry`.
+pub fn get(&self, path: &VirtualPath) -> Option<&FsEntry> {
+    self.get_entry(path.as_str().trim_start_matches('/'))
+}
+
+/// Read locally-staged (pending) file content for an absolute `VirtualPath`.
+/// Returns `Some` iff the file has pending unsaved content. Canonical remote
+/// content is fetched separately by the storage backend — this is a
+/// synchronous view into `pending_content` only.
+pub fn read_file(&self, path: &VirtualPath) -> Option<String> {
+    let rel = path.as_str().trim_start_matches('/');
+    self.pending_content.get(rel).cloned()
+}
+
+/// Insert or replace a text file at `path`, creating parent directories.
+/// Stores `content` in `pending_content`.
+pub fn upsert_file(&mut self, path: VirtualPath, content: String, meta: FileMetadata) {
+    let rel = path.as_str().trim_start_matches('/').to_string();
+    self.pending_content.insert(rel.clone(), content);
+    insert_tree_entry(
+        &mut self.root,
+        &rel,
+        FsEntry::content_file_with_meta(&rel, "", meta),
+    );
+}
+
+/// Insert or replace a binary placeholder. Parent directories are created.
+/// Binary bytes are NOT placed in `pending_content` (text map) — the
+/// ChangeSet entry carries the blob (`blob_id` + `mime`) out-of-band until
+/// upload, so they're intentionally not accepted here.
+pub fn upsert_binary_placeholder(&mut self, path: VirtualPath, meta: FileMetadata) {
+    let rel = path.as_str().trim_start_matches('/').to_string();
+    insert_tree_entry(
+        &mut self.root,
+        &rel,
+        FsEntry::content_file_with_meta(&rel, "", meta),
+    );
+}
+
+/// Replace the `pending_content` of an existing file and optionally update
+/// its description. No-op if no file exists at `path` — nothing is written
+/// to `pending_content` in that case.
+pub fn update_file_content(
+    &mut self,
+    path: &VirtualPath,
+    content: String,
+    description: Option<String>,
+) {
+    let rel = path.as_str().trim_start_matches('/').to_string();
+    let Some(FsEntry::File { description: d, .. }) =
+        get_tree_entry_mut(&mut self.root, &rel)
+    else {
+        return;
+    };
+    if let Some(new_d) = description {
+        *d = new_d;
+    }
+    self.pending_content.insert(rel, content);
+}
+
+/// Insert or replace a directory at `path`, creating ancestors as needed.
+pub fn upsert_directory(&mut self, path: VirtualPath, meta: DirectoryMetadata) {
+    let rel = path.as_str().trim_start_matches('/').to_string();
+    insert_tree_entry(
+        &mut self.root,
+        &rel,
+        FsEntry::Directory {
+            children: HashMap::new(),
+            meta,
+        },
+    );
+}
+
+/// Remove a single leaf entry. Also removes its `pending_content`. No-op if
+/// the path does not exist.
+pub fn remove_entry(&mut self, path: &VirtualPath) {
+    let rel = path.as_str().trim_start_matches('/').to_string();
+    self.pending_content.remove(&rel);
+    remove_tree_entry(&mut self.root, &rel);
+}
+
+/// Remove a directory and all its descendants. Also purges every
+/// `pending_content` key under the subtree.
+pub fn remove_subtree(&mut self, path: &VirtualPath) {
+    let rel = path.as_str().trim_start_matches('/').to_string();
+    let prefix = if rel.is_empty() { String::new() } else { format!("{}/", rel) };
+    self.pending_content.retain(|k, _| k != &rel && !k.starts_with(&prefix));
+    remove_tree_entry(&mut self.root, &rel);
+}
+```
+
+Also add `use crate::models::VirtualPath;` to the file's imports if not present.
+
+- [ ] **Step 4: Write the failing tests for `merge_view`**
 
 Create `src/core/merge.rs`:
 
@@ -613,7 +1074,7 @@ Create `src/core/merge.rs`:
 
 use crate::core::changes::{ChangeSet, ChangeType};
 use crate::core::filesystem::VirtualFs;
-use crate::models::{FsEntry, VirtualPath};
+use crate::models::VirtualPath;
 
 pub fn merge_view(base: &VirtualFs, changes: &ChangeSet) -> VirtualFs {
     let mut merged = base.clone();
@@ -628,8 +1089,10 @@ fn apply_change(fs: &mut VirtualFs, path: &VirtualPath, change: &ChangeType) {
         ChangeType::CreateFile { content, meta } => {
             fs.upsert_file(path.clone(), content.clone(), meta.clone());
         }
-        ChangeType::CreateBinary { blob_id, mime, meta } => {
-            fs.upsert_binary_placeholder(path.clone(), blob_id.clone(), mime.clone(), meta.clone());
+        ChangeType::CreateBinary { blob_id: _, mime: _, meta } => {
+            // blob_id/mime are carried out-of-band by the ChangeSet entry until upload;
+            // the overlay view only needs a placeholder file with metadata.
+            fs.upsert_binary_placeholder(path.clone(), meta.clone());
         }
         ChangeType::UpdateFile { content, description } => {
             fs.update_file_content(path, content.clone(), description.clone());
@@ -652,7 +1115,6 @@ mod tests {
     use crate::models::FileMetadata;
 
     fn base() -> VirtualFs {
-        // Start with an empty VFS; tests seed via VirtualFs::empty().
         VirtualFs::empty()
     }
 
@@ -671,7 +1133,7 @@ mod tests {
             },
         );
         let merged = merge_view(&base(), &cs);
-        assert!(merged.get_entry(&p("/note.md")).is_some());
+        assert!(merged.get(&p("/note.md")).is_some());
     }
 
     #[test]
@@ -681,7 +1143,7 @@ mod tests {
         let mut cs = ChangeSet::new();
         cs.upsert(p("/a.md"), ChangeType::DeleteFile);
         let merged = merge_view(&fs, &cs);
-        assert!(merged.get_entry(&p("/a.md")).is_none());
+        assert!(merged.get(&p("/a.md")).is_none());
     }
 
     #[test]
@@ -691,7 +1153,10 @@ mod tests {
         let mut cs = ChangeSet::new();
         cs.upsert(
             p("/a.md"),
-            ChangeType::UpdateFile { content: "new".into(), description: None },
+            ChangeType::UpdateFile {
+                content: "new".into(),
+                description: None,
+            },
         );
         let merged = merge_view(&fs, &cs);
         let content = merged.read_file(&p("/a.md")).unwrap();
@@ -700,22 +1165,19 @@ mod tests {
 }
 ```
 
-> If `VirtualFs` does not yet expose `upsert_file` / `upsert_directory` / `remove_entry` / `remove_subtree` / `update_file_content` / `upsert_binary_placeholder` / `read_file`, add those as thin methods on `VirtualFs` in `src/core/filesystem.rs`. Implement by directly mutating the internal `BTreeMap<VirtualPath, FsEntry>` (or the equivalent — see the existing `fn get_entry(...)` to find the underlying storage). These are all O(log n) map operations. Keep each method under 15 lines.
+- [ ] **Step 5: Register the module**
 
-- [ ] **Step 2: Add the required VirtualFs helpers**
+In `src/core/mod.rs`, add `pub mod merge;` (alphabetical — between `filesystem` and `parser`, though the existing layout determines placement; add it adjacent to the other `pub mod` lines).
 
-Inspect `src/core/filesystem.rs` — find the inner map. Add the mutation helpers listed above next to existing `get_entry`. Each is a tiny map operation. If the internal representation does not support file content mutation directly (e.g. content is stored separately from the tree), add a small helper on `FsEntry` or on the storage map. Do not restructure existing code.
-
-- [ ] **Step 3: Register module**
-
-In `src/core/mod.rs`, add `pub mod merge;`.
-
-- [ ] **Step 4: Run tests — green**
+- [ ] **Step 6: Run tests — expect green**
 
 Run: `cargo test -p websh --lib core::merge`
 Expected: 3 tests PASS.
 
-- [ ] **Step 5: Commit**
+Also run: `cargo test -p websh --lib core::filesystem`
+Expected: all existing filesystem tests still PASS (the new `pending_content` field must not regress them).
+
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/core/merge.rs src/core/filesystem.rs src/core/mod.rs

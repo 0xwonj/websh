@@ -1,0 +1,62 @@
+{
+  "files": [
+    {
+      "path": "a.md",
+      "title": "A",
+      "size": 2,
+      "modified": 1700000001,
+      "tags": [
+        "intro"
+      ],
+      "access": {
+        "recipients": [
+          {
+            "address": "0xabc"
+          }
+        ]
+      }
+    },
+    {
+      "path": "b.md",
+      "title": "B",
+      "size": 4,
+      "modified": 1700000000,
+      "tags": [],
+      "access": null
+    },
+    {
+      "path": "blog/post.md",
+      "title": "First Post",
+      "size": 128,
+      "modified": 1700000100,
+      "tags": [
+        "rust",
+        "leptos"
+      ],
+      "access": null
+    }
+  ],
+  "directories": [
+    {
+      "path": "",
+      "title": "Home",
+      "tags": [
+        "root"
+      ],
+      "description": null,
+      "icon": null,
+      "thumbnail": null
+    },
+    {
+      "path": "blog",
+      "title": "Blog Posts",
+      "tags": [
+        "writing",
+        "personal"
+      ],
+      "description": "Collected blog entries",
+      "icon": null,
+      "thumbnail": null
+    }
+  ]
+}

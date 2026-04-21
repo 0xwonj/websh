@@ -173,7 +173,7 @@ use std::sync::OnceLock;
 
 /// Static mount list. Private — external callers use `mounts()`.
 fn mount_list() -> Vec<Mount> {
-    vec![Mount::github_with_prefix(
+    vec![Mount::github_writable(
         "~",
         "https://raw.githubusercontent.com/0xwonj/db/main",
         "~",
@@ -204,5 +204,12 @@ mod tests {
     fn test_mounts_has_home() {
         let home = mounts().home();
         assert_eq!(home.alias(), "~");
+    }
+
+    #[test]
+    fn help_mentions_all_commands() {
+        for cmd in &["touch", "mkdir", "rm", "rmdir", "edit", "sync"] {
+            assert!(HELP_TEXT.contains(cmd), "HELP_TEXT missing {cmd}");
+        }
     }
 }

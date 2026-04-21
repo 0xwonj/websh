@@ -153,7 +153,7 @@ impl OutputLine {
             name: entry.name.clone(),
             description: entry.title.clone(),
             style,
-            encrypted: file_meta.map(|m| m.is_encrypted()).unwrap_or(false),
+            encrypted: file_meta.map(|m| m.is_restricted()).unwrap_or(false),
             format: ListFormat::Long {
                 permissions: perms.to_string(),
                 size: file_meta.and_then(|m| m.size),

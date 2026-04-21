@@ -40,6 +40,22 @@ stylance = "0.7"
 leptos_icons = "0.7"
 icondata = { version = "0.7", default-features = false, features = ["bootstrap-icons", "lucide"] }
 regex = { version = "1", default-features = false, features = ["std", "perf"] }
+base64 = "0.22"
+gloo-net = "0.6"
+idb = "0.6"
+gloo-timers = { version = "0.3", features = ["futures"] }
+serde-wasm-bindgen = "0.6"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }
+wasm-bindgen-test = "0.3"
+
+[features]
+mock = []
+
+[[test]]
+name = "commit_integration"
+required-features = ["mock"]
 
 [package.metadata.stylance]
 output_file = "assets/bundle.css"

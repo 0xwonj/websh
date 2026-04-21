@@ -16,6 +16,13 @@ Available commands:
     clear         Clear terminal screen
     echo <text>   Display text
 
+  Filesystem (write, admin-only):
+    edit <path>       Open file in the editor (creates on save)
+    mkdir <path>      Create a directory
+    rm [-r] <path>    Remove a file or directory
+    rmdir <path>      Remove an empty directory
+    touch <path>      Create an empty file
+
   Environment:
     export                    Show all variables
     export KEY=value [...]    Set one or more variables (localStorage)
@@ -25,6 +32,13 @@ Available commands:
   Wallet:
     login         Connect MetaMask wallet
     logout        Disconnect wallet
+
+  Sync:
+    sync                      Show working tree status (unstaged, staged)
+    sync commit <message>     Commit staged changes (admin-only)
+    sync refresh              Reload manifest from remote
+    sync auth set <token>     Set GitHub token
+    sync auth clear           Clear stored GitHub token
 
   Pipe Filters:
     grep [-i] [-v] [-F] <pattern>   Filter lines (regex by default; -i case-insensitive; -v invert; -F literal)

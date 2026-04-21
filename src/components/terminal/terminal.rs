@@ -152,14 +152,19 @@ fn create_submit_callback(ctx: AppContext, route_ctx: RouteContext) -> Callback<
             .with(|history| parse_input(&input, history));
 
         let wallet_state = ctx.wallet.get();
-        let result = ctx.fs.with(|current_fs| {
-            execute_pipeline(
-                &pipeline,
-                &ctx.terminal,
-                &wallet_state,
-                current_fs,
-                &current_route,
-            )
+        let remote_head = ctx.remote_head.get_value();
+        let result = ctx.changes.with_untracked(|changes| {
+            ctx.view_fs.with(|current_fs| {
+                execute_pipeline(
+                    &pipeline,
+                    &ctx.terminal,
+                    &wallet_state,
+                    current_fs,
+                    &current_route,
+                    changes,
+                    remote_head.as_deref(),
+                )
+            })
         });
 
         ctx.terminal.push_lines(result.output);
@@ -171,7 +176,7 @@ fn create_submit_callback(ctx: AppContext, route_ctx: RouteContext) -> Callback<
 }
 
 /// Perform a side effect requested by a command.
-fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
+pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
     match effect {
         SideEffect::Navigate(route) => route.push(),
         SideEffect::Login => handle_login(*ctx),
@@ -180,6 +185,135 @@ fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
         SideEffect::SwitchViewAndNavigate(mode, route) => {
             route.push();
             ctx.view_mode.set(mode);
+        }
+        SideEffect::ApplyChange { path, change } => {
+            ctx.changes.update(|cs| cs.upsert(path, change));
+        }
+        SideEffect::StageChange { path } => {
+            ctx.changes.update(|cs| cs.stage(&path));
+        }
+        SideEffect::UnstageChange { path } => {
+            ctx.changes.update(|cs| cs.unstage(&path));
+        }
+        SideEffect::DiscardChange { path } => {
+            ctx.changes.update(|cs| cs.discard(&path));
+        }
+        SideEffect::StageAll => {
+            ctx.changes.update(|cs| cs.stage_all());
+        }
+        SideEffect::UnstageAll => {
+            ctx.changes.update(|cs| cs.unstage_all());
+        }
+        SideEffect::SetAuthToken { token } => {
+            crate::utils::session::set_gh_token(&token);
+            let home = crate::config::mounts().home();
+            let backend = crate::core::storage::boot::build_backend_for_mount(home, Some(&token));
+            ctx.backend.set_value(backend);
+        }
+        SideEffect::ClearAuthToken => {
+            crate::utils::session::clear_gh_token();
+            ctx.backend.set_value(None);
+        }
+        SideEffect::OpenEditor { path } => {
+            ctx.editor_open.set(Some(path));
+        }
+        SideEffect::Commit { message, expected_head } => {
+            let Some(backend) = ctx.backend.get_value() else {
+                ctx.terminal.push_output(crate::models::OutputLine::error(
+                    "sync: no backend (not authenticated?)".to_string()
+                ));
+                return;
+            };
+            let changes_signal = ctx.changes;
+            let fs_signal = ctx.fs;
+            let head_store = ctx.remote_head;
+            let terminal = ctx.terminal;
+            let home = crate::config::mounts().home();
+            let mount_id = home.alias().to_string();
+
+            wasm_bindgen_futures::spawn_local(async move {
+                let staged_snapshot = changes_signal.with_untracked(|cs| cs.clone());
+                let merged = fs_signal.with_untracked(|base| {
+                    crate::core::merge::merge_view(base, &staged_snapshot)
+                });
+                let new_manifest = merged.serialize_manifest();
+                let manifest_body = serde_json::to_string_pretty(&new_manifest).unwrap_or_default();
+
+                let mut snapshot_with_manifest = staged_snapshot.clone();
+                let manifest_path = crate::models::VirtualPath::from_absolute("/manifest.json")
+                    .expect("valid path");
+                snapshot_with_manifest.upsert(
+                    manifest_path.clone(),
+                    crate::core::changes::ChangeType::UpdateFile {
+                        content: manifest_body,
+                        description: None,
+                    },
+                );
+
+                match backend.commit(&snapshot_with_manifest, &message, expected_head.as_deref()).await {
+                    Ok(outcome) => {
+                        match backend.fetch_manifest().await {
+                            Ok(manifest) => fs_signal.set(
+                                crate::core::VirtualFs::from_manifest(&manifest)
+                            ),
+                            Err(e) => terminal.push_output(crate::models::OutputLine::info(
+                                format!("sync: commit ok, refresh failed: {e}")
+                            )),
+                        }
+
+                        let committed = outcome.committed_paths.clone();
+                        changes_signal.update(|cs| {
+                            for p in committed.iter() {
+                                cs.discard(p);
+                            }
+                            cs.discard(&manifest_path);
+                        });
+
+                        head_store.set_value(Some(outcome.new_head.clone()));
+                        let head_val = outcome.new_head.clone();
+                        let mid = mount_id.clone();
+                        wasm_bindgen_futures::spawn_local(async move {
+                            if let Ok(db) = crate::core::storage::idb::open_db().await {
+                                let _ = crate::core::storage::idb::save_metadata(
+                                    &db, &format!("remote_head.{mid}"), &head_val,
+                                ).await;
+                            }
+                        });
+
+                        terminal.push_output(crate::models::OutputLine::info(format!(
+                            "sync: committed {} files (HEAD now {}).",
+                            outcome.committed_paths.len(),
+                            &outcome.new_head[..outcome.new_head.len().min(8)]
+                        )));
+                    }
+                    Err(e) => {
+                        terminal.push_output(crate::models::OutputLine::error(format!("sync: {e}")));
+                    }
+                }
+            });
+        }
+        SideEffect::RefreshManifest => {
+            let Some(backend) = ctx.backend.get_value() else {
+                ctx.terminal.push_output(crate::models::OutputLine::error(
+                    "sync refresh: no backend".to_string()
+                ));
+                return;
+            };
+            let fs_signal = ctx.fs;
+            let terminal = ctx.terminal;
+            wasm_bindgen_futures::spawn_local(async move {
+                match backend.fetch_manifest().await {
+                    Ok(manifest) => {
+                        fs_signal.set(crate::core::VirtualFs::from_manifest(&manifest));
+                        terminal.push_output(crate::models::OutputLine::info(
+                            "sync: manifest refreshed.".to_string()
+                        ));
+                    }
+                    Err(e) => terminal.push_output(crate::models::OutputLine::error(
+                        format!("sync refresh: {e}")
+                    )),
+                }
+            });
         }
     }
 }
@@ -194,7 +328,7 @@ fn create_autocomplete_callback(
 ) -> Callback<String, crate::core::AutocompleteResult> {
     Callback::new(move |input: String| {
         let current_route = route_ctx.0.get();
-        ctx.fs
+        ctx.view_fs
             .with(|current_fs| autocomplete(&input, &current_route, current_fs))
     })
 }
@@ -205,7 +339,7 @@ fn create_hint_callback(
 ) -> Callback<String, Option<String>> {
     Callback::new(move |input: String| {
         let current_route = route_ctx.0.get();
-        ctx.fs
+        ctx.view_fs
             .with(|current_fs| get_hint(&input, &current_route, current_fs))
     })
 }

@@ -1,6 +1,6 @@
 # WebSH Development Roadmap
 
-Last updated: 2026-04-20
+Last updated: 2026-04-21
 
 This document is the single entry point for someone picking up WebSH development on a new machine (server, new clone). It summarizes what has shipped, what's queued, and where to look for detail.
 
@@ -8,9 +8,9 @@ This document is the single entry point for someone picking up WebSH development
 
 ## Snapshot
 
-**Current main**: Phase 1 + Phase 2 + follow-ups merged.
+**Current main**: Phase 1 + Phase 2 + follow-ups + Phase 3a merged.
 **Build**: `cargo build --release --target wasm32-unknown-unknown` — clean.
-**Tests**: `cargo test --bin websh` — **205 pass / 0 fail**.
+**Tests**: `cargo test` — **340 pass / 0 fail** (lib). `cargo test --features mock` additionally runs the commit-path integration test.
 
 ### Branches preserved in origin
 
@@ -70,38 +70,47 @@ Ten tracks addressing 26 issues from the initial review.
 
 ---
 
+### ✅ Phase 3a — Write Capability (Direct Commit)
+
+End-to-end "edit markdown in browser → atomic commit to GitHub" for an authenticated admin, with IndexedDB-persisted drafts and compare-and-swap conflict detection. Phase 3 was split: 3a ships the direct-commit path now; 3b (staging UI, binary uploads, sync panel, 3-mode HackMD editor) is deferred.
+
+**Scope that shipped:**
+- `core::changes::ChangeSet` — unified `BTreeMap<VirtualPath, Entry>` draft tracker (every 3a entry staged-by-default; stage/unstage wired but UI lands in 3b).
+- `core::merge::merge_view(base, changes)` — pure overlay feeding `ctx.view_fs` (a `Signal<Rc<VirtualFs>>` derived from base + changes).
+- `core::admin::{admin_status, can_write_to}` — single-admin allowlist (`ADMIN_ADDRESSES`).
+- `core::storage::{StorageBackend, StorageError, CommitOutcome, GitHubBackend}` — narrow trait; GitHub impl via GraphQL `createCommitOnBranch` with `expectedHeadOid` CAS. `MockBackend` behind a `mock` cargo feature for integration tests.
+- `VirtualFs::serialize_manifest()` — byte-stable re-emission; commits always include a regenerated `manifest.json`.
+- IndexedDB (`idb` 0.6) `drafts` + `metadata` stores; 300 ms debounced persist effect; boot-time hydration.
+- New `Command` variants: `Touch`, `Mkdir`, `Rm [-r]`, `Rmdir`, `Edit`, `EchoRedirect` (`echo "body" > path`), `Sync(SyncSubcommand)` with subcommands `status` / `commit -m <msg>` / `refresh` / `auth <pat>` / `auth clear`.
+- New `SideEffect` variants (Phase 1 contract preserved): `ApplyChange` / `Stage|Unstage|Discard Change` / `StageAll` / `UnstageAll` / `Commit { message, expected_head }` / `RefreshManifest` / `SetAuthToken` / `ClearAuthToken` / `OpenEditor`. Async handlers inside `dispatch_side_effect` via `spawn_local`.
+- `AppContext` gains `changes`, `view_fs`, `backend`, `remote_head`, `editor_open`.
+- `AppError::Storage(StorageError)` on the existing error funnel.
+- Autocomplete covers write + sync commands (two-level `sync` completion).
+- Minimal `EditModal` (textarea + Save/Cancel), triggered by `SideEffect::OpenEditor` and mounted inside the root `ErrorBoundary`. Save routes through `dispatch_side_effect(ApplyChange)` — never mutates `ctx.changes` directly.
+- Session-scoped GitHub PAT in sessionStorage (documented security caveat in README).
+
+**Detailed plan:** [`docs/superpowers/plans/2026-04-20-phase3a-write-direct-commit.md`](plans/2026-04-20-phase3a-write-direct-commit.md).
+**Design doc:** [`docs/superpowers/specs/2026-04-20-phase3-write-design.md`](specs/2026-04-20-phase3-write-design.md).
+**Manual QA checklist:** [`docs/superpowers/checklists/2026-04-20-phase3a-manual-qa.md`](checklists/2026-04-20-phase3a-manual-qa.md).
+
+---
+
 ## Upcoming Phases
 
-### 📋 Phase 3 — Write Capability
+### 📋 Phase 3b — Write Capability (Staging + Binary + Editor UI)
 
-**Goal:** Users can edit files from the browser and commit changes back to GitHub.
-
-**Source material:** `wip/january-2026-restructure` branch (abandoned Jan 2026 attempt).
+Built on top of 3a's `ChangeSet` / `StorageBackend` / `AppContext` foundation.
 
 **Scope:**
-- **Filesystem layering** — `FsState` combining `VirtualFs` (base) + `PendingChanges` overlay + `StagedChanges`; `MergedFs` read-only view that feeds the current `&VirtualFs` call sites.
-- **Storage backend** — `StorageBackend` trait; `GitHubBackend` via Contents API (base64 put, manifest re-serialize, commit).
-- **Admin auth** — `ADMIN_ADDRESSES` constant, `is_admin(wallet)`.
-- **Async side effects** — extend `SideEffect` with `CommitAsync` / `UpdatePending` / etc., OR make `dispatch_side_effect` uniformly async.
-- **New commands** — `touch`, `mkdir`, `rm`, `rmdir`, `sync {status,add,reset,commit,discard,auth}`.
-- **Editor UI** — `components/reader/editor.rs` + `preview.rs` (HackMD-style 3-mode reader).
-- **Sync UI** — `components/status/sync_panel.rs` (staged/unstaged view, commit button).
-- **Markdown image rewriting** — `markdown_to_html_with_images` for data-URL pending uploads.
-- **New deps** — `base64`, `urlencoding`, additional `web-sys` features (`File`, `FileReader`).
+- **Staging UI** — `components/status/sync_panel.rs` surfacing `iter_staged` / `iter_unstaged` with per-entry stage/unstage/discard. 3a already emits the side effects; 3b wires the UI.
+- **Default-unstaged** — flip `ChangeSet::upsert` to `staged = false` and require explicit `sync add` (spec §12.2/§12.3).
+- **Binary uploads** — `CreateBinary { blob_id, mime, meta }` path end-to-end: data-URL intake, IDB blob store, GraphQL `additions` encoded as base64.
+- **3-mode editor** — `components/reader/editor.rs` + `preview.rs` (HackMD-style edit / split / preview); replaces 3a's minimal textarea modal for markdown files.
+- **Markdown image rewriting** — `markdown_to_html_with_images` substituting data-URL references for pending uploads before the render pass.
+- **New commands** — `sync add <path>`, `sync reset <path>`, `sync discard <path>`.
+- **Dynamic admin list** (optional) — move `ADMIN_ADDRESSES` off the hard-coded constant if a concrete multi-admin need appears.
 
-**Already prepared in Phase 2 (do NOT redo):**
-- `AppError` enum for cross-domain `?` propagation.
-- `MountRegistry` singleton (ready for `is_writable()` extension).
-- `CommandResult` foundation (ready for async variant).
-
-**Key design decisions needed before coding:**
-1. Async `SideEffect` shape — concrete write command spec drives this.
-2. `ctx.fs` signal semantics when FsState is mutable — batching write operations to avoid Memo storms.
-3. localStorage quota strategy (pending binary uploads base64-encoded hit ~5-10MB limit fast).
-4. `ADMIN_ADDRESSES` in source vs. dynamic auth list.
-5. Debug `console.log`s to be removed before merge (WIP branch has 8+ in save_content).
-
-**Estimated size:** largest phase by far — multi-week.
+**Estimated size:** comparable to 3a.
 
 ### 📋 Phase 4 — Cryptography Decision
 

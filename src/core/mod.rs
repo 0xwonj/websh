@@ -6,11 +6,15 @@
 //! - [`autocomplete`] and [`get_hint`] for tab completion
 
 mod autocomplete;
+pub mod admin;
+pub mod changes;
 mod commands;
 pub mod env;
 pub mod error;
 mod filesystem;
+pub mod merge;
 pub mod parser;
+pub mod storage;
 pub mod wallet;
 
 pub use autocomplete::{AutocompleteResult, autocomplete, get_hint};

@@ -228,7 +228,7 @@ pub fn BottomSheet(data: PreviewData) -> impl IntoView {
 
             <SheetHeader
                 item_name=data.item_name
-                is_encrypted=data.is_encrypted
+                is_restricted=data.is_restricted
                 on_close=move |_| data.close()
             />
 
@@ -247,14 +247,14 @@ pub fn BottomSheet(data: PreviewData) -> impl IntoView {
 #[component]
 fn SheetHeader(
     item_name: Signal<String>,
-    is_encrypted: Signal<bool>,
+    is_restricted: Signal<bool>,
     on_close: impl Fn(leptos::ev::MouseEvent) + 'static,
 ) -> impl IntoView {
     view! {
         <div class=css::sheetHeader>
             <span class=css::filename>{move || item_name.get()}</span>
             <div class=css::sheetActions>
-                <Show when=move || is_encrypted.get()>
+                <Show when=move || is_restricted.get()>
                     <button
                         class=css::decryptButton
                         title="Decrypt file"

@@ -123,6 +123,7 @@ pub enum AppError {
     Wallet(WalletError),
     Fetch(FetchError),
     Environment(EnvironmentError),
+    Storage(crate::core::storage::StorageError),
 }
 
 impl fmt::Display for AppError {
@@ -131,6 +132,7 @@ impl fmt::Display for AppError {
             Self::Wallet(e) => write!(f, "{}", e),
             Self::Fetch(e) => write!(f, "{}", e),
             Self::Environment(e) => write!(f, "{}", e),
+            Self::Storage(e) => write!(f, "{}", e),
         }
     }
 }
@@ -141,6 +143,7 @@ impl std::error::Error for AppError {
             Self::Wallet(e) => Some(e),
             Self::Fetch(e) => Some(e),
             Self::Environment(e) => Some(e),
+            Self::Storage(e) => Some(e),
         }
     }
 }
@@ -160,6 +163,12 @@ impl From<FetchError> for AppError {
 impl From<EnvironmentError> for AppError {
     fn from(e: EnvironmentError) -> Self {
         Self::Environment(e)
+    }
+}
+
+impl From<crate::core::storage::StorageError> for AppError {
+    fn from(e: crate::core::storage::StorageError) -> Self {
+        Self::Storage(e)
     }
 }
 
@@ -202,5 +211,15 @@ mod tests {
         let app_err = AppError::Wallet(WalletError::NoAccount);
         let source = std::error::Error::source(&app_err);
         assert!(source.is_some());
+    }
+
+    #[test]
+    fn test_app_error_from_storage() {
+        let storage_err = crate::core::storage::StorageError::NoToken;
+        let app_err: AppError = storage_err.into();
+        assert!(matches!(
+            app_err,
+            AppError::Storage(crate::core::storage::StorageError::NoToken)
+        ));
     }
 }

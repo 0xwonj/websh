@@ -9,3 +9,4 @@ mod terminal;
 pub(crate) use input::Input;
 pub(crate) use output::Output;
 pub use shell::{RouteContext, Shell};
+pub(crate) use terminal::dispatch_side_effect;

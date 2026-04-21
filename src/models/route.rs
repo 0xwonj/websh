@@ -586,7 +586,7 @@ mod tests {
                     size: None,
                     modified: None,
                     tags: vec![],
-                    encryption: None,
+                    access: None,
                 },
                 FileEntry {
                     path: "archive.2024/index.md".into(),
@@ -594,7 +594,7 @@ mod tests {
                     size: None,
                     modified: None,
                     tags: vec![],
-                    encryption: None,
+                    access: None,
                 },
                 FileEntry {
                     path: "blog/post.md".into(),
@@ -602,7 +602,7 @@ mod tests {
                     size: None,
                     modified: None,
                     tags: vec![],
-                    encryption: None,
+                    access: None,
                 },
             ],
             directories: vec![

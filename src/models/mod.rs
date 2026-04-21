@@ -12,16 +12,16 @@ mod filesystem;
 mod mount;
 mod route;
 mod terminal;
+mod virtual_path;
 mod wallet;
 
 pub use explorer::{ExplorerViewType, Selection, ViewMode};
 pub use filesystem::{
-    DirectoryEntry, DirectoryMetadata, DisplayPermissions, FileMetadata, FileType, FsEntry,
-    Manifest,
+    AccessFilter, DirectoryEntry, DirectoryMetadata, DisplayPermissions, FileEntry, FileMetadata,
+    FileType, FsEntry, Manifest, Recipient,
 };
-#[cfg(test)]
-pub use filesystem::{EncryptionInfo, FileEntry, WrappedKey};
 pub use mount::{Mount, MountRegistry};
 pub use route::AppRoute;
 pub use terminal::{ListFormat, OutputLine, OutputLineData, OutputLineId, TextStyle};
+pub use virtual_path::VirtualPath;
 pub use wallet::WalletState;

@@ -49,7 +49,7 @@ pub fn PreviewPanel(data: PreviewData) -> impl IntoView {
         <aside class=css::panel role="complementary" aria-label="File preview">
             <PreviewHeader
                 item_name=data.item_name
-                is_encrypted=data.is_encrypted
+                is_restricted=data.is_restricted
                 on_close=move |_| data.close()
             />
 
@@ -63,7 +63,7 @@ pub fn PreviewPanel(data: PreviewData) -> impl IntoView {
 
             <OpenButton
                 selection=data.selection
-                is_encrypted=data.is_encrypted
+                is_restricted=data.is_restricted
                 class=css::openBar
                 label="Open in reader"
             />
@@ -75,14 +75,14 @@ pub fn PreviewPanel(data: PreviewData) -> impl IntoView {
 #[component]
 fn PreviewHeader(
     item_name: Signal<String>,
-    is_encrypted: Signal<bool>,
+    is_restricted: Signal<bool>,
     on_close: impl Fn(leptos::ev::MouseEvent) + 'static,
 ) -> impl IntoView {
     view! {
         <header class=css::header>
             <span class=css::filename>{move || item_name.get()}</span>
             <div class=css::actions>
-                <Show when=move || is_encrypted.get()>
+                <Show when=move || is_restricted.get()>
                     <button
                         class=css::decryptButton
                         title="Decrypt file"

@@ -3,10 +3,18 @@
 //! Contains the main App component, AppContext definition, TerminalState,
 //! and application-level setup logic following Leptos conventions.
 
+use std::rc::Rc;
+use std::sync::Arc;
+
 use leptos::prelude::*;
+use wasm_bindgen_futures::spawn_local;
 
 use crate::components::AppRouter;
 use crate::config::{APP_NAME, MAX_COMMAND_HISTORY, MAX_TERMINAL_HISTORY};
+use crate::core::changes::ChangeSet;
+use crate::core::merge;
+use crate::core::storage::StorageBackend;
+use crate::core::storage::persist::DraftPersister;
 use crate::core::VirtualFs;
 use crate::models::{AppRoute, ExplorerViewType, OutputLine, Selection, ViewMode, WalletState};
 use crate::utils::RingBuffer;
@@ -243,6 +251,24 @@ pub struct AppContext {
     pub terminal: TerminalState,
     /// Explorer state (selection, view type, sheet).
     pub explorer: ExplorerState,
+
+    // === Phase 3: Write-direct-commit state ===
+    /// Staged + working-tree edits awaiting commit.
+    pub changes: RwSignal<ChangeSet>,
+    /// Merged view of the filesystem with `changes` overlaid on top of `fs`.
+    // Signal::derive_local — Rc<VirtualFs> is neither Send nor Sync (and
+    // VirtualFs doesn't derive PartialEq), so default SyncStorage Memo/Signal
+    // are unusable. WASM CSR is single-threaded, so LocalStorage is correct.
+    pub view_fs: Signal<Rc<VirtualFs>, LocalStorage>,
+    /// Write backend for the home mount (None when no token or mount is read-only).
+    // LocalStorage — `dyn StorageBackend` is !Send+!Sync.
+    pub backend: StoredValue<Option<Arc<dyn StorageBackend>>, LocalStorage>,
+    /// Last observed remote HEAD OID for the writable mount (optimistic-concurrency token).
+    pub remote_head: StoredValue<Option<String>>,
+
+    // === Phase 5: Editor modal ===
+    /// When `Some(path)`, the `EditModal` is open editing that path. `None` = closed.
+    pub editor_open: RwSignal<Option<crate::models::VirtualPath>>,
 }
 
 impl AppContext {
@@ -255,9 +281,25 @@ impl AppContext {
     /// - Filesystem: Empty
     /// - View: Terminal mode
     pub fn new() -> Self {
+        let fs = RwSignal::new(VirtualFs::empty());
+        let changes = RwSignal::new(ChangeSet::new());
+
+        // Merged view: `changes` overlaid on top of `fs`. Recomputed on each read
+        // (no PartialEq caching). `merge_view` is O(staged changes) — bounded
+        // small for MVP. Uses LocalStorage because `Rc<VirtualFs>` is !Send+!Sync.
+        let view_fs = Signal::derive_local(move || {
+            Rc::new(fs.with(|base| changes.with(|cs| merge::merge_view(base, cs))))
+        });
+
+        let backend: StoredValue<Option<Arc<dyn StorageBackend>>, LocalStorage> =
+            StoredValue::new_local(None);
+        let remote_head: StoredValue<Option<String>> = StoredValue::new(None);
+
+        let editor_open = RwSignal::new(None);
+
         Self {
             // Shared state
-            fs: RwSignal::new(VirtualFs::empty()),
+            fs,
             wallet: RwSignal::new(WalletState::default()),
 
             // View management
@@ -266,6 +308,15 @@ impl AppContext {
             // View-specific state
             terminal: TerminalState::new(),
             explorer: ExplorerState::new(),
+
+            // Phase 3 write-direct-commit state
+            changes,
+            view_fs,
+            backend,
+            remote_head,
+
+            // Phase 5 editor state
+            editor_open,
         }
     }
 
@@ -313,6 +364,34 @@ pub fn App() -> impl IntoView {
     let ctx = AppContext::new();
     provide_context(ctx);
 
+    let token = crate::utils::session::get_gh_token();
+
+    let home = crate::config::mounts().home();
+    let initial_backend = crate::core::storage::boot::build_backend_for_mount(home, token.as_deref());
+    ctx.backend.set_value(initial_backend);
+
+    let mount_id = home.alias().to_string();
+    let changes_signal = ctx.changes;
+    let head_store = ctx.remote_head;
+    spawn_local(async move {
+        match crate::core::storage::boot::hydrate_drafts(&mount_id).await {
+            Ok(cs) if !cs.is_empty() => changes_signal.set(cs),
+            Ok(_) => {}
+            Err(e) => web_sys::console::error_1(&format!("hydrate drafts: {e}").into()),
+        }
+        match crate::core::storage::boot::hydrate_remote_head(&mount_id).await {
+            Ok(h) => head_store.set_value(h),
+            Err(e) => web_sys::console::error_1(&format!("hydrate head: {e}").into()),
+        }
+    });
+
+    let persister = Rc::new(DraftPersister::new(home.alias()));
+    let persister_for_effect = persister.clone();
+    Effect::new(move |_| {
+        let snapshot = ctx.changes.get();
+        persister_for_effect.schedule(snapshot);
+    });
+
     view! {
         <ErrorBoundary
             fallback=|errors| view! {
@@ -351,6 +430,7 @@ pub fn App() -> impl IntoView {
             }
         >
             <AppRouter />
+            <crate::components::editor::EditModal />
         </ErrorBoundary>
     }
 }
