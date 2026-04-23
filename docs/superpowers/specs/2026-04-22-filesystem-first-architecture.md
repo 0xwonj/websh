@@ -69,10 +69,10 @@ Runtime commit coordination prepares a merged mount snapshot from `GlobalFs` bef
 
 ## State model
 
-`/state` is the runtime source of truth for:
+`/state` is the rendered runtime state surface for:
 
 - environment variables
-- GitHub auth token
+- GitHub auth token presence marker
 - wallet session marker
 - wallet connection snapshot
 - draft summary
@@ -86,10 +86,10 @@ Runtime commit coordination prepares a merged mount snapshot from `GlobalFs` bef
 - `backends`
 - `runtime_mounts`
 - `remote_heads`
-- `runtime_state_rev`
+- `runtime_state`
 - `wallet`
 
-`runtime_state_rev` is the only runtime-state invalidation trigger for `view_global_fs`. Feature code does not read browser storage directly.
+`runtime_state` is hydrated once from browser persistence and then owned by `AppContext`. Feature code does not read browser storage directly, and `/state` does not expose the raw GitHub token.
 
 ## Command/runtime rules
 

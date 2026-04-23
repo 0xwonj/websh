@@ -6,12 +6,14 @@ Status: executed
 ## Build and grep gates
 
 - `cargo test`
-  Result: pass, `332` tests green, no warnings.
+  Result: pass, `339` tests green, no warnings.
 - `cargo test --features mock --test commit_integration`
   Result: pass, `1` test green.
 - `env -u NO_COLOR trunk build --release`
   Result: pass, no warnings.
-- Residue grep across `src tests docs`
+- `NODE_PATH=target/qa/node_modules target/qa/node_modules/.bin/playwright test tests/e2e --reporter=line --workers=1`
+  Result: pass, `8` browser tests green against release Trunk server on `127.0.0.1:4173`.
+- Residue grep across `src tests docs README.md CLAUDE.md`
   Result: clean for the required completion-gate residue patterns.
 
 ## Browser/runtime QA
@@ -23,7 +25,6 @@ Harness:
 - pageerror and console-error assertions enabled
 - stubbed GitHub raw-content responses
 - stubbed EIP-1193 wallet
-- in-page GraphQL commit stub for `createCommitOnBranch`
 
 Executed and observed:
 
@@ -34,7 +35,8 @@ Executed and observed:
 - `login` restored admin write eligibility through the EIP-1193 stub.
 - `sync auth set qa-token` wrote session state immediately.
 - `export EDITOR=nano` wrote env state immediately.
-- `ls /state/session` showed `github_token` after auth set.
+- `ls /state/session` showed `github_token_present` after auth set.
+- `cat /state/session/github_token` returned path not found.
 - `ls /state/env` showed `EDITOR` after export.
 - browser storage matched the runtime mutations:
   `sessionStorage["websh.gh_token"] == "qa-token"`
@@ -45,16 +47,10 @@ Executed and observed:
 - declared mount prune/restore worked:
   removing `.websh/mounts/db.mount.json` from the mocked bootstrap site and running `sync refresh` removed `db` from `ls /mnt`;
   restoring the declaration and refreshing mounted `/mnt/db` again.
-- site commit worked:
-  `echo site-commit > commit.md`
-  `sync commit site-check`
-  `sync status` returned clean
-  `ls` showed `commit.md`
-- declared-mount commit worked:
-  `echo db-commit > db-commit.md`
-  `sync commit db-check`
-  `sync status` returned clean
-  `ls` showed `db-commit.md`
+- commit request assembly is covered by Rust integration:
+  staged paths, regenerated mount snapshot, prefixed GitHub manifest path,
+  empty directories, and recursive directory deletions are asserted before
+  backend dispatch.
 - runtime-state cleanup worked:
   `sync auth clear`
   `unset EDITOR`

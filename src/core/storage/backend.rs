@@ -40,6 +40,7 @@ pub struct CommitOutcome {
 #[derive(Clone, Debug)]
 pub struct CommitRequest {
     pub changes: ChangeSet,
+    pub deleted_files: Vec<VirtualPath>,
     pub merged_snapshot: ScannedSubtree,
     pub message: String,
     pub expected_head: Option<String>,

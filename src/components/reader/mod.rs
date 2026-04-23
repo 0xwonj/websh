@@ -14,7 +14,8 @@ use crate::components::icons as ic;
 use crate::core::engine::{RouteFrame, read_bytes, read_text, request_path_for_canonical_path};
 use crate::models::FileType;
 use crate::utils::{
-    UrlValidation, data_url_for_bytes, markdown_to_html, media_type_for_path, validate_redirect_url,
+    UrlValidation, data_url_for_bytes, markdown_to_html, media_type_for_path, sanitize_html,
+    validate_redirect_url,
 };
 
 stylance::import_crate_style!(css, "src/components/reader/reader.module.css");
@@ -78,7 +79,7 @@ pub fn Reader(route: Memo<RouteFrame>, on_close: Callback<()>) -> impl IntoView 
         async move {
             match ft {
                 FileType::Html => match read_text(&fs, &backends, &canonical).await {
-                    Ok(html) => ReaderContent::Html(html),
+                    Ok(html) => ReaderContent::Html(sanitize_html(&html)),
                     Err(e) => ReaderContent::Error(e.to_string()),
                 },
                 FileType::Markdown => match read_text(&fs, &backends, &canonical).await {

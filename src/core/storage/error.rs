@@ -35,7 +35,7 @@ impl fmt::Display for StorageError {
             Self::RateLimited { retry_after: None } => write!(f, "rate limited"),
             Self::ServerError(c) => write!(f, "remote server error (HTTP {c})"),
             Self::NetworkError(m) => write!(f, "network error: {m}"),
-            Self::NoToken => write!(f, "no GitHub token. run 'sync auth <token>'"),
+            Self::NoToken => write!(f, "no GitHub token. run 'sync auth set <token>'"),
             Self::BadRequest(m) => write!(f, "bad request: {m}"),
         }
     }
@@ -64,5 +64,13 @@ mod tests {
             retry_after: Some(30),
         };
         assert_eq!(e.to_string(), "rate limited. try again in 30s");
+    }
+
+    #[test]
+    fn display_no_token_matches_sync_auth_parser() {
+        assert_eq!(
+            StorageError::NoToken.to_string(),
+            "no GitHub token. run 'sync auth set <token>'"
+        );
     }
 }

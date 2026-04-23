@@ -1922,7 +1922,12 @@ mod tests {
 
     /// Build the merged "current view" that the terminal dispatcher sees.
     fn view(base: &GlobalFs, changes: &ChangeSet) -> GlobalFs {
-        crate::core::merge::merge_global_view(base, changes, &WalletState::Disconnected)
+        crate::core::merge::merge_global_view(
+            base,
+            changes,
+            &WalletState::Disconnected,
+            &crate::core::runtime::RuntimeStateSnapshot::default(),
+        )
     }
 
     #[test]

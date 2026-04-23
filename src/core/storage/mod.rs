@@ -12,8 +12,6 @@ pub use backend::{
     StorageBackend,
 };
 pub use error::{StorageError, StorageResult};
-#[allow(dead_code)]
-pub use github::GitHubBackend;
 
 #[cfg(any(test, feature = "mock"))]
 mod mock;

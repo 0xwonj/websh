@@ -16,10 +16,17 @@ pub mod wallet;
 
 pub use commit::commit_backend;
 pub use loader::{
-    RuntimeLoad, bootstrap_backends, bootstrap_runtime_mounts, load_runtime, reload_runtime,
+    RuntimeLoad, bootstrap_backends, bootstrap_runtime_load, bootstrap_runtime_mounts,
+    load_runtime, reload_runtime,
 };
+pub use state::RuntimeStateSnapshot;
 
-pub fn populate_runtime_state(fs: &mut GlobalFs, changes: &ChangeSet, wallet_state: &WalletState) {
+pub fn populate_runtime_state(
+    fs: &mut GlobalFs,
+    changes: &ChangeSet,
+    wallet_state: &WalletState,
+    runtime_state: &RuntimeStateSnapshot,
+) {
     let state_root = VirtualPath::from_absolute("/state").expect("constant path");
     fs.remove_subtree(&state_root);
 
@@ -46,25 +53,29 @@ pub fn populate_runtime_state(fs: &mut GlobalFs, changes: &ChangeSet, wallet_sta
         dir("drafts"),
     );
 
-    let snapshot = state::snapshot();
-
-    for (key, value) in snapshot.env {
+    for (key, value) in &runtime_state.env {
         fs.upsert_file(
             VirtualPath::from_absolute(format!("/state/env/{key}")).expect("constant path"),
-            value,
+            value.clone(),
             FileMetadata::default(),
         );
     }
 
-    if let Some(token) = snapshot.github_token {
+    if runtime_state.github_token.is_some() {
         fs.upsert_file(
-            VirtualPath::from_absolute("/state/session/github_token").expect("constant path"),
-            token,
+            VirtualPath::from_absolute("/state/session/github_token_present")
+                .expect("constant path"),
+            "1".to_string(),
             FileMetadata::default(),
         );
     }
 
-    let wallet_session = if snapshot.wallet_session { "1" } else { "0" }.to_string();
+    let wallet_session = if runtime_state.wallet_session {
+        "1"
+    } else {
+        "0"
+    }
+    .to_string();
     fs.upsert_file(
         VirtualPath::from_absolute("/state/session/wallet_session").expect("constant path"),
         wallet_session,

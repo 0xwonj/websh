@@ -9,16 +9,18 @@ use crate::core::storage::{
 };
 use crate::models::VirtualPath;
 
-use super::graphql::{BranchRef, CommitMessage, CreateCommitInput, build_file_changes};
+use super::graphql::{
+    BranchRef, CommitMessage, CreateCommitInput, build_file_changes, prefixed_repo_path,
+};
 use super::manifest::{parse_snapshot, serialize_snapshot};
 
 #[allow(dead_code)]
 pub struct GitHubBackend {
-    pub repo_with_owner: String, // "0xwonj/db"
-    pub branch: String,          // "main"
-    pub mount_root: VirtualPath, // canonical filesystem root for this mounted subtree
-    pub content_prefix: String,  // mount's content_prefix, e.g., "~"
-    pub manifest_url: String,    // full URL to manifest.json (raw.githubusercontent.com)
+    repo_with_owner: String,
+    branch: String,
+    mount_root: VirtualPath,
+    content_prefix: String,
+    gateway: String,
 }
 
 #[allow(dead_code)]
@@ -28,32 +30,44 @@ impl GitHubBackend {
         branch: impl Into<String>,
         mount_root: VirtualPath,
         content_prefix: impl Into<String>,
-        manifest_url: impl Into<String>,
+        gateway: impl Into<String>,
     ) -> Self {
         Self {
             repo_with_owner: repo_with_owner.into(),
             branch: branch.into(),
             mount_root,
-            content_prefix: content_prefix.into(),
-            manifest_url: manifest_url.into(),
+            content_prefix: content_prefix.into().trim_matches('/').to_string(),
+            gateway: gateway.into().trim_end_matches('/').to_string(),
         }
     }
 
+    fn base_url(&self) -> String {
+        if self.content_prefix.is_empty() {
+            format!("{}/{}/{}", self.gateway, self.repo_with_owner, self.branch)
+        } else {
+            format!(
+                "{}/{}/{}/{}",
+                self.gateway, self.repo_with_owner, self.branch, self.content_prefix
+            )
+        }
+    }
+
+    fn manifest_url(&self) -> String {
+        format!("{}/manifest.json", self.base_url())
+    }
+
     fn content_url(&self, rel_path: &str) -> String {
-        let manifest_base = self
-            .manifest_url
-            .trim_end_matches("/manifest.json")
-            .trim_end_matches('/');
+        let base_url = self.base_url();
         let rel_path = rel_path.trim_start_matches('/');
         if rel_path.is_empty() {
-            manifest_base.to_string()
+            base_url
         } else {
-            format!("{manifest_base}/{rel_path}")
+            format!("{base_url}/{rel_path}")
         }
     }
 
     async fn load_manifest_snapshot(&self) -> StorageResult<ScannedSubtree> {
-        let resp = gloo_net::http::Request::get(&self.manifest_url)
+        let resp = gloo_net::http::Request::get(&self.manifest_url())
             .send()
             .await
             .map_err(|e| StorageError::NetworkError(e.to_string()))?;
@@ -211,12 +225,15 @@ impl StorageBackend for GitHubBackend {
         Box::pin(async move {
             let token = request.auth_token.as_deref().ok_or(StorageError::NoToken)?;
             let manifest_body = serialize_snapshot(&request.merged_snapshot)?;
+            let manifest_repo_path = prefixed_repo_path(&self.content_prefix, "manifest.json");
             let file_changes = build_file_changes(
                 &request.changes,
+                &request.deleted_files,
                 &self.mount_root,
                 &self.content_prefix,
-                Some(("manifest.json", &manifest_body)),
-            );
+                Some((manifest_repo_path.as_str(), &manifest_body)),
+            )
+            .map_err(StorageError::BadRequest)?;
 
             let input = CreateCommitInput {
                 branch: BranchRef {
@@ -331,7 +348,7 @@ mod tests {
             "main",
             VirtualPath::from_absolute("/site").unwrap(),
             "~",
-            "https://raw.githubusercontent.com/owner/repo/main/~/manifest.json",
+            "https://raw.githubusercontent.com",
         );
 
         assert_eq!(
@@ -347,10 +364,11 @@ mod tests {
             "main",
             VirtualPath::from_absolute("/site").unwrap(),
             "~",
-            "https://raw.githubusercontent.com/owner/repo/main/~/manifest.json",
+            "https://raw.githubusercontent.com",
         );
         let request = CommitRequest {
             changes: crate::core::changes::ChangeSet::new(),
+            deleted_files: Vec::new(),
             merged_snapshot: ScannedSubtree::default(),
             message: "msg".to_string(),
             expected_head: None,

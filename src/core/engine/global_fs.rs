@@ -512,7 +512,7 @@ fn collect_scanned_directories(
             } else {
                 format!("{}/{}", prefix, name)
             };
-            if has_manifest_metadata(&rel, meta) {
+            if sub.is_empty() || has_manifest_metadata(&rel, meta) {
                 out.push(ScannedDirectory {
                     path: rel.clone(),
                     meta: meta.clone(),
@@ -855,5 +855,23 @@ mod tests {
         let snapshot = global.export_mount_snapshot(&root).unwrap();
         assert_eq!(snapshot.files.len(), 1);
         assert_eq!(snapshot.files[0].path, "notes.md");
+    }
+
+    #[test]
+    fn exported_mount_snapshot_preserves_empty_directories() {
+        let mut global = GlobalFs::empty();
+        let root = VirtualPath::from_absolute("/site").unwrap();
+        global
+            .mount_scanned_subtree(root.clone(), &ScannedSubtree::default())
+            .unwrap();
+        global.upsert_directory(root.join("empty"), DirectoryMetadata::default());
+
+        let snapshot = global.export_mount_snapshot(&root).unwrap();
+        let paths: Vec<_> = snapshot
+            .directories
+            .iter()
+            .map(|dir| dir.path.as_str())
+            .collect();
+        assert_eq!(paths, vec!["empty"]);
     }
 }

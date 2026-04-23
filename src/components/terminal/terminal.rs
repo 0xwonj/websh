@@ -36,7 +36,9 @@ fn handle_login(ctx: AppContext) {
         match wallet::connect().await {
             Ok(address) => {
                 wallet::save_session();
-                ctx.runtime_state_rev.update(|rev| *rev += 1);
+                ctx.runtime_state.update(|state| {
+                    state.wallet_session = true;
+                });
                 let chain_id = wallet::get_chain_id().await;
 
                 ctx.wallet.set(WalletState::Connected {
@@ -213,14 +215,19 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
         }
         SideEffect::SetAuthToken { token } => {
             crate::core::runtime::state::set_github_token(&token);
-            ctx.runtime_state_rev.update(|rev| *rev += 1);
+            ctx.runtime_state.update(|state| {
+                state.github_token = Some(token);
+            });
         }
         SideEffect::ClearAuthToken => {
             crate::core::runtime::state::clear_github_token();
-            ctx.runtime_state_rev.update(|rev| *rev += 1);
+            ctx.runtime_state.update(|state| {
+                state.github_token = None;
+            });
         }
         SideEffect::InvalidateRuntimeState => {
-            ctx.runtime_state_rev.update(|rev| *rev += 1);
+            ctx.runtime_state
+                .set(crate::core::runtime::state::snapshot());
         }
         SideEffect::OpenEditor { path } => {
             ctx.editor_open.set(Some(path));
@@ -243,6 +250,9 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
             let runtime_mounts_signal = ctx.runtime_mounts;
             let terminal = ctx.terminal;
             let mount_root_for_commit = mount_root.clone();
+            let auth_token = ctx
+                .runtime_state
+                .with_untracked(|state| state.github_token.clone());
 
             wasm_bindgen_futures::spawn_local(async move {
                 let staged_snapshot = changes_signal.with_untracked(|cs| cs.clone());
@@ -253,6 +263,7 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
                     staged_snapshot,
                     message,
                     expected_head,
+                    auth_token,
                 )
                 .await
                 {

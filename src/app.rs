@@ -15,6 +15,7 @@ use crate::config::{APP_NAME, MAX_COMMAND_HISTORY, MAX_TERMINAL_HISTORY};
 use crate::core::changes::ChangeSet;
 use crate::core::engine::{GlobalFs, display_path_for};
 use crate::core::merge;
+use crate::core::runtime::RuntimeStateSnapshot;
 use crate::core::storage::StorageBackend;
 use crate::core::storage::persist::DraftPersister;
 use crate::models::{
@@ -268,8 +269,8 @@ pub struct AppContext {
     pub runtime_mounts: RwSignal<Vec<RuntimeMount>>,
     /// Remote HEAD registry keyed by canonical mount roots.
     pub remote_heads: RwSignal<BTreeMap<VirtualPath, String>>,
-    /// Version counter for runtime state-backed `/state` nodes.
-    pub runtime_state_rev: RwSignal<u64>,
+    /// Browser-hydrated runtime state rendered under `/state`.
+    pub runtime_state: RwSignal<RuntimeStateSnapshot>,
 
     // === Editor modal ===
     /// When `Some(path)`, the `EditModal` is open editing that path. `None` = closed.
@@ -286,21 +287,25 @@ impl AppContext {
     /// - Filesystem: Empty
     /// - View: Terminal mode
     pub fn new() -> Self {
-        let global_fs = RwSignal::new(crate::core::storage::boot::bootstrap_global_fs());
+        let initial_load = crate::core::runtime::bootstrap_runtime_load();
+        let global_fs = RwSignal::new(initial_load.global_fs);
         let changes = RwSignal::new(ChangeSet::new());
         let wallet = RwSignal::new(WalletState::default());
-        let runtime_state_rev = RwSignal::new(0_u64);
+        let runtime_state = RwSignal::new(crate::core::runtime::state::snapshot());
         let view_global_fs = Signal::derive_local(move || {
-            runtime_state_rev.track();
             Rc::new(global_fs.with(|base| {
-                changes.with(|cs| wallet.with(|ws| merge::merge_global_view(base, cs, ws)))
+                changes.with(|cs| {
+                    wallet.with(|ws| {
+                        runtime_state.with(|rs| merge::merge_global_view(base, cs, ws, rs))
+                    })
+                })
             }))
         });
 
         let backends: StoredValue<BTreeMap<VirtualPath, Arc<dyn StorageBackend>>, LocalStorage> =
-            StoredValue::new_local(crate::core::runtime::bootstrap_backends());
-        let runtime_mounts = RwSignal::new(crate::core::runtime::bootstrap_runtime_mounts());
-        let remote_heads = RwSignal::new(BTreeMap::new());
+            StoredValue::new_local(initial_load.backends);
+        let runtime_mounts = RwSignal::new(initial_load.runtime_mounts);
+        let remote_heads = RwSignal::new(initial_load.remote_heads);
 
         let editor_open = RwSignal::new(None);
 
@@ -323,7 +328,7 @@ impl AppContext {
             backends,
             runtime_mounts,
             remote_heads,
-            runtime_state_rev,
+            runtime_state,
 
             // Editor state
             editor_open,

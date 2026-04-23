@@ -4,7 +4,7 @@ use crate::core::changes::ChangeSet;
 use crate::core::engine::GlobalFs;
 use crate::core::merge;
 use crate::core::storage::{
-    CommitOutcome, CommitRequest, StorageBackend, StorageError, StorageResult,
+    CommitOutcome, CommitRequest, ScannedSubtree, StorageBackend, StorageError, StorageResult,
 };
 use crate::models::VirtualPath;
 
@@ -14,8 +14,17 @@ pub async fn commit_backend(
     changes: ChangeSet,
     message: String,
     expected_head: Option<String>,
+    auth_token: Option<String>,
 ) -> StorageResult<CommitOutcome> {
-    let request = prepare_commit(&backend, &mount_root, &changes, message, expected_head).await?;
+    let request = prepare_commit(
+        &backend,
+        &mount_root,
+        &changes,
+        message,
+        expected_head,
+        auth_token,
+    )
+    .await?;
     backend.commit(&request).await
 }
 
@@ -25,6 +34,7 @@ async fn prepare_commit(
     changes: &ChangeSet,
     message: String,
     expected_head: Option<String>,
+    auth_token: Option<String>,
 ) -> StorageResult<CommitRequest> {
     let base_snapshot = backend.scan().await?;
     let mut merged = GlobalFs::empty();
@@ -41,6 +51,9 @@ async fn prepare_commit(
         }
     }
 
+    let deleted_files =
+        deleted_files_for_directory_changes(&base_snapshot, mount_root, &staged_changes);
+
     merge::apply_staged_changes_to_global_for_root(&mut merged, &staged_changes, mount_root);
 
     let merged_snapshot = merged
@@ -49,11 +62,48 @@ async fn prepare_commit(
 
     Ok(CommitRequest {
         changes: staged_changes,
+        deleted_files,
         merged_snapshot,
         message,
         expected_head,
-        auth_token: crate::core::runtime::state::get_github_token(),
+        auth_token,
     })
+}
+
+fn deleted_files_for_directory_changes(
+    base_snapshot: &ScannedSubtree,
+    mount_root: &VirtualPath,
+    changes: &ChangeSet,
+) -> Vec<VirtualPath> {
+    let mut deleted = Vec::new();
+
+    for (path, entry) in changes.iter_staged() {
+        if !matches!(
+            entry.change,
+            crate::core::changes::ChangeType::DeleteDirectory
+        ) {
+            continue;
+        }
+
+        let Some(rel_dir) = path.strip_prefix(mount_root) else {
+            continue;
+        };
+        for file in &base_snapshot.files {
+            let is_descendant = rel_dir.is_empty()
+                || file.path == rel_dir
+                || file
+                    .path
+                    .strip_prefix(rel_dir)
+                    .is_some_and(|rest| rest.starts_with('/'));
+            if is_descendant {
+                deleted.push(mount_root.join(&file.path));
+            }
+        }
+    }
+
+    deleted.sort();
+    deleted.dedup();
+    deleted
 }
 
 #[cfg(test)]
@@ -138,6 +188,7 @@ mod tests {
             &changes,
             "msg".to_string(),
             Some("old".to_string()),
+            None,
         )
         .await
         .unwrap();
@@ -149,6 +200,7 @@ mod tests {
             .map(|file| file.path.as_str())
             .collect();
         assert_eq!(paths, vec!["keep.md", "new.md"]);
+        assert!(request.deleted_files.is_empty());
         assert_eq!(request.changes.len(), 1);
         assert_eq!(request.expected_head.as_deref(), Some("old"));
         assert_eq!(request.auth_token, None);
@@ -174,10 +226,57 @@ mod tests {
             &changes,
             "msg".to_string(),
             Some("old".to_string()),
+            None,
         )
         .await
         .expect_err("commit preparation must reject cross-mount staged changes");
 
         assert!(matches!(error, StorageError::BadRequest(_)));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn prepared_commit_expands_directory_delete_to_descendant_files() {
+        let backend: Arc<dyn StorageBackend> = Arc::new(PrepareBackend {
+            scan: RefCell::new(Some(ScannedSubtree {
+                files: vec![
+                    ScannedFile {
+                        path: "docs/a.md".to_string(),
+                        description: "A".to_string(),
+                        meta: FileMetadata::default(),
+                    },
+                    ScannedFile {
+                        path: "docs/deep/b.md".to_string(),
+                        description: "B".to_string(),
+                        meta: FileMetadata::default(),
+                    },
+                    ScannedFile {
+                        path: "keep.md".to_string(),
+                        description: "Keep".to_string(),
+                        meta: FileMetadata::default(),
+                    },
+                ],
+                directories: vec![],
+            })),
+        });
+        let mut changes = ChangeSet::new();
+        changes.upsert(p("/site/docs"), ChangeType::DeleteDirectory);
+
+        let request = prepare_commit(
+            &backend,
+            &p("/site"),
+            &changes,
+            "msg".to_string(),
+            Some("old".to_string()),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let paths: Vec<_> = request
+            .deleted_files
+            .iter()
+            .map(|path| path.as_str())
+            .collect();
+        assert_eq!(paths, vec!["/site/docs/a.md", "/site/docs/deep/b.md"]);
     }
 }

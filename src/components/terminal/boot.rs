@@ -72,8 +72,7 @@ pub fn run(ctx: AppContext) {
                 )));
             }
             Err(error) => {
-                ctx.global_fs
-                    .set(crate::core::storage::boot::bootstrap_global_fs());
+                apply_runtime_load(&ctx, runtime::bootstrap_runtime_load());
                 ctx.terminal.push_output(OutputLine::error(format!(
                     "{} Failed to mount filesystems: {}",
                     format_elapsed(elapsed()),
@@ -121,11 +120,15 @@ pub fn run(ctx: AppContext) {
                         ens_name,
                         chain_id,
                     });
-                    ctx.runtime_state_rev.update(|rev| *rev += 1);
+                    ctx.runtime_state.update(|state| {
+                        state.wallet_session = true;
+                    });
                 }
                 None => {
                     wallet::clear_session();
-                    ctx.runtime_state_rev.update(|rev| *rev += 1);
+                    ctx.runtime_state.update(|state| {
+                        state.wallet_session = false;
+                    });
                     ctx.terminal.push_output(OutputLine::text(format!(
                         "{} Wallet session expired",
                         format_elapsed(elapsed())

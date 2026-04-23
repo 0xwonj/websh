@@ -1,8 +1,13 @@
-//! Markdown rendering utilities.
+//! HTML and Markdown rendering utilities.
 //!
-//! Provides safe markdown-to-HTML conversion with XSS protection.
+//! Provides safe HTML rendering boundaries with XSS protection.
 
 use pulldown_cmark::{Options, Parser, html};
+
+/// Sanitize untrusted HTML before rendering it with `inner_html`.
+pub fn sanitize_html(html: &str) -> String {
+    ammonia::clean(html)
+}
 
 /// Convert markdown content to sanitized HTML.
 ///
@@ -24,6 +29,18 @@ pub fn markdown_to_html(markdown: &str) -> String {
     let mut html_output = String::new();
     html::push_html(&mut html_output, parser);
 
-    // Sanitize HTML to prevent XSS attacks
-    ammonia::clean(&html_output)
+    sanitize_html(&html_output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitize_html_removes_scripts_and_event_handlers() {
+        let html = r#"<img src="x" onerror="alert(1)"><script>alert(2)</script>"#;
+        let sanitized = sanitize_html(html);
+        assert!(!sanitized.contains("onerror"));
+        assert!(!sanitized.contains("<script"));
+    }
 }

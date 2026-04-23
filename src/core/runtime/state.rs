@@ -103,10 +103,6 @@ pub fn all_env_vars() -> Vec<(String, String)> {
     })
 }
 
-pub fn get_github_token() -> Option<String> {
-    with_state(|state| state.github_token.clone())
-}
-
 pub fn set_github_token(token: &str) {
     with_state(|state| {
         state.github_token = Some(token.to_string());

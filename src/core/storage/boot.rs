@@ -6,12 +6,13 @@ use std::sync::Arc;
 use crate::config::BOOTSTRAP_SITE;
 use crate::core::changes::ChangeSet;
 use crate::core::engine::GlobalFs;
-use crate::core::storage::{GitHubBackend, StorageBackend, StorageResult};
+use crate::core::storage::{StorageBackend, StorageResult};
 use crate::models::{
     BootstrapSiteSource, DirectoryMetadata, FileMetadata, FileSidecarMetadata, MountDeclaration,
     NodeKind, RendererKind, RuntimeBackendKind, RuntimeMount, VirtualPath,
 };
 
+use super::github::GitHubBackend;
 use super::idb;
 
 pub fn bootstrap_runtime_mount() -> RuntimeMount {
@@ -26,22 +27,13 @@ pub fn bootstrap_runtime_mount() -> RuntimeMount {
 pub fn build_backend_for_bootstrap_site(source: &BootstrapSiteSource) -> Arc<dyn StorageBackend> {
     let prefix = source.content_root.trim_matches('/').to_string();
     let gateway = source.gateway.trim_end_matches('/');
-    let base_url = if prefix.is_empty() {
-        format!("{}/{}/{}", gateway, source.repo_with_owner, source.branch)
-    } else {
-        format!(
-            "{}/{}/{}/{}",
-            gateway, source.repo_with_owner, source.branch, prefix
-        )
-    };
-    let manifest_url = format!("{base_url}/manifest.json");
 
     Arc::new(GitHubBackend::new(
         source.repo_with_owner,
         source.branch,
         source.mount_root(),
         prefix,
-        manifest_url,
+        gateway,
     ))
 }
 
@@ -67,12 +59,6 @@ pub fn build_backend_for_declaration(
                 .as_deref()
                 .unwrap_or("https://raw.githubusercontent.com")
                 .trim_end_matches('/');
-            let base_url = if prefix.is_empty() {
-                format!("{gateway}/{repo}/{branch}")
-            } else {
-                format!("{gateway}/{repo}/{branch}/{prefix}")
-            };
-            let manifest_url = format!("{base_url}/manifest.json");
             let label = declaration.name.clone().unwrap_or_else(|| {
                 mount_root
                     .file_name()
@@ -90,11 +76,7 @@ pub fn build_backend_for_declaration(
             Some((
                 mount,
                 Arc::new(GitHubBackend::new(
-                    repo,
-                    branch,
-                    mount_root,
-                    prefix,
-                    manifest_url,
+                    repo, branch, mount_root, prefix, gateway,
                 )),
             ))
         }
@@ -122,7 +104,6 @@ pub fn seed_bootstrap_routes(global: &mut GlobalFs) {
 
     seed_bootstrap_app(global, "/site/shell.app", "/shell");
     seed_bootstrap_app(global, "/site/fs.app", "/fs/*path");
-    seed_bootstrap_page(global, "/site/index.html");
 }
 
 fn seed_bootstrap_app(global: &mut GlobalFs, node_path: &str, route: &str) {
@@ -140,13 +121,6 @@ fn seed_bootstrap_app(global: &mut GlobalFs, node_path: &str, route: &str) {
         }
         .into(),
     );
-}
-
-fn seed_bootstrap_page(global: &mut GlobalFs, node_path: &str) {
-    let node_path = VirtualPath::from_absolute(node_path).expect("constant path");
-    if !global.exists(&node_path) {
-        global.upsert_binary_placeholder(node_path, FileMetadata::default());
-    }
 }
 
 pub async fn hydrate_drafts(mount_id: &str) -> StorageResult<ChangeSet> {

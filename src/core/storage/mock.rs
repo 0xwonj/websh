@@ -29,6 +29,8 @@ pub struct CommitRecord {
     pub message: String,
     pub expected_head: Option<String>,
     pub paths: Vec<VirtualPath>,
+    pub deleted_files: Vec<VirtualPath>,
+    pub merged_snapshot: ScannedSubtree,
 }
 
 impl MockBackend {
@@ -84,22 +86,32 @@ impl StorageBackend for MockBackend {
         request: &'a CommitRequest,
     ) -> BoxFuture<'a, StorageResult<CommitOutcome>> {
         Box::pin(async move {
-            let mut paths: Vec<VirtualPath> = request
+            let paths: Vec<VirtualPath> = request
                 .changes
                 .iter_staged()
                 .map(|(p, _)| p.clone())
                 .collect();
-            paths.push(VirtualPath::from_absolute("/manifest.json").unwrap());
 
             self.commit_calls.borrow_mut().push(CommitRecord {
                 message: request.message.clone(),
                 expected_head: request.expected_head.clone(),
                 paths,
+                deleted_files: request.deleted_files.clone(),
+                merged_snapshot: request.merged_snapshot.clone(),
             });
-            self.next_outcome
+            let mut outcome = self
+                .next_outcome
                 .borrow_mut()
                 .take()
-                .unwrap_or_else(|| Err(StorageError::BadRequest("no outcome queued".into())))
+                .unwrap_or_else(|| Err(StorageError::BadRequest("no outcome queued".into())))?;
+            if outcome.committed_paths.is_empty() {
+                outcome.committed_paths = request
+                    .changes
+                    .iter_staged()
+                    .map(|(path, _)| path.clone())
+                    .collect();
+            }
+            Ok(outcome)
         })
     }
 }
@@ -125,6 +137,7 @@ mod tests {
         let backend = MockBackend::with_success(ScannedSubtree::default(), "sha-new");
         let request = CommitRequest {
             changes: cs,
+            deleted_files: Vec::new(),
             merged_snapshot: ScannedSubtree::default(),
             message: "msg".to_string(),
             expected_head: Some("sha-old".to_string()),
@@ -137,10 +150,7 @@ mod tests {
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].message, "msg");
         assert_eq!(calls[0].expected_head.as_deref(), Some("sha-old"));
-        assert_eq!(
-            calls[0].paths,
-            vec![p, VirtualPath::from_absolute("/manifest.json").unwrap()]
-        );
+        assert_eq!(calls[0].paths, vec![p]);
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -149,6 +159,7 @@ mod tests {
         let backend = MockBackend::with_conflict("sha-remote");
         let request = CommitRequest {
             changes: cs,
+            deleted_files: Vec::new(),
             merged_snapshot: ScannedSubtree::default(),
             message: "m".to_string(),
             expected_head: None,

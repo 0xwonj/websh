@@ -151,7 +151,9 @@ pub fn clear_session() {
 pub fn disconnect(ctx: &crate::app::AppContext) {
     clear_session();
     ctx.wallet.set(crate::models::WalletState::Disconnected);
-    ctx.runtime_state_rev.update(|rev| *rev += 1);
+    ctx.runtime_state.update(|state| {
+        state.wallet_session = false;
+    });
 }
 
 // ============================================================================

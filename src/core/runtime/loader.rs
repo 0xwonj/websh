@@ -34,6 +34,18 @@ pub fn bootstrap_backends() -> BackendRegistry {
     backends
 }
 
+pub fn bootstrap_runtime_load() -> RuntimeLoad {
+    let global_fs = storage_boot::bootstrap_global_fs();
+    let total_files = count_files(&global_fs, &VirtualPath::root());
+    RuntimeLoad {
+        global_fs,
+        backends: bootstrap_backends(),
+        runtime_mounts: bootstrap_runtime_mounts(),
+        remote_heads: BTreeMap::new(),
+        total_files,
+    }
+}
+
 pub async fn load_runtime() -> Result<RuntimeLoad, String> {
     let mut backends = bootstrap_backends();
     let mut runtime_mounts = bootstrap_runtime_mounts();
