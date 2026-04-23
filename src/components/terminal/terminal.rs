@@ -35,10 +35,7 @@ fn handle_login(ctx: AppContext) {
 
         match wallet::connect().await {
             Ok(address) => {
-                wallet::save_session();
-                ctx.runtime_state.update(|state| {
-                    state.wallet_session = true;
-                });
+                ctx.runtime_state.set(wallet::save_session());
                 let chain_id = wallet::get_chain_id().await;
 
                 ctx.wallet.set(WalletState::Connected {
@@ -146,11 +143,16 @@ fn create_submit_callback(ctx: AppContext, route_ctx: RouteContext) -> Callback<
         let current_frame = route_ctx.0.get();
         let cwd = route_cwd(&current_frame);
         let prompt = ctx.get_prompt(&cwd);
+        let display_input = display_command(&input);
 
         if !input.is_empty() {
             ctx.terminal
-                .push_output(OutputLine::command(prompt, &input));
-            ctx.terminal.add_to_command_history(&input);
+                .push_output(OutputLine::command(prompt, &display_input));
+            if should_store_command_history(&input) {
+                ctx.terminal.add_to_command_history(&input);
+            } else {
+                ctx.terminal.history_index.set(None);
+            }
         }
 
         let pipeline = ctx
@@ -214,16 +216,12 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
             ctx.changes.update(|cs| cs.unstage_all());
         }
         SideEffect::SetAuthToken { token } => {
-            crate::core::runtime::state::set_github_token(&token);
-            ctx.runtime_state.update(|state| {
-                state.github_token = Some(token);
-            });
+            ctx.runtime_state
+                .set(crate::core::runtime::state::set_github_token(&token));
         }
         SideEffect::ClearAuthToken => {
-            crate::core::runtime::state::clear_github_token();
-            ctx.runtime_state.update(|state| {
-                state.github_token = None;
-            });
+            ctx.runtime_state
+                .set(crate::core::runtime::state::clear_github_token());
         }
         SideEffect::InvalidateRuntimeState => {
             ctx.runtime_state
@@ -244,15 +242,11 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
                 return;
             };
             let changes_signal = ctx.changes;
-            let global_fs_signal = ctx.global_fs;
-            let heads_signal = ctx.remote_heads;
-            let backends_store = ctx.backends;
             let runtime_mounts_signal = ctx.runtime_mounts;
             let terminal = ctx.terminal;
             let mount_root_for_commit = mount_root.clone();
-            let auth_token = ctx
-                .runtime_state
-                .with_untracked(|state| state.github_token.clone());
+            let auth_token = runtime::state::github_token_for_commit();
+            let app_ctx = *ctx;
 
             wasm_bindgen_futures::spawn_local(async move {
                 let staged_snapshot = changes_signal.with_untracked(|cs| cs.clone());
@@ -286,10 +280,7 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
 
                         match runtime::reload_runtime().await {
                             Ok(load) => {
-                                global_fs_signal.set(load.global_fs);
-                                backends_store.set_value(load.backends);
-                                runtime_mounts_signal.set(load.runtime_mounts);
-                                heads_signal.set(load.remote_heads);
+                                app_ctx.apply_runtime_load(load);
                             }
                             Err(error) => terminal.push_output(crate::models::OutputLine::info(
                                 format!("sync: commit ok, runtime reload failed: {error}"),
@@ -316,32 +307,13 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
                 }
             });
         }
-        SideEffect::ReloadRuntimeMount { mount_root } => {
-            let Some(backend) = ctx.backend_for_path(&mount_root) else {
-                ctx.terminal.push_output(crate::models::OutputLine::error(
-                    "sync refresh: no backend".to_string(),
-                ));
-                return;
-            };
-            let global_fs_signal = ctx.global_fs;
-            let backends_store = ctx.backends;
-            let runtime_mounts_signal = ctx.runtime_mounts;
-            let heads_signal = ctx.remote_heads;
+        SideEffect::ReloadRuntimeMount { mount_root: _ } => {
+            let app_ctx = *ctx;
             let terminal = ctx.terminal;
             wasm_bindgen_futures::spawn_local(async move {
-                if let Err(e) = backend.scan().await {
-                    terminal.push_output(crate::models::OutputLine::error(format!(
-                        "sync refresh: {e}"
-                    )));
-                    return;
-                }
-
                 match runtime::reload_runtime().await {
                     Ok(load) => {
-                        global_fs_signal.set(load.global_fs);
-                        backends_store.set_value(load.backends);
-                        runtime_mounts_signal.set(load.runtime_mounts);
-                        heads_signal.set(load.remote_heads);
+                        app_ctx.apply_runtime_load(load);
                         terminal.push_output(crate::models::OutputLine::info(
                             "sync: runtime reloaded.".to_string(),
                         ));
@@ -352,6 +324,51 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
                 }
             });
         }
+    }
+}
+
+fn display_command(input: &str) -> String {
+    let trimmed = input.trim_start();
+    if is_sync_auth_set(trimmed) {
+        let leading = &input[..input.len() - trimmed.len()];
+        format!("{leading}sync auth set <redacted>")
+    } else {
+        input.to_string()
+    }
+}
+
+fn should_store_command_history(input: &str) -> bool {
+    !is_sync_auth_set(input.trim_start())
+}
+
+fn is_sync_auth_set(input: &str) -> bool {
+    let mut parts = input.split_whitespace();
+    matches!(
+        (parts.next(), parts.next(), parts.next(), parts.next()),
+        (Some("sync"), Some("auth"), Some("set"), Some(_))
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auth_set_command_is_redacted_for_display() {
+        assert_eq!(
+            display_command("sync auth set ghp_secret"),
+            "sync auth set <redacted>"
+        );
+        assert_eq!(
+            display_command("  sync auth set ghp_secret"),
+            "  sync auth set <redacted>"
+        );
+    }
+
+    #[test]
+    fn auth_set_command_is_not_stored_in_history() {
+        assert!(!should_store_command_history("sync auth set ghp_secret"));
+        assert!(should_store_command_history("sync auth clear"));
     }
 }
 

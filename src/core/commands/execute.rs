@@ -297,7 +297,7 @@ fn execute_export(assignments: Vec<String>) -> CommandResult {
             let key = key.trim();
             let value = value.trim().trim_matches('"').trim_matches('\'');
             match env::set_user_var(key, value) {
-                Ok(()) => state_changed = true,
+                Ok(_) => state_changed = true,
                 Err(e) => {
                     output.push(OutputLine::error(format!("export: {}", e)));
                     if exit_code == 0 {
@@ -326,7 +326,7 @@ fn execute_export(assignments: Vec<String>) -> CommandResult {
 fn execute_unset(key: String) -> CommandResult {
     if env::get_user_var(&key).is_some() {
         match env::unset_user_var(&key) {
-            Ok(()) => CommandResult {
+            Ok(_) => CommandResult {
                 output: vec![],
                 exit_code: 0,
                 side_effect: Some(SideEffect::InvalidateRuntimeState),
@@ -1922,7 +1922,7 @@ mod tests {
 
     /// Build the merged "current view" that the terminal dispatcher sees.
     fn view(base: &GlobalFs, changes: &ChangeSet) -> GlobalFs {
-        crate::core::merge::merge_global_view(
+        crate::core::runtime::build_view_global_fs(
             base,
             changes,
             &WalletState::Disconnected,

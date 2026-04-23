@@ -66,6 +66,7 @@ GitHub manifest JSON is a private serialization detail under `core::storage::git
 - `directories: Vec<ScannedDirectory>`
 
 Runtime commit coordination prepares a merged mount snapshot from `GlobalFs` before calling the backend. `CommitRequest` carries the runtime-supplied auth token, so storage backends do not read browser/session state directly. GitHub then serializes `manifest.json` privately from that prepared snapshot. The app surface does not expose manifest structs.
+Runtime commit preparation also emits a backend-neutral `CommitDelta` with concrete file additions/deletions. Directory deletes are expanded before backend dispatch, and descendant staged writes under a deleted directory are suppressed so a repo path cannot appear in both additions and deletions.
 
 ## State model
 
@@ -89,7 +90,7 @@ Runtime commit coordination prepares a merged mount snapshot from `GlobalFs` bef
 - `runtime_state`
 - `wallet`
 
-`runtime_state` is hydrated once from browser persistence and then owned by `AppContext`. Feature code does not read browser storage directly, and `/state` does not expose the raw GitHub token.
+`runtime_state` is a safe projection hydrated from the runtime state adapter and owned by `AppContext` for rendering. Raw GitHub tokens stay in the private runtime secret store and are exposed only through the commit-auth path. Feature code does not read browser storage directly, and `/state` does not expose the raw GitHub token.
 
 ## Command/runtime rules
 
@@ -97,7 +98,7 @@ Runtime commit coordination prepares a merged mount snapshot from `GlobalFs` bef
 - `ls`, `touch`, `mkdir`, `rm`, `rmdir`, `edit`, and `sync` work against canonical roots
 - `sync commit` accepts staged changes for exactly one runtime mount
 - `sync refresh` and successful `sync commit` reload runtime through `core::runtime::loader`
-- auth/session mutations use one side effect path: runtime-state invalidation
+- auth/session mutations use one side effect path: runtime-state mutation returns a fresh safe snapshot for `AppContext.runtime_state`
 
 ## Route rules
 

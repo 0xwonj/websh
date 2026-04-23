@@ -6,13 +6,13 @@ Status: executed
 ## Build and grep gates
 
 - `cargo test`
-  Result: pass, `339` tests green, no warnings.
+  Result: pass, `351` tests green, no warnings.
 - `cargo test --features mock --test commit_integration`
   Result: pass, `1` test green.
 - `env -u NO_COLOR trunk build --release`
   Result: pass, no warnings.
-- `NODE_PATH=target/qa/node_modules target/qa/node_modules/.bin/playwright test tests/e2e --reporter=line --workers=1`
-  Result: pass, `8` browser tests green against release Trunk server on `127.0.0.1:4173`.
+- `WEBSH_E2E_BASE_URL=http://127.0.0.1:4173 NODE_PATH=target/qa/node_modules target/qa/node_modules/.bin/playwright test tests/e2e --reporter=line --workers=1`
+  Result: pass, `9` browser tests green against release Trunk server on `127.0.0.1:4173`.
 - Residue grep across `src tests docs README.md CLAUDE.md`
   Result: clean for the required completion-gate residue patterns.
 
@@ -34,32 +34,23 @@ Executed and observed:
 - `/fs/mnt/db` loaded with cwd `/mnt/db`.
 - `login` restored admin write eligibility through the EIP-1193 stub.
 - `sync auth set qa-token` wrote session state immediately.
-- `export EDITOR=nano` wrote env state immediately.
+- terminal output redacted the auth command as `sync auth set <redacted>`.
+- command-history recall did not expose `qa-token`.
 - `ls /state/session` showed `github_token_present` after auth set.
 - `cat /state/session/github_token` returned path not found.
-- `ls /state/env` showed `EDITOR` after export.
-- browser storage matched the runtime mutations:
-  `sessionStorage["websh.gh_token"] == "qa-token"`
-  `localStorage["user.EDITOR"] == "nano"`
-  `localStorage["wallet_session"] == "1"`
-- declared mount refresh worked:
-  after mutating the mocked remote mount and running `sync refresh` from `/mnt/db`, `ls` showed `fresh.md`.
-- declared mount prune/restore worked:
-  removing `.websh/mounts/db.mount.json` from the mocked bootstrap site and running `sync refresh` removed `db` from `ls /mnt`;
-  restoring the declaration and refreshing mounted `/mnt/db` again.
+- `sync commit qa commit` sent a browser GraphQL request to `https://api.github.com/graphql`.
+- the captured GraphQL request included `Authorization: bearer qa-token`.
+- the captured GraphQL input included the hydrated `expectedHeadOid`.
+- the captured GraphQL file changes included `~/manifest.json` and `~/commit-new.md` additions.
+- the captured GraphQL file changes included recursive deletions for `~/docs/old.md` and `~/docs/deep/old.md`.
+- descendant staged writes under `docs/` were suppressed from GraphQL additions when `rm -r docs` was staged.
 - commit request assembly is covered by Rust integration:
-  staged paths, regenerated mount snapshot, prefixed GitHub manifest path,
-  empty directories, and recursive directory deletions are asserted before
+  staged paths, auth handoff, regenerated mount snapshot, prefixed GitHub
+  manifest path, empty directories, recursive directory deletions, path
+  validation, and addition/deletion conflict normalization are asserted before
   backend dispatch.
-- runtime-state cleanup worked:
-  `sync auth clear`
-  `unset EDITOR`
-  `logout`
-  browser storage keys were removed/cleared
-  `ls /state/session` still showed `wallet_session`
-  `ls /state/env` returned `# No user variables set`
 - IDB draft persistence round-tripped through the browser:
-  `echo persisted > persist.md`, debounce save, page reload, then `ls` showed `persist.md`.
+  `echo persisted > persist.md`, IndexedDB record polling, page reload, then `ls` showed `persist.md`.
 
 ## Fallback route verification
 
@@ -73,5 +64,6 @@ Executed and observed:
 
 - Runtime authority is consolidated under `BOOTSTRAP_SITE` and `core::runtime::loader`.
 - Storage scan/commit surface is backend-neutral (`ScannedSubtree`).
+- Commit write surface is backend-neutral (`CommitDelta` + merged `ScannedSubtree`).
 - Scan assembly is direct `ScannedSubtree -> GlobalFs`; the old mount-local filesystem model is removed.
 - Stale docs were removed; only the current architecture spec and this checklist remain under `docs/`.

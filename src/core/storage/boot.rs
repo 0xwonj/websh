@@ -13,6 +13,7 @@ use crate::models::{
 };
 
 use super::github::GitHubBackend;
+use super::github::path::normalize_repo_prefix;
 use super::idb;
 
 pub fn bootstrap_runtime_mount() -> RuntimeMount {
@@ -28,13 +29,16 @@ pub fn build_backend_for_bootstrap_site(source: &BootstrapSiteSource) -> Arc<dyn
     let prefix = source.content_root.trim_matches('/').to_string();
     let gateway = source.gateway.trim_end_matches('/');
 
-    Arc::new(GitHubBackend::new(
-        source.repo_with_owner,
-        source.branch,
-        source.mount_root(),
-        prefix,
-        gateway,
-    ))
+    Arc::new(
+        GitHubBackend::new(
+            source.repo_with_owner,
+            source.branch,
+            source.mount_root(),
+            prefix,
+            gateway,
+        )
+        .expect("bootstrap site source must have a valid content root"),
+    )
 }
 
 pub fn build_backend_for_declaration(
@@ -48,12 +52,11 @@ pub fn build_backend_for_declaration(
                 .clone()
                 .unwrap_or_else(|| "main".to_string());
             let mount_root = VirtualPath::from_absolute(declaration.mount_at.clone()).ok()?;
-            let prefix = declaration
-                .root
-                .clone()
-                .unwrap_or_default()
-                .trim_matches('/')
-                .to_string();
+            if !is_canonical_mount_root(&mount_root) {
+                return None;
+            }
+            let prefix =
+                normalize_repo_prefix(&declaration.root.clone().unwrap_or_default()).ok()?;
             let gateway = declaration
                 .gateway
                 .as_deref()
@@ -75,22 +78,34 @@ pub fn build_backend_for_declaration(
 
             Some((
                 mount,
-                Arc::new(GitHubBackend::new(
-                    repo, branch, mount_root, prefix, gateway,
-                )),
+                Arc::new(GitHubBackend::new(repo, branch, mount_root, prefix, gateway).ok()?),
             ))
         }
         _ => None,
     }
 }
 
-pub fn bootstrap_global_fs() -> GlobalFs {
+fn is_canonical_mount_root(path: &VirtualPath) -> bool {
+    if path.is_root() || path.as_str().contains('\\') {
+        return false;
+    }
+    let segments = path.segments().collect::<Vec<_>>();
+    if segments
+        .iter()
+        .any(|segment| *segment == "." || *segment == ".." || segment.chars().any(char::is_control))
+    {
+        return false;
+    }
+    format!("/{}", segments.join("/")) == path.as_str()
+}
+
+pub(crate) fn bootstrap_global_fs() -> GlobalFs {
     let mut global = GlobalFs::empty();
     seed_bootstrap_routes(&mut global);
     global
 }
 
-pub fn seed_bootstrap_routes(global: &mut GlobalFs) {
+pub(crate) fn seed_bootstrap_routes(global: &mut GlobalFs) {
     let site_root = VirtualPath::from_absolute("/site").expect("constant path");
     if !global.exists(&site_root) {
         global.upsert_directory(
@@ -153,6 +168,20 @@ mod tests {
         assert_eq!(mount.root.as_str(), "/mnt/db");
         assert_eq!(mount.label, "db");
         assert_eq!(backend.backend_type(), "github");
+    }
+
+    #[test]
+    fn declaration_rejects_noncanonical_mount_root() {
+        let declaration = MountDeclaration {
+            backend: "github".to_string(),
+            mount_at: "/mnt/../db".to_string(),
+            repo: Some("0xwonj/db".to_string()),
+            branch: Some("main".to_string()),
+            root: Some("content".to_string()),
+            ..Default::default()
+        };
+
+        assert!(build_backend_for_declaration(&declaration).is_none());
     }
 
     #[test]

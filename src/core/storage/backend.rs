@@ -4,7 +4,6 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use crate::core::changes::ChangeSet;
 use crate::models::{DirectoryMetadata, FileMetadata, VirtualPath};
 
 use super::error::StorageResult;
@@ -38,9 +37,21 @@ pub struct CommitOutcome {
 }
 
 #[derive(Clone, Debug)]
+pub struct CommitFileAddition {
+    pub path: VirtualPath,
+    pub content: String,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct CommitDelta {
+    pub additions: Vec<CommitFileAddition>,
+    pub deletions: Vec<VirtualPath>,
+    pub changed_paths: Vec<VirtualPath>,
+}
+
+#[derive(Clone, Debug)]
 pub struct CommitRequest {
-    pub changes: ChangeSet,
-    pub deleted_files: Vec<VirtualPath>,
+    pub delta: CommitDelta,
     pub merged_snapshot: ScannedSubtree,
     pub message: String,
     pub expected_head: Option<String>,

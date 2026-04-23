@@ -20,13 +20,6 @@ async fn delay(window: &web_sys::Window, ms: i32) {
     let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
 }
 
-fn apply_runtime_load(ctx: &AppContext, load: runtime::RuntimeLoad) {
-    ctx.global_fs.set(load.global_fs);
-    ctx.backends.set_value(load.backends);
-    ctx.runtime_mounts.set(load.runtime_mounts.clone());
-    ctx.remote_heads.set(load.remote_heads);
-}
-
 /// Run the boot sequence
 ///
 /// Initializes the application by:
@@ -42,6 +35,7 @@ pub fn run(ctx: AppContext) {
         let elapsed = || js_sys::Date::now() - start;
 
         env::init_defaults();
+        ctx.runtime_state.set(runtime::state::snapshot());
 
         ctx.terminal.push_output(OutputLine::info(format!(
             "{} Booting websh kernel v{}",
@@ -64,7 +58,7 @@ pub fn run(ctx: AppContext) {
         match runtime::reload_runtime().await {
             Ok(load) => {
                 let total_files = load.total_files;
-                apply_runtime_load(&ctx, load);
+                ctx.apply_runtime_load(load);
                 ctx.terminal.push_output(OutputLine::success(format!(
                     "{} Total: {} files mounted",
                     format_elapsed(elapsed()),
@@ -72,7 +66,7 @@ pub fn run(ctx: AppContext) {
                 )));
             }
             Err(error) => {
-                apply_runtime_load(&ctx, runtime::bootstrap_runtime_load());
+                ctx.apply_runtime_load(runtime::bootstrap_runtime_load());
                 ctx.terminal.push_output(OutputLine::error(format!(
                     "{} Failed to mount filesystems: {}",
                     format_elapsed(elapsed()),
@@ -120,15 +114,11 @@ pub fn run(ctx: AppContext) {
                         ens_name,
                         chain_id,
                     });
-                    ctx.runtime_state.update(|state| {
-                        state.wallet_session = true;
-                    });
+                    ctx.runtime_state
+                        .set(runtime::state::set_wallet_session(true));
                 }
                 None => {
-                    wallet::clear_session();
-                    ctx.runtime_state.update(|state| {
-                        state.wallet_session = false;
-                    });
+                    ctx.runtime_state.set(wallet::clear_session());
                     ctx.terminal.push_output(OutputLine::text(format!(
                         "{} Wallet session expired",
                         format_elapsed(elapsed())

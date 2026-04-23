@@ -28,7 +28,7 @@ async fn commit_path_records_staged_paths_and_merged_snapshot() {
         cs,
         "test".to_string(),
         Some("sha-old".to_string()),
-        None,
+        Some("qa-token".to_string()),
     )
     .await
     .unwrap();
@@ -37,6 +37,7 @@ async fn commit_path_records_staged_paths_and_merged_snapshot() {
     let calls = backend.commit_calls.borrow();
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].message, "test");
+    assert_eq!(calls[0].auth_token.as_deref(), Some("qa-token"));
     let paths: Vec<&str> = calls[0].paths.iter().map(|p| p.as_str()).collect();
     assert!(paths.contains(&"/site/a.md"));
     assert_eq!(calls[0].expected_head.as_deref(), Some("sha-old"));

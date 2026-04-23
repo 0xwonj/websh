@@ -14,7 +14,7 @@ use crate::components::RouterView;
 use crate::config::{APP_NAME, MAX_COMMAND_HISTORY, MAX_TERMINAL_HISTORY};
 use crate::core::changes::ChangeSet;
 use crate::core::engine::{GlobalFs, display_path_for};
-use crate::core::merge;
+use crate::core::runtime;
 use crate::core::runtime::RuntimeStateSnapshot;
 use crate::core::storage::StorageBackend;
 use crate::core::storage::persist::DraftPersister;
@@ -296,7 +296,7 @@ impl AppContext {
             Rc::new(global_fs.with(|base| {
                 changes.with(|cs| {
                     wallet.with(|ws| {
-                        runtime_state.with(|rs| merge::merge_global_view(base, cs, ws, rs))
+                        runtime_state.with(|rs| runtime::build_view_global_fs(base, cs, ws, rs))
                     })
                 })
             }))
@@ -378,6 +378,13 @@ impl AppContext {
                 .max_by_key(|(root, _)| root.as_str().len())
                 .map(|(_, head)| head.clone())
         })
+    }
+
+    pub fn apply_runtime_load(&self, load: runtime::RuntimeLoad) {
+        self.global_fs.set(load.global_fs);
+        self.backends.set_value(load.backends);
+        self.runtime_mounts.set(load.runtime_mounts);
+        self.remote_heads.set(load.remote_heads);
     }
 
     /// Toggles between Terminal and Explorer view modes.

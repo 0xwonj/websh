@@ -15,11 +15,20 @@ pub(crate) mod state;
 pub mod wallet;
 
 pub use commit::commit_backend;
-pub use loader::{
-    RuntimeLoad, bootstrap_backends, bootstrap_runtime_load, bootstrap_runtime_mounts,
-    load_runtime, reload_runtime,
-};
+pub use loader::{RuntimeLoad, bootstrap_runtime_load, load_runtime, reload_runtime};
 pub use state::RuntimeStateSnapshot;
+
+pub fn build_view_global_fs(
+    base: &GlobalFs,
+    changes: &ChangeSet,
+    wallet_state: &WalletState,
+    runtime_state: &RuntimeStateSnapshot,
+) -> GlobalFs {
+    let mut merged = base.clone();
+    populate_runtime_state(&mut merged, changes, wallet_state, runtime_state);
+    crate::core::merge::apply_all_changes_to_global(&mut merged, changes);
+    merged
+}
 
 pub fn populate_runtime_state(
     fs: &mut GlobalFs,
@@ -61,7 +70,7 @@ pub fn populate_runtime_state(
         );
     }
 
-    if runtime_state.github_token.is_some() {
+    if runtime_state.github_token_present {
         fs.upsert_file(
             VirtualPath::from_absolute("/state/session/github_token_present")
                 .expect("constant path"),

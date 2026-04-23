@@ -2,17 +2,10 @@
 
 use crate::core::changes::{ChangeSet, ChangeType};
 use crate::core::engine::GlobalFs;
-use crate::core::runtime::{self, RuntimeStateSnapshot};
 use crate::models::VirtualPath;
 
-pub fn merge_global_view(
-    base: &GlobalFs,
-    changes: &ChangeSet,
-    wallet_state: &crate::models::WalletState,
-    runtime_state: &RuntimeStateSnapshot,
-) -> GlobalFs {
+pub fn merge_global_view(base: &GlobalFs, changes: &ChangeSet) -> GlobalFs {
     let mut merged = base.clone();
-    runtime::populate_runtime_state(&mut merged, changes, wallet_state, runtime_state);
     apply_all_changes_to_global(&mut merged, changes);
     merged
 }
@@ -68,7 +61,7 @@ fn apply_global_change(fs: &mut GlobalFs, path: &VirtualPath, change: &ChangeTyp
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{DirectoryMetadata, FileMetadata, FsEntry, WalletState};
+    use crate::models::{DirectoryMetadata, FileMetadata, FsEntry};
 
     fn p(s: &str) -> VirtualPath {
         VirtualPath::from_absolute(s).unwrap()
@@ -79,12 +72,7 @@ mod tests {
     }
 
     fn merged(base: &GlobalFs, changes: &ChangeSet) -> GlobalFs {
-        merge_global_view(
-            base,
-            changes,
-            &WalletState::Disconnected,
-            &RuntimeStateSnapshot::default(),
-        )
+        merge_global_view(base, changes)
     }
 
     #[test]

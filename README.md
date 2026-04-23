@@ -124,7 +124,7 @@ Commands:
 - `touch <path>`, `mkdir <path>`, `rm [-r] <path>`, `rmdir <path>`, `edit <path>`
 - `echo "body" > <path>` — write-or-replace file content
 - `sync status` — show drafted changes
-- `sync commit -m "<msg>"` — push staged changes atomically
+- `sync commit <msg>` — push staged changes atomically
 - `sync refresh` — reload the runtime from configured storage backends
 - `sync auth set <github_pat>` / `sync auth clear` — session-scoped token
 
@@ -133,9 +133,10 @@ Drafts persist in IndexedDB across reloads. Commits use GraphQL
 remote moved since you started drafting, the commit fails with
 "remote changed — run `sync refresh`" rather than clobbering.
 
-**Security caveat:** the GitHub PAT is sensitive browser runtime state. Keep
-mounted content sanitized, use minimum token scopes, and enforce deployment CSP
-headers before wider admin rollout.
+**Security caveat:** the GitHub PAT is sensitive browser runtime state. The
+terminal redacts `sync auth set <token>` and keeps it out of command history;
+still keep mounted content sanitized, use minimum token scopes, and enforce
+deployment CSP headers before wider admin rollout.
 
 ## Architecture
 

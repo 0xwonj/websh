@@ -2,7 +2,7 @@
 
 use crate::config::{DEFAULT_USER_VARS, USER_VAR_PREFIX};
 use crate::core::error::EnvironmentError;
-use crate::core::runtime::state;
+use crate::core::runtime::{RuntimeStateSnapshot, state};
 
 /// Check if a variable name is valid.
 ///
@@ -26,7 +26,7 @@ pub fn is_valid_var_name(name: &str) -> bool {
 }
 
 /// Set a user environment variable.
-pub fn set_user_var(key: &str, value: &str) -> Result<(), EnvironmentError> {
+pub fn set_user_var(key: &str, value: &str) -> Result<RuntimeStateSnapshot, EnvironmentError> {
     if !is_valid_var_name(key) {
         return Err(EnvironmentError::InvalidVariableName);
     }
@@ -40,7 +40,7 @@ pub fn get_user_var(key: &str) -> Option<String> {
 }
 
 /// Remove a user environment variable.
-pub fn unset_user_var(key: &str) -> Result<(), EnvironmentError> {
+pub fn unset_user_var(key: &str) -> Result<RuntimeStateSnapshot, EnvironmentError> {
     state::unset_env_var(key)
 }
 

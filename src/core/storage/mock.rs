@@ -30,6 +30,7 @@ pub struct CommitRecord {
     pub expected_head: Option<String>,
     pub paths: Vec<VirtualPath>,
     pub deleted_files: Vec<VirtualPath>,
+    pub auth_token: Option<String>,
     pub merged_snapshot: ScannedSubtree,
 }
 
@@ -86,17 +87,12 @@ impl StorageBackend for MockBackend {
         request: &'a CommitRequest,
     ) -> BoxFuture<'a, StorageResult<CommitOutcome>> {
         Box::pin(async move {
-            let paths: Vec<VirtualPath> = request
-                .changes
-                .iter_staged()
-                .map(|(p, _)| p.clone())
-                .collect();
-
             self.commit_calls.borrow_mut().push(CommitRecord {
                 message: request.message.clone(),
                 expected_head: request.expected_head.clone(),
-                paths,
-                deleted_files: request.deleted_files.clone(),
+                paths: request.delta.changed_paths.clone(),
+                deleted_files: request.delta.deletions.clone(),
+                auth_token: request.auth_token.clone(),
                 merged_snapshot: request.merged_snapshot.clone(),
             });
             let mut outcome = self
@@ -105,11 +101,7 @@ impl StorageBackend for MockBackend {
                 .take()
                 .unwrap_or_else(|| Err(StorageError::BadRequest("no outcome queued".into())))?;
             if outcome.committed_paths.is_empty() {
-                outcome.committed_paths = request
-                    .changes
-                    .iter_staged()
-                    .map(|(path, _)| path.clone())
-                    .collect();
+                outcome.committed_paths = request.delta.changed_paths.clone();
             }
             Ok(outcome)
         })
@@ -119,29 +111,25 @@ impl StorageBackend for MockBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::changes::{ChangeSet, ChangeType};
-    use crate::models::FileMetadata;
-
+    use crate::core::storage::{CommitDelta, CommitFileAddition};
     #[tokio::test(flavor = "current_thread")]
     async fn mock_records_commit_args() {
-        let mut cs = ChangeSet::new();
         let p = VirtualPath::from_absolute("/a.md").unwrap();
-        cs.upsert(
-            p.clone(),
-            ChangeType::CreateFile {
-                content: "x".into(),
-                meta: FileMetadata::default(),
-            },
-        );
 
         let backend = MockBackend::with_success(ScannedSubtree::default(), "sha-new");
         let request = CommitRequest {
-            changes: cs,
-            deleted_files: Vec::new(),
+            delta: CommitDelta {
+                additions: vec![CommitFileAddition {
+                    path: p.clone(),
+                    content: "x".to_string(),
+                }],
+                changed_paths: vec![p.clone()],
+                ..Default::default()
+            },
             merged_snapshot: ScannedSubtree::default(),
             message: "msg".to_string(),
             expected_head: Some("sha-old".to_string()),
-            auth_token: None,
+            auth_token: Some("qa-token".to_string()),
         };
         let out = backend.commit(&request).await.unwrap();
         assert_eq!(out.new_head, "sha-new");
@@ -151,15 +139,14 @@ mod tests {
         assert_eq!(calls[0].message, "msg");
         assert_eq!(calls[0].expected_head.as_deref(), Some("sha-old"));
         assert_eq!(calls[0].paths, vec![p]);
+        assert_eq!(calls[0].auth_token.as_deref(), Some("qa-token"));
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn mock_conflict_is_returned() {
-        let cs = ChangeSet::new();
         let backend = MockBackend::with_conflict("sha-remote");
         let request = CommitRequest {
-            changes: cs,
-            deleted_files: Vec::new(),
+            delta: CommitDelta::default(),
             merged_snapshot: ScannedSubtree::default(),
             message: "m".to_string(),
             expected_head: None,

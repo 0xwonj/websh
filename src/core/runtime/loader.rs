@@ -20,11 +20,11 @@ pub struct RuntimeLoad {
     pub total_files: usize,
 }
 
-pub fn bootstrap_runtime_mounts() -> Vec<RuntimeMount> {
+fn bootstrap_runtime_mounts() -> Vec<RuntimeMount> {
     vec![storage_boot::bootstrap_runtime_mount()]
 }
 
-pub fn bootstrap_backends() -> BackendRegistry {
+fn bootstrap_backends() -> BackendRegistry {
     let mut backends = BTreeMap::new();
     let mount = storage_boot::bootstrap_runtime_mount();
     backends.insert(

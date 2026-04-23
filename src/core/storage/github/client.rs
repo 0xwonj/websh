@@ -9,10 +9,9 @@ use crate::core::storage::{
 };
 use crate::models::VirtualPath;
 
-use super::graphql::{
-    BranchRef, CommitMessage, CreateCommitInput, build_file_changes, prefixed_repo_path,
-};
+use super::graphql::{BranchRef, CommitMessage, CreateCommitInput, build_file_changes};
 use super::manifest::{parse_snapshot, serialize_snapshot};
+use super::path::{encoded_repo_relative_path, normalize_repo_prefix, prefixed_repo_path};
 
 #[allow(dead_code)]
 pub struct GitHubBackend {
@@ -31,14 +30,14 @@ impl GitHubBackend {
         mount_root: VirtualPath,
         content_prefix: impl Into<String>,
         gateway: impl Into<String>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, String> {
+        Ok(Self {
             repo_with_owner: repo_with_owner.into(),
             branch: branch.into(),
             mount_root,
-            content_prefix: content_prefix.into().trim_matches('/').to_string(),
+            content_prefix: normalize_repo_prefix(&content_prefix.into())?,
             gateway: gateway.into().trim_end_matches('/').to_string(),
-        }
+        })
     }
 
     fn base_url(&self) -> String {
@@ -56,13 +55,13 @@ impl GitHubBackend {
         format!("{}/manifest.json", self.base_url())
     }
 
-    fn content_url(&self, rel_path: &str) -> String {
+    fn content_url(&self, rel_path: &str) -> Result<String, String> {
         let base_url = self.base_url();
-        let rel_path = rel_path.trim_start_matches('/');
+        let rel_path = encoded_repo_relative_path(rel_path.trim_start_matches('/'), true)?;
         if rel_path.is_empty() {
-            base_url
+            Ok(base_url)
         } else {
-            format!("{base_url}/{rel_path}")
+            Ok(format!("{base_url}/{rel_path}"))
         }
     }
 
@@ -190,7 +189,10 @@ impl StorageBackend for GitHubBackend {
 
     fn read_text<'a>(&'a self, rel_path: &'a str) -> BoxFuture<'a, StorageResult<String>> {
         Box::pin(async move {
-            let resp = gloo_net::http::Request::get(&self.content_url(rel_path))
+            let url = self
+                .content_url(rel_path)
+                .map_err(StorageError::BadRequest)?;
+            let resp = gloo_net::http::Request::get(&url)
                 .send()
                 .await
                 .map_err(|e| StorageError::NetworkError(e.to_string()))?;
@@ -205,7 +207,10 @@ impl StorageBackend for GitHubBackend {
 
     fn read_bytes<'a>(&'a self, rel_path: &'a str) -> BoxFuture<'a, StorageResult<Vec<u8>>> {
         Box::pin(async move {
-            let resp = gloo_net::http::Request::get(&self.content_url(rel_path))
+            let url = self
+                .content_url(rel_path)
+                .map_err(StorageError::BadRequest)?;
+            let resp = gloo_net::http::Request::get(&url)
                 .send()
                 .await
                 .map_err(|e| StorageError::NetworkError(e.to_string()))?;
@@ -225,10 +230,10 @@ impl StorageBackend for GitHubBackend {
         Box::pin(async move {
             let token = request.auth_token.as_deref().ok_or(StorageError::NoToken)?;
             let manifest_body = serialize_snapshot(&request.merged_snapshot)?;
-            let manifest_repo_path = prefixed_repo_path(&self.content_prefix, "manifest.json");
+            let manifest_repo_path = prefixed_repo_path(&self.content_prefix, "manifest.json")
+                .map_err(StorageError::BadRequest)?;
             let file_changes = build_file_changes(
-                &request.changes,
-                &request.deleted_files,
+                &request.delta,
                 &self.mount_root,
                 &self.content_prefix,
                 Some((manifest_repo_path.as_str(), &manifest_body)),
@@ -288,14 +293,9 @@ impl StorageBackend for GitHubBackend {
                 .map(|c| c.commit.oid)
                 .ok_or_else(|| StorageError::ValidationFailed("empty data".into()))?;
 
-            let committed_paths: Vec<_> = request
-                .changes
-                .iter_staged()
-                .map(|(path, _)| path.clone())
-                .collect();
             Ok(CommitOutcome {
                 new_head,
-                committed_paths,
+                committed_paths: request.delta.changed_paths.clone(),
             })
         })
     }
@@ -349,12 +349,59 @@ mod tests {
             VirtualPath::from_absolute("/site").unwrap(),
             "~",
             "https://raw.githubusercontent.com",
-        );
+        )
+        .unwrap();
 
         assert_eq!(
-            backend.content_url(".websh/site.json"),
+            backend.content_url(".websh/site.json").unwrap(),
             "https://raw.githubusercontent.com/owner/repo/main/~/.websh/site.json"
         );
+    }
+
+    #[test]
+    fn content_url_encodes_path_segments() {
+        let backend = GitHubBackend::new(
+            "owner/repo",
+            "main",
+            VirtualPath::from_absolute("/site").unwrap(),
+            "~",
+            "https://raw.githubusercontent.com",
+        )
+        .unwrap();
+
+        assert_eq!(
+            backend.content_url("docs/file #1.md").unwrap(),
+            "https://raw.githubusercontent.com/owner/repo/main/~/docs/file%20%231.md"
+        );
+    }
+
+    #[test]
+    fn content_url_rejects_traversal_segments() {
+        let backend = GitHubBackend::new(
+            "owner/repo",
+            "main",
+            VirtualPath::from_absolute("/site").unwrap(),
+            "~",
+            "https://raw.githubusercontent.com",
+        )
+        .unwrap();
+
+        assert!(backend.content_url("../secret.md").is_err());
+    }
+
+    #[test]
+    fn constructor_rejects_traversal_content_prefix() {
+        let err = match GitHubBackend::new(
+            "owner/repo",
+            "main",
+            VirtualPath::from_absolute("/site").unwrap(),
+            "content/../other",
+            "https://raw.githubusercontent.com",
+        ) {
+            Ok(_) => panic!("constructor should reject traversal content prefix"),
+            Err(err) => err,
+        };
+        assert!(err.contains("traversal"));
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -365,10 +412,10 @@ mod tests {
             VirtualPath::from_absolute("/site").unwrap(),
             "~",
             "https://raw.githubusercontent.com",
-        );
+        )
+        .unwrap();
         let request = CommitRequest {
-            changes: crate::core::changes::ChangeSet::new(),
-            deleted_files: Vec::new(),
+            delta: crate::core::storage::CommitDelta::default(),
             merged_snapshot: ScannedSubtree::default(),
             message: "msg".to_string(),
             expected_head: None,

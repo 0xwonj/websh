@@ -1,10 +1,12 @@
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use crate::core::changes::ChangeSet;
+use crate::core::changes::{ChangeSet, ChangeType};
 use crate::core::engine::GlobalFs;
 use crate::core::merge;
 use crate::core::storage::{
-    CommitOutcome, CommitRequest, ScannedSubtree, StorageBackend, StorageError, StorageResult,
+    CommitDelta, CommitFileAddition, CommitOutcome, CommitRequest, ScannedSubtree, StorageBackend,
+    StorageError, StorageResult,
 };
 use crate::models::VirtualPath;
 
@@ -51,18 +53,22 @@ async fn prepare_commit(
         }
     }
 
-    let deleted_files =
-        deleted_files_for_directory_changes(&base_snapshot, mount_root, &staged_changes);
+    let normalized_changes = normalized_staged_changes(&staged_changes);
+    let delta = build_commit_delta(
+        &base_snapshot,
+        mount_root,
+        &staged_changes,
+        &normalized_changes,
+    )?;
 
-    merge::apply_staged_changes_to_global_for_root(&mut merged, &staged_changes, mount_root);
+    merge::apply_staged_changes_to_global_for_root(&mut merged, &normalized_changes, mount_root);
 
     let merged_snapshot = merged
         .export_mount_snapshot(mount_root)
         .ok_or_else(|| StorageError::BadRequest(format!("missing mount root {mount_root}")))?;
 
     Ok(CommitRequest {
-        changes: staged_changes,
-        deleted_files,
+        delta,
         merged_snapshot,
         message,
         expected_head,
@@ -70,34 +76,112 @@ async fn prepare_commit(
     })
 }
 
-fn deleted_files_for_directory_changes(
+fn normalized_staged_changes(changes: &ChangeSet) -> ChangeSet {
+    let deleted_dirs = delete_directory_paths(changes);
+    let mut normalized = ChangeSet::new();
+
+    for (path, entry) in changes.iter_staged() {
+        if is_descendant_of_deleted_dir(path, &deleted_dirs) {
+            continue;
+        }
+        normalized.upsert(path.clone(), entry.change.clone());
+    }
+
+    normalized
+}
+
+fn build_commit_delta(
     base_snapshot: &ScannedSubtree,
     mount_root: &VirtualPath,
-    changes: &ChangeSet,
+    original_staged_changes: &ChangeSet,
+    normalized_changes: &ChangeSet,
+) -> StorageResult<CommitDelta> {
+    let mut additions = Vec::new();
+    let mut deletions = Vec::new();
+    let mut changed_paths: Vec<_> = original_staged_changes
+        .iter_staged()
+        .map(|(path, _)| path.clone())
+        .collect();
+
+    for (path, entry) in normalized_changes.iter_staged() {
+        match &entry.change {
+            ChangeType::CreateFile { content, .. } | ChangeType::UpdateFile { content, .. } => {
+                additions.push(CommitFileAddition {
+                    path: path.clone(),
+                    content: content.clone(),
+                });
+            }
+            ChangeType::DeleteFile => {
+                deletions.push(path.clone());
+            }
+            ChangeType::DeleteDirectory => {
+                deletions.extend(deleted_files_for_directory_change(
+                    base_snapshot,
+                    mount_root,
+                    path,
+                ));
+            }
+            ChangeType::CreateBinary { .. } | ChangeType::CreateDirectory { .. } => {}
+        }
+    }
+
+    additions.sort_by(|left, right| left.path.cmp(&right.path));
+    deletions.sort();
+    deletions.dedup();
+    changed_paths.sort();
+    changed_paths.dedup();
+
+    let addition_paths = additions
+        .iter()
+        .map(|addition| addition.path.clone())
+        .collect::<BTreeSet<_>>();
+    if let Some(conflict) = deletions.iter().find(|path| addition_paths.contains(*path)) {
+        return Err(StorageError::BadRequest(format!(
+            "commit delta has both addition and deletion for {conflict}"
+        )));
+    }
+
+    Ok(CommitDelta {
+        additions,
+        deletions,
+        changed_paths,
+    })
+}
+
+fn delete_directory_paths(changes: &ChangeSet) -> Vec<VirtualPath> {
+    changes
+        .iter_staged()
+        .filter_map(|(path, entry)| {
+            matches!(entry.change, ChangeType::DeleteDirectory).then(|| path.clone())
+        })
+        .collect()
+}
+
+fn is_descendant_of_deleted_dir(path: &VirtualPath, deleted_dirs: &[VirtualPath]) -> bool {
+    deleted_dirs
+        .iter()
+        .any(|deleted_dir| path != deleted_dir && path.starts_with(deleted_dir))
+}
+
+fn deleted_files_for_directory_change(
+    base_snapshot: &ScannedSubtree,
+    mount_root: &VirtualPath,
+    path: &VirtualPath,
 ) -> Vec<VirtualPath> {
     let mut deleted = Vec::new();
 
-    for (path, entry) in changes.iter_staged() {
-        if !matches!(
-            entry.change,
-            crate::core::changes::ChangeType::DeleteDirectory
-        ) {
-            continue;
-        }
-
-        let Some(rel_dir) = path.strip_prefix(mount_root) else {
-            continue;
-        };
-        for file in &base_snapshot.files {
-            let is_descendant = rel_dir.is_empty()
-                || file.path == rel_dir
-                || file
-                    .path
-                    .strip_prefix(rel_dir)
-                    .is_some_and(|rest| rest.starts_with('/'));
-            if is_descendant {
-                deleted.push(mount_root.join(&file.path));
-            }
+    let Some(rel_dir) = path.strip_prefix(mount_root) else {
+        return deleted;
+    };
+    for file in &base_snapshot.files {
+        let is_descendant = rel_dir.is_empty()
+            || file.path == rel_dir
+            || file
+                .path
+                .strip_prefix(rel_dir)
+                .is_some_and(|rest| rest.starts_with('/'));
+        if is_descendant {
+            deleted.push(mount_root.join(&file.path));
         }
     }
 
@@ -110,7 +194,6 @@ fn deleted_files_for_directory_changes(
 mod tests {
     use std::cell::RefCell;
 
-    use crate::core::changes::ChangeType;
     use crate::core::storage::{
         BoxFuture, ScannedFile, ScannedSubtree, StorageBackend, StorageResult,
     };
@@ -200,8 +283,9 @@ mod tests {
             .map(|file| file.path.as_str())
             .collect();
         assert_eq!(paths, vec!["keep.md", "new.md"]);
-        assert!(request.deleted_files.is_empty());
-        assert_eq!(request.changes.len(), 1);
+        assert!(request.delta.deletions.is_empty());
+        assert_eq!(request.delta.additions.len(), 1);
+        assert_eq!(request.delta.changed_paths, vec![p("/site/new.md")]);
         assert_eq!(request.expected_head.as_deref(), Some("old"));
         assert_eq!(request.auth_token, None);
     }
@@ -273,10 +357,53 @@ mod tests {
         .unwrap();
 
         let paths: Vec<_> = request
-            .deleted_files
+            .delta
+            .deletions
             .iter()
             .map(|path| path.as_str())
             .collect();
         assert_eq!(paths, vec!["/site/docs/a.md", "/site/docs/deep/b.md"]);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn prepared_commit_delete_directory_suppresses_descendant_additions() {
+        let backend: Arc<dyn StorageBackend> = Arc::new(PrepareBackend {
+            scan: RefCell::new(Some(ScannedSubtree {
+                files: vec![ScannedFile {
+                    path: "docs/a.md".to_string(),
+                    description: "A".to_string(),
+                    meta: FileMetadata::default(),
+                }],
+                directories: vec![],
+            })),
+        });
+        let mut changes = ChangeSet::new();
+        changes.upsert(
+            p("/site/docs/a.md"),
+            ChangeType::UpdateFile {
+                content: "new".to_string(),
+                description: None,
+            },
+        );
+        changes.upsert(p("/site/docs"), ChangeType::DeleteDirectory);
+
+        let request = prepare_commit(
+            &backend,
+            &p("/site"),
+            &changes,
+            "msg".to_string(),
+            Some("old".to_string()),
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert!(request.delta.additions.is_empty());
+        assert_eq!(request.delta.deletions, vec![p("/site/docs/a.md")]);
+        assert_eq!(
+            request.delta.changed_paths,
+            vec![p("/site/docs"), p("/site/docs/a.md")]
+        );
+        assert!(request.merged_snapshot.files.is_empty());
     }
 }

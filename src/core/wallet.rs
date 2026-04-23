@@ -4,7 +4,7 @@
 //! Reflect API.
 
 use js_sys::{Array, Function, Object, Promise, Reflect};
-use leptos::prelude::{Set, Update};
+use leptos::prelude::Set;
 use serde::Deserialize;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
@@ -133,13 +133,13 @@ pub fn has_session() -> bool {
 }
 
 /// Save login session.
-pub fn save_session() {
-    crate::core::runtime::state::set_wallet_session(true);
+pub fn save_session() -> crate::core::runtime::RuntimeStateSnapshot {
+    crate::core::runtime::state::set_wallet_session(true)
 }
 
 /// Clear login session.
-pub fn clear_session() {
-    crate::core::runtime::state::set_wallet_session(false);
+pub fn clear_session() -> crate::core::runtime::RuntimeStateSnapshot {
+    crate::core::runtime::state::set_wallet_session(false)
 }
 
 /// Disconnect the wallet: clear the stored session and reset the reactive
@@ -149,11 +149,9 @@ pub fn clear_session() {
 /// UI call site, keeping session-storage cleanup and signal updates in
 /// lockstep.
 pub fn disconnect(ctx: &crate::app::AppContext) {
-    clear_session();
+    let snapshot = clear_session();
     ctx.wallet.set(crate::models::WalletState::Disconnected);
-    ctx.runtime_state.update(|state| {
-        state.wallet_session = false;
-    });
+    ctx.runtime_state.set(snapshot);
 }
 
 // ============================================================================

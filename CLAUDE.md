@@ -18,7 +18,7 @@ cargo test
 cargo test --features mock --test commit_integration
 
 # Browser QA after starting release Trunk on 4173
-NODE_PATH=target/qa/node_modules target/qa/node_modules/.bin/playwright test tests/e2e --reporter=line --workers=1
+WEBSH_E2E_BASE_URL=http://127.0.0.1:4173 NODE_PATH=target/qa/node_modules target/qa/node_modules/.bin/playwright test tests/e2e --reporter=line --workers=1
 ```
 
 ## Prerequisites
@@ -57,7 +57,7 @@ The UI should render engine output. It should not assemble filesystems or resolv
 
 ## State Model
 
-`AppContext` owns the runtime state snapshot used to render `/state`.
+`AppContext` owns the safe runtime state snapshot used to render `/state`.
 Browser storage is a persistence adapter, not a feature-layer dependency.
 
 Important rules:
@@ -65,15 +65,15 @@ Important rules:
 - Do not read `localStorage` or `sessionStorage` from feature code.
 - Mutate runtime state through the runtime/state adapter and update `AppContext.runtime_state`.
 - Do not expose raw GitHub tokens under `/state`; expose only safe markers.
-- Commit code receives auth through `CommitRequest`, not hidden browser reads.
+- Commit code receives auth through a narrow runtime secret accessor and `CommitRequest`, not through `/state`.
 
 ## Storage and Commit Rules
 
 - Backend scans return `ScannedSubtree`.
 - Runtime loader mounts scans directly into `GlobalFs`.
-- Commit preparation merges staged canonical changes into a mount snapshot.
+- Commit preparation normalizes staged canonical changes into a backend-neutral `CommitDelta` and merged mount snapshot.
 - GitHub manifest JSON is private serialization inside `core::storage::github`.
-- GitHub commit paths must respect the backend content prefix.
+- GitHub commit paths must validate and respect the backend content prefix.
 - Recursive directory deletes must expand to concrete file deletions.
 - Empty directories must survive manifest export/import.
 
