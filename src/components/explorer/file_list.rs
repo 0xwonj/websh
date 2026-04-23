@@ -26,6 +26,7 @@ fn get_icon(entry: &DirEntry) -> IconData {
         ic::FOLDER
     } else {
         match FileType::from_path(&entry.name) {
+            FileType::Html => ic::FILE_TEXT,
             FileType::Markdown => ic::FILE_TEXT,
             FileType::Pdf => ic::FILE_PDF,
             FileType::Image => ic::FILE_IMAGE,

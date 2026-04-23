@@ -77,6 +77,10 @@ pub fn Reader(route: Memo<RouteFrame>, on_close: Callback<()>) -> impl IntoView 
         let ft = file_type.get();
         async move {
             match ft {
+                FileType::Html => match read_text(&fs, &backends, &canonical).await {
+                    Ok(html) => ReaderContent::Html(html),
+                    Err(e) => ReaderContent::Error(e.to_string()),
+                },
                 FileType::Markdown => match read_text(&fs, &backends, &canonical).await {
                     Ok(md) => ReaderContent::Html(markdown_to_html(&md)),
                     Err(e) => ReaderContent::Error(e.to_string()),
@@ -297,7 +301,7 @@ pub fn Reader(route: Memo<RouteFrame>, on_close: Callback<()>) -> impl IntoView 
                         } else {
                             // Render content based on file type
                             match file_type.get() {
-                                FileType::Markdown => {
+                                FileType::Html | FileType::Markdown => {
                                     view! {
                                         <div class=css::markdown inner_html=content />
                                     }.into_any()

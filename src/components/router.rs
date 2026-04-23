@@ -18,7 +18,7 @@ use wasm_bindgen::prelude::Closure;
 use crate::app::AppContext;
 use crate::components::reader::Reader;
 use crate::components::terminal::Shell;
-use crate::components::terminal::shell::OVERLAY_CLASS;
+use crate::components::terminal::shell::{OVERLAY_CLASS, RouteContext};
 #[cfg(target_arch = "wasm32")]
 use crate::core::engine::FsEngine;
 use crate::core::engine::{
@@ -116,6 +116,8 @@ pub fn RouterView() -> impl IntoView {
 /// Renders a reader-like surface for non-shell intents.
 #[component]
 fn ReaderOverlay(route: Memo<RouteFrame>) -> impl IntoView {
+    provide_context(RouteContext(route));
+
     // Close handler - navigate to parent directory
     let on_close = Callback::new(move |_: ()| {
         push_request_path(&parent_request_path(&route.get().request.url_path));

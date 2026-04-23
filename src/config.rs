@@ -127,16 +127,6 @@ pub mod boot_delays {
 pub const MS_PER_SECOND: f64 = 1000.0;
 
 // =============================================================================
-// Cache Configuration
-// =============================================================================
-
-/// Session cache configuration.
-pub mod cache {
-    /// sessionStorage key for manifest cache.
-    pub const MANIFEST_KEY: &str = "manifest_cache";
-}
-
-// =============================================================================
 // UI Configuration
 // =============================================================================
 

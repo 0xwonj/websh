@@ -1,6 +1,6 @@
 //! ChangeSet — unified tracker for in-progress filesystem edits.
 //!
-//! See `docs/superpowers/specs/2026-04-20-phase3-write-design.md` §3.2.
+//! ChangeSet paths are canonical absolute paths in the global filesystem.
 
 use std::collections::BTreeMap;
 
@@ -72,8 +72,8 @@ impl ChangeSet {
         Self::default()
     }
 
-    /// Insert-or-replace a change at `path`. New entries default to `staged = true`
-    /// in Phase 3a (this flips to `false` in Phase 3b — spec §12.2/§12.3).
+    /// Insert-or-replace a change at `path`. New entries default to staged so
+    /// write commands are immediately eligible for `sync commit`.
     pub fn upsert(&mut self, path: VirtualPath, change: ChangeType) {
         let entry = Entry {
             change,
@@ -136,6 +136,17 @@ impl ChangeSet {
 
     pub fn iter_staged(&self) -> impl Iterator<Item = (&VirtualPath, &Entry)> {
         self.entries.iter().filter(|(_, e)| e.staged)
+    }
+
+    pub fn staged_subset(&self) -> Self {
+        Self {
+            entries: self
+                .entries
+                .iter()
+                .filter(|(_, entry)| entry.staged)
+                .map(|(path, entry)| (path.clone(), entry.clone()))
+                .collect(),
+        }
     }
 
     pub fn iter_unstaged(&self) -> impl Iterator<Item = (&VirtualPath, &Entry)> {

@@ -4,7 +4,6 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use crate::config::BOOTSTRAP_SITE;
-use crate::core::VirtualFs;
 use crate::core::engine::{BackendRegistry, GlobalFs};
 use crate::core::storage::{ScannedSubtree, StorageBackend, boot as storage_boot};
 use crate::models::{
@@ -52,8 +51,8 @@ pub async fn load_runtime() -> Result<RuntimeLoad, String> {
         scans.push((root, scan));
     }
 
-    let mut global_fs =
-        assemble_global_fs(&scans).map_err(|error| format!("assemble global filesystem: {error:?}"))?;
+    let mut global_fs = assemble_global_fs(&scans)
+        .map_err(|error| format!("assemble global filesystem: {error:?}"))?;
     apply_runtime_conventions(&mut global_fs, &mut backends, &mut runtime_mounts).await?;
     let remote_heads = hydrate_remote_heads(&runtime_mounts).await;
     let total_files = count_files(&global_fs, &VirtualPath::root());
@@ -128,10 +127,7 @@ async fn apply_runtime_conventions(
             .await
             .map_err(|error| format!("mount {}: {error}", runtime_mount.label))?;
         global
-            .mount_fs(
-                runtime_mount.root.clone(),
-                &VirtualFs::from_scanned_subtree(&scan),
-            )
+            .mount_scanned_subtree(runtime_mount.root.clone(), &scan)
             .map_err(|error| format!("mount {}: {error:?}", runtime_mount.label))?;
         backends.insert(runtime_mount.root.clone(), backend);
         runtime_mounts.push(runtime_mount);
@@ -150,7 +146,7 @@ fn assemble_global_fs(
 ) -> Result<GlobalFs, crate::core::engine::MountError> {
     let mut global = GlobalFs::empty();
     for (mount_root, scan) in scans {
-        global.mount_fs(mount_root.clone(), &VirtualFs::from_scanned_subtree(scan))?;
+        global.mount_scanned_subtree(mount_root.clone(), scan)?;
     }
     Ok(global)
 }

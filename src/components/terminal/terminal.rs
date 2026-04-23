@@ -212,11 +212,11 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
             ctx.changes.update(|cs| cs.unstage_all());
         }
         SideEffect::SetAuthToken { token } => {
-            crate::utils::session::set_gh_token(&token);
+            crate::core::runtime::state::set_github_token(&token);
             ctx.runtime_state_rev.update(|rev| *rev += 1);
         }
         SideEffect::ClearAuthToken => {
-            crate::utils::session::clear_gh_token();
+            crate::core::runtime::state::clear_github_token();
             ctx.runtime_state_rev.update(|rev| *rev += 1);
         }
         SideEffect::InvalidateRuntimeState => {
@@ -247,9 +247,14 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
             wasm_bindgen_futures::spawn_local(async move {
                 let staged_snapshot = changes_signal.with_untracked(|cs| cs.clone());
 
-                match backend
-                    .commit(&staged_snapshot, &message, expected_head.as_deref())
-                    .await
+                match runtime::commit_backend(
+                    backend,
+                    mount_root_for_commit.clone(),
+                    staged_snapshot,
+                    message,
+                    expected_head,
+                )
+                .await
                 {
                     Ok(outcome) => {
                         let mount_storage_id = runtime_mounts_signal

@@ -2,12 +2,9 @@
 
 use std::cell::RefCell;
 
-use crate::core::VirtualFs;
-use crate::core::changes::ChangeSet;
-use crate::core::merge::merge_view_for_root;
 use crate::models::VirtualPath;
 
-use super::backend::{BoxFuture, CommitOutcome, ScannedSubtree, StorageBackend};
+use super::backend::{BoxFuture, CommitOutcome, CommitRequest, ScannedSubtree, StorageBackend};
 use super::error::{StorageError, StorageResult};
 
 pub struct MockBackend {
@@ -84,30 +81,19 @@ impl StorageBackend for MockBackend {
 
     fn commit<'a>(
         &'a self,
-        changes: &'a ChangeSet,
-        message: &'a str,
-        expected_head: Option<&'a str>,
+        request: &'a CommitRequest,
     ) -> BoxFuture<'a, StorageResult<CommitOutcome>> {
         Box::pin(async move {
-            let base_snapshot = self
-                .next_scan
-                .borrow()
-                .clone()
-                .unwrap_or_else(|| Ok(ScannedSubtree::default()))?;
-            let merged = merge_view_for_root(
-                &VirtualFs::from_scanned_subtree(&base_snapshot),
-                changes,
-                &self.mount_root,
-            );
-            let _snapshot = merged.to_scanned_subtree();
-
-            let mut paths: Vec<VirtualPath> =
-                changes.iter_staged().map(|(p, _)| p.clone()).collect();
+            let mut paths: Vec<VirtualPath> = request
+                .changes
+                .iter_staged()
+                .map(|(p, _)| p.clone())
+                .collect();
             paths.push(VirtualPath::from_absolute("/manifest.json").unwrap());
 
             self.commit_calls.borrow_mut().push(CommitRecord {
-                message: message.to_string(),
-                expected_head: expected_head.map(|s| s.to_string()),
+                message: request.message.clone(),
+                expected_head: request.expected_head.clone(),
                 paths,
             });
             self.next_outcome
@@ -137,7 +123,14 @@ mod tests {
         );
 
         let backend = MockBackend::with_success(ScannedSubtree::default(), "sha-new");
-        let out = backend.commit(&cs, "msg", Some("sha-old")).await.unwrap();
+        let request = CommitRequest {
+            changes: cs,
+            merged_snapshot: ScannedSubtree::default(),
+            message: "msg".to_string(),
+            expected_head: Some("sha-old".to_string()),
+            auth_token: None,
+        };
+        let out = backend.commit(&request).await.unwrap();
         assert_eq!(out.new_head, "sha-new");
 
         let calls = backend.commit_calls.borrow();
@@ -154,7 +147,14 @@ mod tests {
     async fn mock_conflict_is_returned() {
         let cs = ChangeSet::new();
         let backend = MockBackend::with_conflict("sha-remote");
-        let err = backend.commit(&cs, "m", None).await.unwrap_err();
+        let request = CommitRequest {
+            changes: cs,
+            merged_snapshot: ScannedSubtree::default(),
+            message: "m".to_string(),
+            expected_head: None,
+            auth_token: None,
+        };
+        let err = backend.commit(&request).await.unwrap_err();
         assert!(matches!(err, StorageError::Conflict { .. }));
     }
 }

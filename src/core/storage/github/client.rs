@@ -3,11 +3,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::VirtualFs;
-use crate::core::changes::ChangeSet;
-use crate::core::merge::merge_view_for_root;
 use crate::core::storage::{
-    BoxFuture, CommitOutcome, ScannedSubtree, StorageBackend, StorageError, StorageResult,
+    BoxFuture, CommitOutcome, CommitRequest, ScannedSubtree, StorageBackend, StorageError,
+    StorageResult,
 };
 use crate::models::VirtualPath;
 
@@ -46,13 +44,11 @@ impl GitHubBackend {
             .manifest_url
             .trim_end_matches("/manifest.json")
             .trim_end_matches('/');
-        let prefix = self.content_prefix.trim_matches('/');
         let rel_path = rel_path.trim_start_matches('/');
-        match (prefix.is_empty(), rel_path.is_empty()) {
-            (true, true) => manifest_base.to_string(),
-            (true, false) => format!("{manifest_base}/{rel_path}"),
-            (false, true) => format!("{manifest_base}/{prefix}"),
-            (false, false) => format!("{manifest_base}/{prefix}/{rel_path}"),
+        if rel_path.is_empty() {
+            manifest_base.to_string()
+        } else {
+            format!("{manifest_base}/{rel_path}")
         }
     }
 
@@ -210,21 +206,13 @@ impl StorageBackend for GitHubBackend {
 
     fn commit<'a>(
         &'a self,
-        changes: &'a ChangeSet,
-        message: &'a str,
-        expected_head: Option<&'a str>,
+        request: &'a CommitRequest,
     ) -> BoxFuture<'a, StorageResult<CommitOutcome>> {
         Box::pin(async move {
-            let token = crate::utils::session::get_gh_token().ok_or(StorageError::NoToken)?;
-            let base_snapshot = self.load_manifest_snapshot().await?;
-            let merged = merge_view_for_root(
-                &VirtualFs::from_scanned_subtree(&base_snapshot),
-                changes,
-                &self.mount_root,
-            );
-            let manifest_body = serialize_snapshot(&merged.to_scanned_subtree())?;
+            let token = request.auth_token.as_deref().ok_or(StorageError::NoToken)?;
+            let manifest_body = serialize_snapshot(&request.merged_snapshot)?;
             let file_changes = build_file_changes(
-                changes,
+                &request.changes,
                 &self.mount_root,
                 &self.content_prefix,
                 Some(("manifest.json", &manifest_body)),
@@ -236,9 +224,9 @@ impl StorageBackend for GitHubBackend {
                     branch_name: self.branch.clone(),
                 },
                 message: CommitMessage {
-                    headline: message.to_string(),
+                    headline: request.message.clone(),
                 },
-                expected_head_oid: expected_head.map(String::from),
+                expected_head_oid: request.expected_head.clone(),
                 file_changes,
             };
 
@@ -283,9 +271,11 @@ impl StorageBackend for GitHubBackend {
                 .map(|c| c.commit.oid)
                 .ok_or_else(|| StorageError::ValidationFailed("empty data".into()))?;
 
-            // GraphQL's createCommitOnBranch doesn't echo file contents; the
-            // backend still regenerates the manifest privately before commit.
-            let committed_paths: Vec<_> = changes.iter_staged().map(|(p, _)| p.clone()).collect();
+            let committed_paths: Vec<_> = request
+                .changes
+                .iter_staged()
+                .map(|(path, _)| path.clone())
+                .collect();
             Ok(CommitOutcome {
                 new_head,
                 committed_paths,
@@ -332,5 +322,42 @@ mod tests {
             err_type: None,
         }];
         assert_eq!(map_graphql_error(&e), StorageError::AuthFailed);
+    }
+
+    #[test]
+    fn content_url_uses_manifest_directory_as_base() {
+        let backend = GitHubBackend::new(
+            "owner/repo",
+            "main",
+            VirtualPath::from_absolute("/site").unwrap(),
+            "~",
+            "https://raw.githubusercontent.com/owner/repo/main/~/manifest.json",
+        );
+
+        assert_eq!(
+            backend.content_url(".websh/site.json"),
+            "https://raw.githubusercontent.com/owner/repo/main/~/.websh/site.json"
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn commit_requires_token_from_request() {
+        let backend = GitHubBackend::new(
+            "owner/repo",
+            "main",
+            VirtualPath::from_absolute("/site").unwrap(),
+            "~",
+            "https://raw.githubusercontent.com/owner/repo/main/~/manifest.json",
+        );
+        let request = CommitRequest {
+            changes: crate::core::changes::ChangeSet::new(),
+            merged_snapshot: ScannedSubtree::default(),
+            message: "msg".to_string(),
+            expected_head: None,
+            auth_token: None,
+        };
+
+        let err = backend.commit(&request).await.unwrap_err();
+        assert_eq!(err, StorageError::NoToken);
     }
 }

@@ -6,7 +6,9 @@ Status: executed
 ## Build and grep gates
 
 - `cargo test`
-  Result: pass, `348` tests green, no warnings.
+  Result: pass, `332` tests green, no warnings.
+- `cargo test --features mock --test commit_integration`
+  Result: pass, `1` test green.
 - `env -u NO_COLOR trunk build --release`
   Result: pass, no warnings.
 - Residue grep across `src tests docs`
@@ -18,6 +20,7 @@ Harness:
 
 - `trunk serve --release --port 4173 --address 127.0.0.1`
 - Playwright Chromium
+- pageerror and console-error assertions enabled
 - stubbed GitHub raw-content responses
 - stubbed EIP-1193 wallet
 - in-page GraphQL commit stub for `createCommitOnBranch`
@@ -59,16 +62,20 @@ Executed and observed:
   browser storage keys were removed/cleared
   `ls /state/session` still showed `wallet_session`
   `ls /state/env` returned `# No user variables set`
+- IDB draft persistence round-tripped through the browser:
+  `echo persisted > persist.md`, debounce save, page reload, then `ls` showed `persist.md`.
 
 ## Fallback route verification
 
 - Engine fallback remains covered by `core::engine::routing::tests::resolves_root_to_index_page_via_convention_fallback`.
 - Derived-index route resolution remains covered by `core::engine::routing::tests::resolves_route_from_derived_index`.
-- During Playwright full-page-load runs against Trunk dev output, direct initial-load verification for `/#/` and `/#/fs/state/...` was not stable enough to treat as authoritative browser evidence, so route fallback confidence for those hashes currently relies on the engine tests above.
+- Playwright full-page-load verification against Trunk release output passed for:
+  `/#/`, `/#/shell`, `/#/fs`, `/#/fs/site`, `/#/fs/state/session`, and `/#/fs/mnt/db`.
+- The direct-load run produced no browser page errors and no console errors.
 
 ## Outcome
 
 - Runtime authority is consolidated under `BOOTSTRAP_SITE` and `core::runtime::loader`.
 - Storage scan/commit surface is backend-neutral (`ScannedSubtree`).
+- Scan assembly is direct `ScannedSubtree -> GlobalFs`; the old mount-local filesystem model is removed.
 - Stale docs were removed; only the current architecture spec and this checklist remain under `docs/`.
-- Remaining risk: full page-load browser verification for `/#/` and `/#/fs/state/...` should be revisited outside the Trunk dev-server harness if zero-gap route-bootstrap proof is required beyond the engine tests already passing.

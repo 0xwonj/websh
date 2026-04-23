@@ -111,8 +111,7 @@ pub enum Command {
     /// Switch to explorer view mode with optional path
     Explorer(Option<PathArg>),
 
-    // Phase 4 — write / sync commands. Parsing wired in Task 4.2 / 4.3;
-    // these variants are reachable directly from tests for now.
+    // Write / sync commands.
     Touch {
         path: PathArg,
     },
@@ -611,7 +610,7 @@ mod tests {
     }
 
     // =========================================================================
-    // Parse tests for Phase 4 write + sync commands (Task 4.2 / 4.3)
+    // Parse tests for write + sync commands
     // =========================================================================
 
     #[test]

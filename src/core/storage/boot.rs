@@ -122,6 +122,7 @@ pub fn seed_bootstrap_routes(global: &mut GlobalFs) {
 
     seed_bootstrap_app(global, "/site/shell.app", "/shell");
     seed_bootstrap_app(global, "/site/fs.app", "/fs/*path");
+    seed_bootstrap_page(global, "/site/index.html");
 }
 
 fn seed_bootstrap_app(global: &mut GlobalFs, node_path: &str, route: &str) {
@@ -139,6 +140,13 @@ fn seed_bootstrap_app(global: &mut GlobalFs, node_path: &str, route: &str) {
         }
         .into(),
     );
+}
+
+fn seed_bootstrap_page(global: &mut GlobalFs, node_path: &str) {
+    let node_path = VirtualPath::from_absolute(node_path).expect("constant path");
+    if !global.exists(&node_path) {
+        global.upsert_binary_placeholder(node_path, FileMetadata::default());
+    }
 }
 
 pub async fn hydrate_drafts(mount_id: &str) -> StorageResult<ChangeSet> {

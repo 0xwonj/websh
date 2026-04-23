@@ -137,9 +137,7 @@ mod tests {
 
         fn commit<'a>(
             &'a self,
-            _changes: &'a crate::core::changes::ChangeSet,
-            _message: &'a str,
-            _expected_head: Option<&'a str>,
+            _request: &'a crate::core::storage::CommitRequest,
         ) -> crate::core::storage::BoxFuture<
             'a,
             crate::core::storage::StorageResult<crate::core::storage::CommitOutcome>,

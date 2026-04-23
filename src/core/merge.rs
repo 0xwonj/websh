@@ -1,23 +1,9 @@
-//! Merge a `ChangeSet` overlay on top of a base `VirtualFs` to produce a
-//! "current view" VirtualFs. Pure, no signals.
+//! Merge a `ChangeSet` overlay on top of a canonical `GlobalFs` view. Pure, no signals.
 
 use crate::core::changes::{ChangeSet, ChangeType};
 use crate::core::engine::GlobalFs;
-use crate::core::filesystem::VirtualFs;
 use crate::core::runtime;
 use crate::models::VirtualPath;
-
-pub fn merge_view(base: &VirtualFs, changes: &ChangeSet) -> VirtualFs {
-    merge_view_for_root(base, changes, &VirtualPath::root())
-}
-
-pub fn merge_view_for_root(base: &VirtualFs, changes: &ChangeSet, root: &VirtualPath) -> VirtualFs {
-    let mut merged = base.clone();
-    for (path, entry) in changes.iter_all() {
-        apply_change(&mut merged, path, root, &entry.change);
-    }
-    merged
-}
 
 pub fn merge_global_view(
     base: &GlobalFs,
@@ -26,42 +12,24 @@ pub fn merge_global_view(
 ) -> GlobalFs {
     let mut merged = base.clone();
     runtime::populate_runtime_state(&mut merged, changes, wallet_state);
-    for (path, entry) in changes.iter_all() {
-        apply_global_change(&mut merged, path, &entry.change);
-    }
+    apply_all_changes_to_global(&mut merged, changes);
     merged
 }
 
-fn apply_change(fs: &mut VirtualFs, path: &VirtualPath, root: &VirtualPath, change: &ChangeType) {
-    let Some(scoped_path) = scoped_path(path, root) else {
-        return;
-    };
+pub fn apply_all_changes_to_global(fs: &mut GlobalFs, changes: &ChangeSet) {
+    for (path, entry) in changes.iter_all() {
+        apply_global_change(fs, path, &entry.change);
+    }
+}
 
-    match change {
-        ChangeType::CreateFile { content, meta } => {
-            fs.upsert_file(scoped_path.clone(), content.clone(), meta.clone());
-        }
-        ChangeType::CreateBinary {
-            blob_id: _,
-            mime: _,
-            meta,
-        } => {
-            fs.upsert_binary_placeholder(scoped_path.clone(), meta.clone());
-        }
-        ChangeType::UpdateFile {
-            content,
-            description,
-        } => {
-            fs.update_file_content(&scoped_path, content.clone(), description.clone());
-        }
-        ChangeType::DeleteFile => {
-            fs.remove_entry(&scoped_path);
-        }
-        ChangeType::CreateDirectory { meta } => {
-            fs.upsert_directory(scoped_path.clone(), meta.clone());
-        }
-        ChangeType::DeleteDirectory => {
-            fs.remove_subtree(&scoped_path);
+pub fn apply_staged_changes_to_global_for_root(
+    fs: &mut GlobalFs,
+    changes: &ChangeSet,
+    root: &VirtualPath,
+) {
+    for (path, entry) in changes.iter_staged() {
+        if path.starts_with(root) {
+            apply_global_change(fs, path, &entry.change);
         }
     }
 }
@@ -96,31 +64,21 @@ fn apply_global_change(fs: &mut GlobalFs, path: &VirtualPath, change: &ChangeTyp
     }
 }
 
-fn scoped_path(path: &VirtualPath, root: &VirtualPath) -> Option<VirtualPath> {
-    if root.is_root() {
-        return Some(path.clone());
-    }
-
-    let rel = path.strip_prefix(root)?;
-    let scoped = if rel.is_empty() {
-        "/".to_string()
-    } else {
-        format!("/{}", rel)
-    };
-    VirtualPath::from_absolute(scoped).ok()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{DirectoryMetadata, FileMetadata, FsEntry};
-
-    fn base() -> VirtualFs {
-        VirtualFs::empty()
-    }
+    use crate::models::{DirectoryMetadata, FileMetadata, FsEntry, WalletState};
 
     fn p(s: &str) -> VirtualPath {
         VirtualPath::from_absolute(s).unwrap()
+    }
+
+    fn base() -> GlobalFs {
+        GlobalFs::empty()
+    }
+
+    fn merged(base: &GlobalFs, changes: &ChangeSet) -> GlobalFs {
+        merge_global_view(base, changes, &WalletState::Disconnected)
     }
 
     #[test]
@@ -133,8 +91,8 @@ mod tests {
                 meta: FileMetadata::default(),
             },
         );
-        let merged = merge_view(&base(), &cs);
-        assert!(merged.get(&p("/note.md")).is_some());
+        let merged = merged(&base(), &cs);
+        assert!(merged.get_entry(&p("/note.md")).is_some());
     }
 
     #[test]
@@ -143,8 +101,8 @@ mod tests {
         fs.upsert_file(p("/a.md"), "a".into(), FileMetadata::default());
         let mut cs = ChangeSet::new();
         cs.upsert(p("/a.md"), ChangeType::DeleteFile);
-        let merged = merge_view(&fs, &cs);
-        assert!(merged.get(&p("/a.md")).is_none());
+        let merged = merged(&fs, &cs);
+        assert!(merged.get_entry(&p("/a.md")).is_none());
     }
 
     #[test]
@@ -159,8 +117,8 @@ mod tests {
                 description: None,
             },
         );
-        let merged = merge_view(&fs, &cs);
-        let content = merged.read_file(&p("/a.md")).unwrap();
+        let merged = merged(&fs, &cs);
+        let content = merged.read_pending_text(&p("/a.md")).unwrap();
         assert_eq!(content, "new");
     }
 
@@ -178,8 +136,10 @@ mod tests {
             p("/notes"),
             ChangeType::CreateDirectory { meta: meta.clone() },
         );
-        let merged = merge_view(&base(), &cs);
-        let entry = merged.get(&p("/notes")).expect("directory should exist");
+        let merged = merged(&base(), &cs);
+        let entry = merged
+            .get_entry(&p("/notes"))
+            .expect("directory should exist");
         match entry {
             FsEntry::Directory { meta: m, .. } => {
                 assert_eq!(m.title, "Notes");
@@ -203,15 +163,18 @@ mod tests {
         );
         fs.upsert_file(p("/a/b.md"), "inner".into(), FileMetadata::default());
         // Sanity-check the seed.
-        assert!(fs.get(&p("/a/b.md")).is_some());
-        assert_eq!(fs.read_file(&p("/a/b.md")).as_deref(), Some("inner"));
+        assert!(fs.get_entry(&p("/a/b.md")).is_some());
+        assert_eq!(
+            fs.read_pending_text(&p("/a/b.md")).as_deref(),
+            Some("inner")
+        );
 
         let mut cs = ChangeSet::new();
         cs.upsert(p("/a"), ChangeType::DeleteDirectory);
-        let merged = merge_view(&fs, &cs);
+        let merged = merged(&fs, &cs);
 
-        assert!(merged.get(&p("/a")).is_none());
-        assert!(merged.read_file(&p("/a/b.md")).is_none());
+        assert!(merged.get_entry(&p("/a")).is_none());
+        assert!(merged.read_pending_text(&p("/a/b.md")).is_none());
     }
 
     #[test]
@@ -225,10 +188,10 @@ mod tests {
                 meta: FileMetadata::default(),
             },
         );
-        let merged = merge_view(&base(), &cs);
-        let entry = merged.get(&p("/img.png")).expect("file should exist");
+        let merged = merged(&base(), &cs);
+        let entry = merged.get_entry(&p("/img.png")).expect("file should exist");
         assert!(matches!(entry, FsEntry::File { .. }));
-        assert!(merged.read_file(&p("/img.png")).is_none());
+        assert!(merged.read_pending_text(&p("/img.png")).is_none());
     }
 
     #[test]
@@ -241,18 +204,18 @@ mod tests {
                 meta: FileMetadata::default(),
             },
         );
-        let merged = merge_view(&base(), &cs);
+        let merged = merged(&base(), &cs);
 
         assert!(matches!(
-            merged.get(&p("/a")),
+            merged.get_entry(&p("/a")),
             Some(FsEntry::Directory { .. })
         ));
         assert!(matches!(
-            merged.get(&p("/a/b")),
+            merged.get_entry(&p("/a/b")),
             Some(FsEntry::Directory { .. })
         ));
         assert!(matches!(
-            merged.get(&p("/a/b/c.md")),
+            merged.get_entry(&p("/a/b/c.md")),
             Some(FsEntry::File { .. })
         ));
     }
@@ -269,8 +232,8 @@ mod tests {
                 description: Some("updated desc".into()),
             },
         );
-        let merged = merge_view(&fs, &cs);
-        let entry = merged.get(&p("/a.md")).expect("file should exist");
+        let merged = merged(&fs, &cs);
+        let entry = merged.get_entry(&p("/a.md")).expect("file should exist");
         match entry {
             FsEntry::File { description, .. } => {
                 assert_eq!(description, "updated desc");
@@ -280,7 +243,8 @@ mod tests {
     }
 
     #[test]
-    fn merge_view_for_root_strips_mount_prefix() {
+    fn staged_root_apply_keeps_canonical_mount_prefix() {
+        let mut fs = GlobalFs::empty();
         let mut cs = ChangeSet::new();
         cs.upsert(
             p("/site/note.md"),
@@ -289,13 +253,14 @@ mod tests {
                 meta: FileMetadata::default(),
             },
         );
-        let merged = merge_view_for_root(&base(), &cs, &p("/site"));
-        assert!(merged.get(&p("/note.md")).is_some());
-        assert!(merged.get(&p("/site/note.md")).is_none());
+        apply_staged_changes_to_global_for_root(&mut fs, &cs, &p("/site"));
+        assert!(fs.get_entry(&p("/site/note.md")).is_some());
+        assert!(fs.get_entry(&p("/note.md")).is_none());
     }
 
     #[test]
-    fn merge_view_for_root_ignores_other_mounts() {
+    fn staged_root_apply_ignores_other_mounts() {
+        let mut fs = GlobalFs::empty();
         let mut cs = ChangeSet::new();
         cs.upsert(
             p("/mnt/work/note.md"),
@@ -304,7 +269,25 @@ mod tests {
                 meta: FileMetadata::default(),
             },
         );
-        let merged = merge_view_for_root(&base(), &cs, &p("/site"));
-        assert!(merged.get(&p("/note.md")).is_none());
+        apply_staged_changes_to_global_for_root(&mut fs, &cs, &p("/site"));
+        assert!(fs.get_entry(&p("/mnt/work/note.md")).is_none());
+    }
+
+    #[test]
+    fn staged_root_apply_ignores_unstaged_changes() {
+        let mut fs = GlobalFs::empty();
+        let mut cs = ChangeSet::new();
+        let path = p("/site/draft.md");
+        cs.upsert(
+            path.clone(),
+            ChangeType::CreateFile {
+                content: "draft".into(),
+                meta: FileMetadata::default(),
+            },
+        );
+        cs.unstage(&path);
+
+        apply_staged_changes_to_global_for_root(&mut fs, &cs, &p("/site"));
+        assert!(fs.get_entry(&path).is_none());
     }
 }

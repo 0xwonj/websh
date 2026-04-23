@@ -89,7 +89,6 @@ pub fn build_render_intent(_fs: &GlobalFs, resolution: &RouteResolution) -> Opti
 
 #[cfg(test)]
 mod tests {
-    use crate::core::VirtualFs;
     use crate::core::engine::{GlobalFs, RouteRequest, resolve_route};
     use crate::core::storage::{ScannedDirectory, ScannedFile, ScannedSubtree};
     use crate::models::{DirectoryMetadata, FileMetadata, VirtualPath};
@@ -120,10 +119,7 @@ mod tests {
 
         let mut global = GlobalFs::empty();
         global
-            .mount_fs(
-                VirtualPath::from_absolute("/site").unwrap(),
-                &VirtualFs::from_scanned_subtree(&snapshot),
-            )
+            .mount_scanned_subtree(VirtualPath::from_absolute("/site").unwrap(), &snapshot)
             .unwrap();
         global
     }

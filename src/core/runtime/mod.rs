@@ -8,11 +8,13 @@ use crate::models::{DirectoryMetadata, FileMetadata, VirtualPath, WalletState};
 #[path = "../env.rs"]
 pub mod env;
 
+mod commit;
 mod loader;
 pub(crate) mod state;
 #[path = "../wallet.rs"]
 pub mod wallet;
 
+pub use commit::commit_backend;
 pub use loader::{
     RuntimeLoad, bootstrap_backends, bootstrap_runtime_mounts, load_runtime, reload_runtime,
 };

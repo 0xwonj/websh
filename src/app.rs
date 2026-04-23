@@ -257,21 +257,21 @@ pub struct AppContext {
     /// Explorer state (selection, view type, sheet).
     pub explorer: ExplorerState,
 
-    // === Phase 3: Write-direct-commit state ===
+    // === Runtime filesystem/write state ===
     /// Staged + working-tree edits awaiting commit.
     pub changes: RwSignal<ChangeSet>,
     /// Merged global canonical filesystem with local `changes` overlaid.
     pub view_global_fs: Signal<Rc<GlobalFs>, LocalStorage>,
-    /// Future-facing backend registry keyed by canonical mount roots.
+    /// Backend registry keyed by canonical mount roots.
     pub backends: StoredValue<BTreeMap<VirtualPath, Arc<dyn StorageBackend>>, LocalStorage>,
     /// Runtime mount ownership keyed by canonical roots.
     pub runtime_mounts: RwSignal<Vec<RuntimeMount>>,
-    /// Future-facing remote HEAD registry keyed by canonical mount roots.
+    /// Remote HEAD registry keyed by canonical mount roots.
     pub remote_heads: RwSignal<BTreeMap<VirtualPath, String>>,
     /// Version counter for runtime state-backed `/state` nodes.
     pub runtime_state_rev: RwSignal<u64>,
 
-    // === Phase 5: Editor modal ===
+    // === Editor modal ===
     /// When `Some(path)`, the `EditModal` is open editing that path. `None` = closed.
     pub editor_open: RwSignal<Option<crate::models::VirtualPath>>,
 }
@@ -317,7 +317,7 @@ impl AppContext {
             terminal: TerminalState::new(),
             explorer: ExplorerState::new(),
 
-            // Phase 3 write-direct-commit state
+            // Runtime filesystem/write state
             changes,
             view_global_fs,
             backends,
@@ -325,7 +325,7 @@ impl AppContext {
             remote_heads,
             runtime_state_rev,
 
-            // Phase 5 editor state
+            // Editor state
             editor_open,
         }
     }

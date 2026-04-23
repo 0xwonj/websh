@@ -21,7 +21,7 @@ pub enum SideEffect {
     /// Switch view mode and navigate in one step.
     SwitchViewAndNavigate(ViewMode, RouteRequest),
 
-    // Phase 3
+    // Filesystem mutations
     ApplyChange {
         path: crate::models::VirtualPath,
         change: crate::core::changes::ChangeType,

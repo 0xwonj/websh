@@ -144,10 +144,3 @@ pub fn set_wallet_session(active: bool) {
         }
     }
 }
-
-#[cfg(test)]
-pub fn reset_for_tests() {
-    RUNTIME_STATE.with(|slot| {
-        *slot.borrow_mut() = Some(RuntimeStateSnapshot::default());
-    });
-}

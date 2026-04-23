@@ -453,7 +453,6 @@ fn normalize_absolute_path(path: &str) -> Option<VirtualPath> {
 
 #[cfg(test)]
 mod tests {
-    use crate::core::VirtualFs;
     use crate::core::storage::{ScannedDirectory, ScannedFile, ScannedSubtree};
     use crate::models::{DirectoryMetadata, FileMetadata, FileSidecarMetadata, RouteIndexEntry};
 
@@ -483,10 +482,7 @@ mod tests {
 
         let mut global = GlobalFs::empty();
         global
-            .mount_fs(
-                VirtualPath::from_absolute("/site").unwrap(),
-                &VirtualFs::from_scanned_subtree(&snapshot),
-            )
+            .mount_scanned_subtree(VirtualPath::from_absolute("/site").unwrap(), &snapshot)
             .unwrap();
         global.set_node_metadata(
             VirtualPath::from_absolute("/site/shell.app").unwrap(),

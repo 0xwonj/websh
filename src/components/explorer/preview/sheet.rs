@@ -145,7 +145,7 @@ pub fn BottomSheet(data: PreviewData) -> impl IntoView {
     // The handle is primarily a pointer/touch affordance — dragging down
     // closes the sheet, dragging up navigates into the item. Implementing a
     // full keyboard drag UX is out of scope here; this is a best-effort
-    // accessibility shim so keyboard-only users can at least dismiss the
+    // accessibility fallback so keyboard-only users can at least dismiss the
     // sheet via the handle (Enter/Space mirror the "drag down to close"
     // gesture).
     let on_handle_keydown = move |ev: leptos::ev::KeyboardEvent| match ev.key().as_str() {

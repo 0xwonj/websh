@@ -47,7 +47,7 @@ Public engine surface:
 - `RenderIntent`
 - `RuntimeMount`
 
-The single-mount subtree type remains internal. Mount assembly happens before the engine is exposed to the UI.
+Backend scan rows mount directly into `GlobalFs`. There is no retained mount-local filesystem model inside core.
 
 ## Storage contract
 
@@ -56,7 +56,7 @@ The single-mount subtree type remains internal. Mount assembly happens before th
 - `scan() -> ScannedSubtree`
 - `read_text()`
 - `read_bytes()`
-- `commit() -> CommitOutcome { new_head, committed_paths }`
+- `commit(CommitRequest) -> CommitOutcome { new_head, committed_paths }`
 
 GitHub manifest JSON is a private serialization detail under `core::storage::github::manifest`.
 
@@ -65,7 +65,7 @@ GitHub manifest JSON is a private serialization detail under `core::storage::git
 - `files: Vec<ScannedFile>`
 - `directories: Vec<ScannedDirectory>`
 
-Commits regenerate `manifest.json` privately from the merged subtree snapshot before GraphQL submission. The app surface does not expose manifest structs.
+Runtime commit coordination prepares a merged mount snapshot from `GlobalFs` before calling the backend. `CommitRequest` carries the runtime-supplied auth token, so storage backends do not read browser/session state directly. GitHub then serializes `manifest.json` privately from that prepared snapshot. The app surface does not expose manifest structs.
 
 ## State model
 
@@ -95,6 +95,7 @@ Commits regenerate `manifest.json` privately from the merged subtree snapshot be
 
 - write ownership is determined from `runtime_mounts`
 - `ls`, `touch`, `mkdir`, `rm`, `rmdir`, `edit`, and `sync` work against canonical roots
+- `sync commit` accepts staged changes for exactly one runtime mount
 - `sync refresh` and successful `sync commit` reload runtime through `core::runtime::loader`
 - auth/session mutations use one side effect path: runtime-state invalidation
 

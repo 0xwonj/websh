@@ -1,8 +1,5 @@
-//! Debounced IDB persistence for ChangeSet. Called from a Leptos Effect
-//! in Phase 3. The scheduling logic lives here so it's testable and
-//! the reactive layer stays thin.
-//!
-//! Spec §7.4. Debounce interval is 300ms.
+//! Debounced IDB persistence for ChangeSet. The scheduling logic lives here so
+//! it is testable and the reactive layer stays thin.
 #![allow(dead_code)]
 
 use std::cell::RefCell;

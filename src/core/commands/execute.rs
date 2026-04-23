@@ -1,7 +1,7 @@
 //! Command execution logic.
 //!
 //! Contains the `execute_command` function that runs parsed commands
-//! against the virtual filesystem and returns results.
+//! against the canonical filesystem and returns results.
 
 use crate::app::TerminalState;
 use crate::config::{ASCII_PROFILE, HELP_TEXT};
@@ -370,7 +370,7 @@ fn execute_explorer(
 }
 
 // =============================================================================
-// Phase 4 — Write / Sync execution arms
+// Write / Sync execution arms
 // =============================================================================
 
 /// Resolve an admin + mount preflight for write commands. Returns the write
@@ -870,12 +870,27 @@ fn sync_mount_root(
     cwd: &VirtualPath,
     changes: &ChangeSet,
 ) -> Result<VirtualPath, CommandResult> {
-    if let Some((path, _)) = changes.iter_all().next() {
-        return mount_for_path(runtime_mounts, path)
-            .map(|mount| mount.root)
-            .ok_or_else(|| {
-                CommandResult::error_line("sync: no writable mount for staged changes")
-            });
+    let mut staged_root: Option<VirtualPath> = None;
+    for (path, _) in changes.iter_staged() {
+        let Some(mount) = mount_for_path(runtime_mounts, path) else {
+            return Err(CommandResult::error_line(
+                "sync: no writable mount for staged changes",
+            ));
+        };
+
+        match &staged_root {
+            None => staged_root = Some(mount.root),
+            Some(root) if root == &mount.root => {}
+            Some(_) => {
+                return Err(CommandResult::error_line(
+                    "sync commit: staged changes span multiple mounts",
+                ));
+            }
+        }
+    }
+
+    if let Some(root) = staged_root {
+        return Ok(root);
     }
 
     if let Some(mount) = mount_for_path(runtime_mounts, cwd) {
@@ -894,16 +909,15 @@ mod tests {
     use super::super::SideEffect;
     use super::*;
     use crate::app::TerminalState;
-    use crate::core::VirtualFs;
     use crate::core::changes::ChangeSet;
     use crate::core::engine::GlobalFs;
     use crate::models::{ViewMode, WalletState};
 
-    fn empty_state() -> (TerminalState, WalletState, VirtualFs) {
+    fn empty_state() -> (TerminalState, WalletState, GlobalFs) {
         (
             TerminalState::new(),
             WalletState::Disconnected,
-            VirtualFs::empty(),
+            GlobalFs::empty(),
         )
     }
 
@@ -930,30 +944,21 @@ mod tests {
         home_cwd(path)
     }
 
-    fn global(fs: &VirtualFs) -> GlobalFs {
-        let mut global = GlobalFs::empty();
-        global
-            .mount_fs(VirtualPath::from_absolute("/site").unwrap(), fs)
-            .unwrap();
-        global
-    }
-
     fn execute_command(
         cmd: Command,
         state: &TerminalState,
         wallet_state: &WalletState,
-        fs: &VirtualFs,
+        fs: &GlobalFs,
         cwd: &VirtualPath,
         changes: &ChangeSet,
         remote_head: Option<&str>,
     ) -> CommandResult {
-        let global = global(fs);
         super::execute_command(
             cmd,
             state,
             wallet_state,
             &[crate::core::storage::boot::bootstrap_runtime_mount()],
-            &global,
+            fs,
             cwd,
             changes,
             remote_head,
@@ -1128,7 +1133,7 @@ mod tests {
     }
 
     // ======================================================================
-    // Phase 4 write-command tests
+    // Write-command tests
     // ======================================================================
 
     #[test]
@@ -1182,12 +1187,8 @@ mod tests {
     #[test]
     fn test_touch_errors_when_path_exists_in_fs() {
         // Build an fs with a file at "new.md"
-        let mut fs = VirtualFs::empty();
-        fs.upsert_file(
-            VirtualPath::from_absolute("/new.md").unwrap(),
-            String::new(),
-            FileMetadata::default(),
-        );
+        let mut fs = GlobalFs::empty();
+        fs.upsert_file(home_vpath("new.md"), String::new(), FileMetadata::default());
         let ts = TerminalState::new();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
@@ -1236,9 +1237,9 @@ mod tests {
 
     #[test]
     fn test_mkdir_errors_when_path_exists() {
-        let mut fs = VirtualFs::empty();
+        let mut fs = GlobalFs::empty();
         fs.upsert_directory(
-            VirtualPath::from_absolute("/dir").unwrap(),
+            home_vpath("dir"),
             crate::models::DirectoryMetadata::default(),
         );
         let ts = TerminalState::new();
@@ -1260,9 +1261,9 @@ mod tests {
 
     #[test]
     fn test_rm_file_side_effect() {
-        let mut fs = VirtualFs::empty();
+        let mut fs = GlobalFs::empty();
         fs.upsert_file(
-            VirtualPath::from_absolute("/doomed.md").unwrap(),
+            home_vpath("doomed.md"),
             String::new(),
             FileMetadata::default(),
         );
@@ -1295,9 +1296,9 @@ mod tests {
 
     #[test]
     fn test_rm_directory_without_r_errors() {
-        let mut fs = VirtualFs::empty();
+        let mut fs = GlobalFs::empty();
         fs.upsert_directory(
-            VirtualPath::from_absolute("/dir").unwrap(),
+            home_vpath("dir"),
             crate::models::DirectoryMetadata::default(),
         );
         let ts = TerminalState::new();
@@ -1320,9 +1321,9 @@ mod tests {
 
     #[test]
     fn test_rm_directory_recursive_side_effect() {
-        let mut fs = VirtualFs::empty();
+        let mut fs = GlobalFs::empty();
         fs.upsert_directory(
-            VirtualPath::from_absolute("/dir").unwrap(),
+            home_vpath("dir"),
             crate::models::DirectoryMetadata::default(),
         );
         let ts = TerminalState::new();
@@ -1374,9 +1375,9 @@ mod tests {
 
     #[test]
     fn test_rmdir_empty_directory_side_effect() {
-        let mut fs = VirtualFs::empty();
+        let mut fs = GlobalFs::empty();
         fs.upsert_directory(
-            VirtualPath::from_absolute("/empty").unwrap(),
+            home_vpath("empty"),
             crate::models::DirectoryMetadata::default(),
         );
         let ts = TerminalState::new();
@@ -1405,13 +1406,13 @@ mod tests {
 
     #[test]
     fn test_rmdir_nonempty_directory_errors() {
-        let mut fs = VirtualFs::empty();
+        let mut fs = GlobalFs::empty();
         fs.upsert_directory(
-            VirtualPath::from_absolute("/dir").unwrap(),
+            home_vpath("dir"),
             crate::models::DirectoryMetadata::default(),
         );
         fs.upsert_file(
-            VirtualPath::from_absolute("/dir/child.md").unwrap(),
+            home_vpath("dir/child.md"),
             String::new(),
             FileMetadata::default(),
         );
@@ -1434,9 +1435,9 @@ mod tests {
 
     #[test]
     fn test_rmdir_on_file_errors() {
-        let mut fs = VirtualFs::empty();
+        let mut fs = GlobalFs::empty();
         fs.upsert_file(
-            VirtualPath::from_absolute("/file.md").unwrap(),
+            home_vpath("file.md"),
             String::new(),
             FileMetadata::default(),
         );
@@ -1459,9 +1460,9 @@ mod tests {
 
     #[test]
     fn test_edit_opens_editor_for_existing_file() {
-        let mut fs = VirtualFs::empty();
+        let mut fs = GlobalFs::empty();
         fs.upsert_file(
-            VirtualPath::from_absolute("/note.md").unwrap(),
+            home_vpath("note.md"),
             "hi".to_string(),
             FileMetadata::default(),
         );
@@ -1514,9 +1515,9 @@ mod tests {
 
     #[test]
     fn test_edit_on_directory_errors() {
-        let mut fs = VirtualFs::empty();
+        let mut fs = GlobalFs::empty();
         fs.upsert_directory(
-            VirtualPath::from_absolute("/dir").unwrap(),
+            home_vpath("dir"),
             crate::models::DirectoryMetadata::default(),
         );
         let ts = TerminalState::new();
@@ -1571,9 +1572,9 @@ mod tests {
 
     #[test]
     fn test_echo_redirect_updates_existing_file() {
-        let mut fs = VirtualFs::empty();
+        let mut fs = GlobalFs::empty();
         fs.upsert_file(
-            VirtualPath::from_absolute("/greet.md").unwrap(),
+            home_vpath("greet.md"),
             "old".to_string(),
             FileMetadata::default(),
         );
@@ -1778,6 +1779,38 @@ mod tests {
     }
 
     #[test]
+    fn test_sync_commit_rejects_changes_across_multiple_mounts() {
+        let runtime_mounts = vec![
+            crate::core::storage::boot::bootstrap_runtime_mount(),
+            crate::models::RuntimeMount::new(
+                VirtualPath::from_absolute("/mnt/db").unwrap(),
+                "db",
+                crate::models::RuntimeBackendKind::GitHub,
+                true,
+            ),
+        ];
+        let mut cs = ChangeSet::new();
+        cs.upsert(
+            home_vpath("a.md"),
+            ChangeType::CreateFile {
+                content: "site".to_string(),
+                meta: FileMetadata::default(),
+            },
+        );
+        cs.upsert(
+            VirtualPath::from_absolute("/mnt/db/b.md").unwrap(),
+            ChangeType::CreateFile {
+                content: "db".to_string(),
+                meta: FileMetadata::default(),
+            },
+        );
+
+        let err = sync_mount_root(&runtime_mounts, &home_cwd(""), &cs)
+            .expect_err("mixed mount changes must not select a single backend");
+        assert_eq!(err.exit_code, 1);
+    }
+
+    #[test]
     fn test_sync_refresh_side_effect() {
         let (ts, _ws, fs) = empty_state();
         let ws = admin_wallet();
@@ -1843,63 +1876,59 @@ mod tests {
 
     #[test]
     fn test_has_children_empty_dir_is_false() {
-        let mut fs = VirtualFs::empty();
+        let mut fs = GlobalFs::empty();
         fs.upsert_directory(
-            VirtualPath::from_absolute("/empty").unwrap(),
+            home_vpath("empty"),
             crate::models::DirectoryMetadata::default(),
         );
-        assert!(!fs.has_children("empty"));
+        assert!(!fs.has_children(&home_vpath("empty")));
     }
 
     #[test]
     fn test_has_children_with_child_is_true() {
-        let mut fs = VirtualFs::empty();
+        let mut fs = GlobalFs::empty();
         fs.upsert_directory(
-            VirtualPath::from_absolute("/dir").unwrap(),
+            home_vpath("dir"),
             crate::models::DirectoryMetadata::default(),
         );
         fs.upsert_file(
-            VirtualPath::from_absolute("/dir/child.md").unwrap(),
+            home_vpath("dir/child.md"),
             String::new(),
             FileMetadata::default(),
         );
-        assert!(fs.has_children("dir"));
+        assert!(fs.has_children(&home_vpath("dir")));
     }
 
     #[test]
     fn test_has_children_nonexistent_is_false() {
-        let fs = VirtualFs::empty();
-        assert!(!fs.has_children("ghost"));
+        let fs = GlobalFs::empty();
+        assert!(!fs.has_children(&home_vpath("ghost")));
     }
 
     #[test]
     fn test_has_children_file_is_false() {
-        let mut fs = VirtualFs::empty();
+        let mut fs = GlobalFs::empty();
         fs.upsert_file(
-            VirtualPath::from_absolute("/file.md").unwrap(),
+            home_vpath("file.md"),
             String::new(),
             FileMetadata::default(),
         );
-        assert!(!fs.has_children("file.md"));
+        assert!(!fs.has_children(&home_vpath("file.md")));
     }
 
     // ======================================================================
-    // Phase 3a follow-up: merged runtime view + discard-on-pending-create.
+    // Merged runtime view + discard-on-pending-create.
     // ======================================================================
 
     /// Build the merged "current view" that the terminal dispatcher sees.
-    fn view(base: &VirtualFs, changes: &ChangeSet) -> VirtualFs {
-        crate::core::merge::merge_view_for_root(
-            base,
-            changes,
-            &VirtualPath::from_absolute("/site").unwrap(),
-        )
+    fn view(base: &GlobalFs, changes: &ChangeSet) -> GlobalFs {
+        crate::core::merge::merge_global_view(base, changes, &WalletState::Disconnected)
     }
 
     #[test]
     fn test_rm_on_pending_create_file_emits_discard_change() {
-        // Base VFS empty; ChangeSet has a pending CreateFile at /a.md.
-        let base = VirtualFs::empty();
+        // Base fs empty; ChangeSet has a pending CreateFile at /site/a.md.
+        let base = GlobalFs::empty();
         let mut cs = ChangeSet::new();
         cs.upsert(
             home_vpath("a.md"),
@@ -1935,7 +1964,7 @@ mod tests {
 
     #[test]
     fn test_rm_recursive_on_pending_create_directory_emits_discard_change() {
-        let base = VirtualFs::empty();
+        let base = GlobalFs::empty();
         let mut cs = ChangeSet::new();
         cs.upsert(
             home_vpath("d"),
@@ -1970,7 +1999,7 @@ mod tests {
 
     #[test]
     fn test_rmdir_on_pending_create_directory_emits_discard_change() {
-        let base = VirtualFs::empty();
+        let base = GlobalFs::empty();
         let mut cs = ChangeSet::new();
         cs.upsert(
             home_vpath("d"),
@@ -2004,10 +2033,10 @@ mod tests {
 
     #[test]
     fn test_rm_on_base_file_still_emits_apply_change_delete() {
-        // File is in base VFS, NOT in ChangeSet → Delete, not Discard.
-        let mut base = VirtualFs::empty();
+        // File is in base fs, NOT in ChangeSet -> Delete, not Discard.
+        let mut base = GlobalFs::empty();
         base.upsert_file(
-            VirtualPath::from_absolute("/existing.md").unwrap(),
+            home_vpath("existing.md"),
             "hi".into(),
             FileMetadata::default(),
         );
@@ -2045,7 +2074,7 @@ mod tests {
         // Base does not contain /a.md, but the ChangeSet does as CreateFile.
         // After the merged runtime view is computed and passed to execute, the
         // existing `fs.get_entry(...).is_some()` guard must fire.
-        let base = VirtualFs::empty();
+        let base = GlobalFs::empty();
         let mut cs = ChangeSet::new();
         cs.upsert(
             home_vpath("a.md"),

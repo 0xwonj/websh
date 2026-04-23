@@ -8,7 +8,8 @@ pub mod idb;
 pub mod persist;
 
 pub use backend::{
-    BoxFuture, CommitOutcome, ScannedDirectory, ScannedFile, ScannedSubtree, StorageBackend,
+    BoxFuture, CommitOutcome, CommitRequest, ScannedDirectory, ScannedFile, ScannedSubtree,
+    StorageBackend,
 };
 pub use error::{StorageError, StorageResult};
 #[allow(dead_code)]

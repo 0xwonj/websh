@@ -1,7 +1,8 @@
 //! End-to-end: staged changes → backend-private manifest regeneration.
 
 use websh::core::changes::{ChangeSet, ChangeType};
-use websh::core::storage::{MockBackend, ScannedSubtree, StorageBackend};
+use websh::core::runtime;
+use websh::core::storage::{MockBackend, ScannedSubtree};
 use websh::models::{FileMetadata, VirtualPath};
 
 #[tokio::test(flavor = "current_thread")]
@@ -17,8 +18,19 @@ async fn commit_path_records_staged_paths_plus_manifest() {
         },
     );
 
-    let backend = MockBackend::with_success(ScannedSubtree::default(), "sha-new");
-    let outcome = backend.commit(&cs, "test", Some("sha-old")).await.unwrap();
+    let backend = std::sync::Arc::new(MockBackend::with_success(
+        ScannedSubtree::default(),
+        "sha-new",
+    ));
+    let outcome = runtime::commit_backend(
+        backend.clone(),
+        site_root,
+        cs,
+        "test".to_string(),
+        Some("sha-old".to_string()),
+    )
+    .await
+    .unwrap();
     assert_eq!(outcome.new_head, "sha-new");
 
     let calls = backend.commit_calls.borrow();

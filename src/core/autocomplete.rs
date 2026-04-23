@@ -525,7 +525,7 @@ mod tests {
     }
 
     // ------------------------------------------------------------------------
-    // Phase 3a: write-command + sync-subcommand completion
+    // Write-command + sync-subcommand completion
     // ------------------------------------------------------------------------
 
     /// Build a small fixture FS with two files and two dirs at `/site`:
@@ -535,7 +535,6 @@ mod tests {
     /// These names all share the prefix `h`, so a `/h`-style partial
     /// exercises both the dir-only and file+dir classification paths.
     fn write_cmd_fixture() -> GlobalFs {
-        use crate::core::VirtualFs;
         use crate::core::engine::GlobalFs;
         use crate::core::storage::{ScannedDirectory, ScannedFile, ScannedSubtree};
         use crate::models::{DirectoryMetadata, FileMetadata};
@@ -581,11 +580,8 @@ mod tests {
             ],
         };
         let mut fs = GlobalFs::empty();
-        fs.mount_fs(
-            VirtualPath::from_absolute("/site").unwrap(),
-            &VirtualFs::from_scanned_subtree(&snapshot),
-        )
-        .unwrap();
+        fs.mount_scanned_subtree(VirtualPath::from_absolute("/site").unwrap(), &snapshot)
+            .unwrap();
         fs
     }
 

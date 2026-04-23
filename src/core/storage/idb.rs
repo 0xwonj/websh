@@ -1,12 +1,12 @@
-//! IndexedDB persistence for drafts and metadata. See spec §7.
+//! IndexedDB persistence for drafts and metadata.
 //!
 //! Public API: `open_db`, `save_draft`, `load_draft`, `save_metadata`, `load_metadata`.
-// Consumed in Tasks 2.5 + 2.6 (wasm_bindgen_test round-trip, debounced persist helper).
 #![allow(dead_code)]
 
 use idb::event::DatabaseEvent;
 use idb::{Database, Factory, ObjectStoreParams, TransactionMode};
 use serde::{Deserialize, Serialize};
+use serde_wasm_bindgen::Serializer;
 use wasm_bindgen::JsValue;
 
 use crate::core::changes::ChangeSet;
@@ -62,7 +62,8 @@ pub async fn save_draft(db: &Database, mount_id: &str, changes: &ChangeSet) -> S
         mount_id: mount_id.to_string(),
         changes: changes.clone(),
     };
-    let value = serde_wasm_bindgen::to_value(&record)
+    let value = record
+        .serialize(&Serializer::json_compatible())
         .map_err(|e| StorageError::BadRequest(format!("serialize: {e}")))?;
     store
         .put(&value, None)
@@ -102,7 +103,8 @@ pub async fn save_metadata(db: &Database, key: &str, value: &str) -> StorageResu
         key: key.to_string(),
         value: value.to_string(),
     };
-    let js = serde_wasm_bindgen::to_value(&record)
+    let js = record
+        .serialize(&Serializer::json_compatible())
         .map_err(|e| StorageError::BadRequest(format!("serialize: {e}")))?;
     store
         .put(&js, None)

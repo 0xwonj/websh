@@ -47,8 +47,8 @@ pub struct DirectoryMetadata {
 
 /// Access-control metadata for a file.
 ///
-/// "Access" is advisory — it filters who the UI shows content to. Actual
-/// cryptographic confidentiality is NOT provided in Phase 3/4 Option B.
+/// "Access" is advisory: it filters who the UI shows content to. Actual
+/// cryptographic confidentiality is not provided by this metadata field.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct AccessFilter {
     /// Wallet addresses listed as recipients.
@@ -79,6 +79,16 @@ pub struct DisplayPermissions {
     pub execute: bool,
 }
 
+/// Directory entry returned by canonical filesystem directory listings.
+#[derive(Clone, Debug)]
+pub struct DirEntry {
+    pub name: String,
+    pub path: crate::models::VirtualPath,
+    pub is_dir: bool,
+    pub title: String,
+    pub file_meta: Option<FileMetadata>,
+}
+
 impl fmt::Display for DisplayPermissions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -95,6 +105,7 @@ impl fmt::Display for DisplayPermissions {
 /// Supported file types for the reader
 #[derive(Clone, Debug, PartialEq)]
 pub enum FileType {
+    Html,
     Markdown,
     Pdf,
     Image,
@@ -106,6 +117,7 @@ impl FileType {
     /// Detect file type from path extension
     pub fn from_path(path: &str) -> Self {
         match path.rsplit('.').next().map(|s| s.to_lowercase()).as_deref() {
+            Some("html" | "htm") => Self::Html,
             Some("md") => Self::Markdown,
             Some("pdf") => Self::Pdf,
             Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "svg") => Self::Image,
@@ -125,6 +137,7 @@ mod tests {
 
     #[test]
     fn test_file_type_detection() {
+        assert_eq!(FileType::from_path("index.html"), FileType::Html);
         assert_eq!(FileType::from_path("blog/hello.md"), FileType::Markdown);
         assert_eq!(FileType::from_path("papers/research.pdf"), FileType::Pdf);
         assert_eq!(FileType::from_path("images/photo.png"), FileType::Image);
@@ -134,7 +147,7 @@ mod tests {
     }
 }
 
-/// Represents an entry in the virtual filesystem
+/// Represents an entry in the canonical filesystem tree.
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
 pub enum FsEntry {

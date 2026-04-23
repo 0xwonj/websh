@@ -37,6 +37,15 @@ pub struct CommitOutcome {
     pub committed_paths: Vec<VirtualPath>,
 }
 
+#[derive(Clone, Debug)]
+pub struct CommitRequest {
+    pub changes: ChangeSet,
+    pub merged_snapshot: ScannedSubtree,
+    pub message: String,
+    pub expected_head: Option<String>,
+    pub auth_token: Option<String>,
+}
+
 #[allow(dead_code)]
 pub trait StorageBackend {
     fn backend_type(&self) -> &'static str;
@@ -47,12 +56,10 @@ pub trait StorageBackend {
 
     fn read_bytes<'a>(&'a self, rel_path: &'a str) -> BoxFuture<'a, StorageResult<Vec<u8>>>;
 
-    /// Commit the staged subset of `changes` as one atomic batch.
-    /// `expected_head` is the SHA the caller believed was current at draft-time.
+    /// Commit one prepared atomic batch. Runtime code prepares the merged
+    /// metadata snapshot so backend implementations do not assemble filesystems.
     fn commit<'a>(
         &'a self,
-        changes: &'a ChangeSet,
-        message: &'a str,
-        expected_head: Option<&'a str>,
+        request: &'a CommitRequest,
     ) -> BoxFuture<'a, StorageResult<CommitOutcome>>;
 }

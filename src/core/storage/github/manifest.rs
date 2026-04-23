@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::core::storage::{ScannedDirectory, ScannedFile, ScannedSubtree, StorageError, StorageResult};
+use crate::core::storage::{
+    ScannedDirectory, ScannedFile, ScannedSubtree, StorageError, StorageResult,
+};
 use crate::models::{AccessFilter, DirectoryMetadata, FileMetadata};
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -30,8 +32,8 @@ struct ManifestDirectory {
 }
 
 pub(crate) fn parse_snapshot(body: &str) -> StorageResult<ScannedSubtree> {
-    let manifest: ManifestDocument =
-        serde_json::from_str(body).map_err(|error| StorageError::ValidationFailed(error.to_string()))?;
+    let manifest: ManifestDocument = serde_json::from_str(body)
+        .map_err(|error| StorageError::ValidationFailed(error.to_string()))?;
 
     Ok(ScannedSubtree {
         files: manifest

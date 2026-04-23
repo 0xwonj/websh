@@ -1,7 +1,7 @@
 //! Data models and types for the application.
 //!
 //! Contains domain types for:
-//! - [`FsEntry`], [`FileMetadata`], [`FileType`] - Virtual filesystem representation
+//! - [`FsEntry`], [`FileMetadata`], [`FileType`] - canonical filesystem representation
 //! - Filesystem-first sidecar and index metadata for pages/apps/routes
 //! - [`OutputLine`] - Terminal output types
 //! - [`WalletState`] - Web3 wallet connection state
@@ -18,7 +18,7 @@ mod wallet;
 
 pub use explorer::{ExplorerViewType, Selection, ViewMode};
 pub use filesystem::{
-    AccessFilter, DirectoryMetadata, DisplayPermissions, FileMetadata, FileType, FsEntry,
+    AccessFilter, DirEntry, DirectoryMetadata, DisplayPermissions, FileMetadata, FileType, FsEntry,
     Recipient,
 };
 pub use mount::{BootstrapSiteSource, RuntimeBackendKind, RuntimeMount};
