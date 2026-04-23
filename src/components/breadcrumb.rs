@@ -8,7 +8,8 @@ use leptos_icons::Icon;
 
 use crate::components::icons as ic;
 use crate::components::terminal::RouteContext;
-use crate::models::AppRoute;
+use crate::core::engine::{RouteRequest, request_path_for_canonical_path};
+use crate::models::VirtualPath;
 
 stylance::import_crate_style!(css, "src/components/breadcrumb.module.css");
 
@@ -20,7 +21,7 @@ struct BreadcrumbSegment {
     /// Icon to show
     icon: icondata::Icon,
     /// Target route for navigation (None = current/disabled)
-    target: Option<AppRoute>,
+    target: Option<RouteRequest>,
 }
 
 /// Shared breadcrumb navigation component.
@@ -42,7 +43,7 @@ pub fn Breadcrumb(
                 let display = route.display_path();
 
                 // Handle Root specially
-                if matches!(route, AppRoute::Root) {
+                if route.is_root() {
                     return view! {
                         <SegmentCurrent icon=ic::SERVER label="/".to_string() />
                     }.into_any();
@@ -58,7 +59,7 @@ pub fn Breadcrumb(
                     segment_data.push(BreadcrumbSegment {
                         label: "/".to_string(),
                         icon: ic::SERVER,
-                        target: Some(AppRoute::Root),
+                        target: Some(RouteRequest::new("/fs")),
                     });
                 }
 
@@ -81,16 +82,10 @@ pub fn Breadcrumb(
                     let target = if is_last {
                         None // Current segment is not clickable
                     } else if is_home_segment {
-                        Some(AppRoute::home())
-                    } else if let Some(mount) = route.mount() {
-                        // Build absolute path from segments up to this index
-                        let path = build_segment_path(&segments, idx);
-                        Some(AppRoute::Browse {
-                            mount: mount.clone(),
-                            path,
-                        })
+                        Some(RouteRequest::new("/shell"))
                     } else {
-                        None
+                        let path = canonical_segment_path(&segments, idx);
+                        Some(RouteRequest::new(request_path_for_canonical_path(&path)))
                     };
 
                     segment_data.push(BreadcrumbSegment {
@@ -137,6 +132,19 @@ pub fn Breadcrumb(
             }}
         </nav>
     }
+}
+
+fn canonical_segment_path(segments: &[&str], idx: usize) -> VirtualPath {
+    if segments.first() == Some(&"~") {
+        let rel = build_segment_path(segments, idx);
+        if rel.is_empty() {
+            return VirtualPath::from_absolute("/site").expect("constant path");
+        }
+        return VirtualPath::from_absolute(format!("/site/{rel}")).expect("constant path");
+    }
+
+    let abs = format!("/{}", segments[..=idx].join("/"));
+    VirtualPath::from_absolute(abs).expect("constant path")
 }
 
 /// Clickable breadcrumb segment.

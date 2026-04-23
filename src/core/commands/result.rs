@@ -1,6 +1,7 @@
 //! Command execution result type.
 
-use crate::models::{AppRoute, OutputLine, ViewMode};
+use crate::core::engine::RouteRequest;
+use crate::models::{OutputLine, ViewMode};
 
 /// Side effect requested by a command's execution.
 ///
@@ -10,7 +11,7 @@ use crate::models::{AppRoute, OutputLine, ViewMode};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SideEffect {
     /// Navigate to a new route.
-    Navigate(AppRoute),
+    Navigate(RouteRequest),
     /// Initiate wallet login (async).
     Login,
     /// Perform wallet logout.
@@ -18,20 +19,40 @@ pub enum SideEffect {
     /// Switch view mode (e.g., Terminal <-> Explorer).
     SwitchView(ViewMode),
     /// Switch view mode and navigate in one step.
-    SwitchViewAndNavigate(ViewMode, AppRoute),
+    SwitchViewAndNavigate(ViewMode, RouteRequest),
 
     // Phase 3
-    ApplyChange    { path: crate::models::VirtualPath, change: crate::core::changes::ChangeType },
-    StageChange    { path: crate::models::VirtualPath },
-    UnstageChange  { path: crate::models::VirtualPath },
-    DiscardChange  { path: crate::models::VirtualPath },
+    ApplyChange {
+        path: crate::models::VirtualPath,
+        change: crate::core::changes::ChangeType,
+    },
+    StageChange {
+        path: crate::models::VirtualPath,
+    },
+    UnstageChange {
+        path: crate::models::VirtualPath,
+    },
+    DiscardChange {
+        path: crate::models::VirtualPath,
+    },
     StageAll,
     UnstageAll,
-    Commit         { message: String, expected_head: Option<String> },
-    RefreshManifest,
-    SetAuthToken   { token: String },
+    Commit {
+        message: String,
+        expected_head: Option<String>,
+        mount_root: crate::models::VirtualPath,
+    },
+    ReloadRuntimeMount {
+        mount_root: crate::models::VirtualPath,
+    },
+    SetAuthToken {
+        token: String,
+    },
     ClearAuthToken,
-    OpenEditor     { path: crate::models::VirtualPath },
+    InvalidateRuntimeState,
+    OpenEditor {
+        path: crate::models::VirtualPath,
+    },
 }
 
 /// Result of executing a command.
@@ -80,7 +101,7 @@ impl CommandResult {
 
     // --- Side-effect constructors ---
 
-    pub fn navigate(route: AppRoute) -> Self {
+    pub fn navigate(route: RouteRequest) -> Self {
         Self {
             output: vec![],
             exit_code: 0,
@@ -112,14 +133,11 @@ impl CommandResult {
         }
     }
 
-    pub fn open_explorer(route: AppRoute) -> Self {
+    pub fn open_explorer(route: RouteRequest) -> Self {
         Self {
             output: vec![],
             exit_code: 0,
-            side_effect: Some(SideEffect::SwitchViewAndNavigate(
-                ViewMode::Explorer,
-                route,
-            )),
+            side_effect: Some(SideEffect::SwitchViewAndNavigate(ViewMode::Explorer, route)),
         }
     }
 
@@ -135,11 +153,8 @@ impl CommandResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{Mount, OutputLine, ViewMode};
-
-    fn test_mount() -> Mount {
-        Mount::github("~", "https://example.com")
-    }
+    use crate::core::engine::RouteRequest;
+    use crate::models::{OutputLine, ViewMode};
 
     #[test]
     fn test_output_constructor() {
@@ -159,10 +174,7 @@ mod tests {
 
     #[test]
     fn test_navigate_constructor() {
-        let route = AppRoute::Browse {
-            mount: test_mount(),
-            path: "blog".to_string(),
-        };
+        let route = RouteRequest::new("/fs/site/blog");
         let r = CommandResult::navigate(route.clone());
         assert_eq!(r.exit_code, 0);
         assert_eq!(r.side_effect, Some(SideEffect::Navigate(route)));
@@ -184,15 +196,15 @@ mod tests {
     #[test]
     fn test_switch_view_constructor() {
         let r = CommandResult::switch_view(ViewMode::Explorer);
-        assert_eq!(r.side_effect, Some(SideEffect::SwitchView(ViewMode::Explorer)));
+        assert_eq!(
+            r.side_effect,
+            Some(SideEffect::SwitchView(ViewMode::Explorer))
+        );
     }
 
     #[test]
     fn test_open_explorer_constructor() {
-        let route = AppRoute::Browse {
-            mount: test_mount(),
-            path: "blog".to_string(),
-        };
+        let route = RouteRequest::new("/fs/site/blog");
         let r = CommandResult::open_explorer(route.clone());
         assert_eq!(
             r.side_effect,

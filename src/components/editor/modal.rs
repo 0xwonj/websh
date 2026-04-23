@@ -12,10 +12,12 @@
 //! `Some(path)` = open, `None` = closed.
 
 use leptos::prelude::*;
+use wasm_bindgen_futures::spawn_local;
 
 use crate::app::AppContext;
 use crate::core::SideEffect;
 use crate::core::changes::ChangeType;
+use crate::core::engine::read_text;
 
 stylance::import_crate_style!(css, "src/components/editor/modal.module.css");
 
@@ -25,23 +27,38 @@ pub fn EditModal() -> impl IntoView {
     let content = RwSignal::new(String::new());
 
     // When editor_open transitions to Some(path), seed the textarea with the
-    // current view-fs content (staged overrides merged over base). For a new
-    // file with no staged content, read_file returns None → start empty.
+    // current runtime content. Pending text wins; otherwise we fall back to
+    // engine reads through the responsible backend.
     Effect::new(move |_| {
         if let Some(path) = ctx.editor_open.get() {
-            let initial = ctx
-                .view_fs
-                .with(|fs| fs.read_file(&path).unwrap_or_default());
-            content.set(initial);
+            let fs = ctx.view_global_fs.get();
+            if let Some(initial) = fs.read_pending_text(&path) {
+                content.set(initial);
+                return;
+            }
+
+            if !fs.exists(&path) {
+                content.set(String::new());
+                return;
+            }
+
+            let backends = ctx.backends.with_value(|map| map.clone());
+            let editor_open = ctx.editor_open;
+            let content_signal = content;
+            content.set(String::new());
+            spawn_local(async move {
+                let initial = read_text(&fs, &backends, &path).await.unwrap_or_default();
+                if editor_open.get_untracked().as_ref() == Some(&path) {
+                    content_signal.set(initial);
+                }
+            });
         }
     });
 
     let on_save = move |_| {
         if let Some(path) = ctx.editor_open.get_untracked() {
             let body = content.get_untracked();
-            let is_existing = ctx
-                .view_fs
-                .with_untracked(|fs| fs.read_file(&path).is_some());
+            let is_existing = ctx.view_global_fs.with_untracked(|fs| fs.exists(&path));
             let change = if is_existing {
                 ChangeType::UpdateFile {
                     content: body,

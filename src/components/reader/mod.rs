@@ -1,17 +1,21 @@
 //! Reader component for displaying file content.
 //!
 //! Supports markdown, PDF, images, and link files.
-//! Navigation is handled via AppRoute::push().
+//! Navigation is handled by the router's canonical request helpers.
 
 #![allow(dead_code)]
 
 use leptos::{ev, prelude::*};
 use leptos_icons::Icon;
 
+use crate::app::AppContext;
 use crate::components::Breadcrumb;
 use crate::components::icons as ic;
-use crate::models::{AppRoute, FileType};
-use crate::utils::{UrlValidation, fetch_content, markdown_to_html, validate_redirect_url};
+use crate::core::engine::{RouteFrame, read_bytes, read_text, request_path_for_canonical_path};
+use crate::models::FileType;
+use crate::utils::{
+    UrlValidation, data_url_for_bytes, markdown_to_html, media_type_for_path, validate_redirect_url,
+};
 
 stylance::import_crate_style!(css, "src/components/reader/reader.module.css");
 
@@ -22,6 +26,8 @@ enum ReaderContent {
     Html(String),
     /// Unknown type, plain text.
     Text(String),
+    /// Binary asset rendered from the engine read surface.
+    AssetUrl(String),
     /// Link type: navigation was triggered.
     Redirected,
     /// An error occurred while fetching or processing.
@@ -31,25 +37,24 @@ enum ReaderContent {
 /// Reader component for displaying file content.
 ///
 /// # Props
-/// - `route`: The current AppRoute (must be a Read route)
+/// - `route`: The current route frame (must resolve to a reader-capable intent)
 /// - `on_close`: Callback invoked when the reader should be closed
 #[component]
-pub fn Reader(route: Memo<AppRoute>, on_close: Callback<()>) -> impl IntoView {
-    // Derive content path from route
-    let content_path = Memo::new(move |_| route.get().path().to_string());
+pub fn Reader(route: Memo<RouteFrame>, on_close: Callback<()>) -> impl IntoView {
+    let ctx = use_context::<AppContext>().expect("AppContext must be provided");
+    let canonical_path = Memo::new(move |_| route.get().resolution.node_path.clone());
 
     // Derive display path for breadcrumb
     let display_path = Memo::new(move |_| route.get().display_path());
 
-    // Derive file type from content path
-    let file_type = Memo::new(move |_| FileType::from_path(&content_path.get()));
+    // Derive file type from canonical path
+    let file_type = Memo::new(move |_| FileType::from_path(canonical_path.get().as_str()));
 
-    // Derive content URL from route (uses mount's base_url)
-    let content_url = Memo::new(move |_| {
-        route
-            .get()
-            .content_url()
-            .unwrap_or_else(|| content_path.get())
+    let route_href = Memo::new(move |_| {
+        format!(
+            "#{}",
+            request_path_for_canonical_path(&canonical_path.get())
+        )
     });
 
     // Parse display path into breadcrumb segments (for filename extraction)
@@ -62,36 +67,25 @@ pub fn Reader(route: Memo<AppRoute>, on_close: Callback<()>) -> impl IntoView {
             .collect::<Vec<_>>()
     });
 
-    // For PDF, use Mozilla's PDF.js viewer
-    let pdf_viewer_url = Memo::new(move |_| {
-        if file_type.get() == FileType::Pdf {
-            let encoded = js_sys::encode_uri_component(&content_url.get());
-            format!(
-                "https://mozilla.github.io/pdf.js/web/viewer.html?file={}",
-                encoded
-            )
-        } else {
-            String::new()
-        }
-    });
-
     // Async resource: fetches content for types that need it. Using LocalResource
     // ensures stale futures are dropped when inputs change (fixes race condition
     // where a late-returning fetch could overwrite a newer result).
     let resource = LocalResource::new(move || {
-        let url = content_url.get();
+        let fs = ctx.view_global_fs.get();
+        let backends = ctx.backends.with_value(|map| map.clone());
+        let canonical = canonical_path.get();
         let ft = file_type.get();
         async move {
             match ft {
-                FileType::Markdown => match fetch_content(&url).await {
+                FileType::Markdown => match read_text(&fs, &backends, &canonical).await {
                     Ok(md) => ReaderContent::Html(markdown_to_html(&md)),
                     Err(e) => ReaderContent::Error(e.to_string()),
                 },
-                FileType::Unknown => match fetch_content(&url).await {
+                FileType::Unknown => match read_text(&fs, &backends, &canonical).await {
                     Ok(text) => ReaderContent::Text(text),
                     Err(e) => ReaderContent::Error(e.to_string()),
                 },
-                FileType::Link => match fetch_content(&url).await {
+                FileType::Link => match read_text(&fs, &backends, &canonical).await {
                     Ok(target) => {
                         let target = target.trim();
                         match validate_redirect_url(target) {
@@ -99,9 +93,7 @@ pub fn Reader(route: Memo<AppRoute>, on_close: Callback<()>) -> impl IntoView {
                                 if let Some(window) = web_sys::window()
                                     && window.location().set_href(&safe_url).is_err()
                                 {
-                                    return ReaderContent::Error(
-                                        "Failed to redirect".to_string(),
-                                    );
+                                    return ReaderContent::Error("Failed to redirect".to_string());
                                 }
                                 ReaderContent::Redirected
                             }
@@ -112,25 +104,32 @@ pub fn Reader(route: Memo<AppRoute>, on_close: Callback<()>) -> impl IntoView {
                     }
                     Err(e) => ReaderContent::Error(e.to_string()),
                 },
-                // PDF / Image: no fetch needed; render paths don't consume the resource.
-                _ => ReaderContent::Text(String::new()),
+                FileType::Pdf | FileType::Image => {
+                    match read_bytes(&fs, &backends, &canonical).await {
+                        Ok(bytes) => ReaderContent::AssetUrl(data_url_for_bytes(
+                            &bytes,
+                            media_type_for_path(canonical.as_str()),
+                        )),
+                        Err(e) => ReaderContent::Error(e.to_string()),
+                    }
+                }
             }
         }
     });
 
-    // Loading: true while the resource has no value yet for types that async-fetch.
-    let loading = Signal::derive(move || {
-        matches!(
-            file_type.get(),
-            FileType::Markdown | FileType::Link | FileType::Unknown
-        ) && resource.get().is_none()
-    });
+    // Loading: true while the resource has no value yet for the current file.
+    let loading = Signal::derive(move || resource.get().is_none());
 
     // Content text/html for display. Empty string when not applicable.
     let content = Signal::derive(move || match resource.get() {
         Some(ReaderContent::Html(h)) => h,
         Some(ReaderContent::Text(t)) => t,
         _ => String::new(),
+    });
+
+    let asset_url = Signal::derive(move || match resource.get() {
+        Some(ReaderContent::AssetUrl(url)) => Some(url),
+        _ => None,
     });
 
     // Error message if the fetch failed.
@@ -216,7 +215,7 @@ pub fn Reader(route: Memo<AppRoute>, on_close: Callback<()>) -> impl IntoView {
                 <div class=css::headerActions>
                     // Open in new tab
                     <a
-                        href=move || content_url.get()
+                        href=move || route_href.get()
                         target="_blank"
                         rel="noopener noreferrer"
                         class=format!("{} {}", css::actionButton, css::desktopOnly)
@@ -244,7 +243,7 @@ pub fn Reader(route: Memo<AppRoute>, on_close: Callback<()>) -> impl IntoView {
 
                                 // Open in new tab (mobile)
                                 <a
-                                    href=move || content_url.get()
+                                    href=move || route_href.get()
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     class=format!("{} {}", css::dropdownItem, css::mobileOnly)
@@ -306,7 +305,7 @@ pub fn Reader(route: Memo<AppRoute>, on_close: Callback<()>) -> impl IntoView {
                                 FileType::Pdf => {
                                     view! {
                                         <iframe
-                                            src=pdf_viewer_url.get()
+                                            src=move || asset_url.get().unwrap_or_default()
                                             class=css::pdfViewer
                                             title="PDF Viewer"
                                         />
@@ -315,7 +314,11 @@ pub fn Reader(route: Memo<AppRoute>, on_close: Callback<()>) -> impl IntoView {
                                 FileType::Image => {
                                     view! {
                                         <div class=css::imageContainer>
-                                            <img src=content_url.get() alt=filename.get() class=css::image />
+                                            <img
+                                                src=move || asset_url.get().unwrap_or_default()
+                                                alt=filename.get()
+                                                class=css::image
+                                            />
                                         </div>
                                     }.into_any()
                                 }

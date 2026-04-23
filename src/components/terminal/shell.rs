@@ -6,13 +6,13 @@
 
 use leptos::prelude::*;
 
-use super::boot;
 use super::terminal::Terminal;
 use crate::app::AppContext;
 use crate::components::explorer::Explorer;
 use crate::components::status::Status;
+use crate::core::engine::{RouteFrame, route_cwd};
 use crate::core::wallet;
-use crate::models::{AppRoute, OutputLine, ViewMode, WalletState};
+use crate::models::{OutputLine, ViewMode, WalletState};
 
 stylance::import_crate_style!(css, "src/components/terminal/shell.module.css");
 
@@ -28,7 +28,7 @@ pub const OVERLAY_CLASS: &str = css::overlay;
 /// This allows child components (Terminal, Explorer, Status) to access
 /// the current route without prop drilling.
 #[derive(Clone, Copy)]
-pub struct RouteContext(pub Memo<AppRoute>);
+pub struct RouteContext(pub Memo<RouteFrame>);
 
 // ============================================================================
 // Effect Setup Functions
@@ -94,24 +94,19 @@ fn setup_wallet_events(ctx: AppContext) {
 /// - Sets up wallet event listeners
 ///
 /// # Props
-/// - `route`: The current application route (derived from URL)
+/// - `route`: The current route frame (derived from URL + engine resolution)
 #[component]
-pub fn Shell(route: Memo<AppRoute>) -> impl IntoView {
+pub fn Shell(route: Memo<RouteFrame>) -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided at root");
 
     // Provide route context for child components
     provide_context(RouteContext(route));
 
-    let output_ref = NodeRef::<leptos::html::Div>::new();
-
-    // Boot sequence runs once
-    let boot_started = StoredValue::new(false);
-    Effect::new(move || {
-        if !boot_started.get_value() {
-            boot_started.set_value(true);
-            boot::run(ctx);
-        }
+    Effect::new(move |_| {
+        ctx.cwd.set(route_cwd(&route.get()));
     });
+
+    let output_ref = NodeRef::<leptos::html::Div>::new();
 
     setup_autoscroll_effect(ctx.terminal.history, output_ref);
     setup_wallet_events(ctx);

@@ -20,3 +20,4 @@
 # Scripts test artifacts (content & generated manifest)
 /scripts/github-storage/~
 /scripts/github-storage/manifest.json
+.omx/

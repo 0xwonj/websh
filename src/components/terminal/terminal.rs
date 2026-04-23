@@ -6,7 +6,10 @@ use leptos::prelude::*;
 
 use crate::app::AppContext;
 use crate::components::terminal::{Input, Output, RouteContext};
-use crate::core::{SideEffect, autocomplete, execute_pipeline, get_hint, parse_input, wallet};
+use crate::core::engine::route_cwd;
+use crate::core::{
+    SideEffect, autocomplete, execute_pipeline, get_hint, parse_input, runtime, wallet,
+};
 use crate::models::{OutputLine, WalletState};
 use crate::utils::dom::focus_terminal_input;
 
@@ -21,7 +24,7 @@ fn handle_login(ctx: AppContext) {
     wasm_bindgen_futures::spawn_local(async move {
         if !wallet::is_available() {
             ctx.terminal.push_output(OutputLine::error(
-                "MetaMask not found. Please install MetaMask extension.",
+                "No EIP-1193 wallet found. Please install a browser wallet extension.",
             ));
             return;
         }
@@ -33,6 +36,7 @@ fn handle_login(ctx: AppContext) {
         match wallet::connect().await {
             Ok(address) => {
                 wallet::save_session();
+                ctx.runtime_state_rev.update(|rev| *rev += 1);
                 let chain_id = wallet::get_chain_id().await;
 
                 ctx.wallet.set(WalletState::Connected {
@@ -96,7 +100,7 @@ pub fn Terminal(output_ref: NodeRef<leptos::html::Div>) -> impl IntoView {
     // Derived signals
     let prompt = Signal::derive(move || {
         let route = route_ctx.0.get();
-        ctx.get_prompt(&route)
+        ctx.get_prompt(&route_cwd(&route))
     });
 
     // Callbacks need route access
@@ -137,8 +141,9 @@ pub fn Terminal(output_ref: NodeRef<leptos::html::Div>) -> impl IntoView {
 
 fn create_submit_callback(ctx: AppContext, route_ctx: RouteContext) -> Callback<String> {
     Callback::new(move |input: String| {
-        let current_route = route_ctx.0.get();
-        let prompt = ctx.get_prompt(&current_route);
+        let current_frame = route_ctx.0.get();
+        let cwd = route_cwd(&current_frame);
+        let prompt = ctx.get_prompt(&cwd);
 
         if !input.is_empty() {
             ctx.terminal
@@ -152,15 +157,17 @@ fn create_submit_callback(ctx: AppContext, route_ctx: RouteContext) -> Callback<
             .with(|history| parse_input(&input, history));
 
         let wallet_state = ctx.wallet.get();
-        let remote_head = ctx.remote_head.get_value();
+        let remote_head = ctx.remote_head_for_path(&cwd);
+        let runtime_mounts = ctx.runtime_mounts.get();
         let result = ctx.changes.with_untracked(|changes| {
-            ctx.view_fs.with(|current_fs| {
+            ctx.view_global_fs.with(|current_fs| {
                 execute_pipeline(
                     &pipeline,
                     &ctx.terminal,
                     &wallet_state,
+                    &runtime_mounts,
                     current_fs,
-                    &current_route,
+                    &cwd,
                     changes,
                     remote_head.as_deref(),
                 )
@@ -206,58 +213,70 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
         }
         SideEffect::SetAuthToken { token } => {
             crate::utils::session::set_gh_token(&token);
-            let home = crate::config::mounts().home();
-            let backend = crate::core::storage::boot::build_backend_for_mount(home, Some(&token));
-            ctx.backend.set_value(backend);
+            ctx.runtime_state_rev.update(|rev| *rev += 1);
         }
         SideEffect::ClearAuthToken => {
             crate::utils::session::clear_gh_token();
-            ctx.backend.set_value(None);
+            ctx.runtime_state_rev.update(|rev| *rev += 1);
+        }
+        SideEffect::InvalidateRuntimeState => {
+            ctx.runtime_state_rev.update(|rev| *rev += 1);
         }
         SideEffect::OpenEditor { path } => {
             ctx.editor_open.set(Some(path));
         }
-        SideEffect::Commit { message, expected_head } => {
-            let Some(backend) = ctx.backend.get_value() else {
+        SideEffect::Commit {
+            message,
+            expected_head,
+            mount_root,
+        } => {
+            let Some(backend) = ctx.backend_for_path(&mount_root) else {
                 ctx.terminal.push_output(crate::models::OutputLine::error(
-                    "sync: no backend (not authenticated?)".to_string()
+                    "sync: no backend for path".to_string(),
                 ));
                 return;
             };
             let changes_signal = ctx.changes;
-            let fs_signal = ctx.fs;
-            let head_store = ctx.remote_head;
+            let global_fs_signal = ctx.global_fs;
+            let heads_signal = ctx.remote_heads;
+            let backends_store = ctx.backends;
+            let runtime_mounts_signal = ctx.runtime_mounts;
             let terminal = ctx.terminal;
-            let home = crate::config::mounts().home();
-            let mount_id = home.alias().to_string();
+            let mount_root_for_commit = mount_root.clone();
 
             wasm_bindgen_futures::spawn_local(async move {
                 let staged_snapshot = changes_signal.with_untracked(|cs| cs.clone());
-                let merged = fs_signal.with_untracked(|base| {
-                    crate::core::merge::merge_view(base, &staged_snapshot)
-                });
-                let new_manifest = merged.serialize_manifest();
-                let manifest_body = serde_json::to_string_pretty(&new_manifest).unwrap_or_default();
 
-                let mut snapshot_with_manifest = staged_snapshot.clone();
-                let manifest_path = crate::models::VirtualPath::from_absolute("/manifest.json")
-                    .expect("valid path");
-                snapshot_with_manifest.upsert(
-                    manifest_path.clone(),
-                    crate::core::changes::ChangeType::UpdateFile {
-                        content: manifest_body,
-                        description: None,
-                    },
-                );
-
-                match backend.commit(&snapshot_with_manifest, &message, expected_head.as_deref()).await {
+                match backend
+                    .commit(&staged_snapshot, &message, expected_head.as_deref())
+                    .await
+                {
                     Ok(outcome) => {
-                        match backend.fetch_manifest().await {
-                            Ok(manifest) => fs_signal.set(
-                                crate::core::VirtualFs::from_manifest(&manifest)
-                            ),
-                            Err(e) => terminal.push_output(crate::models::OutputLine::info(
-                                format!("sync: commit ok, refresh failed: {e}")
+                        let mount_storage_id = runtime_mounts_signal
+                            .get_untracked()
+                            .into_iter()
+                            .find(|mount| mount.root == mount_root_for_commit)
+                            .map(|mount| mount.storage_id())
+                            .unwrap_or_else(|| mount_id_for_root(&mount_root_for_commit));
+                        let head_val = outcome.new_head.clone();
+                        if let Ok(db) = crate::core::storage::idb::open_db().await {
+                            let _ = crate::core::storage::idb::save_metadata(
+                                &db,
+                                &format!("remote_head.{mount_storage_id}"),
+                                &head_val,
+                            )
+                            .await;
+                        }
+
+                        match runtime::reload_runtime().await {
+                            Ok(load) => {
+                                global_fs_signal.set(load.global_fs);
+                                backends_store.set_value(load.backends);
+                                runtime_mounts_signal.set(load.runtime_mounts);
+                                heads_signal.set(load.remote_heads);
+                            }
+                            Err(error) => terminal.push_output(crate::models::OutputLine::info(
+                                format!("sync: commit ok, runtime reload failed: {error}"),
                             )),
                         }
 
@@ -265,18 +284,6 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
                         changes_signal.update(|cs| {
                             for p in committed.iter() {
                                 cs.discard(p);
-                            }
-                            cs.discard(&manifest_path);
-                        });
-
-                        head_store.set_value(Some(outcome.new_head.clone()));
-                        let head_val = outcome.new_head.clone();
-                        let mid = mount_id.clone();
-                        wasm_bindgen_futures::spawn_local(async move {
-                            if let Ok(db) = crate::core::storage::idb::open_db().await {
-                                let _ = crate::core::storage::idb::save_metadata(
-                                    &db, &format!("remote_head.{mid}"), &head_val,
-                                ).await;
                             }
                         });
 
@@ -287,34 +294,58 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
                         )));
                     }
                     Err(e) => {
-                        terminal.push_output(crate::models::OutputLine::error(format!("sync: {e}")));
+                        terminal
+                            .push_output(crate::models::OutputLine::error(format!("sync: {e}")));
                     }
                 }
             });
         }
-        SideEffect::RefreshManifest => {
-            let Some(backend) = ctx.backend.get_value() else {
+        SideEffect::ReloadRuntimeMount { mount_root } => {
+            let Some(backend) = ctx.backend_for_path(&mount_root) else {
                 ctx.terminal.push_output(crate::models::OutputLine::error(
-                    "sync refresh: no backend".to_string()
+                    "sync refresh: no backend".to_string(),
                 ));
                 return;
             };
-            let fs_signal = ctx.fs;
+            let global_fs_signal = ctx.global_fs;
+            let backends_store = ctx.backends;
+            let runtime_mounts_signal = ctx.runtime_mounts;
+            let heads_signal = ctx.remote_heads;
             let terminal = ctx.terminal;
             wasm_bindgen_futures::spawn_local(async move {
-                match backend.fetch_manifest().await {
-                    Ok(manifest) => {
-                        fs_signal.set(crate::core::VirtualFs::from_manifest(&manifest));
+                if let Err(e) = backend.scan().await {
+                    terminal.push_output(crate::models::OutputLine::error(format!(
+                        "sync refresh: {e}"
+                    )));
+                    return;
+                }
+
+                match runtime::reload_runtime().await {
+                    Ok(load) => {
+                        global_fs_signal.set(load.global_fs);
+                        backends_store.set_value(load.backends);
+                        runtime_mounts_signal.set(load.runtime_mounts);
+                        heads_signal.set(load.remote_heads);
                         terminal.push_output(crate::models::OutputLine::info(
-                            "sync: manifest refreshed.".to_string()
+                            "sync: runtime reloaded.".to_string(),
                         ));
                     }
-                    Err(e) => terminal.push_output(crate::models::OutputLine::error(
-                        format!("sync refresh: {e}")
-                    )),
+                    Err(error) => terminal.push_output(crate::models::OutputLine::error(format!(
+                        "sync refresh: {error}"
+                    ))),
                 }
             });
         }
+    }
+}
+
+fn mount_id_for_root(root: &crate::models::VirtualPath) -> String {
+    if root.as_str() == "/site" {
+        "~".to_string()
+    } else {
+        root.file_name()
+            .map(str::to_string)
+            .unwrap_or_else(|| root.as_str().to_string())
     }
 }
 
@@ -327,9 +358,9 @@ fn create_autocomplete_callback(
     route_ctx: RouteContext,
 ) -> Callback<String, crate::core::AutocompleteResult> {
     Callback::new(move |input: String| {
-        let current_route = route_ctx.0.get();
-        ctx.view_fs
-            .with(|current_fs| autocomplete(&input, &current_route, current_fs))
+        let cwd = route_cwd(&route_ctx.0.get());
+        ctx.view_global_fs
+            .with(|current_fs| autocomplete(&input, &cwd, current_fs))
     })
 }
 
@@ -338,9 +369,8 @@ fn create_hint_callback(
     route_ctx: RouteContext,
 ) -> Callback<String, Option<String>> {
     Callback::new(move |input: String| {
-        let current_route = route_ctx.0.get();
-        ctx.view_fs
-            .with(|current_fs| get_hint(&input, &current_route, current_fs))
+        let cwd = route_cwd(&route_ctx.0.get());
+        ctx.view_global_fs
+            .with(|current_fs| get_hint(&input, &cwd, current_fs))
     })
 }
-

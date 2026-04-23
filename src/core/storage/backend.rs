@@ -5,27 +5,47 @@ use std::future::Future;
 use std::pin::Pin;
 
 use crate::core::changes::ChangeSet;
-use crate::models::{Manifest, VirtualPath};
+use crate::models::{DirectoryMetadata, FileMetadata, VirtualPath};
 
 use super::error::StorageResult;
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ScannedSubtree {
+    pub files: Vec<ScannedFile>,
+    pub directories: Vec<ScannedDirectory>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScannedFile {
+    pub path: String,
+    pub description: String,
+    pub meta: FileMetadata,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScannedDirectory {
+    pub path: String,
+    pub meta: DirectoryMetadata,
+}
+
 #[allow(dead_code)]
 #[derive(Debug)]
 pub struct CommitOutcome {
     pub new_head: String,
-    /// Some if the backend produced a manifest synchronously as part of the
-    /// commit response. `GitHubBackend` returns `None` (GraphQL's
-    /// `createCommitOnBranch` does not echo file contents); the dispatcher
-    /// re-fetches via `fetch_manifest()` after a successful commit.
-    pub manifest: Option<Manifest>,
     pub committed_paths: Vec<VirtualPath>,
 }
 
 #[allow(dead_code)]
 pub trait StorageBackend {
     fn backend_type(&self) -> &'static str;
+
+    fn scan(&self) -> BoxFuture<'_, StorageResult<ScannedSubtree>>;
+
+    fn read_text<'a>(&'a self, rel_path: &'a str) -> BoxFuture<'a, StorageResult<String>>;
+
+    fn read_bytes<'a>(&'a self, rel_path: &'a str) -> BoxFuture<'a, StorageResult<Vec<u8>>>;
 
     /// Commit the staged subset of `changes` as one atomic batch.
     /// `expected_head` is the SHA the caller believed was current at draft-time.
@@ -35,6 +55,4 @@ pub trait StorageBackend {
         message: &'a str,
         expected_head: Option<&'a str>,
     ) -> BoxFuture<'a, StorageResult<CommitOutcome>>;
-
-    fn fetch_manifest(&self) -> BoxFuture<'_, StorageResult<Manifest>>;
 }

@@ -64,7 +64,11 @@ pub async fn save_draft(db: &Database, mount_id: &str, changes: &ChangeSet) -> S
     };
     let value = serde_wasm_bindgen::to_value(&record)
         .map_err(|e| StorageError::BadRequest(format!("serialize: {e}")))?;
-    store.put(&value, None).map_err(idb_err)?.await.map_err(idb_err)?;
+    store
+        .put(&value, None)
+        .map_err(idb_err)?
+        .await
+        .map_err(idb_err)?;
     tx.commit().map_err(idb_err)?.await.map_err(idb_err)?;
     Ok(())
 }
@@ -100,7 +104,11 @@ pub async fn save_metadata(db: &Database, key: &str, value: &str) -> StorageResu
     };
     let js = serde_wasm_bindgen::to_value(&record)
         .map_err(|e| StorageError::BadRequest(format!("serialize: {e}")))?;
-    store.put(&js, None).map_err(idb_err)?.await.map_err(idb_err)?;
+    store
+        .put(&js, None)
+        .map_err(idb_err)?
+        .await
+        .map_err(idb_err)?;
     tx.commit().map_err(idb_err)?.await.map_err(idb_err)?;
     Ok(())
 }
@@ -128,9 +136,7 @@ pub async fn load_metadata(db: &Database, key: &str) -> StorageResult<Option<Str
 fn idb_err<E: std::fmt::Display>(e: E) -> StorageError {
     let s = e.to_string().to_lowercase();
     if s.contains("quotaexceeded") {
-        StorageError::BadRequest(
-            "local draft storage full. discard or commit to free space".into(),
-        )
+        StorageError::BadRequest("local draft storage full. discard or commit to free space".into())
     } else {
         StorageError::NetworkError(format!("idb: {e}"))
     }

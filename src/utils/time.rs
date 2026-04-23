@@ -27,7 +27,11 @@ mod tests {
     fn returns_positive_millisecond_epoch() {
         let t = current_timestamp();
         // 2020-01-01T00:00:00Z = 1_577_836_800_000 ms — sanity guard that we're returning ms, not s.
-        assert!(t > 1_577_836_800_000, "timestamp looked like seconds: {}", t);
+        assert!(
+            t > 1_577_836_800_000,
+            "timestamp looked like seconds: {}",
+            t
+        );
     }
 
     #[test]

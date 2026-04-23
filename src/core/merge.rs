@@ -2,18 +2,71 @@
 //! "current view" VirtualFs. Pure, no signals.
 
 use crate::core::changes::{ChangeSet, ChangeType};
+use crate::core::engine::GlobalFs;
 use crate::core::filesystem::VirtualFs;
+use crate::core::runtime;
 use crate::models::VirtualPath;
 
 pub fn merge_view(base: &VirtualFs, changes: &ChangeSet) -> VirtualFs {
+    merge_view_for_root(base, changes, &VirtualPath::root())
+}
+
+pub fn merge_view_for_root(base: &VirtualFs, changes: &ChangeSet, root: &VirtualPath) -> VirtualFs {
     let mut merged = base.clone();
     for (path, entry) in changes.iter_all() {
-        apply_change(&mut merged, path, &entry.change);
+        apply_change(&mut merged, path, root, &entry.change);
     }
     merged
 }
 
-fn apply_change(fs: &mut VirtualFs, path: &VirtualPath, change: &ChangeType) {
+pub fn merge_global_view(
+    base: &GlobalFs,
+    changes: &ChangeSet,
+    wallet_state: &crate::models::WalletState,
+) -> GlobalFs {
+    let mut merged = base.clone();
+    runtime::populate_runtime_state(&mut merged, changes, wallet_state);
+    for (path, entry) in changes.iter_all() {
+        apply_global_change(&mut merged, path, &entry.change);
+    }
+    merged
+}
+
+fn apply_change(fs: &mut VirtualFs, path: &VirtualPath, root: &VirtualPath, change: &ChangeType) {
+    let Some(scoped_path) = scoped_path(path, root) else {
+        return;
+    };
+
+    match change {
+        ChangeType::CreateFile { content, meta } => {
+            fs.upsert_file(scoped_path.clone(), content.clone(), meta.clone());
+        }
+        ChangeType::CreateBinary {
+            blob_id: _,
+            mime: _,
+            meta,
+        } => {
+            fs.upsert_binary_placeholder(scoped_path.clone(), meta.clone());
+        }
+        ChangeType::UpdateFile {
+            content,
+            description,
+        } => {
+            fs.update_file_content(&scoped_path, content.clone(), description.clone());
+        }
+        ChangeType::DeleteFile => {
+            fs.remove_entry(&scoped_path);
+        }
+        ChangeType::CreateDirectory { meta } => {
+            fs.upsert_directory(scoped_path.clone(), meta.clone());
+        }
+        ChangeType::DeleteDirectory => {
+            fs.remove_subtree(&scoped_path);
+        }
+    }
+}
+
+fn apply_global_change(fs: &mut GlobalFs, path: &VirtualPath, change: &ChangeType) {
     match change {
         ChangeType::CreateFile { content, meta } => {
             fs.upsert_file(path.clone(), content.clone(), meta.clone());
@@ -41,6 +94,20 @@ fn apply_change(fs: &mut VirtualFs, path: &VirtualPath, change: &ChangeType) {
             fs.remove_subtree(path);
         }
     }
+}
+
+fn scoped_path(path: &VirtualPath, root: &VirtualPath) -> Option<VirtualPath> {
+    if root.is_root() {
+        return Some(path.clone());
+    }
+
+    let rel = path.strip_prefix(root)?;
+    let scoped = if rel.is_empty() {
+        "/".to_string()
+    } else {
+        format!("/{}", rel)
+    };
+    VirtualPath::from_absolute(scoped).ok()
 }
 
 #[cfg(test)]
@@ -210,5 +277,34 @@ mod tests {
             }
             _ => panic!("expected File entry at /a.md"),
         }
+    }
+
+    #[test]
+    fn merge_view_for_root_strips_mount_prefix() {
+        let mut cs = ChangeSet::new();
+        cs.upsert(
+            p("/site/note.md"),
+            ChangeType::CreateFile {
+                content: "hi".into(),
+                meta: FileMetadata::default(),
+            },
+        );
+        let merged = merge_view_for_root(&base(), &cs, &p("/site"));
+        assert!(merged.get(&p("/note.md")).is_some());
+        assert!(merged.get(&p("/site/note.md")).is_none());
+    }
+
+    #[test]
+    fn merge_view_for_root_ignores_other_mounts() {
+        let mut cs = ChangeSet::new();
+        cs.upsert(
+            p("/mnt/work/note.md"),
+            ChangeType::CreateFile {
+                content: "hi".into(),
+                meta: FileMetadata::default(),
+            },
+        );
+        let merged = merge_view_for_root(&base(), &cs, &p("/site"));
+        assert!(merged.get(&p("/note.md")).is_none());
     }
 }

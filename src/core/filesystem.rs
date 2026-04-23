@@ -1,6 +1,6 @@
+use crate::core::storage::{ScannedDirectory, ScannedFile, ScannedSubtree};
 use crate::models::{
-    DirectoryEntry, DirectoryMetadata, DisplayPermissions, FileMetadata, FsEntry, Manifest,
-    VirtualPath, WalletState,
+    DirectoryMetadata, DisplayPermissions, FileMetadata, FsEntry, VirtualPath, WalletState,
 };
 use std::collections::HashMap;
 
@@ -8,6 +8,7 @@ use std::collections::HashMap;
 #[derive(Clone, Debug)]
 pub struct DirEntry {
     pub name: String,
+    pub path: VirtualPath,
     pub is_dir: bool,
     pub title: String,
     pub file_meta: Option<FileMetadata>,
@@ -36,12 +37,17 @@ pub struct VirtualFs {
 }
 
 impl VirtualFs {
-    /// Create filesystem from manifest.
+    /// Clone the root entry for subtree assembly in the new global engine.
+    pub(crate) fn clone_root_entry(&self) -> FsEntry {
+        self.root.clone()
+    }
+
+    /// Create a mounted subtree snapshot from backend scan rows.
     ///
-    /// Manifest paths are relative (e.g., `blog/post.md`).
-    pub fn from_manifest(manifest: &Manifest) -> Self {
+    /// Scan paths are relative (e.g., `blog/post.md`).
+    pub(crate) fn from_scanned_subtree(snapshot: &ScannedSubtree) -> Self {
         // Build directory metadata map for quick lookup
-        let dir_meta_map: HashMap<String, &DirectoryEntry> = manifest
+        let dir_meta_map: HashMap<String, &ScannedDirectory> = snapshot
             .directories
             .iter()
             .map(|d| (d.path.clone(), d))
@@ -50,39 +56,33 @@ impl VirtualFs {
         let mut content_tree: HashMap<String, FsEntry> = HashMap::new();
 
         // Create all files (this also creates parent directories)
-        for file in &manifest.files {
+        for file in &snapshot.files {
             Self::insert_path(
                 &mut content_tree,
                 &file.path,
                 &file.path,
-                &file.title,
-                file.to_metadata(),
+                &file.description,
+                file.meta.clone(),
                 &dir_meta_map,
             );
         }
 
-        // Ensure directories from manifest exist (even if empty)
-        for dir in &manifest.directories {
+        // Ensure directories from the scan exist (even if empty)
+        for dir in &snapshot.directories {
             if !dir.path.is_empty() {
                 Self::ensure_directory(&mut content_tree, &dir.path, &dir_meta_map);
             }
         }
 
-        // Add static files
-        content_tree.insert(
-            ".profile".to_string(),
-            FsEntry::file("User profile configuration"),
-        );
-
         // Build root metadata
         let root_meta = dir_meta_map
             .get("")
             .map(|d| DirectoryMetadata {
-                title: d.title.clone(),
-                description: d.description.clone(),
-                icon: d.icon.clone(),
-                thumbnail: d.thumbnail.clone(),
-                tags: d.tags.clone(),
+                title: d.meta.title.clone(),
+                description: d.meta.description.clone(),
+                icon: d.meta.icon.clone(),
+                thumbnail: d.meta.thumbnail.clone(),
+                tags: d.meta.tags.clone(),
             })
             .unwrap_or_default();
 
@@ -104,7 +104,7 @@ impl VirtualFs {
         full_path: &str,
         title: &str,
         meta: FileMetadata,
-        dir_meta_map: &HashMap<String, &DirectoryEntry>,
+        dir_meta_map: &HashMap<String, &ScannedDirectory>,
     ) {
         let parts: Vec<&str> = path.split('/').collect();
         let mut current = tree;
@@ -130,11 +130,11 @@ impl VirtualFs {
                     let dir_meta = dir_meta_map
                         .get(&current_path)
                         .map(|d| DirectoryMetadata {
-                            title: d.title.clone(),
-                            description: d.description.clone(),
-                            icon: d.icon.clone(),
-                            thumbnail: d.thumbnail.clone(),
-                            tags: d.tags.clone(),
+                            title: d.meta.title.clone(),
+                            description: d.meta.description.clone(),
+                            icon: d.meta.icon.clone(),
+                            thumbnail: d.meta.thumbnail.clone(),
+                            tags: d.meta.tags.clone(),
                         })
                         .unwrap_or_else(|| DirectoryMetadata {
                             title: part.to_string(),
@@ -154,7 +154,7 @@ impl VirtualFs {
                         #[cfg(target_arch = "wasm32")]
                         web_sys::console::warn_1(
                             &format!(
-                                "Manifest conflict: '{}' blocked by existing file",
+                                "Scanned subtree conflict: '{}' blocked by existing file",
                                 full_path
                             )
                             .into(),
@@ -170,7 +170,7 @@ impl VirtualFs {
     fn ensure_directory(
         tree: &mut HashMap<String, FsEntry>,
         path: &str,
-        dir_meta_map: &HashMap<String, &DirectoryEntry>,
+        dir_meta_map: &HashMap<String, &ScannedDirectory>,
     ) {
         let parts: Vec<&str> = path.split('/').collect();
         let mut current = tree;
@@ -186,11 +186,11 @@ impl VirtualFs {
                 let dir_meta = dir_meta_map
                     .get(&current_path)
                     .map(|d| DirectoryMetadata {
-                        title: d.title.clone(),
-                        description: d.description.clone(),
-                        icon: d.icon.clone(),
-                        thumbnail: d.thumbnail.clone(),
-                        tags: d.tags.clone(),
+                        title: d.meta.title.clone(),
+                        description: d.meta.description.clone(),
+                        icon: d.meta.icon.clone(),
+                        thumbnail: d.meta.thumbnail.clone(),
+                        tags: d.meta.tags.clone(),
                     })
                     .unwrap_or_else(|| DirectoryMetadata {
                         title: part.to_string(),
@@ -212,14 +212,8 @@ impl VirtualFs {
 
     /// Create empty filesystem (fallback when manifest fails to load).
     pub fn empty() -> Self {
-        let mut content_tree: HashMap<String, FsEntry> = HashMap::new();
-        content_tree.insert(
-            ".profile".to_string(),
-            FsEntry::file("User profile configuration"),
-        );
-
         let root = FsEntry::Directory {
-            children: content_tree,
+            children: HashMap::new(),
             meta: DirectoryMetadata::default(),
         };
 
@@ -391,8 +385,7 @@ impl VirtualFs {
         description: Option<String>,
     ) {
         let rel = path.as_str().trim_start_matches('/').to_string();
-        let Some(FsEntry::File { description: d, .. }) =
-            get_tree_entry_mut(&mut self.root, &rel)
+        let Some(FsEntry::File { description: d, .. }) = get_tree_entry_mut(&mut self.root, &rel)
         else {
             return;
         };
@@ -444,6 +437,12 @@ impl VirtualFs {
     /// # Returns
     /// Sorted list of entries (directories first, then files, hidden last).
     pub fn list_dir(&self, path: &str) -> Option<Vec<DirEntry>> {
+        let base = if path.is_empty() {
+            VirtualPath::root()
+        } else {
+            VirtualPath::from_absolute(format!("/{}", path)).ok()?
+        };
+
         match self.get_entry(path)? {
             FsEntry::Directory { children, .. } => {
                 let mut items: Vec<_> = children
@@ -458,6 +457,7 @@ impl VirtualFs {
                         };
                         DirEntry {
                             name: name.clone(),
+                            path: base.join(name),
                             is_dir,
                             title,
                             file_meta,
@@ -576,8 +576,7 @@ impl VirtualFs {
         out
     }
 
-    /// Re-serialize the current VFS state into a [`Manifest`] suitable for
-    /// commit.
+    /// Re-serialize the current subtree state into backend-neutral scan rows.
     ///
     /// **Byte-stable** (see spec §4.2): the same logical state must produce
     /// identical bytes across sessions/machines/rust versions. We guarantee
@@ -589,23 +588,39 @@ impl VirtualFs {
     ///   directories (no manifest-origin metadata);
     /// - leaving Option fields (`size`, `modified`, `access`, ...) for serde
     ///   to emit as `null` consistently — no `skip_serializing_if`.
-    pub fn serialize_manifest(&self) -> Manifest {
-        let mut files: Vec<crate::models::FileEntry> = self
+    pub(crate) fn to_scanned_subtree(&self) -> ScannedSubtree {
+        let mut files: Vec<ScannedFile> = self
             .iter_files()
             .into_iter()
-            .map(|(path, entry)| crate::models::FileEntry::from_fs(&path, entry))
+            .map(|(path, entry)| match entry {
+                FsEntry::File {
+                    content_path,
+                    description,
+                    meta,
+                } => ScannedFile {
+                    path: content_path
+                        .clone()
+                        .unwrap_or_else(|| path.as_str().trim_start_matches('/').to_string()),
+                    description: description.clone(),
+                    meta: meta.clone(),
+                },
+                FsEntry::Directory { .. } => unreachable!("iter_files only yields files"),
+            })
             .collect();
         files.sort_by(|a, b| a.path.cmp(&b.path));
 
-        let mut directories: Vec<crate::models::DirectoryEntry> = self
+        let mut directories: Vec<ScannedDirectory> = self
             .iter_directories()
             .into_iter()
             .filter(|(path, meta)| has_manifest_metadata(path, meta))
-            .map(|(path, meta)| crate::models::DirectoryEntry::from_meta(path, meta))
+            .map(|(path, meta)| ScannedDirectory {
+                path,
+                meta: meta.clone(),
+            })
             .collect();
         directories.sort_by(|a, b| a.path.cmp(&b.path));
 
-        Manifest { files, directories }
+        ScannedSubtree { files, directories }
     }
 }
 
@@ -679,8 +694,8 @@ fn collect_directories<'a>(
 /// Heuristic: does this directory's metadata look like it came from an
 /// explicit manifest entry (vs. being auto-created from a file path)?
 ///
-/// We emit directories in `serialize_manifest` only when this returns `true`,
-/// so round-trips don't invent `DirectoryEntry` rows for every implicit
+/// We emit directories in `to_scanned_subtree` only when this returns `true`,
+/// so round-trips don't invent explicit directory rows for every implicit
 /// parent directory. Rules:
 ///
 /// - Any non-empty `description`, `icon`, `thumbnail`, or `tags` → manifest.
@@ -798,56 +813,57 @@ fn get_tree_entry_mut<'a>(root: &'a mut FsEntry, rel_path: &str) -> Option<&'a m
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::FileEntry;
+    use crate::core::storage::{ScannedDirectory, ScannedFile, ScannedSubtree};
 
     fn create_test_fs() -> VirtualFs {
-        let manifest = Manifest {
+        let snapshot = ScannedSubtree {
             files: vec![
-                FileEntry {
+                ScannedFile {
                     path: "blog/hello.md".to_string(),
-                    title: "Hello World".to_string(),
-                    size: Some(1234),
-                    modified: Some(1704153600),
-                    tags: vec!["rust".to_string(), "intro".to_string()],
-                    access: None,
+                    description: "Hello World".to_string(),
+                    meta: FileMetadata {
+                        size: Some(1234),
+                        modified: Some(1704153600),
+                        tags: vec!["rust".to_string(), "intro".to_string()],
+                        access: None,
+                    },
                 },
-                FileEntry {
+                ScannedFile {
                     path: "blog/rust.md".to_string(),
-                    title: "Learning Rust".to_string(),
-                    size: Some(2048),
-                    modified: None,
-                    tags: vec![],
-                    access: None,
+                    description: "Learning Rust".to_string(),
+                    meta: FileMetadata {
+                        size: Some(2048),
+                        modified: None,
+                        tags: vec![],
+                        access: None,
+                    },
                 },
-                FileEntry {
+                ScannedFile {
                     path: "projects/web/app.md".to_string(),
-                    title: "Web App".to_string(),
-                    size: None,
-                    modified: None,
-                    tags: vec![],
-                    access: None,
+                    description: "Web App".to_string(),
+                    meta: FileMetadata::default(),
                 },
             ],
             directories: vec![
-                DirectoryEntry {
+                ScannedDirectory {
                     path: "blog".to_string(),
-                    title: "Blog Posts".to_string(),
-                    tags: vec!["posts".to_string()],
-                    description: None,
-                    icon: None,
-                    thumbnail: None,
+                    meta: DirectoryMetadata {
+                        title: "Blog Posts".to_string(),
+                        tags: vec!["posts".to_string()],
+                        ..Default::default()
+                    },
                 },
-                DirectoryEntry {
+                ScannedDirectory {
                     path: String::new(),
-                    title: "Home".to_string(),
-                    tags: vec!["root".to_string()],
-                    description: None,
-                    icon: None,
-                    thumbnail: None,
+                    meta: DirectoryMetadata {
+                        title: "Home".to_string(),
+                        tags: vec!["root".to_string()],
+                        ..Default::default()
+                    },
                 },
             ],
         };
-        VirtualFs::from_manifest(&manifest)
+        VirtualFs::from_scanned_subtree(&snapshot)
     }
 
     #[test]
@@ -855,11 +871,11 @@ mod tests {
         let fs = VirtualFs::empty();
         // Root is empty string
         assert!(fs.get_entry("").is_some());
-        assert!(fs.get_entry(".profile").is_some());
+        assert!(fs.get_entry(".profile").is_none());
     }
 
     #[test]
-    fn test_from_manifest() {
+    fn test_from_scanned_subtree() {
         let fs = create_test_fs();
 
         // Check root exists (empty string)
@@ -881,7 +897,7 @@ mod tests {
         let root_entry = fs.get_entry("").expect("root should exist");
         assert_eq!(root_entry.dir_meta().unwrap().title, "Home");
 
-        // Check directory title was set from manifest
+        // Check directory title was set from the scan rows
         let blog_entry = fs.get_entry("blog").expect("blog should exist");
         assert_eq!(blog_entry.dir_meta().unwrap().title, "Blog Posts");
 
@@ -907,11 +923,11 @@ mod tests {
         // List root
         let entries = fs.list_dir("").expect("Should list directory");
 
-        // Should have blog, projects, .profile
+        // Should have blog, projects
         let names: Vec<_> = entries.iter().map(|e| e.name.as_str()).collect();
         assert!(names.contains(&"blog"));
         assert!(names.contains(&"projects"));
-        assert!(names.contains(&".profile"));
+        assert!(!names.contains(&".profile"));
     }
 
     #[test]
@@ -1110,5 +1126,88 @@ mod tests {
 
         assert!(perms.read);
         assert_eq!(perms.to_string(), "-r--");
+    }
+
+    #[test]
+    fn snapshot_roundtrip_is_byte_stable() {
+        let golden = include_str!("../../tests/fixtures/manifest_golden.json");
+        let snapshot =
+            crate::core::storage::github::manifest::parse_snapshot(golden).expect("golden parses");
+
+        let fs = VirtualFs::from_scanned_subtree(&snapshot);
+        let reserialized = fs.to_scanned_subtree();
+        let out = crate::core::storage::github::manifest::serialize_snapshot(&reserialized)
+            .expect("serialize");
+
+        assert_eq!(out.trim_end(), golden.trim_end());
+    }
+
+    #[test]
+    fn scanned_subtree_sorts_regardless_of_input_order() {
+        let snapshot = ScannedSubtree {
+            files: vec![
+                ScannedFile {
+                    path: "z.md".to_string(),
+                    description: "Z".to_string(),
+                    meta: FileMetadata::default(),
+                },
+                ScannedFile {
+                    path: "m.md".to_string(),
+                    description: "M".to_string(),
+                    meta: FileMetadata::default(),
+                },
+                ScannedFile {
+                    path: "a.md".to_string(),
+                    description: "A".to_string(),
+                    meta: FileMetadata::default(),
+                },
+            ],
+            directories: vec![
+                ScannedDirectory {
+                    path: "z-dir".to_string(),
+                    meta: DirectoryMetadata {
+                        title: "Z".to_string(),
+                        tags: vec!["zone".to_string()],
+                        ..Default::default()
+                    },
+                },
+                ScannedDirectory {
+                    path: "a-dir".to_string(),
+                    meta: DirectoryMetadata {
+                        title: "A".to_string(),
+                        tags: vec!["area".to_string()],
+                        ..Default::default()
+                    },
+                },
+            ],
+        };
+
+        let fs = VirtualFs::from_scanned_subtree(&snapshot);
+        let out = fs.to_scanned_subtree();
+        let file_paths: Vec<&str> = out.files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(file_paths, vec!["a.md", "m.md", "z.md"]);
+        let dir_paths: Vec<&str> = out.directories.iter().map(|d| d.path.as_str()).collect();
+        assert_eq!(dir_paths, vec!["a-dir", "z-dir"]);
+    }
+
+    #[test]
+    fn scanned_subtree_omits_synthetic_dotprofile() {
+        let fs = VirtualFs::empty();
+        let snapshot = fs.to_scanned_subtree();
+        assert!(snapshot.files.iter().all(|f| f.path != ".profile"));
+
+        let with_content = ScannedSubtree {
+            files: vec![ScannedFile {
+                path: "notes.md".to_string(),
+                description: "Notes".to_string(),
+                meta: FileMetadata::default(),
+            }],
+            directories: vec![],
+        };
+        let fs2 = VirtualFs::from_scanned_subtree(&with_content);
+        let serialized = fs2.to_scanned_subtree();
+        assert!(serialized.files.iter().all(|f| f.path != ".profile"));
+        assert_eq!(serialized.files.len(), 1);
+        assert_eq!(serialized.files[0].path, "notes.md");
     }
 }

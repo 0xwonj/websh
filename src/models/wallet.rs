@@ -1,7 +1,8 @@
 use crate::utils::format::format_eth_address;
+use serde::{Deserialize, Serialize};
 
 /// Wallet connection state
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub enum WalletState {
     #[default]
     Disconnected,

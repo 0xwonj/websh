@@ -22,10 +22,10 @@ pub use result::{CommandResult, SideEffect};
 use std::fmt;
 
 use crate::app::TerminalState;
-use crate::core::VirtualFs;
 use crate::core::changes::ChangeSet;
+use crate::core::engine::GlobalFs;
 use crate::core::parser::Pipeline;
-use crate::models::{AppRoute, WalletState};
+use crate::models::{RuntimeMount, VirtualPath, WalletState};
 
 // =============================================================================
 // Path Argument Type
@@ -113,13 +113,27 @@ pub enum Command {
 
     // Phase 4 — write / sync commands. Parsing wired in Task 4.2 / 4.3;
     // these variants are reachable directly from tests for now.
-    Touch { path: PathArg },
-    Mkdir { path: PathArg },
-    Rm { path: PathArg, recursive: bool },
-    Rmdir { path: PathArg },
-    Edit { path: PathArg },
+    Touch {
+        path: PathArg,
+    },
+    Mkdir {
+        path: PathArg,
+    },
+    Rm {
+        path: PathArg,
+        recursive: bool,
+    },
+    Rmdir {
+        path: PathArg,
+    },
+    Edit {
+        path: PathArg,
+    },
     Sync(SyncSubcommand),
-    EchoRedirect { body: String, path: PathArg },
+    EchoRedirect {
+        body: String,
+        path: PathArg,
+    },
 
     Unknown(String),
 }
@@ -303,8 +317,9 @@ pub fn execute_pipeline(
     pipeline: &Pipeline,
     state: &TerminalState,
     wallet_state: &WalletState,
-    fs: &VirtualFs,
-    current_route: &AppRoute,
+    runtime_mounts: &[RuntimeMount],
+    fs: &GlobalFs,
+    cwd: &VirtualPath,
     changes: &ChangeSet,
     remote_head: Option<&str>,
 ) -> CommandResult {
@@ -323,8 +338,9 @@ pub fn execute_pipeline(
         cmd,
         state,
         wallet_state,
+        runtime_mounts,
         fs,
-        current_route,
+        cwd,
         changes,
         remote_head,
     );
@@ -511,19 +527,28 @@ mod tests {
         // execute_pipeline should preserve SideEffect from first command
         // when there are no filters.
         use crate::app::TerminalState;
-        use crate::core::VirtualFs;
         use crate::core::changes::ChangeSet;
+        use crate::core::engine::GlobalFs;
         use crate::core::parser::parse_input;
-        use crate::models::WalletState;
+        use crate::models::{VirtualPath, WalletState};
 
         let state = TerminalState::new();
         let wallet = WalletState::Disconnected;
-        let fs = VirtualFs::empty();
-        let route = AppRoute::Root;
+        let fs = GlobalFs::empty();
+        let cwd = VirtualPath::from_absolute("/site").unwrap();
         let changes = ChangeSet::new();
 
         let pipeline = parse_input("login", &[]);
-        let result = execute_pipeline(&pipeline, &state, &wallet, &fs, &route, &changes, None);
+        let result = execute_pipeline(
+            &pipeline,
+            &state,
+            &wallet,
+            &[crate::core::storage::boot::bootstrap_runtime_mount()],
+            &fs,
+            &cwd,
+            &changes,
+            None,
+        );
         assert_eq!(result.side_effect, Some(super::SideEffect::Login));
     }
 
@@ -531,39 +556,57 @@ mod tests {
     fn test_pipeline_drops_side_effect_when_piped() {
         // When a command has filters attached, side effects are discarded.
         use crate::app::TerminalState;
-        use crate::core::VirtualFs;
         use crate::core::changes::ChangeSet;
+        use crate::core::engine::GlobalFs;
         use crate::core::parser::parse_input;
-        use crate::models::WalletState;
+        use crate::models::{VirtualPath, WalletState};
 
         let state = TerminalState::new();
         let wallet = WalletState::Disconnected;
-        let fs = VirtualFs::empty();
-        let route = AppRoute::Root;
+        let fs = GlobalFs::empty();
+        let cwd = VirtualPath::from_absolute("/site").unwrap();
         let changes = ChangeSet::new();
 
         let pipeline = parse_input("help | head -1", &[]);
-        let result = execute_pipeline(&pipeline, &state, &wallet, &fs, &route, &changes, None);
+        let result = execute_pipeline(
+            &pipeline,
+            &state,
+            &wallet,
+            &[crate::core::storage::boot::bootstrap_runtime_mount()],
+            &fs,
+            &cwd,
+            &changes,
+            None,
+        );
         assert!(result.side_effect.is_none());
     }
 
     #[test]
     fn test_pipeline_exit_code_is_last_stage() {
         use crate::app::TerminalState;
-        use crate::core::VirtualFs;
         use crate::core::changes::ChangeSet;
+        use crate::core::engine::GlobalFs;
         use crate::core::parser::parse_input;
-        use crate::models::WalletState;
+        use crate::models::{VirtualPath, WalletState};
 
         let state = TerminalState::new();
         let wallet = WalletState::Disconnected;
-        let fs = VirtualFs::empty();
-        let route = AppRoute::Root;
+        let fs = GlobalFs::empty();
+        let cwd = VirtualPath::from_absolute("/site").unwrap();
         let changes = ChangeSet::new();
 
         // `help | grep xyzzy` should exit 1 (grep no match)
         let pipeline = parse_input("help | grep xyzzy", &[]);
-        let result = execute_pipeline(&pipeline, &state, &wallet, &fs, &route, &changes, None);
+        let result = execute_pipeline(
+            &pipeline,
+            &state,
+            &wallet,
+            &[crate::core::storage::boot::bootstrap_runtime_mount()],
+            &fs,
+            &cwd,
+            &changes,
+            None,
+        );
         assert_eq!(result.exit_code, 1);
     }
 
@@ -870,20 +913,29 @@ mod tests {
     #[test]
     fn test_parser_error_exit_2() {
         use crate::app::TerminalState;
-        use crate::core::VirtualFs;
         use crate::core::changes::ChangeSet;
+        use crate::core::engine::GlobalFs;
         use crate::core::parser::parse_input;
-        use crate::models::WalletState;
+        use crate::models::{VirtualPath, WalletState};
 
         let state = TerminalState::new();
         let wallet = WalletState::Disconnected;
-        let fs = VirtualFs::empty();
-        let route = AppRoute::Root;
+        let fs = GlobalFs::empty();
+        let cwd = VirtualPath::from_absolute("/site").unwrap();
         let changes = ChangeSet::new();
 
         // Pipe with nothing on the right-hand side → parse error
         let pipeline = parse_input("ls |", &[]);
-        let result = execute_pipeline(&pipeline, &state, &wallet, &fs, &route, &changes, None);
+        let result = execute_pipeline(
+            &pipeline,
+            &state,
+            &wallet,
+            &[crate::core::storage::boot::bootstrap_runtime_mount()],
+            &fs,
+            &cwd,
+            &changes,
+            None,
+        );
         assert_eq!(result.exit_code, 2);
     }
 }

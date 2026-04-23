@@ -1,47 +1,144 @@
-//! One-shot boot helpers: construct the writable mount's backend, load
-//! any persisted draft ChangeSet, and seed remote_head.
+//! One-shot boot helpers: construct backends, load persisted draft ChangeSets,
+//! and seed bootstrap route nodes.
 
 use std::sync::Arc;
 
+use crate::config::BOOTSTRAP_SITE;
 use crate::core::changes::ChangeSet;
+use crate::core::engine::GlobalFs;
 use crate::core::storage::{GitHubBackend, StorageBackend, StorageResult};
-use crate::models::Mount;
+use crate::models::{
+    BootstrapSiteSource, DirectoryMetadata, FileMetadata, FileSidecarMetadata, MountDeclaration,
+    NodeKind, RendererKind, RuntimeBackendKind, RuntimeMount, VirtualPath,
+};
 
 use super::idb;
 
-pub fn build_backend_for_mount(mount: &Mount, token: Option<&str>) -> Option<Arc<dyn StorageBackend>> {
-    if !mount.is_writable() {
-        return None;
-    }
-    let token = token?;
-    match mount {
-        Mount::GitHub { base_url, content_prefix, .. } => {
-            let repo = parse_repo_from_base_url(base_url)?;
-            let branch = parse_branch_from_base_url(base_url).unwrap_or_else(|| "main".to_string());
-            let prefix = content_prefix.clone().unwrap_or_default();
-            let manifest_url = format!("{}/manifest.json", base_url);
-            Some(Arc::new(GitHubBackend::new(repo, branch, prefix, manifest_url, token)))
+pub fn bootstrap_runtime_mount() -> RuntimeMount {
+    RuntimeMount::new(
+        BOOTSTRAP_SITE.mount_root(),
+        BOOTSTRAP_SITE.label(),
+        RuntimeBackendKind::GitHub,
+        BOOTSTRAP_SITE.writable,
+    )
+}
+
+pub fn build_backend_for_bootstrap_site(source: &BootstrapSiteSource) -> Arc<dyn StorageBackend> {
+    let prefix = source.content_root.trim_matches('/').to_string();
+    let gateway = source.gateway.trim_end_matches('/');
+    let base_url = if prefix.is_empty() {
+        format!("{}/{}/{}", gateway, source.repo_with_owner, source.branch)
+    } else {
+        format!(
+            "{}/{}/{}/{}",
+            gateway, source.repo_with_owner, source.branch, prefix
+        )
+    };
+    let manifest_url = format!("{base_url}/manifest.json");
+
+    Arc::new(GitHubBackend::new(
+        source.repo_with_owner,
+        source.branch,
+        source.mount_root(),
+        prefix,
+        manifest_url,
+    ))
+}
+
+pub fn build_backend_for_declaration(
+    declaration: &MountDeclaration,
+) -> Option<(RuntimeMount, Arc<dyn StorageBackend>)> {
+    match declaration.backend.as_str() {
+        "github" => {
+            let repo = declaration.repo.clone()?;
+            let branch = declaration
+                .branch
+                .clone()
+                .unwrap_or_else(|| "main".to_string());
+            let mount_root = VirtualPath::from_absolute(declaration.mount_at.clone()).ok()?;
+            let prefix = declaration
+                .root
+                .clone()
+                .unwrap_or_default()
+                .trim_matches('/')
+                .to_string();
+            let gateway = declaration
+                .gateway
+                .as_deref()
+                .unwrap_or("https://raw.githubusercontent.com")
+                .trim_end_matches('/');
+            let base_url = if prefix.is_empty() {
+                format!("{gateway}/{repo}/{branch}")
+            } else {
+                format!("{gateway}/{repo}/{branch}/{prefix}")
+            };
+            let manifest_url = format!("{base_url}/manifest.json");
+            let label = declaration.name.clone().unwrap_or_else(|| {
+                mount_root
+                    .file_name()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| mount_root.as_str().to_string())
+            });
+
+            let mount = RuntimeMount::new(
+                mount_root.clone(),
+                label,
+                RuntimeBackendKind::GitHub,
+                declaration.writable,
+            );
+
+            Some((
+                mount,
+                Arc::new(GitHubBackend::new(
+                    repo,
+                    branch,
+                    mount_root,
+                    prefix,
+                    manifest_url,
+                )),
+            ))
         }
         _ => None,
     }
 }
 
-/// Parse "owner/repo" from `https://raw.githubusercontent.com/owner/repo/branch/...`
-fn parse_repo_from_base_url(url: &str) -> Option<String> {
-    let tail = url.strip_prefix("https://raw.githubusercontent.com/")?;
-    let mut parts = tail.splitn(3, '/');
-    let owner = parts.next()?;
-    let repo = parts.next()?;
-    Some(format!("{owner}/{repo}"))
+pub fn bootstrap_global_fs() -> GlobalFs {
+    let mut global = GlobalFs::empty();
+    seed_bootstrap_routes(&mut global);
+    global
 }
 
-fn parse_branch_from_base_url(url: &str) -> Option<String> {
-    let tail = url.strip_prefix("https://raw.githubusercontent.com/")?;
-    let mut parts = tail.splitn(4, '/');
-    let _owner = parts.next()?;
-    let _repo = parts.next()?;
-    let branch = parts.next()?;
-    Some(branch.to_string())
+pub fn seed_bootstrap_routes(global: &mut GlobalFs) {
+    let site_root = VirtualPath::from_absolute("/site").expect("constant path");
+    if !global.exists(&site_root) {
+        global.upsert_directory(
+            site_root,
+            DirectoryMetadata {
+                title: "site".to_string(),
+                ..Default::default()
+            },
+        );
+    }
+
+    seed_bootstrap_app(global, "/site/shell.app", "/shell");
+    seed_bootstrap_app(global, "/site/fs.app", "/fs/*path");
+}
+
+fn seed_bootstrap_app(global: &mut GlobalFs, node_path: &str, route: &str) {
+    let node_path = VirtualPath::from_absolute(node_path).expect("constant path");
+    if !global.exists(&node_path) {
+        global.upsert_binary_placeholder(node_path.clone(), FileMetadata::default());
+    }
+    global.set_node_metadata(
+        node_path,
+        FileSidecarMetadata {
+            kind: Some(NodeKind::App),
+            renderer: Some(RendererKind::TerminalApp),
+            route: Some(route.to_string()),
+            ..Default::default()
+        }
+        .into(),
+    );
 }
 
 pub async fn hydrate_drafts(mount_id: &str) -> StorageResult<ChangeSet> {
@@ -60,34 +157,46 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_repo_from_raw_url() {
+    fn declaration_builds_github_backend() {
+        let declaration = MountDeclaration {
+            backend: "github".to_string(),
+            mount_at: "/mnt/db".to_string(),
+            repo: Some("0xwonj/db".to_string()),
+            branch: Some("main".to_string()),
+            root: Some("content".to_string()),
+            ..Default::default()
+        };
+
+        let (mount, backend) = build_backend_for_declaration(&declaration).expect("backend");
+        assert_eq!(mount.root.as_str(), "/mnt/db");
+        assert_eq!(mount.label, "db");
+        assert_eq!(backend.backend_type(), "github");
+    }
+
+    #[test]
+    fn bootstrap_global_fs_seeds_shell_and_fs_routes() {
+        let global = bootstrap_global_fs();
+        assert!(global.exists(&VirtualPath::from_absolute("/site/shell.app").unwrap()));
+        assert!(global.exists(&VirtualPath::from_absolute("/site/fs.app").unwrap()));
         assert_eq!(
-            parse_repo_from_base_url("https://raw.githubusercontent.com/0xwonj/db/main/content"),
-            Some("0xwonj/db".to_string())
+            global
+                .node_metadata(&VirtualPath::from_absolute("/site/shell.app").unwrap())
+                .and_then(|meta| meta.route.as_deref()),
+            Some("/shell")
         );
-    }
-
-    #[test]
-    fn parse_branch_from_raw_url() {
         assert_eq!(
-            parse_branch_from_base_url("https://raw.githubusercontent.com/0xwonj/db/main/content"),
-            Some("main".to_string())
+            global
+                .node_metadata(&VirtualPath::from_absolute("/site/fs.app").unwrap())
+                .and_then(|meta| meta.route.as_deref()),
+            Some("/fs/*path")
         );
     }
 
     #[test]
-    fn build_backend_refuses_readonly() {
-        let mount = Mount::github_with_prefix(
-            "ro", "https://raw.githubusercontent.com/x/y/main", "~",
-        );
-        assert!(build_backend_for_mount(&mount, Some("t")).is_none());
-    }
-
-    #[test]
-    fn build_backend_refuses_missing_token() {
-        let mount = Mount::github_writable(
-            "~", "https://raw.githubusercontent.com/0xwonj/db/main", "~",
-        );
-        assert!(build_backend_for_mount(&mount, None).is_none());
+    fn bootstrap_runtime_mount_is_site_root() {
+        let mount = bootstrap_runtime_mount();
+        assert_eq!(mount.root.as_str(), "/site");
+        assert_eq!(mount.label, "~");
+        assert!(mount.writable);
     }
 }

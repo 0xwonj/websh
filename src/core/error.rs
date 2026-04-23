@@ -3,18 +3,18 @@
 //! Provides structured error handling with meaningful error messages
 //! and proper error categorization for each domain:
 //!
-//! - [`WalletError`] - MetaMask/wallet connection and request errors
+//! - [`WalletError`] - wallet connection and request errors
 //! - [`EnvironmentError`] - localStorage operations for environment variables
 //! - [`FetchError`] - Network/fetch-related errors for HTTP requests
 
 use std::fmt;
 
-/// Wallet-related errors for MetaMask/EIP-1193 integration.
+/// Wallet-related errors for EIP-1193 integration.
 #[derive(Debug, Clone)]
 pub enum WalletError {
     /// Browser window not available
     NoWindow,
-    /// MetaMask or compatible wallet not installed
+    /// No EIP-1193 wallet provider detected
     NotInstalled,
     /// Failed to create request object
     RequestCreationFailed,
@@ -30,7 +30,7 @@ impl fmt::Display for WalletError {
             Self::NoWindow => write!(f, "Browser window not available"),
             Self::NotInstalled => write!(
                 f,
-                "MetaMask not installed. Please install MetaMask extension."
+                "No EIP-1193 wallet detected. Please install a browser wallet extension."
             ),
             Self::RequestCreationFailed => write!(f, "Failed to create wallet request"),
             Self::RequestRejected(msg) => write!(f, "Wallet request rejected: {}", msg),
@@ -187,7 +187,10 @@ mod tests {
     fn test_app_error_from_fetch() {
         let fetch_err = FetchError::HttpError(404);
         let app_err: AppError = fetch_err.into();
-        assert!(matches!(app_err, AppError::Fetch(FetchError::HttpError(404))));
+        assert!(matches!(
+            app_err,
+            AppError::Fetch(FetchError::HttpError(404))
+        ));
     }
 
     #[test]

@@ -8,8 +8,8 @@ use leptos_icons::Icon;
 
 use super::{DirMeta, FileMeta, PreviewContent, PreviewData};
 use crate::components::icons as ic;
-use crate::components::terminal::RouteContext;
-use crate::models::{AppRoute, FileType, Selection};
+use crate::core::engine::{push_request_path, request_path_for_canonical_path};
+use crate::models::{FileType, Selection};
 use crate::utils::format::format_size;
 
 /// CSS class names for preview components.
@@ -236,6 +236,14 @@ fn TextPreview(
                             Some(PreviewContent::Text(text)) => view! {
                                 <pre class=preview_text_class>{text}</pre>
                             }.into_any(),
+                            Some(PreviewContent::AssetUrl(_)) => view! {
+                                <div class=no_preview_class>
+                                    {desc.clone().map(|d| view! {
+                                        <p class=description_class>{d}</p>
+                                    })}
+                                    <p class=hint_class>"Preview not available"</p>
+                                </div>
+                            }.into_any(),
                             Some(PreviewContent::Error(err)) => view! {
                                 <div class=error_class>
                                     <span class=styles.lock_icon><Icon icon=ic::WARNING /></span>
@@ -269,8 +277,6 @@ pub fn OpenButton(
     class: &'static str,
     #[prop(default = "Open")] label: &'static str,
 ) -> impl IntoView {
-    let route_ctx = use_context::<RouteContext>().expect("RouteContext must be provided");
-
     let show_button = Signal::derive(move || {
         selection
             .get()
@@ -286,10 +292,7 @@ pub fn OpenButton(
                     if let Some(s) = selection.get()
                         && !s.is_dir
                     {
-                        let route = route_ctx.0.get();
-                        let mount = route.mount().cloned()
-                            .unwrap_or_else(|| crate::config::mounts().home().clone());
-                        AppRoute::Read { mount, path: s.path }.push();
+                        push_request_path(&request_path_for_canonical_path(&s.path));
                     }
                 }
                 title="Open file"

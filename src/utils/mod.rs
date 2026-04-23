@@ -7,6 +7,7 @@
 //! - [`validate_redirect_url`] - URL security validation
 //! - [`format`] - Size, date, and address formatting
 
+mod asset;
 pub mod cache;
 pub mod dom;
 mod fetch;
@@ -18,6 +19,7 @@ pub mod sysinfo;
 mod time;
 mod url;
 
+pub use asset::{data_url_for_bytes, media_type_for_path};
 pub use fetch::{RaceResult, fetch_content, fetch_json, fetch_json_cached, race_with_timeout};
 pub use markdown::markdown_to_html;
 pub use ring_buffer::RingBuffer;

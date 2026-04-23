@@ -12,10 +12,11 @@ use leptos_icons::Icon;
 use crate::app::AppContext;
 use crate::components::icons as ic;
 use crate::components::terminal::RouteContext;
-use crate::config::mounts;
 use crate::core::DirEntry;
-use crate::models::{AppRoute, DisplayPermissions, FileType};
-use crate::utils::format::{format_date_iso, format_size, join_path};
+use crate::core::admin::can_write_to;
+use crate::core::engine::{push_request_path, request_path_for_canonical_path, route_cwd};
+use crate::models::{DisplayPermissions, FileType};
+use crate::utils::format::{format_date_iso, format_size};
 
 stylance::import_crate_style!(css, "src/components/explorer/file_list.module.css");
 
@@ -34,19 +35,6 @@ fn get_icon(entry: &DirEntry) -> IconData {
     }
 }
 
-/// Convert mounts to DirEntry list for display.
-fn mounts_to_entries() -> Vec<DirEntry> {
-    mounts()
-        .all()
-        .map(|mount| DirEntry {
-            name: mount.alias().to_string(),
-            is_dir: true,
-            title: mount.description(),
-            file_meta: None,
-        })
-        .collect()
-}
-
 #[component]
 pub fn FileList() -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
@@ -54,15 +42,9 @@ pub fn FileList() -> impl IntoView {
 
     // Get entries for current path from route
     let entries = Signal::derive(move || {
-        let route = route_ctx.0.get();
-
-        // If at Root, show mount list
-        if matches!(route, AppRoute::Root) {
-            return mounts_to_entries();
-        }
-
-        let path = route.fs_path();
-        ctx.view_fs.with(|fs| fs.list_dir(path).unwrap_or_default())
+        let cwd = route_cwd(&route_ctx.0.get());
+        ctx.view_global_fs
+            .with(|fs| fs.list_dir(&cwd).unwrap_or_default())
     });
 
     view! {
@@ -91,11 +73,9 @@ pub fn FileList() -> impl IntoView {
 #[component]
 fn FileListItem(entry: DirEntry) -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
-    let route_ctx = use_context::<RouteContext>().expect("RouteContext must be provided");
 
     let selection = ctx.explorer.selection;
 
-    let entry_name = entry.name.clone();
     let is_dir = entry.is_dir;
     let is_restricted = entry
         .file_meta
@@ -113,17 +93,17 @@ fn FileListItem(entry: DirEntry) -> impl IntoView {
         .map(format_date_iso);
 
     // Build item path once at creation time (route doesn't change during item lifetime)
-    let route = route_ctx.0.get_untracked();
-    let current_path = route.fs_path();
-    let item_fs_path = join_path(current_path, &entry_name);
+    let item_path = entry.path.clone();
 
-    // Get permissions from VirtualFs (same as ls -l)
-    let perms = ctx.view_fs.with_untracked(|fs| {
+    // Get permissions from GlobalFs (same as ls -l)
+    let perms = ctx.view_global_fs.with_untracked(|fs| {
         let wallet = ctx.wallet.get_untracked();
-        fs.get_entry(&item_fs_path)
-            .map(|e| fs.get_permissions(e, &wallet).to_string())
+        let writable = ctx
+            .runtime_mount_for_path(&item_path)
+            .is_some_and(|mount| can_write_to(&wallet, mount.writable));
+        fs.get_entry(&item_path)
+            .map(|e| fs.get_permissions(e, &wallet, writable).to_string())
             .unwrap_or_else(|| {
-                // Fallback for mounts at root
                 DisplayPermissions {
                     is_dir,
                     read: true,
@@ -133,14 +113,14 @@ fn FileListItem(entry: DirEntry) -> impl IntoView {
                 .to_string()
             })
     });
-    let item_fs_path_for_click = item_fs_path.clone();
-    let item_fs_path_for_select = item_fs_path.clone();
+    let item_path_for_click = item_path.clone();
+    let item_path_for_select = item_path.clone();
 
     // Check if this entry is selected
     let is_selected = Signal::derive(move || {
         selection
             .get()
-            .map(|s| s.path == item_fs_path_for_select)
+            .map(|s| s.path == item_path_for_select)
             .unwrap_or(false)
     });
 
@@ -149,42 +129,14 @@ fn FileListItem(entry: DirEntry) -> impl IntoView {
 
     // Select action (single click or Space key): standard Finder/Explorer behavior
     let do_select = move || {
-        ctx.explorer.select(item_fs_path_for_click.clone(), is_dir);
+        ctx.explorer.select(item_path_for_click.clone(), is_dir);
     };
 
     // Open action (double click or Enter key): navigate into directory or open file
     let do_open = move || {
         ctx.explorer.clear_selection();
-        let route = route_ctx.0.get();
-
-        if is_dir {
-            // If at Root, navigate to mount
-            if matches!(route, AppRoute::Root)
-                && let Some(mount) = mounts().resolve(&entry_name_for_nav).cloned()
-            {
-                AppRoute::Browse {
-                    mount,
-                    path: String::new(),
-                }
-                .push();
-                return;
-            }
-
-            // Navigate into directory
-            let new_route = route.join(&entry_name_for_nav);
-            new_route.push();
-        } else {
-            // Open file in reader - use pre-computed item_fs_path
-            let mount = route
-                .mount()
-                .cloned()
-                .unwrap_or_else(|| mounts().home().clone());
-            AppRoute::Read {
-                mount,
-                path: item_fs_path.clone(),
-            }
-            .push();
-        }
+        let _ = &entry_name_for_nav;
+        push_request_path(&request_path_for_canonical_path(&item_path));
     };
 
     let handle_click = {

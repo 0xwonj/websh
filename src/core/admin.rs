@@ -1,6 +1,6 @@
 //! Admin eligibility. See spec §8.2.
 
-use crate::models::{Mount, WalletState};
+use crate::models::WalletState;
 
 /// Hard-coded allowlist. Single-admin model per design.
 ///
@@ -34,8 +34,8 @@ pub fn admin_status(wallet: &WalletState) -> AdminStatus {
     }
 }
 
-pub fn can_write_to(wallet: &WalletState, mount: &Mount) -> bool {
-    matches!(admin_status(wallet), AdminStatus::Admin { .. }) && mount.is_writable()
+pub fn can_write_to(wallet: &WalletState, writable: bool) -> bool {
+    matches!(admin_status(wallet), AdminStatus::Admin { .. }) && writable
 }
 
 #[cfg(test)]
@@ -77,9 +77,7 @@ mod tests {
             ens_name: None,
             chain_id: Some(1),
         };
-        let writable = Mount::github_writable("~", "https://x", "~");
-        let readonly = Mount::github_with_prefix("ro", "https://y", "~");
-        assert!(can_write_to(&admin, &writable));
-        assert!(!can_write_to(&admin, &readonly));
+        assert!(can_write_to(&admin, true));
+        assert!(!can_write_to(&admin, false));
     }
 }

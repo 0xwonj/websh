@@ -56,9 +56,7 @@ impl DraftPersister {
                 match idb::open_db().await {
                     Ok(db) => {
                         if let Err(e) = idb::save_draft(&db, &mount_id, &cs).await {
-                            web_sys::console::error_1(
-                                &format!("draft persist failed: {e}").into(),
-                            );
+                            web_sys::console::error_1(&format!("draft persist failed: {e}").into());
                         }
                     }
                     Err(e) => {

@@ -11,11 +11,23 @@ use crate::utils::current_timestamp;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChangeType {
-    CreateFile { content: String, meta: FileMetadata },
-    CreateBinary { blob_id: String, mime: String, meta: FileMetadata },
-    UpdateFile { content: String, description: Option<String> },
+    CreateFile {
+        content: String,
+        meta: FileMetadata,
+    },
+    CreateBinary {
+        blob_id: String,
+        mime: String,
+        meta: FileMetadata,
+    },
+    UpdateFile {
+        content: String,
+        description: Option<String>,
+    },
     DeleteFile,
-    CreateDirectory { meta: DirectoryMetadata },
+    CreateDirectory {
+        meta: DirectoryMetadata,
+    },
     DeleteDirectory,
 }
 
@@ -31,7 +43,7 @@ pub struct ChangeSet {
     entries: BTreeMap<VirtualPath, Entry>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Summary {
     pub creates_staged: usize,
     pub creates_unstaged: usize,
@@ -43,9 +55,12 @@ pub struct Summary {
 
 impl Summary {
     pub fn total(&self) -> usize {
-        self.creates_staged + self.creates_unstaged
-            + self.updates_staged + self.updates_unstaged
-            + self.deletes_staged + self.deletes_unstaged
+        self.creates_staged
+            + self.creates_unstaged
+            + self.updates_staged
+            + self.updates_unstaged
+            + self.deletes_staged
+            + self.deletes_unstaged
     }
     pub fn total_staged(&self) -> usize {
         self.creates_staged + self.updates_staged + self.deletes_staged
@@ -142,13 +157,25 @@ impl ChangeSet {
                 ChangeType::CreateFile { .. }
                 | ChangeType::CreateBinary { .. }
                 | ChangeType::CreateDirectory { .. } => {
-                    if e.staged { &mut s.creates_staged } else { &mut s.creates_unstaged }
+                    if e.staged {
+                        &mut s.creates_staged
+                    } else {
+                        &mut s.creates_unstaged
+                    }
                 }
                 ChangeType::UpdateFile { .. } => {
-                    if e.staged { &mut s.updates_staged } else { &mut s.updates_unstaged }
+                    if e.staged {
+                        &mut s.updates_staged
+                    } else {
+                        &mut s.updates_unstaged
+                    }
                 }
                 ChangeType::DeleteFile | ChangeType::DeleteDirectory => {
-                    if e.staged { &mut s.deletes_staged } else { &mut s.deletes_unstaged }
+                    if e.staged {
+                        &mut s.deletes_staged
+                    } else {
+                        &mut s.deletes_unstaged
+                    }
                 }
             };
             *bucket += 1;
@@ -223,7 +250,10 @@ mod tests {
         cs.upsert(p("/a.md"), create_file("a"));
         cs.upsert(p("/b.md"), create_file("b"));
         cs.unstage(&p("/b.md"));
-        let staged: Vec<_> = cs.iter_staged().map(|(p, _)| p.as_str().to_string()).collect();
+        let staged: Vec<_> = cs
+            .iter_staged()
+            .map(|(p, _)| p.as_str().to_string())
+            .collect();
         assert_eq!(staged, vec!["/a.md"]);
     }
 
@@ -233,7 +263,10 @@ mod tests {
         cs.upsert(p("/new.md"), create_file("x"));
         cs.upsert(
             p("/upd.md"),
-            ChangeType::UpdateFile { content: "y".into(), description: None },
+            ChangeType::UpdateFile {
+                content: "y".into(),
+                description: None,
+            },
         );
         cs.upsert(p("/del.md"), ChangeType::DeleteFile);
         cs.unstage(&p("/del.md"));

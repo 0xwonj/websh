@@ -8,9 +8,10 @@ use leptos_icons::Icon;
 use crate::app::AppContext;
 use crate::components::icons as ic;
 use crate::components::terminal::RouteContext;
-use crate::models::{AppRoute, ExplorerViewType};
+use crate::core::engine::push_request_path;
+use crate::models::ExplorerViewType;
 
-stylance::import_crate_style!(css, "src/components/explorer/explorer.module.css");
+stylance::import_crate_style!(css, "src/components/explorer/header.module.css");
 
 /// Explorer header with navigation and actions.
 #[component]
@@ -23,8 +24,8 @@ pub fn Header() -> impl IntoView {
     let (more_menu_open, set_more_menu_open) = signal(false);
 
     // Derived signals
-    let is_root = Signal::derive(move || matches!(route_ctx.0.get(), AppRoute::Root));
-    let is_home = Signal::derive(move || route_ctx.0.get() == AppRoute::home());
+    let is_root = Signal::derive(move || route_ctx.0.get().is_root());
+    let is_home = Signal::derive(move || route_ctx.0.get().is_home());
     let view_type = Signal::derive(move || ctx.explorer.view_type.get());
 
     // Derive current location name for header title
@@ -32,7 +33,7 @@ pub fn Header() -> impl IntoView {
         let route = route_ctx.0.get();
         let display = route.display_path();
 
-        if matches!(route, AppRoute::Root) {
+        if route.is_root() {
             return "/".to_string();
         }
 
@@ -49,7 +50,7 @@ pub fn Header() -> impl IntoView {
         let route = route_ctx.0.get();
         let name = current_name.get();
 
-        if matches!(route, AppRoute::Root) {
+        if route.is_root() {
             ic::SERVER
         } else if name == "~" {
             ic::HOME
@@ -108,7 +109,7 @@ fn NavButtons(is_root: Signal<bool>, is_home: Signal<bool>) -> impl IntoView {
 
     // Home
     let on_home = move |_: leptos::ev::MouseEvent| {
-        AppRoute::home().push();
+        push_request_path("/shell");
     };
 
     view! {
@@ -161,9 +162,7 @@ fn nav_button_class(disabled: bool) -> String {
 /// focused element is outside the container's subtree (or no longer inside the
 /// document), the menu closes. Used by both `NewMenu` and `MoreMenu` to avoid
 /// duplication.
-fn close_on_focus_out(
-    set_open: WriteSignal<bool>,
-) -> impl Fn(web_sys::FocusEvent) + 'static {
+fn close_on_focus_out(set_open: WriteSignal<bool>) -> impl Fn(web_sys::FocusEvent) + 'static {
     move |event: web_sys::FocusEvent| {
         use wasm_bindgen::JsCast;
         if let Some(related) = event.related_target() {
@@ -300,7 +299,7 @@ fn MoreMenu(
 
     let on_home = move |_: leptos::ev::MouseEvent| {
         set_menu_open.set(false);
-        AppRoute::home().push();
+        push_request_path("/shell");
     };
 
     let on_zoom_in = move |_: leptos::ev::MouseEvent| {

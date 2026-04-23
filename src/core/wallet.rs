@@ -1,21 +1,21 @@
 //! Wallet connection logic using web-sys.
 //!
-//! Provides MetaMask (EIP-1193) wallet connectivity through
-//! direct JavaScript interop via Reflect API.
+//! Provides EIP-1193 wallet connectivity through direct JavaScript interop via
+//! Reflect API.
 
 use js_sys::{Array, Function, Object, Promise, Reflect};
-use leptos::prelude::Set;
+use leptos::prelude::{Set, Update};
 use serde::Deserialize;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::prelude::Closure;
 use wasm_bindgen_futures::JsFuture;
 
-use crate::config::{WALLET_SESSION_KEY, WALLET_TIMEOUT_MS};
+use crate::config::WALLET_TIMEOUT_MS;
 use crate::core::error::WalletError;
 use crate::utils::{RaceResult, dom, fetch_json, race_with_timeout};
 
-/// Get the window.ethereum object injected by MetaMask.
+/// Get the `window.ethereum` object injected by an EIP-1193 wallet.
 fn get_ethereum() -> Result<Object, WalletError> {
     let window = dom::window().ok_or(WalletError::NoWindow)?;
     Reflect::get(&window, &"ethereum".into())
@@ -50,7 +50,7 @@ async fn ethereum_request(method: &str) -> Result<JsValue, WalletError> {
         .map_err(|e| WalletError::RequestRejected(format!("{:?}", e)))
 }
 
-/// Check if MetaMask (or compatible wallet) is installed
+/// Check if an EIP-1193 wallet is installed.
 pub fn is_available() -> bool {
     get_ethereum().is_ok()
 }
@@ -81,7 +81,7 @@ pub fn chain_name(chain_id: u64) -> &'static str {
     }
 }
 
-/// Request wallet connection (shows MetaMask popup)
+/// Request wallet connection (shows the wallet approval popup).
 pub async fn connect() -> Result<String, WalletError> {
     let result = ethereum_request("eth_requestAccounts").await?;
     let accounts = Array::from(&result);
@@ -127,25 +127,19 @@ pub async fn resolve_ens(address: &str) -> Option<String> {
     }
 }
 
-/// Check if user has previously logged in (localStorage flag).
+/// Check if user has previously logged in.
 pub fn has_session() -> bool {
-    dom::local_storage()
-        .and_then(|s| s.get_item(WALLET_SESSION_KEY).ok().flatten())
-        .is_some()
+    crate::core::runtime::state::has_wallet_session()
 }
 
-/// Save login session to localStorage.
+/// Save login session.
 pub fn save_session() {
-    if let Some(storage) = dom::local_storage() {
-        let _ = storage.set_item(WALLET_SESSION_KEY, "1");
-    }
+    crate::core::runtime::state::set_wallet_session(true);
 }
 
-/// Clear login session from localStorage.
+/// Clear login session.
 pub fn clear_session() {
-    if let Some(storage) = dom::local_storage() {
-        let _ = storage.remove_item(WALLET_SESSION_KEY);
-    }
+    crate::core::runtime::state::set_wallet_session(false);
 }
 
 /// Disconnect the wallet: clear the stored session and reset the reactive
@@ -157,6 +151,7 @@ pub fn clear_session() {
 pub fn disconnect(ctx: &crate::app::AppContext) {
     clear_session();
     ctx.wallet.set(crate::models::WalletState::Disconnected);
+    ctx.runtime_state_rev.update(|rev| *rev += 1);
 }
 
 // ============================================================================

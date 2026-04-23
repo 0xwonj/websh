@@ -444,10 +444,7 @@ mod tests {
         let tokens: Vec<_> = (&mut lexer).collect();
         assert_eq!(
             tokens,
-            vec![
-                Token::Word("echo".to_string()),
-                Token::Word("".to_string()),
-            ]
+            vec![Token::Word("echo".to_string()), Token::Word("".to_string()),]
         );
     }
 
