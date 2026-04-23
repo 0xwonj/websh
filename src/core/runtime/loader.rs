@@ -130,7 +130,7 @@ async fn apply_runtime_conventions(
         }
 
         let Some((runtime_mount, backend)) =
-            storage_boot::build_backend_for_declaration(&declaration)
+            storage_boot::build_backend_for_declaration(&declaration)?
         else {
             continue;
         };

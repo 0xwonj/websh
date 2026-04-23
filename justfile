@@ -11,6 +11,21 @@ serve:
 build:
     trunk build --release
 
+# Install tracked browser QA dependencies
+qa-install:
+    npm install
+
+# Browser end-to-end checks; Playwright starts the release Trunk server.
+e2e:
+    npm run e2e
+
+# Full local verification gate
+verify: qa-install
+    cargo test
+    cargo test --features mock --test commit_integration
+    env -u NO_COLOR trunk build --release
+    npm run e2e
+
 # Clean build artifacts
 clean:
     trunk clean

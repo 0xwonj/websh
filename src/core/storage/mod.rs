@@ -1,7 +1,7 @@
 //! Storage abstraction for write operations. See spec §4.
 
 mod backend;
-pub mod boot;
+pub(crate) mod boot;
 mod error;
 pub(crate) mod github;
 pub mod idb;

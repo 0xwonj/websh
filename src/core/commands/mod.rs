@@ -312,6 +312,7 @@ impl Command {
 ///
 /// A pipeline consists of a main command followed by optional filter commands
 /// separated by `|`. For example: `ls | grep foo | head -5`
+#[allow(clippy::too_many_arguments)]
 pub fn execute_pipeline(
     pipeline: &Pipeline,
     state: &TerminalState,

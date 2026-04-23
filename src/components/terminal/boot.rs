@@ -114,11 +114,20 @@ pub fn run(ctx: AppContext) {
                         ens_name,
                         chain_id,
                     });
-                    ctx.runtime_state
-                        .set(runtime::state::set_wallet_session(true));
+                    match runtime::state::set_wallet_session(true) {
+                        Ok(snapshot) => ctx.runtime_state.set(snapshot),
+                        Err(error) => ctx.terminal.push_output(OutputLine::error(format!(
+                            "wallet: failed to persist session: {error}"
+                        ))),
+                    }
                 }
                 None => {
-                    ctx.runtime_state.set(wallet::clear_session());
+                    match wallet::clear_session() {
+                        Ok(snapshot) => ctx.runtime_state.set(snapshot),
+                        Err(error) => ctx.terminal.push_output(OutputLine::error(format!(
+                            "wallet: failed to clear session: {error}"
+                        ))),
+                    }
                     ctx.terminal.push_output(OutputLine::text(format!(
                         "{} Wallet session expired",
                         format_elapsed(elapsed())

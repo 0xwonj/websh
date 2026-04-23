@@ -11,7 +11,7 @@ use leptos_icons::Icon;
 use crate::app::AppContext;
 use crate::components::Breadcrumb;
 use crate::components::icons as ic;
-use crate::core::engine::{RouteFrame, read_bytes, read_text, request_path_for_canonical_path};
+use crate::core::engine::{RouteFrame, request_path_for_canonical_path};
 use crate::models::FileType;
 use crate::utils::{
     UrlValidation, data_url_for_bytes, markdown_to_html, media_type_for_path, sanitize_html,
@@ -72,25 +72,23 @@ pub fn Reader(route: Memo<RouteFrame>, on_close: Callback<()>) -> impl IntoView 
     // ensures stale futures are dropped when inputs change (fixes race condition
     // where a late-returning fetch could overwrite a newer result).
     let resource = LocalResource::new(move || {
-        let fs = ctx.view_global_fs.get();
-        let backends = ctx.backends.with_value(|map| map.clone());
         let canonical = canonical_path.get();
         let ft = file_type.get();
         async move {
             match ft {
-                FileType::Html => match read_text(&fs, &backends, &canonical).await {
+                FileType::Html => match ctx.read_text(&canonical).await {
                     Ok(html) => ReaderContent::Html(sanitize_html(&html)),
                     Err(e) => ReaderContent::Error(e.to_string()),
                 },
-                FileType::Markdown => match read_text(&fs, &backends, &canonical).await {
+                FileType::Markdown => match ctx.read_text(&canonical).await {
                     Ok(md) => ReaderContent::Html(markdown_to_html(&md)),
                     Err(e) => ReaderContent::Error(e.to_string()),
                 },
-                FileType::Unknown => match read_text(&fs, &backends, &canonical).await {
+                FileType::Unknown => match ctx.read_text(&canonical).await {
                     Ok(text) => ReaderContent::Text(text),
                     Err(e) => ReaderContent::Error(e.to_string()),
                 },
-                FileType::Link => match read_text(&fs, &backends, &canonical).await {
+                FileType::Link => match ctx.read_text(&canonical).await {
                     Ok(target) => {
                         let target = target.trim();
                         match validate_redirect_url(target) {
@@ -109,15 +107,13 @@ pub fn Reader(route: Memo<RouteFrame>, on_close: Callback<()>) -> impl IntoView 
                     }
                     Err(e) => ReaderContent::Error(e.to_string()),
                 },
-                FileType::Pdf | FileType::Image => {
-                    match read_bytes(&fs, &backends, &canonical).await {
-                        Ok(bytes) => ReaderContent::AssetUrl(data_url_for_bytes(
-                            &bytes,
-                            media_type_for_path(canonical.as_str()),
-                        )),
-                        Err(e) => ReaderContent::Error(e.to_string()),
-                    }
-                }
+                FileType::Pdf | FileType::Image => match ctx.read_bytes(&canonical).await {
+                    Ok(bytes) => ReaderContent::AssetUrl(data_url_for_bytes(
+                        &bytes,
+                        media_type_for_path(canonical.as_str()),
+                    )),
+                    Err(e) => ReaderContent::Error(e.to_string()),
+                },
             }
         }
     });

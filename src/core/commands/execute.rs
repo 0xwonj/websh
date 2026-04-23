@@ -29,7 +29,8 @@ use super::{AuthAction, Command, CommandResult, PathArg, SideEffect, SyncSubcomm
 /// * `fs` - Global canonical filesystem
 /// * `cwd` - Current canonical working directory
 /// * `changes` - The current set of pending changes
-/// * `remote_head` - Last-known remote HEAD SHA (for CAS-protected commits)
+/// * `remote_head` - Last-known remote HEAD SHA displayed by `sync status`
+#[allow(clippy::too_many_arguments)]
 pub fn execute_command(
     cmd: Command,
     state: &TerminalState,
@@ -274,6 +275,7 @@ fn execute_id(wallet_state: &WalletState) -> CommandResult {
 /// Each element of `assignments` is processed independently:
 ///   - `KEY=value` → set the variable
 ///   - `KEY` alone → print `KEY=<value>` if set (silent otherwise)
+///
 /// An empty list prints all user variables. When any assignment fails,
 /// an error line is emitted and the first failure sets exit_code=1;
 /// subsequent assignments are still attempted (bash-style behavior).
@@ -379,6 +381,7 @@ fn execute_explorer(
 ///
 /// Centralising this lets every write arm emit the same error string and keeps
 /// admin gating in one place.
+#[allow(clippy::result_large_err)]
 fn require_write_access(
     cmd_label: &str,
     wallet_state: &WalletState,
@@ -405,6 +408,7 @@ fn require_write_access(
 /// Resolve `path` (possibly relative) against `current_route` into an absolute
 /// `VirtualPath` (with a leading `/`). Returns an error `CommandResult` with
 /// the given `cmd_label` if the absolute form cannot be constructed.
+#[allow(clippy::result_large_err)]
 fn resolve_abs_path(
     cmd_label: &str,
     path: &PathArg,
@@ -494,7 +498,7 @@ fn execute_mkdir(
 /// Execute `rm` — delete a file or directory (with `-r` for directories).
 ///
 /// When the target exists only as a pending `Create*` in `changes` (not in the
-/// base VFS), `rm` emits `SideEffect::DiscardChange` to drop the pending create
+/// base `GlobalFs`), `rm` emits `SideEffect::DiscardChange` to drop the pending create
 /// entirely instead of stacking a `DeleteFile`/`DeleteDirectory` on top. For
 /// `rm -r` on a pending `CreateDirectory` with pending children, only the
 /// target's create is discarded — any orphan pending children are left for the
@@ -599,7 +603,7 @@ fn execute_rmdir(
 
 /// True iff `changes` has an entry at `path` whose `ChangeType` is one of the
 /// `Create*` variants (i.e., the path exists only as a pending create, not in
-/// the base VFS).
+/// the base `GlobalFs`).
 fn is_pending_create(changes: &ChangeSet, path: &VirtualPath) -> bool {
     matches!(
         changes.get(path).map(|e| &e.change),
@@ -692,15 +696,10 @@ fn execute_sync(
 ) -> CommandResult {
     match sub {
         SyncSubcommand::Status => execute_sync_status(changes, remote_head),
-        SyncSubcommand::Commit { message } => execute_sync_commit(
-            message,
-            wallet_state,
-            runtime_mounts,
-            cwd,
-            changes,
-            remote_head,
-        ),
-        SyncSubcommand::Refresh => execute_sync_refresh(wallet_state, runtime_mounts, cwd),
+        SyncSubcommand::Commit { message } => {
+            execute_sync_commit(message, wallet_state, runtime_mounts, cwd, changes)
+        }
+        SyncSubcommand::Refresh => execute_sync_refresh(runtime_mounts, cwd),
         SyncSubcommand::Auth(action) => execute_sync_auth(action),
     }
 }
@@ -765,7 +764,6 @@ fn execute_sync_commit(
     runtime_mounts: &[RuntimeMount],
     cwd: &VirtualPath,
     changes: &ChangeSet,
-    remote_head: Option<&str>,
 ) -> CommandResult {
     if message.trim().is_empty() {
         return CommandResult::error_line("sync commit: empty commit message");
@@ -790,26 +788,16 @@ fn execute_sync_commit(
         exit_code: 0,
         side_effect: Some(SideEffect::Commit {
             message,
-            expected_head: remote_head.map(|s| s.to_string()),
             mount_root,
         }),
     }
 }
 
-fn execute_sync_refresh(
-    wallet_state: &WalletState,
-    runtime_mounts: &[RuntimeMount],
-    cwd: &VirtualPath,
-) -> CommandResult {
+fn execute_sync_refresh(runtime_mounts: &[RuntimeMount], cwd: &VirtualPath) -> CommandResult {
     let mount_root = match sync_mount_root(runtime_mounts, cwd, &ChangeSet::new()) {
         Ok(root) => root,
         Err(e) => return e,
     };
-
-    if let Err(e) = require_write_access("sync refresh", wallet_state, runtime_mounts, &mount_root)
-    {
-        return e;
-    }
 
     CommandResult {
         output: vec![],
@@ -838,6 +826,7 @@ fn execute_sync_auth(action: AuthAction) -> CommandResult {
     }
 }
 
+#[allow(clippy::result_large_err)]
 fn resolve_path_arg(
     cmd_label: &str,
     raw: &str,
@@ -865,6 +854,7 @@ fn can_write_path(
         .is_some_and(|mount| can_write_to(wallet_state, mount.writable))
 }
 
+#[allow(clippy::result_large_err)]
 fn sync_mount_root(
     runtime_mounts: &[RuntimeMount],
     cwd: &VirtualPath,
@@ -1748,11 +1738,9 @@ mod tests {
         match result.side_effect {
             Some(SideEffect::Commit {
                 ref message,
-                ref expected_head,
                 ref mount_root,
             }) => {
                 assert_eq!(message, "feat: x");
-                assert_eq!(expected_head.as_deref(), Some("deadbeef"));
                 assert_eq!(mount_root.as_str(), "/site");
             }
             other => panic!("expected Commit, got {:?}", other),

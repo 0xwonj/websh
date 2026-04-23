@@ -149,7 +149,7 @@ async function waitForDraftPath(page, path) {
       request.onsuccess = () => {
         const db = request.result;
         const tx = db.transaction(['drafts'], 'readonly');
-        const get = tx.objectStore('drafts').get('~');
+        const get = tx.objectStore('drafts').get('global');
         get.onsuccess = () => {
           db.close();
           resolve(JSON.stringify(get.result || {}));
@@ -174,7 +174,9 @@ for (const [hashPath, expectedText] of directLoadCases) {
   test(`direct load ${hashPath}`, async ({ page }) => {
     const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
     await page.goto(`${baseUrl}${hashPath}`, { waitUntil: 'networkidle' });
+    expect(new URL(page.url()).hash).toBe(hashPath.slice(1));
     await expect(page.locator('body')).toContainText(expectedText, { timeout: 10000 });
+    await expect(page.locator('body')).not.toContainText('No route matched');
     expect(pageErrors).toEqual([]);
     expect(consoleErrors).toEqual([]);
   });
@@ -205,6 +207,14 @@ test('github token is represented by marker, not raw state file', async ({ page 
   await page.keyboard.press('ArrowUp');
   await expect(page.locator('input[type="text"]')).not.toHaveValue(/qa-token/);
   await runCommand(page, 'ls /state/session', 'github_token_present');
+  await page.reload({ waitUntil: 'networkidle' });
+  await expect(page.locator('input[type="text"]')).toBeVisible({ timeout: 10000 });
+  await runCommand(page, 'ls /state/session', 'github_token_present');
+  await runCommand(page, 'sync auth clear');
+  await page.reload({ waitUntil: 'networkidle' });
+  await expect(page.locator('input[type="text"]')).toBeVisible({ timeout: 10000 });
+  await runCommand(page, 'ls /state/session');
+  await expect(page.locator('body')).not.toContainText('github_token_present');
   await runCommand(page, 'cat /state/session/github_token', 'No such file or directory');
 
   expect(pageErrors).toEqual([]);
@@ -252,6 +262,8 @@ test('sync commit sends token and normalized GitHub file changes', async ({ page
 
   await runCommand(page, 'login', 'Connected:');
   await runCommand(page, 'sync auth set qa-token', 'sync auth set <redacted>');
+  await page.reload({ waitUntil: 'networkidle' });
+  await expect(page.locator('input[type="text"]')).toBeVisible({ timeout: 10000 });
   await runCommand(page, 'echo commit-new > commit-new.md');
   await runCommand(page, 'echo changed > docs/old.md');
   await runCommand(page, 'rm -r docs');
@@ -261,6 +273,9 @@ test('sync commit sends token and normalized GitHub file changes', async ({ page
   expect(graphqlRequests).toHaveLength(1);
   const [{ authorization, input }] = graphqlRequests;
   expect(authorization).toBe('bearer qa-token');
+  expect(input.branch.repositoryNameWithOwner).toBe('0xwonj/db');
+  expect(input.branch.branchName).toBe('main');
+  expect(input.message.headline).toBe('qa commit');
   expect(input.expectedHeadOid).toBe(expectedHead);
   const additions = input.fileChanges.additions.map((addition) => addition.path).sort();
   const deletions = input.fileChanges.deletions.map((deletion) => deletion.path).sort();

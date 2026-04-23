@@ -19,7 +19,8 @@ pub const STORE_METADATA: &str = "metadata";
 
 #[derive(Serialize, Deserialize)]
 struct DraftRecord {
-    mount_id: String,
+    #[serde(rename = "mount_id")]
+    draft_id: String,
     #[serde(flatten)]
     changes: ChangeSet,
 }
@@ -53,13 +54,13 @@ pub async fn open_db() -> StorageResult<Database> {
     req.await.map_err(idb_err)
 }
 
-pub async fn save_draft(db: &Database, mount_id: &str, changes: &ChangeSet) -> StorageResult<()> {
+pub async fn save_draft(db: &Database, draft_id: &str, changes: &ChangeSet) -> StorageResult<()> {
     let tx = db
         .transaction(&[STORE_DRAFTS], TransactionMode::ReadWrite)
         .map_err(idb_err)?;
     let store = tx.object_store(STORE_DRAFTS).map_err(idb_err)?;
     let record = DraftRecord {
-        mount_id: mount_id.to_string(),
+        draft_id: draft_id.to_string(),
         changes: changes.clone(),
     };
     let value = record
@@ -74,13 +75,13 @@ pub async fn save_draft(db: &Database, mount_id: &str, changes: &ChangeSet) -> S
     Ok(())
 }
 
-pub async fn load_draft(db: &Database, mount_id: &str) -> StorageResult<Option<ChangeSet>> {
+pub async fn load_draft(db: &Database, draft_id: &str) -> StorageResult<Option<ChangeSet>> {
     let tx = db
         .transaction(&[STORE_DRAFTS], TransactionMode::ReadOnly)
         .map_err(idb_err)?;
     let store = tx.object_store(STORE_DRAFTS).map_err(idb_err)?;
     let value: Option<JsValue> = store
-        .get(JsValue::from_str(mount_id))
+        .get(JsValue::from_str(draft_id))
         .map_err(idb_err)?
         .await
         .map_err(idb_err)?;

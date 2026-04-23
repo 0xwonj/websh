@@ -133,12 +133,14 @@ pub fn has_session() -> bool {
 }
 
 /// Save login session.
-pub fn save_session() -> crate::core::runtime::RuntimeStateSnapshot {
+pub fn save_session()
+-> Result<crate::core::runtime::RuntimeStateSnapshot, crate::core::error::EnvironmentError> {
     crate::core::runtime::state::set_wallet_session(true)
 }
 
 /// Clear login session.
-pub fn clear_session() -> crate::core::runtime::RuntimeStateSnapshot {
+pub fn clear_session()
+-> Result<crate::core::runtime::RuntimeStateSnapshot, crate::core::error::EnvironmentError> {
     crate::core::runtime::state::set_wallet_session(false)
 }
 
@@ -148,10 +150,13 @@ pub fn clear_session() -> crate::core::runtime::RuntimeStateSnapshot {
 /// This is the canonical way to "log out" of a wallet connection from any
 /// UI call site, keeping session-storage cleanup and signal updates in
 /// lockstep.
-pub fn disconnect(ctx: &crate::app::AppContext) {
-    let snapshot = clear_session();
+pub fn disconnect(
+    ctx: &crate::app::AppContext,
+) -> Result<(), crate::core::error::EnvironmentError> {
+    let snapshot = clear_session()?;
     ctx.wallet.set(crate::models::WalletState::Disconnected);
     ctx.runtime_state.set(snapshot);
+    Ok(())
 }
 
 // ============================================================================

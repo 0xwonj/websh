@@ -17,7 +17,6 @@ use wasm_bindgen_futures::spawn_local;
 use crate::app::AppContext;
 use crate::core::SideEffect;
 use crate::core::changes::ChangeType;
-use crate::core::engine::read_text;
 
 stylance::import_crate_style!(css, "src/components/editor/modal.module.css");
 
@@ -27,8 +26,8 @@ pub fn EditModal() -> impl IntoView {
     let content = RwSignal::new(String::new());
 
     // When editor_open transitions to Some(path), seed the textarea with the
-    // current runtime content. Pending text wins; otherwise we fall back to
-    // engine reads through the responsible backend.
+    // current runtime content. Pending text wins; otherwise the app runtime
+    // read facade resolves the responsible backend.
     Effect::new(move |_| {
         if let Some(path) = ctx.editor_open.get() {
             let fs = ctx.view_global_fs.get();
@@ -42,12 +41,11 @@ pub fn EditModal() -> impl IntoView {
                 return;
             }
 
-            let backends = ctx.backends.with_value(|map| map.clone());
             let editor_open = ctx.editor_open;
             let content_signal = content;
             content.set(String::new());
             spawn_local(async move {
-                let initial = read_text(&fs, &backends, &path).await.unwrap_or_default();
+                let initial = ctx.read_text(&path).await.unwrap_or_default();
                 if editor_open.get_untracked().as_ref() == Some(&path) {
                     content_signal.set(initial);
                 }

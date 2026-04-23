@@ -44,9 +44,11 @@ impl GitHubBackend {
         if self.content_prefix.is_empty() {
             format!("{}/{}/{}", self.gateway, self.repo_with_owner, self.branch)
         } else {
+            let encoded_prefix = encoded_repo_relative_path(&self.content_prefix, false)
+                .expect("normalized content prefix must be URL-encodable");
             format!(
                 "{}/{}/{}/{}",
-                self.gateway, self.repo_with_owner, self.branch, self.content_prefix
+                self.gateway, self.repo_with_owner, self.branch, encoded_prefix
             )
         }
     }
@@ -295,7 +297,7 @@ impl StorageBackend for GitHubBackend {
 
             Ok(CommitOutcome {
                 new_head,
-                committed_paths: request.delta.changed_paths.clone(),
+                committed_paths: request.cleanup_paths.clone(),
             })
         })
     }
@@ -416,6 +418,7 @@ mod tests {
         .unwrap();
         let request = CommitRequest {
             delta: crate::core::storage::CommitDelta::default(),
+            cleanup_paths: vec![],
             merged_snapshot: ScannedSubtree::default(),
             message: "msg".to_string(),
             expected_head: None,

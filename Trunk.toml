@@ -1,7 +1,7 @@
 [build]
 target = "index.html"
 dist = "dist"
-# IPFS: use relative paths
+# Static hosting: use relative paths
 public_url = "./"
 # Add hash to filenames for cache optimization
 filehash = true

@@ -90,14 +90,14 @@ fn map_storage_error(error: StorageError) -> FetchError {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
+    use std::sync::Mutex;
 
     use crate::models::{FileMetadata, VirtualPath};
 
     use super::*;
 
     struct StubBackend {
-        reads: RefCell<Vec<String>>,
+        reads: Mutex<Vec<String>>,
         text: String,
     }
 
@@ -120,7 +120,7 @@ mod tests {
             rel_path: &'a str,
         ) -> crate::core::storage::BoxFuture<'a, crate::core::storage::StorageResult<String>>
         {
-            self.reads.borrow_mut().push(rel_path.to_string());
+            self.reads.lock().unwrap().push(rel_path.to_string());
             let text = self.text.clone();
             Box::pin(async move { Ok(text) })
         }
@@ -130,7 +130,7 @@ mod tests {
             rel_path: &'a str,
         ) -> crate::core::storage::BoxFuture<'a, crate::core::storage::StorageResult<Vec<u8>>>
         {
-            self.reads.borrow_mut().push(rel_path.to_string());
+            self.reads.lock().unwrap().push(rel_path.to_string());
             let text = self.text.clone();
             Box::pin(async move { Ok(text.into_bytes()) })
         }
@@ -160,7 +160,7 @@ mod tests {
         backends.insert(
             VirtualPath::from_absolute("/state").unwrap(),
             Arc::new(StubBackend {
-                reads: RefCell::new(Vec::new()),
+                reads: Mutex::new(Vec::new()),
                 text: "nano".to_string(),
             }),
         );
@@ -178,7 +178,7 @@ mod tests {
         );
 
         let backend = Arc::new(StubBackend {
-            reads: RefCell::new(Vec::new()),
+            reads: Mutex::new(Vec::new()),
             text: "hello".to_string(),
         });
         let mut backends = BackendRegistry::new();
@@ -196,6 +196,6 @@ mod tests {
         .expect("text");
 
         assert_eq!(text, "hello");
-        assert_eq!(backend.reads.borrow().as_slice(), ["blog/post.md"]);
+        assert_eq!(backend.reads.lock().unwrap().as_slice(), ["blog/post.md"]);
     }
 }

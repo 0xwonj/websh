@@ -63,7 +63,7 @@ fn setup_wallet_events(ctx: AppContext) {
             });
         }
         None => {
-            wallet::disconnect(&ctx_for_accounts);
+            let _ = wallet::disconnect(&ctx_for_accounts);
         }
     });
 

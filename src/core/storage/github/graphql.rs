@@ -8,6 +8,8 @@
 
 #![allow(dead_code)]
 
+use std::collections::BTreeSet;
+
 use base64::{Engine, engine::general_purpose::STANDARD as B64};
 use serde::Serialize;
 
@@ -97,8 +99,39 @@ pub fn build_file_changes(
     fc.additions.sort_by(|a, b| a.path.cmp(&b.path));
     fc.deletions.sort_by(|a, b| a.path.cmp(&b.path));
     fc.deletions.dedup_by(|left, right| left.path == right.path);
+    reject_duplicate_additions(&fc)?;
+    reject_add_delete_collisions(&fc)?;
 
     Ok(fc)
+}
+
+fn reject_duplicate_additions(fc: &FileChanges) -> Result<(), String> {
+    let mut seen = BTreeSet::new();
+    for addition in &fc.additions {
+        if !seen.insert(addition.path.as_str()) {
+            return Err(format!("duplicate addition path: {}", addition.path));
+        }
+    }
+    Ok(())
+}
+
+fn reject_add_delete_collisions(fc: &FileChanges) -> Result<(), String> {
+    let additions = fc
+        .additions
+        .iter()
+        .map(|addition| addition.path.as_str())
+        .collect::<BTreeSet<_>>();
+    if let Some(deletion) = fc
+        .deletions
+        .iter()
+        .find(|deletion| additions.contains(deletion.path.as_str()))
+    {
+        return Err(format!(
+            "fileChanges has both addition and deletion for {}",
+            deletion.path
+        ));
+    }
+    Ok(())
 }
 
 fn join_repo_path(
@@ -175,6 +208,17 @@ mod tests {
             build_file_changes(&delta, &p("/site"), "", Some(("manifest.json", "{}"))).unwrap();
         let paths: Vec<_> = fc.additions.iter().map(|a| a.path.as_str()).collect();
         assert_eq!(paths, vec!["b.md", "manifest.json"]);
+    }
+
+    #[test]
+    fn manifest_path_collision_is_rejected() {
+        let delta = CommitDelta {
+            additions: vec![add("/site/manifest.json", "user")],
+            ..Default::default()
+        };
+        let err = build_file_changes(&delta, &p("/site"), "~", Some(("~/manifest.json", "{}")))
+            .unwrap_err();
+        assert!(err.contains("duplicate addition path"));
     }
 
     #[test]

@@ -1,9 +1,8 @@
 //! Filesystem-first site metadata models.
 //!
 //! These types describe sidecar metadata, mount declarations, and derived
-//! indexes for the future filesystem-first engine. They are intentionally kept
-//! separate from backend-private scan serialization rows
-//! model so they can be introduced without changing runtime behavior.
+//! indexes consumed by the runtime loader. They remain separate from
+//! backend-private scan serialization rows.
 
 use serde::{Deserialize, Serialize};
 

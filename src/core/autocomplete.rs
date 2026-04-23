@@ -794,7 +794,7 @@ mod tests {
     fn test_sync_routes_through_autocomplete() {
         // Sanity check that the top-level `autocomplete()` dispatcher
         // routes `sync ...` to `complete_sync`, not to the generic
-        // mode-based branches. An empty VFS is fine because `complete_sync`
+        // mode-based branches. An empty GlobalFs is fine because `complete_sync`
         // never touches the filesystem.
         let fs = GlobalFs::empty();
         let cwd = VirtualPath::from_absolute("/site").unwrap();

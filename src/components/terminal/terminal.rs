@@ -35,7 +35,12 @@ fn handle_login(ctx: AppContext) {
 
         match wallet::connect().await {
             Ok(address) => {
-                ctx.runtime_state.set(wallet::save_session());
+                match wallet::save_session() {
+                    Ok(snapshot) => ctx.runtime_state.set(snapshot),
+                    Err(error) => ctx.terminal.push_output(OutputLine::error(format!(
+                        "login: failed to persist session: {error}"
+                    ))),
+                }
                 let chain_id = wallet::get_chain_id().await;
 
                 ctx.wallet.set(WalletState::Connected {
@@ -78,9 +83,14 @@ fn handle_login(ctx: AppContext) {
 /// Execute wallet logout command.
 fn handle_logout(ctx: &AppContext) {
     if ctx.wallet.with(|w| w.is_connected()) {
-        wallet::disconnect(ctx);
-        ctx.terminal
-            .push_output(OutputLine::success("Disconnected from wallet."));
+        match wallet::disconnect(ctx) {
+            Ok(()) => ctx
+                .terminal
+                .push_output(OutputLine::success("Disconnected from wallet.")),
+            Err(error) => ctx.terminal.push_output(OutputLine::error(format!(
+                "logout: failed to clear session: {error}"
+            ))),
+        }
     } else {
         ctx.terminal
             .push_output(OutputLine::info("No wallet connected."));
@@ -216,13 +226,19 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
             ctx.changes.update(|cs| cs.unstage_all());
         }
         SideEffect::SetAuthToken { token } => {
-            ctx.runtime_state
-                .set(crate::core::runtime::state::set_github_token(&token));
+            match crate::core::runtime::state::set_github_token(&token) {
+                Ok(snapshot) => ctx.runtime_state.set(snapshot),
+                Err(error) => ctx.terminal.push_output(OutputLine::error(format!(
+                    "sync auth: failed to persist token: {error}"
+                ))),
+            }
         }
-        SideEffect::ClearAuthToken => {
-            ctx.runtime_state
-                .set(crate::core::runtime::state::clear_github_token());
-        }
+        SideEffect::ClearAuthToken => match crate::core::runtime::state::clear_github_token() {
+            Ok(snapshot) => ctx.runtime_state.set(snapshot),
+            Err(error) => ctx.terminal.push_output(OutputLine::error(format!(
+                "sync auth: failed to clear token: {error}"
+            ))),
+        },
         SideEffect::InvalidateRuntimeState => {
             ctx.runtime_state
                 .set(crate::core::runtime::state::snapshot());
@@ -232,7 +248,6 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
         }
         SideEffect::Commit {
             message,
-            expected_head,
             mount_root,
         } => {
             let Some(backend) = ctx.backend_for_path(&mount_root) else {
@@ -245,6 +260,7 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
             let runtime_mounts_signal = ctx.runtime_mounts;
             let terminal = ctx.terminal;
             let mount_root_for_commit = mount_root.clone();
+            let expected_head = ctx.remote_head_for_path(&mount_root_for_commit);
             let auth_token = runtime::state::github_token_for_commit();
             let app_ctx = *ctx;
 
@@ -349,29 +365,6 @@ fn is_sync_auth_set(input: &str) -> bool {
     )
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn auth_set_command_is_redacted_for_display() {
-        assert_eq!(
-            display_command("sync auth set ghp_secret"),
-            "sync auth set <redacted>"
-        );
-        assert_eq!(
-            display_command("  sync auth set ghp_secret"),
-            "  sync auth set <redacted>"
-        );
-    }
-
-    #[test]
-    fn auth_set_command_is_not_stored_in_history() {
-        assert!(!should_store_command_history("sync auth set ghp_secret"));
-        assert!(should_store_command_history("sync auth clear"));
-    }
-}
-
 fn mount_id_for_root(root: &crate::models::VirtualPath) -> String {
     if root.as_str() == "/site" {
         "~".to_string()
@@ -406,4 +399,27 @@ fn create_hint_callback(
         ctx.view_global_fs
             .with(|current_fs| get_hint(&input, &cwd, current_fs))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auth_set_command_is_redacted_for_display() {
+        assert_eq!(
+            display_command("sync auth set ghp_secret"),
+            "sync auth set <redacted>"
+        );
+        assert_eq!(
+            display_command("  sync auth set ghp_secret"),
+            "  sync auth set <redacted>"
+        );
+    }
+
+    #[test]
+    fn auth_set_command_is_not_stored_in_history() {
+        assert!(!should_store_command_history("sync auth set ghp_secret"));
+        assert!(should_store_command_history("sync auth clear"));
+    }
 }

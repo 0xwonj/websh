@@ -1,6 +1,6 @@
 //! In-memory backend for commit-path tests. Not shipped in WASM build.
 
-use std::cell::RefCell;
+use std::sync::Mutex;
 
 use crate::models::VirtualPath;
 
@@ -8,18 +8,18 @@ use super::backend::{BoxFuture, CommitOutcome, CommitRequest, ScannedSubtree, St
 use super::error::{StorageError, StorageResult};
 
 pub struct MockBackend {
-    pub commit_calls: RefCell<Vec<CommitRecord>>,
-    pub next_outcome: RefCell<Option<StorageResult<CommitOutcome>>>,
-    pub next_scan: RefCell<Option<StorageResult<ScannedSubtree>>>,
+    pub commit_calls: Mutex<Vec<CommitRecord>>,
+    pub next_outcome: Mutex<Option<StorageResult<CommitOutcome>>>,
+    pub next_scan: Mutex<Option<StorageResult<ScannedSubtree>>>,
     pub mount_root: VirtualPath,
 }
 
 impl Default for MockBackend {
     fn default() -> Self {
         Self {
-            commit_calls: RefCell::new(vec![]),
-            next_outcome: RefCell::new(None),
-            next_scan: RefCell::new(None),
+            commit_calls: Mutex::new(vec![]),
+            next_outcome: Mutex::new(None),
+            next_scan: Mutex::new(None),
             mount_root: VirtualPath::from_absolute("/site").unwrap(),
         }
     }
@@ -41,20 +41,20 @@ impl MockBackend {
             committed_paths: vec![],
         };
         Self {
-            commit_calls: RefCell::new(vec![]),
-            next_outcome: RefCell::new(Some(Ok(outcome))),
-            next_scan: RefCell::new(Some(Ok(scan))),
+            commit_calls: Mutex::new(vec![]),
+            next_outcome: Mutex::new(Some(Ok(outcome))),
+            next_scan: Mutex::new(Some(Ok(scan))),
             mount_root: VirtualPath::from_absolute("/site").unwrap(),
         }
     }
 
     pub fn with_conflict(head: impl Into<String>) -> Self {
         Self {
-            commit_calls: RefCell::new(vec![]),
-            next_outcome: RefCell::new(Some(Err(StorageError::Conflict {
+            commit_calls: Mutex::new(vec![]),
+            next_outcome: Mutex::new(Some(Err(StorageError::Conflict {
                 remote_head: head.into(),
             }))),
-            next_scan: RefCell::new(Some(Ok(ScannedSubtree::default()))),
+            next_scan: Mutex::new(Some(Ok(ScannedSubtree::default()))),
             mount_root: VirtualPath::from_absolute("/site").unwrap(),
         }
     }
@@ -68,7 +68,8 @@ impl StorageBackend for MockBackend {
     fn scan(&self) -> BoxFuture<'_, StorageResult<ScannedSubtree>> {
         let m = self
             .next_scan
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .take()
             .unwrap_or_else(|| Ok(ScannedSubtree::default()));
         Box::pin(async move { m })
@@ -87,21 +88,22 @@ impl StorageBackend for MockBackend {
         request: &'a CommitRequest,
     ) -> BoxFuture<'a, StorageResult<CommitOutcome>> {
         Box::pin(async move {
-            self.commit_calls.borrow_mut().push(CommitRecord {
+            self.commit_calls.lock().unwrap().push(CommitRecord {
                 message: request.message.clone(),
                 expected_head: request.expected_head.clone(),
-                paths: request.delta.changed_paths.clone(),
+                paths: request.cleanup_paths.clone(),
                 deleted_files: request.delta.deletions.clone(),
                 auth_token: request.auth_token.clone(),
                 merged_snapshot: request.merged_snapshot.clone(),
             });
             let mut outcome = self
                 .next_outcome
-                .borrow_mut()
+                .lock()
+                .unwrap()
                 .take()
                 .unwrap_or_else(|| Err(StorageError::BadRequest("no outcome queued".into())))?;
             if outcome.committed_paths.is_empty() {
-                outcome.committed_paths = request.delta.changed_paths.clone();
+                outcome.committed_paths = request.cleanup_paths.clone();
             }
             Ok(outcome)
         })
@@ -123,9 +125,9 @@ mod tests {
                     path: p.clone(),
                     content: "x".to_string(),
                 }],
-                changed_paths: vec![p.clone()],
                 ..Default::default()
             },
+            cleanup_paths: vec![p.clone()],
             merged_snapshot: ScannedSubtree::default(),
             message: "msg".to_string(),
             expected_head: Some("sha-old".to_string()),
@@ -134,7 +136,7 @@ mod tests {
         let out = backend.commit(&request).await.unwrap();
         assert_eq!(out.new_head, "sha-new");
 
-        let calls = backend.commit_calls.borrow();
+        let calls = backend.commit_calls.lock().unwrap();
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].message, "msg");
         assert_eq!(calls[0].expected_head.as_deref(), Some("sha-old"));
@@ -147,6 +149,7 @@ mod tests {
         let backend = MockBackend::with_conflict("sha-remote");
         let request = CommitRequest {
             delta: CommitDelta::default(),
+            cleanup_paths: vec![],
             merged_snapshot: ScannedSubtree::default(),
             message: "m".to_string(),
             expected_head: None,

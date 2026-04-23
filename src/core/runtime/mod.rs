@@ -30,7 +30,7 @@ pub fn build_view_global_fs(
     merged
 }
 
-pub fn populate_runtime_state(
+fn populate_runtime_state(
     fs: &mut GlobalFs,
     changes: &ChangeSet,
     wallet_state: &WalletState,

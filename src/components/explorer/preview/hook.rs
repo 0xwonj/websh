@@ -6,7 +6,6 @@
 use leptos::prelude::*;
 
 use crate::app::AppContext;
-use crate::core::engine::{read_bytes, read_text};
 use crate::models::{DirectoryMetadata, FileType, FsEntry, Selection};
 use crate::utils::{data_url_for_bytes, markdown_to_html, media_type_for_path};
 
@@ -176,8 +175,6 @@ pub fn use_preview() -> PreviewData {
 
     // Fetch content for preview (files only)
     let content = LocalResource::new(move || {
-        let fs = ctx.view_global_fs.get();
-        let backends = ctx.backends.with_value(|map| map.clone());
         let path = content_path.get();
         let ftype = file_type.get();
         let encrypted = is_restricted.get();
@@ -189,18 +186,18 @@ pub fn use_preview() -> PreviewData {
             let path = path?;
 
             match ftype {
-                FileType::Markdown => match read_text(&fs, &backends, &path).await {
+                FileType::Markdown => match ctx.read_text(&path).await {
                     Ok(content) => {
                         let html = markdown_to_html(&content);
                         Some(PreviewContent::Html(html))
                     }
                     Err(e) => Some(PreviewContent::Error(e.to_string())),
                 },
-                FileType::Unknown => match read_text(&fs, &backends, &path).await {
+                FileType::Unknown => match ctx.read_text(&path).await {
                     Ok(content) => Some(PreviewContent::Text(content)),
                     Err(e) => Some(PreviewContent::Error(e.to_string())),
                 },
-                FileType::Image => match read_bytes(&fs, &backends, &path).await {
+                FileType::Image => match ctx.read_bytes(&path).await {
                     Ok(bytes) => Some(PreviewContent::AssetUrl(data_url_for_bytes(
                         &bytes,
                         media_type_for_path(path.as_str()),

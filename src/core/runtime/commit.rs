@@ -54,12 +54,8 @@ async fn prepare_commit(
     }
 
     let normalized_changes = normalized_staged_changes(&staged_changes);
-    let delta = build_commit_delta(
-        &base_snapshot,
-        mount_root,
-        &staged_changes,
-        &normalized_changes,
-    )?;
+    let cleanup_paths = staged_cleanup_paths(&staged_changes);
+    let delta = build_commit_delta(&base_snapshot, mount_root, &normalized_changes)?;
 
     merge::apply_staged_changes_to_global_for_root(&mut merged, &normalized_changes, mount_root);
 
@@ -69,6 +65,7 @@ async fn prepare_commit(
 
     Ok(CommitRequest {
         delta,
+        cleanup_paths,
         merged_snapshot,
         message,
         expected_head,
@@ -93,15 +90,10 @@ fn normalized_staged_changes(changes: &ChangeSet) -> ChangeSet {
 fn build_commit_delta(
     base_snapshot: &ScannedSubtree,
     mount_root: &VirtualPath,
-    original_staged_changes: &ChangeSet,
     normalized_changes: &ChangeSet,
 ) -> StorageResult<CommitDelta> {
     let mut additions = Vec::new();
     let mut deletions = Vec::new();
-    let mut changed_paths: Vec<_> = original_staged_changes
-        .iter_staged()
-        .map(|(path, _)| path.clone())
-        .collect();
 
     for (path, entry) in normalized_changes.iter_staged() {
         match &entry.change {
@@ -128,8 +120,6 @@ fn build_commit_delta(
     additions.sort_by(|left, right| left.path.cmp(&right.path));
     deletions.sort();
     deletions.dedup();
-    changed_paths.sort();
-    changed_paths.dedup();
 
     let addition_paths = additions
         .iter()
@@ -144,16 +134,24 @@ fn build_commit_delta(
     Ok(CommitDelta {
         additions,
         deletions,
-        changed_paths,
     })
+}
+
+fn staged_cleanup_paths(changes: &ChangeSet) -> Vec<VirtualPath> {
+    let mut paths: Vec<_> = changes
+        .iter_staged()
+        .map(|(path, _)| path.clone())
+        .collect();
+    paths.sort();
+    paths.dedup();
+    paths
 }
 
 fn delete_directory_paths(changes: &ChangeSet) -> Vec<VirtualPath> {
     changes
         .iter_staged()
-        .filter_map(|(path, entry)| {
-            matches!(entry.change, ChangeType::DeleteDirectory).then(|| path.clone())
-        })
+        .filter(|(_, entry)| matches!(entry.change, ChangeType::DeleteDirectory))
+        .map(|(path, _)| path.clone())
         .collect()
 }
 
@@ -192,7 +190,7 @@ fn deleted_files_for_directory_change(
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
+    use std::sync::Mutex;
 
     use crate::core::storage::{
         BoxFuture, ScannedFile, ScannedSubtree, StorageBackend, StorageResult,
@@ -202,7 +200,7 @@ mod tests {
     use super::*;
 
     struct PrepareBackend {
-        scan: RefCell<Option<ScannedSubtree>>,
+        scan: Mutex<Option<ScannedSubtree>>,
     }
 
     impl StorageBackend for PrepareBackend {
@@ -211,7 +209,7 @@ mod tests {
         }
 
         fn scan(&self) -> BoxFuture<'_, StorageResult<ScannedSubtree>> {
-            let scan = self.scan.borrow_mut().take().unwrap_or_default();
+            let scan = self.scan.lock().unwrap().take().unwrap_or_default();
             Box::pin(async move { Ok(scan) })
         }
 
@@ -238,7 +236,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn prepared_commit_contains_merged_staged_snapshot() {
         let backend: Arc<dyn StorageBackend> = Arc::new(PrepareBackend {
-            scan: RefCell::new(Some(ScannedSubtree {
+            scan: Mutex::new(Some(ScannedSubtree {
                 files: vec![ScannedFile {
                     path: "keep.md".to_string(),
                     description: "Keep".to_string(),
@@ -285,7 +283,7 @@ mod tests {
         assert_eq!(paths, vec!["keep.md", "new.md"]);
         assert!(request.delta.deletions.is_empty());
         assert_eq!(request.delta.additions.len(), 1);
-        assert_eq!(request.delta.changed_paths, vec![p("/site/new.md")]);
+        assert_eq!(request.cleanup_paths, vec![p("/site/new.md")]);
         assert_eq!(request.expected_head.as_deref(), Some("old"));
         assert_eq!(request.auth_token, None);
     }
@@ -293,7 +291,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn prepared_commit_rejects_staged_changes_outside_mount_root() {
         let backend: Arc<dyn StorageBackend> = Arc::new(PrepareBackend {
-            scan: RefCell::new(Some(ScannedSubtree::default())),
+            scan: Mutex::new(Some(ScannedSubtree::default())),
         });
         let mut changes = ChangeSet::new();
         changes.upsert(
@@ -321,7 +319,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn prepared_commit_expands_directory_delete_to_descendant_files() {
         let backend: Arc<dyn StorageBackend> = Arc::new(PrepareBackend {
-            scan: RefCell::new(Some(ScannedSubtree {
+            scan: Mutex::new(Some(ScannedSubtree {
                 files: vec![
                     ScannedFile {
                         path: "docs/a.md".to_string(),
@@ -368,7 +366,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn prepared_commit_delete_directory_suppresses_descendant_additions() {
         let backend: Arc<dyn StorageBackend> = Arc::new(PrepareBackend {
-            scan: RefCell::new(Some(ScannedSubtree {
+            scan: Mutex::new(Some(ScannedSubtree {
                 files: vec![ScannedFile {
                     path: "docs/a.md".to_string(),
                     description: "A".to_string(),
@@ -401,7 +399,7 @@ mod tests {
         assert!(request.delta.additions.is_empty());
         assert_eq!(request.delta.deletions, vec![p("/site/docs/a.md")]);
         assert_eq!(
-            request.delta.changed_paths,
+            request.cleanup_paths,
             vec![p("/site/docs"), p("/site/docs/a.md")]
         );
         assert!(request.merged_snapshot.files.is_empty());

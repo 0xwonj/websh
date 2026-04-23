@@ -14,10 +14,11 @@ use crate::components::RouterView;
 use crate::config::{APP_NAME, MAX_COMMAND_HISTORY, MAX_TERMINAL_HISTORY};
 use crate::core::changes::ChangeSet;
 use crate::core::engine::{GlobalFs, display_path_for};
+use crate::core::error::FetchError;
 use crate::core::runtime;
 use crate::core::runtime::RuntimeStateSnapshot;
 use crate::core::storage::StorageBackend;
-use crate::core::storage::persist::DraftPersister;
+use crate::core::storage::persist::{DraftPersister, GLOBAL_DRAFT_ID};
 use crate::models::{
     ExplorerViewType, OutputLine, RuntimeMount, Selection, ViewMode, VirtualPath, WalletState,
 };
@@ -264,7 +265,7 @@ pub struct AppContext {
     /// Merged global canonical filesystem with local `changes` overlaid.
     pub view_global_fs: Signal<Rc<GlobalFs>, LocalStorage>,
     /// Backend registry keyed by canonical mount roots.
-    pub backends: StoredValue<BTreeMap<VirtualPath, Arc<dyn StorageBackend>>, LocalStorage>,
+    backends: StoredValue<BTreeMap<VirtualPath, Arc<dyn StorageBackend>>, LocalStorage>,
     /// Runtime mount ownership keyed by canonical roots.
     pub runtime_mounts: RwSignal<Vec<RuntimeMount>>,
     /// Remote HEAD registry keyed by canonical mount roots.
@@ -359,6 +360,18 @@ impl AppContext {
         })
     }
 
+    pub async fn read_text(&self, path: &VirtualPath) -> Result<String, FetchError> {
+        let fs = self.view_global_fs.get();
+        let backends = self.backends.with_value(|map| map.clone());
+        crate::core::engine::read_text(&fs, &backends, path).await
+    }
+
+    pub async fn read_bytes(&self, path: &VirtualPath) -> Result<Vec<u8>, FetchError> {
+        let fs = self.view_global_fs.get();
+        let backends = self.backends.with_value(|map| map.clone());
+        crate::core::engine::read_bytes(&fs, &backends, path).await
+    }
+
     pub fn runtime_mount_for_path(&self, path: &VirtualPath) -> Option<RuntimeMount> {
         self.runtime_mounts.with(|mounts| {
             mounts
@@ -418,14 +431,14 @@ pub fn App() -> impl IntoView {
     provide_context(ctx);
     let changes_signal = ctx.changes;
     spawn_local(async move {
-        match crate::core::storage::boot::hydrate_drafts("~").await {
+        match crate::core::storage::boot::hydrate_drafts(GLOBAL_DRAFT_ID).await {
             Ok(cs) if !cs.is_empty() => changes_signal.set(cs),
             Ok(_) => {}
             Err(e) => web_sys::console::error_1(&format!("hydrate drafts: {e}").into()),
         }
     });
 
-    let persister = Rc::new(DraftPersister::new("~"));
+    let persister = Rc::new(DraftPersister::new(GLOBAL_DRAFT_ID));
     let persister_for_effect = persister.clone();
     Effect::new(move |_| {
         let snapshot = ctx.changes.get();

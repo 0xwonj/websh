@@ -34,7 +34,7 @@ async fn commit_path_records_staged_paths_and_merged_snapshot() {
     .unwrap();
     assert_eq!(outcome.new_head, "sha-new");
 
-    let calls = backend.commit_calls.borrow();
+    let calls = backend.commit_calls.lock().unwrap();
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].message, "test");
     assert_eq!(calls[0].auth_token.as_deref(), Some("qa-token"));

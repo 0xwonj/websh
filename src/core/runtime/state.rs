@@ -124,46 +124,48 @@ pub fn github_token_for_commit() -> Option<String> {
     with_state(|state| state.github_token.clone())
 }
 
-pub fn set_github_token(token: &str) -> RuntimeStateSnapshot {
+pub fn set_github_token(token: &str) -> Result<RuntimeStateSnapshot, EnvironmentError> {
+    let storage = dom::session_storage().ok_or(EnvironmentError::StorageUnavailable)?;
+    storage
+        .set_item(GITHUB_TOKEN_KEY, token)
+        .map_err(|_| EnvironmentError::SaveFailed)?;
+
     with_state(|state| {
         state.github_token = Some(token.to_string());
     });
-
-    if let Some(storage) = dom::session_storage() {
-        let _ = storage.set_item(GITHUB_TOKEN_KEY, token);
-    }
-
-    snapshot()
+    Ok(snapshot())
 }
 
-pub fn clear_github_token() -> RuntimeStateSnapshot {
+pub fn clear_github_token() -> Result<RuntimeStateSnapshot, EnvironmentError> {
+    let storage = dom::session_storage().ok_or(EnvironmentError::StorageUnavailable)?;
+    storage
+        .remove_item(GITHUB_TOKEN_KEY)
+        .map_err(|_| EnvironmentError::RemoveFailed)?;
+
     with_state(|state| {
         state.github_token = None;
     });
-
-    if let Some(storage) = dom::session_storage() {
-        let _ = storage.remove_item(GITHUB_TOKEN_KEY);
-    }
-
-    snapshot()
+    Ok(snapshot())
 }
 
 pub fn has_wallet_session() -> bool {
     with_state(|state| state.wallet_session)
 }
 
-pub fn set_wallet_session(active: bool) -> RuntimeStateSnapshot {
+pub fn set_wallet_session(active: bool) -> Result<RuntimeStateSnapshot, EnvironmentError> {
+    let storage = dom::local_storage().ok_or(EnvironmentError::StorageUnavailable)?;
+    if active {
+        storage
+            .set_item(WALLET_SESSION_KEY, "1")
+            .map_err(|_| EnvironmentError::SaveFailed)?;
+    } else {
+        storage
+            .remove_item(WALLET_SESSION_KEY)
+            .map_err(|_| EnvironmentError::RemoveFailed)?;
+    }
+
     with_state(|state| {
         state.wallet_session = active;
     });
-
-    if let Some(storage) = dom::local_storage() {
-        if active {
-            let _ = storage.set_item(WALLET_SESSION_KEY, "1");
-        } else {
-            let _ = storage.remove_item(WALLET_SESSION_KEY);
-        }
-    }
-
-    snapshot()
+    Ok(snapshot())
 }

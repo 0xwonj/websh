@@ -46,12 +46,12 @@ pub struct CommitFileAddition {
 pub struct CommitDelta {
     pub additions: Vec<CommitFileAddition>,
     pub deletions: Vec<VirtualPath>,
-    pub changed_paths: Vec<VirtualPath>,
 }
 
 #[derive(Clone, Debug)]
 pub struct CommitRequest {
     pub delta: CommitDelta,
+    pub cleanup_paths: Vec<VirtualPath>,
     pub merged_snapshot: ScannedSubtree,
     pub message: String,
     pub expected_head: Option<String>,

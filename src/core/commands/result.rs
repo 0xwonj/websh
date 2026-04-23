@@ -39,7 +39,6 @@ pub enum SideEffect {
     UnstageAll,
     Commit {
         message: String,
-        expected_head: Option<String>,
         mount_root: crate::models::VirtualPath,
     },
     ReloadRuntimeMount {

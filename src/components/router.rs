@@ -1,6 +1,6 @@
 //! Application router component.
 //!
-//! Handles URL-based routing with hash history for IPFS deployment.
+//! Handles URL-based routing with hash history for static hosting.
 //! Uses native hashchange events instead of leptos_router for true hash routing.
 //!
 //! # Architecture

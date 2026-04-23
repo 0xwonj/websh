@@ -16,7 +16,9 @@ use super::github::GitHubBackend;
 use super::github::path::normalize_repo_prefix;
 use super::idb;
 
-pub fn bootstrap_runtime_mount() -> RuntimeMount {
+type DeclaredBackend = (RuntimeMount, Arc<dyn StorageBackend>);
+
+pub(crate) fn bootstrap_runtime_mount() -> RuntimeMount {
     RuntimeMount::new(
         BOOTSTRAP_SITE.mount_root(),
         BOOTSTRAP_SITE.label(),
@@ -25,7 +27,9 @@ pub fn bootstrap_runtime_mount() -> RuntimeMount {
     )
 }
 
-pub fn build_backend_for_bootstrap_site(source: &BootstrapSiteSource) -> Arc<dyn StorageBackend> {
+pub(crate) fn build_backend_for_bootstrap_site(
+    source: &BootstrapSiteSource,
+) -> Arc<dyn StorageBackend> {
     let prefix = source.content_root.trim_matches('/').to_string();
     let gateway = source.gateway.trim_end_matches('/');
 
@@ -41,22 +45,26 @@ pub fn build_backend_for_bootstrap_site(source: &BootstrapSiteSource) -> Arc<dyn
     )
 }
 
-pub fn build_backend_for_declaration(
+pub(crate) fn build_backend_for_declaration(
     declaration: &MountDeclaration,
-) -> Option<(RuntimeMount, Arc<dyn StorageBackend>)> {
+) -> Result<Option<DeclaredBackend>, String> {
     match declaration.backend.as_str() {
         "github" => {
-            let repo = declaration.repo.clone()?;
+            let repo = declaration
+                .repo
+                .clone()
+                .ok_or_else(|| format!("github mount {} is missing repo", declaration.mount_at))?;
             let branch = declaration
                 .branch
                 .clone()
                 .unwrap_or_else(|| "main".to_string());
-            let mount_root = VirtualPath::from_absolute(declaration.mount_at.clone()).ok()?;
+            let mount_root = VirtualPath::from_absolute(declaration.mount_at.clone())
+                .map_err(|_| format!("invalid mount_at: {}", declaration.mount_at))?;
             if !is_canonical_mount_root(&mount_root) {
-                return None;
+                return Err(format!("noncanonical mount_at: {}", declaration.mount_at));
             }
-            let prefix =
-                normalize_repo_prefix(&declaration.root.clone().unwrap_or_default()).ok()?;
+            let prefix = normalize_repo_prefix(&declaration.root.clone().unwrap_or_default())
+                .map_err(|error| format!("invalid root for {}: {error}", declaration.mount_at))?;
             let gateway = declaration
                 .gateway
                 .as_deref()
@@ -76,12 +84,14 @@ pub fn build_backend_for_declaration(
                 declaration.writable,
             );
 
-            Some((
-                mount,
-                Arc::new(GitHubBackend::new(repo, branch, mount_root, prefix, gateway).ok()?),
-            ))
+            let backend =
+                GitHubBackend::new(repo, branch, mount_root, prefix, gateway).map_err(|error| {
+                    format!("invalid github backend {}: {error}", declaration.mount_at)
+                })?;
+
+            Ok(Some((mount, Arc::new(backend))))
         }
-        _ => None,
+        _ => Ok(None),
     }
 }
 
@@ -138,12 +148,12 @@ fn seed_bootstrap_app(global: &mut GlobalFs, node_path: &str, route: &str) {
     );
 }
 
-pub async fn hydrate_drafts(mount_id: &str) -> StorageResult<ChangeSet> {
+pub(crate) async fn hydrate_drafts(draft_id: &str) -> StorageResult<ChangeSet> {
     let db = idb::open_db().await?;
-    Ok(idb::load_draft(&db, mount_id).await?.unwrap_or_default())
+    Ok(idb::load_draft(&db, draft_id).await?.unwrap_or_default())
 }
 
-pub async fn hydrate_remote_head(mount_id: &str) -> StorageResult<Option<String>> {
+pub(crate) async fn hydrate_remote_head(mount_id: &str) -> StorageResult<Option<String>> {
     let db = idb::open_db().await?;
     let key = format!("remote_head.{mount_id}");
     idb::load_metadata(&db, &key).await
@@ -164,7 +174,9 @@ mod tests {
             ..Default::default()
         };
 
-        let (mount, backend) = build_backend_for_declaration(&declaration).expect("backend");
+        let (mount, backend) = build_backend_for_declaration(&declaration)
+            .expect("valid declaration")
+            .expect("backend");
         assert_eq!(mount.root.as_str(), "/mnt/db");
         assert_eq!(mount.label, "db");
         assert_eq!(backend.backend_type(), "github");
@@ -181,7 +193,7 @@ mod tests {
             ..Default::default()
         };
 
-        assert!(build_backend_for_declaration(&declaration).is_none());
+        assert!(build_backend_for_declaration(&declaration).is_err());
     }
 
     #[test]
