@@ -1,375 +1,111 @@
-//! Mount system for virtual filesystem backends.
-//!
-//! Provides a flexible mount system that supports multiple storage backends
-//! (GitHub, IPFS, ENS) with configurable aliases for URL routing.
+//! Runtime mount and bootstrap source models.
 
-use std::collections::HashMap;
+use crate::models::VirtualPath;
 
-// ============================================================================
-// Mount Types
-// ============================================================================
+/// The single code-declared bootstrap source used to discover `/site`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BootstrapSiteSource {
+    pub repo_with_owner: &'static str,
+    pub branch: &'static str,
+    pub content_root: &'static str,
+    pub gateway: &'static str,
+    pub writable: bool,
+}
 
-/// Storage backend type for a mount.
-///
-/// Each variant represents a different way to fetch content.
+impl BootstrapSiteSource {
+    pub fn mount_root(&self) -> VirtualPath {
+        VirtualPath::from_absolute("/site").expect("bootstrap site root must be absolute")
+    }
+
+    pub fn label(&self) -> &'static str {
+        "~"
+    }
+}
+
+/// Backend kind associated with a mounted canonical subtree.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RuntimeBackendKind {
+    GitHub,
+    Ipfs,
+    Ens,
+}
+
+/// Mounted runtime subtree plus write ownership metadata.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[allow(dead_code)]
-pub enum Mount {
-    /// GitHub raw content
-    GitHub {
-        /// URL alias (e.g., "~", "work")
-        alias: String,
-        /// Base URL for manifest and root
-        base_url: String,
-        /// Optional prefix for content paths (e.g., "~" if content is in ~/*)
-        content_prefix: Option<String>,
-        /// Whether this mount accepts write operations (commits).
+pub struct RuntimeMount {
+    pub root: VirtualPath,
+    pub label: String,
+    pub backend_kind: RuntimeBackendKind,
+    pub writable: bool,
+}
+
+impl RuntimeMount {
+    pub fn new(
+        root: VirtualPath,
+        label: impl Into<String>,
+        backend_kind: RuntimeBackendKind,
         writable: bool,
-    },
-
-    /// IPFS gateway
-    Ipfs {
-        /// URL alias
-        alias: String,
-        /// Content identifier (CID)
-        cid: String,
-        /// Optional custom gateway URL
-        gateway: Option<String>,
-    },
-
-    /// ENS contenthash
-    Ens {
-        /// URL alias
-        alias: String,
-        /// ENS name (e.g., "vitalik.eth")
-        name: String,
-    },
-}
-
-impl Mount {
-    /// Create a new GitHub mount.
-    #[cfg(test)]
-    pub fn github(alias: impl Into<String>, base_url: impl Into<String>) -> Self {
-        Self::GitHub {
-            alias: alias.into(),
-            base_url: base_url.into(),
-            content_prefix: None,
-            writable: false,
-        }
-    }
-
-    /// Create a new GitHub mount with content prefix.
-    pub fn github_with_prefix(
-        alias: impl Into<String>,
-        base_url: impl Into<String>,
-        content_prefix: impl Into<String>,
     ) -> Self {
-        Self::GitHub {
-            alias: alias.into(),
-            base_url: base_url.into(),
-            content_prefix: Some(content_prefix.into()),
-            writable: false,
-        }
-    }
-
-    /// Create a writable GitHub mount.
-    pub fn github_writable(
-        alias: impl Into<String>,
-        base_url: impl Into<String>,
-        content_prefix: impl Into<String>,
-    ) -> Self {
-        Self::GitHub {
-            alias: alias.into(),
-            base_url: base_url.into(),
-            content_prefix: Some(content_prefix.into()),
-            writable: true,
-        }
-    }
-
-    /// Create a new IPFS mount.
-    #[cfg(test)]
-    pub fn ipfs(alias: impl Into<String>, cid: impl Into<String>) -> Self {
-        Self::Ipfs {
-            alias: alias.into(),
-            cid: cid.into(),
-            gateway: None,
-        }
-    }
-
-    /// Create a new IPFS mount with custom gateway.
-    #[cfg(test)]
-    pub fn ipfs_with_gateway(
-        alias: impl Into<String>,
-        cid: impl Into<String>,
-        gateway: impl Into<String>,
-    ) -> Self {
-        Self::Ipfs {
-            alias: alias.into(),
-            cid: cid.into(),
-            gateway: Some(gateway.into()),
-        }
-    }
-
-    /// Create a new ENS mount.
-    #[cfg(test)]
-    pub fn ens(alias: impl Into<String>, name: impl Into<String>) -> Self {
-        Self::Ens {
-            alias: alias.into(),
-            name: name.into(),
-        }
-    }
-
-    /// Get the alias for URL path segment.
-    #[inline]
-    pub fn alias(&self) -> &str {
-        match self {
-            Self::GitHub { alias, .. } => alias,
-            Self::Ipfs { alias, .. } => alias,
-            Self::Ens { alias, .. } => alias,
-        }
-    }
-
-    /// Get base URL (for manifest).
-    pub fn base_url(&self) -> String {
-        match self {
-            Self::GitHub { base_url, .. } => base_url.clone(),
-            Self::Ipfs { cid, gateway, .. } => {
-                let gw = gateway.as_deref().unwrap_or("https://ipfs.io");
-                format!("{}/ipfs/{}", gw, cid)
-            }
-            Self::Ens { name, .. } => {
-                // ENS resolution via eth.limo gateway
-                format!("https://{}.limo", name)
-            }
-        }
-    }
-
-    /// Get content URL base (includes content_prefix if set).
-    pub fn content_base_url(&self) -> String {
-        match self {
-            Self::GitHub {
-                base_url,
-                content_prefix,
-                ..
-            } => match content_prefix {
-                Some(prefix) => format!("{}/{}", base_url, prefix),
-                None => base_url.clone(),
-            },
-            _ => self.base_url(),
-        }
-    }
-
-    /// Get the manifest URL for this mount.
-    pub fn manifest_url(&self) -> String {
-        format!("{}/manifest.json", self.base_url())
-    }
-
-    /// Get a short description of this mount's backend type.
-    pub fn description(&self) -> String {
-        match self {
-            Self::GitHub { .. } => "github".to_string(),
-            Self::Ipfs { cid, .. } => format!("ipfs:{}", &cid[..8.min(cid.len())]),
-            Self::Ens { name, .. } => format!("ens:{}", name),
-        }
-    }
-
-    /// Whether this mount supports write operations.
-    pub fn is_writable(&self) -> bool {
-        match self {
-            Self::GitHub { writable, .. } => *writable,
-            _ => false,
-        }
-    }
-}
-
-// ============================================================================
-// MountRegistry
-// ============================================================================
-
-/// Registry of mounted filesystems.
-///
-/// Manages multiple mounts and provides lookup by alias.
-/// The first mount with alias "~" is considered the home/default mount.
-#[derive(Clone, Debug, Default)]
-pub struct MountRegistry {
-    /// All registered mounts, keyed by alias
-    mounts: HashMap<String, Mount>,
-    /// Order of mount aliases (for iteration)
-    order: Vec<String>,
-}
-
-impl MountRegistry {
-    /// Create a new empty registry.
-    pub fn new() -> Self {
         Self {
-            mounts: HashMap::new(),
-            order: Vec::new(),
+            root,
+            label: label.into(),
+            backend_kind,
+            writable,
         }
     }
 
-    /// Create a registry from a list of mounts.
-    ///
-    /// # Panics
-    /// Panics if the input list is empty. The registry's `home()` method
-    /// relies on the non-empty invariant.
-    pub fn from_mounts(mounts: Vec<Mount>) -> Self {
-        assert!(
-            !mounts.is_empty(),
-            "MountRegistry requires at least one mount",
-        );
-        let mut registry = Self::new();
-        for mount in mounts {
-            registry.register(mount);
+    pub fn contains(&self, path: &VirtualPath) -> bool {
+        path.starts_with(&self.root)
+    }
+
+    pub fn storage_id(&self) -> String {
+        if self.root.as_str() == "/site" {
+            "~".to_string()
+        } else {
+            self.root.as_str().trim_start_matches('/').replace('/', ":")
         }
-        registry
-    }
-
-    /// Register a mount.
-    ///
-    /// If a mount with the same alias already exists, it will be replaced.
-    fn register(&mut self, mount: Mount) {
-        let alias = mount.alias().to_string();
-        if !self.mounts.contains_key(&alias) {
-            self.order.push(alias.clone());
-        }
-        self.mounts.insert(alias, mount);
-    }
-
-    /// Get the home mount (first registered).
-    ///
-    /// Infallible: `from_mounts` guarantees at least one mount.
-    pub fn home(&self) -> &Mount {
-        self.order
-            .first()
-            .and_then(|alias| self.mounts.get(alias))
-            .expect("MountRegistry invariant: non-empty")
-    }
-
-    /// Resolve an alias to a mount.
-    pub fn resolve(&self, alias: &str) -> Option<&Mount> {
-        self.mounts.get(alias)
-    }
-
-    /// Get all registered mounts in registration order.
-    pub fn all(&self) -> impl Iterator<Item = &Mount> {
-        self.order.iter().filter_map(|alias| self.mounts.get(alias))
     }
 }
-
-// ============================================================================
-// Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_github_mount() {
-        let mount = Mount::github("~", "https://raw.githubusercontent.com/user/repo/main");
-        assert_eq!(mount.alias(), "~");
-        assert_eq!(
-            mount.base_url(),
-            "https://raw.githubusercontent.com/user/repo/main"
-        );
-    }
-
-    #[test]
-    fn test_ipfs_mount() {
-        let mount = Mount::ipfs("data", "QmXyz123");
-        assert_eq!(mount.alias(), "data");
-        assert_eq!(mount.base_url(), "https://ipfs.io/ipfs/QmXyz123");
-    }
-
-    #[test]
-    fn test_ipfs_mount_custom_gateway() {
-        let mount = Mount::ipfs_with_gateway("data", "QmXyz123", "https://cloudflare-ipfs.com");
-        assert_eq!(
-            mount.base_url(),
-            "https://cloudflare-ipfs.com/ipfs/QmXyz123"
-        );
-    }
-
-    #[test]
-    fn test_ens_mount() {
-        let mount = Mount::ens("vitalik", "vitalik.eth");
-        assert_eq!(mount.alias(), "vitalik");
-        assert_eq!(mount.base_url(), "https://vitalik.eth.limo");
-    }
-
-    #[test]
-    fn test_registry_from_mounts() {
-        let mounts = vec![
-            Mount::github("~", "https://example.com"),
-            Mount::ipfs("data", "QmXyz"),
-        ];
-        let registry = MountRegistry::from_mounts(mounts);
-
-        assert_eq!(registry.all().count(), 2);
-    }
-
-    #[test]
-    fn test_manifest_url() {
-        let mount = Mount::github("~", "https://raw.githubusercontent.com/user/repo/main");
-        assert_eq!(
-            mount.manifest_url(),
-            "https://raw.githubusercontent.com/user/repo/main/manifest.json"
-        );
-    }
-
-    #[test]
-    fn test_registry_home() {
-        let mounts = vec![
-            Mount::github("~", "https://example.com"),
-            Mount::ipfs("data", "QmXyz"),
-        ];
-        let registry = MountRegistry::from_mounts(mounts);
-        assert_eq!(registry.home().alias(), "~");
-    }
-
-    #[test]
-    fn test_registry_resolve() {
-        let mounts = vec![
-            Mount::github("~", "https://example.com"),
-            Mount::ipfs("data", "QmXyz"),
-        ];
-        let registry = MountRegistry::from_mounts(mounts);
-        assert_eq!(registry.resolve("~").map(|m| m.alias()), Some("~"));
-        assert_eq!(registry.resolve("data").map(|m| m.alias()), Some("data"));
-        assert!(registry.resolve("unknown").is_none());
-    }
-
-    #[test]
-    #[should_panic(expected = "at least one mount")]
-    fn test_registry_from_empty_panics() {
-        let _ = MountRegistry::from_mounts(vec![]);
-    }
-
-    #[test]
-    fn test_mount_is_writable_github_true() {
-        let mount = Mount::GitHub {
-            alias: "~".to_string(),
-            base_url: "https://example.com".to_string(),
-            content_prefix: None,
+    fn bootstrap_site_mount_root_is_site() {
+        let source = BootstrapSiteSource {
+            repo_with_owner: "0xwonj/db",
+            branch: "main",
+            content_root: "~",
+            gateway: "https://raw.githubusercontent.com",
             writable: true,
         };
-        assert!(mount.is_writable());
+
+        assert_eq!(source.mount_root().as_str(), "/site");
+        assert_eq!(source.label(), "~");
     }
 
     #[test]
-    fn test_mount_is_writable_github_false() {
-        let mount = Mount::GitHub {
-            alias: "~".to_string(),
-            base_url: "https://example.com".to_string(),
-            content_prefix: None,
-            writable: false,
-        };
-        assert!(!mount.is_writable());
+    fn runtime_mount_storage_id_uses_home_alias_for_site() {
+        let mount = RuntimeMount::new(
+            VirtualPath::from_absolute("/site").unwrap(),
+            "~",
+            RuntimeBackendKind::GitHub,
+            true,
+        );
+        assert_eq!(mount.storage_id(), "~");
     }
 
     #[test]
-    fn test_mount_is_writable_ipfs_false() {
-        let mount = Mount::ipfs("data", "QmXyz");
-        assert!(!mount.is_writable());
+    fn runtime_mount_contains_canonical_subpaths() {
+        let mount = RuntimeMount::new(
+            VirtualPath::from_absolute("/mnt/db").unwrap(),
+            "db",
+            RuntimeBackendKind::GitHub,
+            false,
+        );
+
+        assert!(mount.contains(&VirtualPath::from_absolute("/mnt/db/notes/todo.md").unwrap()));
+        assert!(!mount.contains(&VirtualPath::from_absolute("/mnt/db2").unwrap()));
     }
 }

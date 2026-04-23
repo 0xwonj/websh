@@ -1,0 +1,231 @@
+/* Explorer header controls */
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-5);
+  height: 3rem;
+  border-bottom: 1px solid var(--border-subtle);
+  background-color: var(--bg-secondary);
+  flex-shrink: 0;
+  position: relative;
+}
+
+.navButtons {
+  display: flex;
+  flex-shrink: 0;
+  background-color: var(--bg-tertiary);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.navButton {
+  background: none;
+  border: none;
+  color: var(--terminal-cyan);
+  font-size: 1.125rem;
+  cursor: pointer;
+  padding: var(--space-2) var(--space-4);
+  border-radius: 4px;
+  transition: background-color 0.15s, color 0.15s, transform 0.1s;
+  line-height: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.navButton:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 20%;
+  height: 60%;
+  width: 1px;
+  background-color: var(--border-subtle);
+}
+
+.navButton:hover:not(:disabled) {
+  background-color: var(--bg-secondary);
+}
+
+.navButton:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.navButtonDisabled {
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.title {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-base);
+  color: var(--text-primary);
+  font-weight: 500;
+  max-width: calc(100% - 20rem);
+  overflow: hidden;
+}
+
+.titleIcon {
+  display: flex;
+  align-items: center;
+  color: var(--terminal-cyan);
+  font-size: 1.125rem;
+  flex-shrink: 0;
+}
+
+.titleLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.navButtonHome {}
+
+.actionButtons {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.actionButton {
+  background: none;
+  border: none;
+  color: var(--terminal-cyan);
+  font-size: 1.125rem;
+  cursor: pointer;
+  padding: var(--space-2);
+  border-radius: 4px;
+  transition: background-color 0.15s, color 0.15s, transform 0.1s;
+  line-height: 1;
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.actionButton:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.actionButton:active {
+  transform: scale(0.95);
+}
+
+.dropdownWrapper {
+  position: relative;
+}
+
+.dropdownMenu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: var(--space-1);
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  min-width: 10rem;
+  padding: var(--space-1) 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 100;
+}
+
+.dropdownItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-mono);
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.15s;
+}
+
+.dropdownItem:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.dropdownIcon {
+  width: 1.25rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.dropdownDivider {
+  height: 1px;
+  background-color: var(--border-subtle);
+  margin: var(--space-1) 0;
+}
+
+.desktopOnly {
+  display: flex;
+}
+
+.mobileOnly {
+  display: none;
+}
+
+@media (max-width: 1024px) {
+  .header {
+    gap: var(--space-3);
+    padding: 0 var(--space-4);
+  }
+
+  .navButton {
+    font-size: 1rem;
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .title {
+    font-size: var(--font-size-sm);
+  }
+}
+
+@media (max-width: 640px) {
+  .header {
+    gap: var(--space-2);
+    padding: 0 var(--space-3) 0 0;
+  }
+
+  .navButton {
+    font-size: 1.125rem;
+    padding: var(--space-2);
+  }
+
+  .title {
+    font-size: var(--font-size-base);
+    max-width: calc(100% - 10rem);
+  }
+
+  .desktopOnly {
+    display: none !important;
+  }
+
+  .mobileOnly {
+    display: flex !important;
+  }
+
+  .actionButtons {
+    gap: var(--space-1);
+  }
+
+  .actionButton {
+    padding: var(--space-2);
+  }
+}

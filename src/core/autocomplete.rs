@@ -10,8 +10,9 @@
 //! - Multiple matches: Show common prefix and all options
 //! - Ghost text hints while typing
 
-use crate::core::{Command, DirEntry, VirtualFs};
-use crate::models::AppRoute;
+use crate::core::engine::{GlobalFs, canonicalize_user_path};
+use crate::core::{Command, DirEntry};
+use crate::models::VirtualPath;
 
 // ============================================================================
 // Public Types
@@ -103,21 +104,21 @@ struct ParsedPath<'a> {
     /// Filename/directory name being completed.
     name_part: &'a str,
     /// Resolved search directory path.
-    search_dir: String,
+    search_dir: VirtualPath,
 }
 
 impl<'a> ParsedPath<'a> {
     /// Parse a partial path and resolve the search directory.
-    fn parse(partial: &'a str, current_path: &str, fs: &VirtualFs) -> Option<Self> {
+    fn parse(partial: &'a str, cwd: &VirtualPath, _fs: &GlobalFs) -> Option<Self> {
         let (dir_part, name_part) = match partial.rfind('/') {
             Some(idx) => (&partial[..=idx], &partial[idx + 1..]),
             None => ("", partial),
         };
 
         let search_dir = if dir_part.is_empty() {
-            current_path.to_string()
+            cwd.clone()
         } else {
-            fs.resolve_path(current_path, dir_part.trim_end_matches('/'))?
+            canonicalize_user_path(cwd, dir_part.trim_end_matches('/'))?
         };
 
         Some(Self {
@@ -135,13 +136,12 @@ impl<'a> ParsedPath<'a> {
 /// Perform autocomplete on Tab press.
 ///
 /// Returns a completion result based on the current input and filesystem state.
-pub fn autocomplete(input: &str, current_route: &AppRoute, fs: &VirtualFs) -> AutocompleteResult {
+pub fn autocomplete(input: &str, cwd: &VirtualPath, fs: &GlobalFs) -> AutocompleteResult {
     let input = input.trim_start();
     if input.is_empty() {
         return AutocompleteResult::None;
     }
 
-    let current_path = current_route.fs_path();
     let (mode, parts) = CompletionMode::from_input(input);
 
     // `sync` has its own subcommand grammar (not a path). Handle it before
@@ -153,7 +153,7 @@ pub fn autocomplete(input: &str, current_route: &AppRoute, fs: &VirtualFs) -> Au
     match mode {
         CompletionMode::Command => complete_command(parts[0]),
         CompletionMode::DirectoryPath | CompletionMode::FilePath => {
-            complete_path(parts[0], parts[1], current_path, fs, mode.dirs_only())
+            complete_path(parts[0], parts[1], cwd, fs, mode.dirs_only())
         }
         CompletionMode::None => AutocompleteResult::None,
     }
@@ -162,13 +162,12 @@ pub fn autocomplete(input: &str, current_route: &AppRoute, fs: &VirtualFs) -> Au
 /// Get autocomplete suggestion for ghost text hint (while typing).
 ///
 /// Returns the suffix that would complete the current input.
-pub fn get_hint(input: &str, current_route: &AppRoute, fs: &VirtualFs) -> Option<String> {
+pub fn get_hint(input: &str, cwd: &VirtualPath, fs: &GlobalFs) -> Option<String> {
     let input = input.trim_start();
     if input.is_empty() {
         return None;
     }
 
-    let current_path = current_route.fs_path();
     let (mode, parts) = CompletionMode::from_input(input);
 
     if mode != CompletionMode::Command && parts[0].eq_ignore_ascii_case("sync") {
@@ -178,7 +177,7 @@ pub fn get_hint(input: &str, current_route: &AppRoute, fs: &VirtualFs) -> Option
     match mode {
         CompletionMode::Command => get_command_hint(parts[0]),
         CompletionMode::DirectoryPath | CompletionMode::FilePath => {
-            get_path_hint(parts[1], current_path, fs, mode.dirs_only())
+            get_path_hint(parts[1], cwd, fs, mode.dirs_only())
         }
         CompletionMode::None => None,
     }
@@ -292,11 +291,11 @@ fn subcommand_hint(partial: &str, options: &[&str]) -> Option<String> {
 fn complete_path(
     cmd: &str,
     partial: &str,
-    current_path: &str,
-    fs: &VirtualFs,
+    cwd: &VirtualPath,
+    fs: &GlobalFs,
     dirs_only: bool,
 ) -> AutocompleteResult {
-    let Some(parsed) = ParsedPath::parse(partial, current_path, fs) else {
+    let Some(parsed) = ParsedPath::parse(partial, cwd, fs) else {
         return AutocompleteResult::None;
     };
 
@@ -311,11 +310,11 @@ fn complete_path(
 /// Get hint for path completion.
 fn get_path_hint(
     partial: &str,
-    current_path: &str,
-    fs: &VirtualFs,
+    cwd: &VirtualPath,
+    fs: &GlobalFs,
     dirs_only: bool,
 ) -> Option<String> {
-    let parsed = ParsedPath::parse(partial, current_path, fs)?;
+    let parsed = ParsedPath::parse(partial, cwd, fs)?;
     let entries = fs.list_dir(&parsed.search_dir)?;
     let matches = get_matching_entries(&entries, parsed.name_part, dirs_only);
 
@@ -526,73 +525,64 @@ mod tests {
     }
 
     // ------------------------------------------------------------------------
-    // Phase 3a: write-command + sync-subcommand completion
+    // Write-command + sync-subcommand completion
     // ------------------------------------------------------------------------
 
-    /// Build a small fixture VFS with two files and two dirs at mount root:
+    /// Build a small fixture FS with two files and two dirs at `/site`:
     /// - `home/` (dir), `help/` (dir)
     /// - `hello.md` (file), `hero.md` (file)
     ///
     /// These names all share the prefix `h`, so a `/h`-style partial
     /// exercises both the dir-only and file+dir classification paths.
-    fn write_cmd_fixture() -> VirtualFs {
-        use crate::models::{DirectoryEntry, FileEntry, Manifest};
-        let manifest = Manifest {
+    fn write_cmd_fixture() -> GlobalFs {
+        use crate::core::engine::GlobalFs;
+        use crate::core::storage::{ScannedDirectory, ScannedFile, ScannedSubtree};
+        use crate::models::{DirectoryMetadata, FileMetadata};
+        let snapshot = ScannedSubtree {
             files: vec![
-                FileEntry {
+                ScannedFile {
                     path: "hello.md".to_string(),
-                    title: "Hello".to_string(),
-                    size: None,
-                    modified: None,
-                    tags: vec![],
-                    access: None,
+                    description: "Hello".to_string(),
+                    meta: FileMetadata::default(),
                 },
-                FileEntry {
+                ScannedFile {
                     path: "hero.md".to_string(),
-                    title: "Hero".to_string(),
-                    size: None,
-                    modified: None,
-                    tags: vec![],
-                    access: None,
+                    description: "Hero".to_string(),
+                    meta: FileMetadata::default(),
                 },
                 // Give the dirs a file each so they exist as directories.
-                FileEntry {
+                ScannedFile {
                     path: "home/readme.md".to_string(),
-                    title: "Home readme".to_string(),
-                    size: None,
-                    modified: None,
-                    tags: vec![],
-                    access: None,
+                    description: "Home readme".to_string(),
+                    meta: FileMetadata::default(),
                 },
-                FileEntry {
+                ScannedFile {
                     path: "help/readme.md".to_string(),
-                    title: "Help readme".to_string(),
-                    size: None,
-                    modified: None,
-                    tags: vec![],
-                    access: None,
+                    description: "Help readme".to_string(),
+                    meta: FileMetadata::default(),
                 },
             ],
             directories: vec![
-                DirectoryEntry {
+                ScannedDirectory {
                     path: "home".to_string(),
-                    title: "Home".to_string(),
-                    tags: vec![],
-                    description: None,
-                    icon: None,
-                    thumbnail: None,
+                    meta: DirectoryMetadata {
+                        title: "Home".to_string(),
+                        ..Default::default()
+                    },
                 },
-                DirectoryEntry {
+                ScannedDirectory {
                     path: "help".to_string(),
-                    title: "Help".to_string(),
-                    tags: vec![],
-                    description: None,
-                    icon: None,
-                    thumbnail: None,
+                    meta: DirectoryMetadata {
+                        title: "Help".to_string(),
+                        ..Default::default()
+                    },
                 },
             ],
         };
-        VirtualFs::from_manifest(&manifest)
+        let mut fs = GlobalFs::empty();
+        fs.mount_scanned_subtree(VirtualPath::from_absolute("/site").unwrap(), &snapshot)
+            .unwrap();
+        fs
     }
 
     /// Collect the display names from any AutocompleteResult for easier
@@ -610,7 +600,13 @@ mod tests {
     #[test]
     fn test_touch_completes_files_and_dirs() {
         let fs = write_cmd_fixture();
-        let result = complete_path("touch", "h", "", &fs, /* dirs_only */ false);
+        let result = complete_path(
+            "touch",
+            "h",
+            &VirtualPath::from_absolute("/site").unwrap(),
+            &fs,
+            /* dirs_only */ false,
+        );
         let names = matches_set(&result);
         // Should include both files and dirs.
         assert!(
@@ -638,7 +634,13 @@ mod tests {
     #[test]
     fn test_rm_completes_files_and_dirs() {
         let fs = write_cmd_fixture();
-        let result = complete_path("rm", "h", "", &fs, /* dirs_only */ false);
+        let result = complete_path(
+            "rm",
+            "h",
+            &VirtualPath::from_absolute("/site").unwrap(),
+            &fs,
+            /* dirs_only */ false,
+        );
         let names = matches_set(&result);
         assert!(names.iter().any(|n| n == "hello.md"), "got {:?}", names);
         assert!(names.iter().any(|n| n == "home/"), "got {:?}", names);
@@ -647,7 +649,13 @@ mod tests {
     #[test]
     fn test_edit_completes_files_and_dirs() {
         let fs = write_cmd_fixture();
-        let result = complete_path("edit", "h", "", &fs, /* dirs_only */ false);
+        let result = complete_path(
+            "edit",
+            "h",
+            &VirtualPath::from_absolute("/site").unwrap(),
+            &fs,
+            /* dirs_only */ false,
+        );
         let names = matches_set(&result);
         assert!(names.iter().any(|n| n == "hello.md"), "got {:?}", names);
         assert!(names.iter().any(|n| n == "home/"), "got {:?}", names);
@@ -658,7 +666,13 @@ mod tests {
     #[test]
     fn test_mkdir_completes_dirs_only() {
         let fs = write_cmd_fixture();
-        let result = complete_path("mkdir", "h", "", &fs, /* dirs_only */ true);
+        let result = complete_path(
+            "mkdir",
+            "h",
+            &VirtualPath::from_absolute("/site").unwrap(),
+            &fs,
+            /* dirs_only */ true,
+        );
         let names = matches_set(&result);
         // Dirs yes, files no.
         assert!(names.iter().any(|n| n == "home/"), "got {:?}", names);
@@ -678,7 +692,13 @@ mod tests {
     #[test]
     fn test_rmdir_completes_dirs_only() {
         let fs = write_cmd_fixture();
-        let result = complete_path("rmdir", "h", "", &fs, /* dirs_only */ true);
+        let result = complete_path(
+            "rmdir",
+            "h",
+            &VirtualPath::from_absolute("/site").unwrap(),
+            &fs,
+            /* dirs_only */ true,
+        );
         let names = matches_set(&result);
         assert!(names.iter().any(|n| n == "home/"), "got {:?}", names);
         assert!(
@@ -774,11 +794,11 @@ mod tests {
     fn test_sync_routes_through_autocomplete() {
         // Sanity check that the top-level `autocomplete()` dispatcher
         // routes `sync ...` to `complete_sync`, not to the generic
-        // mode-based branches. An empty VFS is fine because `complete_sync`
+        // mode-based branches. An empty GlobalFs is fine because `complete_sync`
         // never touches the filesystem.
-        let fs = VirtualFs::empty();
-        let route = AppRoute::home();
-        let result = autocomplete("sync s", &route, &fs);
+        let fs = GlobalFs::empty();
+        let cwd = VirtualPath::from_absolute("/site").unwrap();
+        let result = autocomplete("sync s", &cwd, &fs);
         match result {
             AutocompleteResult::Single(s) => assert_eq!(s, "sync status "),
             other => panic!("expected Single, got {:?}", other),

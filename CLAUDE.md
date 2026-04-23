@@ -1,105 +1,96 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Claude Code when working with this repository.
 
 ## Build Commands
 
 ```bash
-# Development server (hot reload)
+# Development server
 trunk serve
 
-# Production build (outputs to ./dist)
+# Production build
 trunk build --release
 
-# Run tests
+# Rust tests
 cargo test
 
-# CSS modules (auto-runs with trunk, or manually)
-stylance --watch src/
+# Mock commit integration
+cargo test --features mock --test commit_integration
+
+# Browser QA after starting release Trunk on 4173
+WEBSH_E2E_BASE_URL=http://127.0.0.1:4173 NODE_PATH=target/qa/node_modules target/qa/node_modules/.bin/playwright test tests/e2e --reporter=line --workers=1
 ```
 
-### Prerequisites
-- Rust with `wasm32-unknown-unknown` target: `rustup target add wasm32-unknown-unknown`
-- Trunk (WASM bundler): `cargo install trunk`
-- Stylance CLI (CSS modules): `cargo install stylance-cli`
+## Prerequisites
+
+- Rust with `wasm32-unknown-unknown`: `rustup target add wasm32-unknown-unknown`
+- Trunk: `cargo install trunk`
+- Stylance CLI: `cargo install stylance-cli`
+- Playwright for browser QA
 
 ## Architecture
 
-### Core Design
-Websh is a browser-based virtual filesystem with a Unix-like terminal interface, built with Leptos (reactive Rust framework) compiled to WebAssembly. It runs entirely client-side with no backend.
+Websh is a client-side browser runtime over one canonical filesystem rooted at `/`.
+Runtime assembly flows through `config::BOOTSTRAP_SITE -> core::runtime::loader -> RuntimeLoad`.
 
-### Module Structure
+Core filesystem concepts:
 
-- **`app.rs`**: Root component, `AppContext` (global reactive state), `TerminalState`, `ExplorerState`
-- **`core/`**: Pure business logic
-  - `commands.rs`: Command parsing (`Command` enum) and execution (`execute_pipeline`)
-  - `filesystem.rs`: `VirtualFs` - virtual filesystem built from manifest entries
-  - `autocomplete.rs`: Tab completion for commands and paths
-  - `parser.rs`: Input parsing including pipe (`|`) support
-- **`components/`**: Leptos UI components
-  - `terminal/`: Terminal emulator (input, output, boot sequence, shell)
-  - `explorer/`: File browser UI with preview sheet
-  - `reader/`: Markdown content viewer
-  - `status/`: Status bar
-  - `icons.rs`: Centralized icon definitions (change `ICON_THEME` in config.rs to switch themes)
-- **`models/`**: Data structures (`VirtualPath`, `FsEntry`, `OutputLine`, `WalletState`, etc.)
-- **`utils/`**: Utilities (DOM helpers, caching, ring buffer)
-- **`config.rs`**: All configuration constants and text assets
+- `GlobalFs`: canonical tree for `/site`, `/mnt/<name>`, and `/state`.
+- `RuntimeMount`: mount ownership and write metadata.
+- `ScannedSubtree`: backend-neutral scan result.
+- `StorageBackend`: scan/read/commit contract.
+- `RouteRequest`, `RouteResolution`, `RouteFrame`, `RenderIntent`: route and render decision surface.
 
-### State Management
-- Uses Leptos signals (`RwSignal`) for reactive state
-- `AppContext` is provided at root and accessed via `use_context::<AppContext>()`
-- `current_path` signal is shared between Terminal and Explorer views
-- Terminal output uses `RingBuffer` for O(1) push with bounded history
+The UI should render engine output. It should not assemble filesystems or resolve backend details directly.
 
-### Filesystem
-- `VirtualFs` is built from a manifest (JSON) fetched from external storage
-- Paths are absolute Unix-style (`/home/wonjae/blog/post.md`)
-- Content files have a `content_path` that maps to remote storage
-- File permissions computed at runtime based on access filter metadata and wallet state
+## Module Structure
 
-### Styling
-- CSS modules via Stylance (`.module.css` files alongside components)
-- Output to `assets/bundle.css`
-- Class names hashed: `[name]-[hash]`
+- `src/app.rs`: root component, `AppContext`, terminal/explorer state.
+- `src/core/engine/`: canonical filesystem, routing, content reads, render intents.
+- `src/core/runtime/`: runtime assembly, runtime state projection, commit coordination.
+- `src/core/storage/`: backend-neutral storage trait plus GitHub/IDB implementations.
+- `src/core/commands/`: parsing and pure command execution.
+- `src/components/`: Leptos UI components.
+- `src/models/`: shared data structures.
+- `src/utils/`: DOM, fetch, markdown/HTML sanitization, URL validation, formatting.
+- `src/config.rs`: bootstrap source and app constants.
 
-## Key Patterns
+## State Model
 
-### Adding Commands
-1. Add variant to `Command` enum in `core/commands.rs`
-2. Add parsing in `Command::parse()`
-3. Add execution in `execute_command()`
-4. Add to `Command::names()` for autocomplete
+`AppContext` owns the safe runtime state snapshot used to render `/state`.
+Browser storage is a persistence adapter, not a feature-layer dependency.
 
-### Component Structure
-Components use Leptos syntax with `#[component]` macro. State is accessed via:
-```rust
-let ctx = use_context::<AppContext>().expect("AppContext");
-```
+Important rules:
 
-### Wallet Integration
-- EIP-1193 wallet connection (MetaMask, etc.)
-- Access filter for restricted content (advisory, non-cryptographic)
-- Wallet state: `Disconnected`, `Connecting`, `Connected { address, ens_name, chain_id }`
+- Do not read `localStorage` or `sessionStorage` from feature code.
+- Mutate runtime state through the runtime/state adapter and update `AppContext.runtime_state`.
+- Do not expose raw GitHub tokens under `/state`; expose only safe markers.
+- Commit code receives auth through a narrow runtime secret accessor and `CommitRequest`, not through `/state`.
 
-### Public APIs added in Phase 2
+## Storage and Commit Rules
 
-- `config::mounts() -> &'static MountRegistry` — process-wide singleton via `OnceLock`. Non-empty invariant enforced at init.
-- `MountRegistry::home() -> &Mount`, `resolve(alias) -> Option<&Mount>`, `all() -> impl Iterator<Item=&Mount>`.
-- `AppRoute::resolve(&VirtualFs) -> Self` — corrects Browse↔Read classification against the actual filesystem. Called from `AppRouter`'s `Memo` on hash/fs change.
-- `CommandResult { output, exit_code: i32, side_effect: Option<SideEffect> }` + `SideEffect` enum (`Navigate`, `Login`, `Logout`, `SwitchView`, `SwitchViewAndNavigate`). All UI side effects flow through `dispatch_side_effect(&AppContext, SideEffect)` in `components/terminal/terminal.rs`.
-- `AppError` enum (this commit) wraps domain errors with `From` impls for ergonomic `?` across boundaries.
-- Pipe filters (`grep`, `head`, `tail`, `wc`) return `CommandResult` with POSIX exit codes (0 = match / success, 1 = no match, 2 = usage / syntax error, 127 = unknown).
+- Backend scans return `ScannedSubtree`.
+- Runtime loader mounts scans directly into `GlobalFs`.
+- Commit preparation normalizes staged canonical changes into a backend-neutral `CommitDelta` and merged mount snapshot.
+- GitHub manifest JSON is private serialization inside `core::storage::github`.
+- GitHub commit paths must validate and respect the backend content prefix.
+- Recursive directory deletes must expand to concrete file deletions.
+- Empty directories must survive manifest export/import.
 
-### Public APIs added in Phase 3a
+## Command Patterns
 
-- `core::changes::{ChangeSet, Entry, ChangeType, Summary}` — single-source-of-truth for in-progress edits.
-- `core::merge::merge_view(base, changes) -> VirtualFs` — pure overlay.
-- `core::admin::{admin_status, can_write_to, AdminStatus}` — allowlist gate.
-- `core::storage::{StorageBackend, StorageError, CommitOutcome, GitHubBackend, idb, persist, boot}` — commit-path abstraction.
-- `VirtualFs::serialize_manifest()` — byte-stable re-emission; covered by `tests/manifest_roundtrip.rs`.
-- `Mount::is_writable()`, `Mount::github_writable(...)` — writability metadata.
-- New `Command` variants: `Touch`, `Mkdir`, `Rm`, `Rmdir`, `Edit`, `EchoRedirect`, `Sync(SyncSubcommand)`.
-- New `SideEffect` variants: `ApplyChange`, `StageChange`, `UnstageChange`, `DiscardChange`, `StageAll`, `UnstageAll`, `Commit`, `RefreshManifest`, `SetAuthToken`, `ClearAuthToken`, `OpenEditor`.
-- `AppError::Storage(StorageError)` — commit-path errors surface through the existing error funnel.
-- `AppContext` gains: `changes`, `view_fs`, `backend`, `remote_head`, `editor_open`.
+When adding commands:
+
+1. Add parser support in `src/core/commands/`.
+2. Keep execution pure and return `CommandResult`.
+3. Express UI mutations as `SideEffect`.
+4. Dispatch async/browser effects from the UI/runtime boundary.
+5. Add command parse and execution tests.
+
+## Security Notes
+
+- Treat mounted content as untrusted.
+- Render Markdown and HTML only after sanitization, or isolate richer HTML in a sandboxed iframe.
+- Access metadata is advisory UI filtering, not cryptographic access control.
+- GitHub tokens should use minimum scopes and be kept out of rendered filesystem content.
+- Anti-framing must be enforced by deployment headers, not HTML meta tags.

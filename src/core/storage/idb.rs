@@ -1,12 +1,12 @@
-//! IndexedDB persistence for drafts and metadata. See spec §7.
+//! IndexedDB persistence for drafts and metadata.
 //!
 //! Public API: `open_db`, `save_draft`, `load_draft`, `save_metadata`, `load_metadata`.
-// Consumed in Tasks 2.5 + 2.6 (wasm_bindgen_test round-trip, debounced persist helper).
 #![allow(dead_code)]
 
 use idb::event::DatabaseEvent;
 use idb::{Database, Factory, ObjectStoreParams, TransactionMode};
 use serde::{Deserialize, Serialize};
+use serde_wasm_bindgen::Serializer;
 use wasm_bindgen::JsValue;
 
 use crate::core::changes::ChangeSet;
@@ -19,7 +19,8 @@ pub const STORE_METADATA: &str = "metadata";
 
 #[derive(Serialize, Deserialize)]
 struct DraftRecord {
-    mount_id: String,
+    #[serde(rename = "mount_id")]
+    draft_id: String,
     #[serde(flatten)]
     changes: ChangeSet,
 }
@@ -53,29 +54,34 @@ pub async fn open_db() -> StorageResult<Database> {
     req.await.map_err(idb_err)
 }
 
-pub async fn save_draft(db: &Database, mount_id: &str, changes: &ChangeSet) -> StorageResult<()> {
+pub async fn save_draft(db: &Database, draft_id: &str, changes: &ChangeSet) -> StorageResult<()> {
     let tx = db
         .transaction(&[STORE_DRAFTS], TransactionMode::ReadWrite)
         .map_err(idb_err)?;
     let store = tx.object_store(STORE_DRAFTS).map_err(idb_err)?;
     let record = DraftRecord {
-        mount_id: mount_id.to_string(),
+        draft_id: draft_id.to_string(),
         changes: changes.clone(),
     };
-    let value = serde_wasm_bindgen::to_value(&record)
+    let value = record
+        .serialize(&Serializer::json_compatible())
         .map_err(|e| StorageError::BadRequest(format!("serialize: {e}")))?;
-    store.put(&value, None).map_err(idb_err)?.await.map_err(idb_err)?;
+    store
+        .put(&value, None)
+        .map_err(idb_err)?
+        .await
+        .map_err(idb_err)?;
     tx.commit().map_err(idb_err)?.await.map_err(idb_err)?;
     Ok(())
 }
 
-pub async fn load_draft(db: &Database, mount_id: &str) -> StorageResult<Option<ChangeSet>> {
+pub async fn load_draft(db: &Database, draft_id: &str) -> StorageResult<Option<ChangeSet>> {
     let tx = db
         .transaction(&[STORE_DRAFTS], TransactionMode::ReadOnly)
         .map_err(idb_err)?;
     let store = tx.object_store(STORE_DRAFTS).map_err(idb_err)?;
     let value: Option<JsValue> = store
-        .get(JsValue::from_str(mount_id))
+        .get(JsValue::from_str(draft_id))
         .map_err(idb_err)?
         .await
         .map_err(idb_err)?;
@@ -98,9 +104,14 @@ pub async fn save_metadata(db: &Database, key: &str, value: &str) -> StorageResu
         key: key.to_string(),
         value: value.to_string(),
     };
-    let js = serde_wasm_bindgen::to_value(&record)
+    let js = record
+        .serialize(&Serializer::json_compatible())
         .map_err(|e| StorageError::BadRequest(format!("serialize: {e}")))?;
-    store.put(&js, None).map_err(idb_err)?.await.map_err(idb_err)?;
+    store
+        .put(&js, None)
+        .map_err(idb_err)?
+        .await
+        .map_err(idb_err)?;
     tx.commit().map_err(idb_err)?.await.map_err(idb_err)?;
     Ok(())
 }
@@ -128,9 +139,7 @@ pub async fn load_metadata(db: &Database, key: &str) -> StorageResult<Option<Str
 fn idb_err<E: std::fmt::Display>(e: E) -> StorageError {
     let s = e.to_string().to_lowercase();
     if s.contains("quotaexceeded") {
-        StorageError::BadRequest(
-            "local draft storage full. discard or commit to free space".into(),
-        )
+        StorageError::BadRequest("local draft storage full. discard or commit to free space".into())
     } else {
         StorageError::NetworkError(format!("idb: {e}"))
     }

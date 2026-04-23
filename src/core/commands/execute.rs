@@ -1,14 +1,17 @@
 //! Command execution logic.
 //!
 //! Contains the `execute_command` function that runs parsed commands
-//! against the virtual filesystem and returns results.
+//! against the canonical filesystem and returns results.
 
 use crate::app::TerminalState;
-use crate::config::{ASCII_PROFILE, HELP_TEXT, PROFILE_FILE, mounts};
+use crate::config::{ASCII_PROFILE, HELP_TEXT};
 use crate::core::admin::can_write_to;
 use crate::core::changes::{ChangeSet, ChangeType};
-use crate::core::{VirtualFs, env, wallet};
-use crate::models::{AppRoute, FileMetadata, Mount, OutputLine, VirtualPath, WalletState};
+use crate::core::engine::{
+    GlobalFs, RouteRequest, canonicalize_user_path, request_path_for_canonical_path,
+};
+use crate::core::{env, wallet};
+use crate::models::{FileMetadata, OutputLine, RuntimeMount, ViewMode, VirtualPath, WalletState};
 use crate::utils::sysinfo;
 
 use super::{AuthAction, Command, CommandResult, PathArg, SideEffect, SyncSubcommand};
@@ -23,28 +26,27 @@ use super::{AuthAction, Command, CommandResult, PathArg, SideEffect, SyncSubcomm
 /// * `cmd` - The parsed command to execute
 /// * `state` - Terminal state (for clearing history)
 /// * `wallet_state` - Current wallet connection state
-/// * `fs` - Virtual filesystem
-/// * `current_route` - Current route (for resolving relative paths)
+/// * `fs` - Global canonical filesystem
+/// * `cwd` - Current canonical working directory
 /// * `changes` - The current set of pending changes
-/// * `remote_head` - Last-known remote HEAD SHA (for CAS-protected commits)
+/// * `remote_head` - Last-known remote HEAD SHA displayed by `sync status`
+#[allow(clippy::too_many_arguments)]
 pub fn execute_command(
     cmd: Command,
     state: &TerminalState,
     wallet_state: &WalletState,
-    fs: &VirtualFs,
-    current_route: &AppRoute,
+    runtime_mounts: &[RuntimeMount],
+    fs: &GlobalFs,
+    cwd: &VirtualPath,
     changes: &ChangeSet,
     remote_head: Option<&str>,
 ) -> CommandResult {
-    // Get the filesystem path (relative, e.g., "blog" or "")
-    let current_path = current_route.fs_path();
-
     match cmd {
-        Command::Ls { path, long } => execute_ls(path, long, wallet_state, fs, current_route),
-        Command::Cd(path) => execute_cd(path, fs, current_route),
-        Command::Pwd => CommandResult::output(vec![OutputLine::text(current_route.display_path())]),
+        Command::Ls { path, long } => execute_ls(path, long, wallet_state, runtime_mounts, fs, cwd),
+        Command::Cd(path) => execute_cd(path, fs, cwd),
+        Command::Pwd => CommandResult::output(vec![OutputLine::text(cwd.as_str())]),
         Command::Cat(file) => match file {
-            Some(f) => execute_cat(f, fs, current_path, current_route),
+            Some(f) => execute_cat(f, fs, cwd),
             None => CommandResult::error_line("cat: missing file operand"),
         },
         Command::Whoami => {
@@ -64,20 +66,28 @@ pub fn execute_command(
         },
         Command::Login => CommandResult::login(),
         Command::Logout => CommandResult::logout(),
-        Command::Explorer(path) => execute_explorer(path, fs, current_route),
-        Command::Touch { path } => execute_touch(path, wallet_state, fs, current_route),
-        Command::Mkdir { path } => execute_mkdir(path, wallet_state, fs, current_route),
-        Command::Rm { path, recursive } => {
-            execute_rm(path, recursive, wallet_state, fs, current_route, changes)
-        }
+        Command::Explorer(path) => execute_explorer(path, fs, cwd),
+        Command::Touch { path } => execute_touch(path, wallet_state, runtime_mounts, fs, cwd),
+        Command::Mkdir { path } => execute_mkdir(path, wallet_state, runtime_mounts, fs, cwd),
+        Command::Rm { path, recursive } => execute_rm(
+            path,
+            recursive,
+            wallet_state,
+            runtime_mounts,
+            fs,
+            cwd,
+            changes,
+        ),
         Command::Rmdir { path } => {
-            execute_rmdir(path, wallet_state, fs, current_route, changes)
+            execute_rmdir(path, wallet_state, runtime_mounts, fs, cwd, changes)
         }
-        Command::Edit { path } => execute_edit(path, wallet_state, fs, current_route),
+        Command::Edit { path } => execute_edit(path, wallet_state, runtime_mounts, fs, cwd),
         Command::EchoRedirect { body, path } => {
-            execute_echo_redirect(body, path, wallet_state, fs, current_route)
+            execute_echo_redirect(body, path, wallet_state, runtime_mounts, fs, cwd)
         }
-        Command::Sync(sub) => execute_sync(sub, wallet_state, current_route, changes, remote_head),
+        Command::Sync(sub) => {
+            execute_sync(sub, wallet_state, runtime_mounts, cwd, changes, remote_head)
+        }
         Command::Unknown(cmd) => CommandResult::error_line(format!(
             "Command not found: {}. Type 'help' for available commands.",
             cmd
@@ -91,79 +101,52 @@ fn execute_ls(
     path: Option<super::PathArg>,
     long: bool,
     wallet_state: &WalletState,
-    fs: &VirtualFs,
-    current_route: &AppRoute,
+    runtime_mounts: &[RuntimeMount],
+    fs: &GlobalFs,
+    cwd: &VirtualPath,
 ) -> CommandResult {
     let target = path.as_ref().map(|p| p.as_str()).unwrap_or(".");
+    let resolved = match resolve_path_arg("ls", target, cwd) {
+        Ok(path) => path,
+        Err(e) => return e,
+    };
 
-    // Check if we're at Root or targeting Root
-    let at_root = matches!(current_route, AppRoute::Root);
-    let target_is_current = target == "." || target.is_empty();
-    let target_is_root = target == "/" || target == "..";
-
-    // If at Root and listing current directory, show mounts
-    if at_root && (target_is_current || target_is_root) {
-        return list_mounts(long);
-    }
-
-    // If at Root and targeting a mount alias, resolve it
-    if at_root {
-        if resolve_mount_alias(target).is_some() {
-            // List the mount's root directory
-            if let Some(entries) = fs.list_dir("") {
-                let output = format_ls_output(&entries, "", long, wallet_state, fs);
-                return CommandResult::output(output);
-            }
-        }
-        return CommandResult::error_line(format!(
-            "ls: cannot access '{}': No such file or directory",
-            target
+    if let Some(entries) = fs.list_dir(&resolved) {
+        return CommandResult::output(format_ls_output(
+            &entries,
+            long,
+            wallet_state,
+            runtime_mounts,
+            fs,
         ));
     }
 
-    // Normal filesystem ls
-    let current_path = current_route.fs_path();
-    let resolved = fs.resolve_path(current_path, target);
-
-    match resolved {
-        Some(resolved_path) => {
-            if let Some(entries) = fs.list_dir(&resolved_path) {
-                let output = format_ls_output(&entries, &resolved_path, long, wallet_state, fs);
-                CommandResult::output(output)
-            } else {
-                CommandResult::error_line(format!(
-                    "ls: cannot access '{}': Not a directory",
-                    target
-                ))
-            }
-        }
-        None => CommandResult::error_line(format!(
+    if fs.exists(&resolved) {
+        CommandResult::error_line(format!("ls: cannot access '{}': Not a directory", target))
+    } else {
+        CommandResult::error_line(format!(
             "ls: cannot access '{}': No such file or directory",
             target
-        )),
+        ))
     }
 }
 
 /// Format ls output for directory entries.
 fn format_ls_output(
     entries: &[crate::core::DirEntry],
-    resolved_path: &str,
     long: bool,
     wallet_state: &WalletState,
-    fs: &VirtualFs,
+    runtime_mounts: &[RuntimeMount],
+    fs: &GlobalFs,
 ) -> Vec<OutputLine> {
     if long {
         entries
             .iter()
             .map(|entry| {
-                let entry_path = if resolved_path.is_empty() {
-                    entry.name.clone()
-                } else {
-                    format!("{}/{}", resolved_path, &entry.name)
-                };
-                let fs_entry = fs.get_entry(&entry_path);
+                let fs_entry = fs.get_entry(&entry.path);
+                let writable = can_write_path(wallet_state, runtime_mounts, &entry.path);
                 let perms = fs_entry
-                    .map(|e| fs.get_permissions(e, wallet_state))
+                    .map(|e| fs.get_permissions(e, wallet_state, writable))
                     .unwrap_or_default();
                 OutputLine::long_entry(entry, &perms)
             })
@@ -187,148 +170,49 @@ fn format_ls_output(
     }
 }
 
-/// List available mounts as directory entries.
-fn list_mounts(long: bool) -> CommandResult {
-    let registry = mounts();
+/// Execute `cd` command.
+fn execute_cd(path: super::PathArg, fs: &GlobalFs, cwd: &VirtualPath) -> CommandResult {
+    let target = path.as_str();
+    if target.is_empty() {
+        return CommandResult::error_line("cd: : No such file or directory");
+    }
 
-    let output: Vec<OutputLine> = if long {
-        registry
-            .all()
-            .map(|mount| {
-                let perms = crate::models::DisplayPermissions {
-                    is_dir: true,
-                    read: true,
-                    write: false,
-                    execute: true,
-                };
-                let entry = crate::core::DirEntry {
-                    name: mount.alias().to_string(),
-                    is_dir: true,
-                    title: mount.description(),
-                    file_meta: None,
-                };
-                OutputLine::long_entry(&entry, &perms)
-            })
-            .collect()
-    } else {
-        registry
-            .all()
-            .map(|mount| OutputLine::dir_entry(mount.alias(), mount.description()))
-            .collect()
+    let resolved = match resolve_path_arg("cd", target, cwd) {
+        Ok(path) => path,
+        Err(e) => return e,
     };
 
-    CommandResult::output(output)
-}
-
-/// Resolve a mount alias to a Mount.
-fn resolve_mount_alias(alias: &str) -> Option<Mount> {
-    mounts().resolve(alias).cloned()
-}
-
-/// Execute `cd` command.
-fn execute_cd(path: super::PathArg, fs: &VirtualFs, current_route: &AppRoute) -> CommandResult {
-    let target = path.as_str();
-    let at_root = matches!(current_route, AppRoute::Root);
-
-    // Handle special paths
-    match target {
-        // cd "" — POSIX: error (bash prints "cd: : No such file or directory")
-        "" => {
-            return CommandResult::error_line("cd: : No such file or directory");
-        }
-
-        // cd / always goes to Root
-        "/" => return CommandResult::navigate(AppRoute::Root),
-
-        // cd ~ always goes to home mount root
-        "~" => return CommandResult::navigate(AppRoute::home()),
-
-        // cd .. from Root stays at Root
-        ".." if at_root => return CommandResult::navigate(AppRoute::Root),
-
-        // cd .. from mount root goes to Root
-        ".." if current_route.fs_path().is_empty() => {
-            return CommandResult::navigate(AppRoute::Root);
-        }
-
-        _ => {}
+    if !fs.exists(&resolved) {
+        return CommandResult::error_line(format!("cd: no such file or directory: {}", path));
     }
 
-    // If at Root, target should be a mount alias
-    if at_root {
-        if let Some(mount) = resolve_mount_alias(target) {
-            return CommandResult::navigate(AppRoute::Browse {
-                mount,
-                path: String::new(),
-            });
-        }
-        return CommandResult::error_line(format!(
-            "cd: no such file or directory: {}",
-            target
-        ));
+    if !fs.is_directory(&resolved) {
+        return CommandResult::error_line(format!("cd: not a directory: {}", path));
     }
 
-    // Normal filesystem cd within a mount
-    let current_path = current_route.fs_path();
-    let current_mount = current_route
-        .mount()
-        .cloned()
-        .unwrap_or_else(|| mounts().home().clone());
-
-    match fs.resolve_path(current_path, target) {
-        Some(new_path) if fs.is_directory(&new_path) => CommandResult::navigate(AppRoute::Browse {
-            mount: current_mount,
-            path: new_path,
-        }),
-        Some(_) => CommandResult::error_line(format!("cd: not a directory: {}", path)),
-        None => CommandResult::error_line(format!("cd: no such file or directory: {}", path)),
-    }
+    CommandResult::navigate(RouteRequest::new(request_path_for_canonical_path(
+        &resolved,
+    )))
 }
 
 /// Execute `cat` command.
-fn execute_cat(
-    file: super::PathArg,
-    fs: &VirtualFs,
-    current_path: &str,
-    current_route: &AppRoute,
-) -> CommandResult {
-    // cat doesn't work at Root (no files there)
-    if matches!(current_route, AppRoute::Root) {
+fn execute_cat(file: super::PathArg, fs: &GlobalFs, cwd: &VirtualPath) -> CommandResult {
+    let resolved = match resolve_path_arg("cat", file.as_str(), cwd) {
+        Ok(path) => path,
+        Err(e) => return e,
+    };
+
+    if !fs.exists(&resolved) {
         return CommandResult::error_line(format!("cat: {}: No such file or directory", file));
     }
 
-    let current_mount = current_route
-        .mount()
-        .cloned()
-        .unwrap_or_else(|| mounts().home().clone());
-
-    let resolved = fs.resolve_path(current_path, file.as_str());
-
-    match resolved {
-        Some(resolved_path) => {
-            if fs.is_directory(&resolved_path) {
-                CommandResult::error_line(format!("cat: {}: Is a directory", file))
-            } else if resolved_path == PROFILE_FILE {
-                // Dynamic .profile from environment variables
-                let content = env::generate_profile();
-                let mut lines = vec![OutputLine::empty()];
-                for line in content.lines() {
-                    lines.push(OutputLine::text(line));
-                }
-                lines.push(OutputLine::empty());
-                CommandResult::output(lines)
-            } else if fs.get_file_content_path(&resolved_path).is_some() {
-                // Navigate to file route (opens reader overlay)
-                CommandResult::navigate(AppRoute::Read {
-                    mount: current_mount,
-                    path: resolved_path,
-                })
-            } else {
-                CommandResult::error_line(format!("cat: {}: No content available", file))
-            }
-        }
-        None => CommandResult::error_line(format!("cat: {}: No such file or directory", file)),
+    if fs.is_directory(&resolved) {
+        return CommandResult::error_line(format!("cat: {}: Is a directory", file));
     }
+
+    CommandResult::navigate(RouteRequest::new(request_path_for_canonical_path(
+        &resolved,
+    )))
 }
 
 /// Execute `id` command.
@@ -391,9 +275,10 @@ fn execute_id(wallet_state: &WalletState) -> CommandResult {
 /// Each element of `assignments` is processed independently:
 ///   - `KEY=value` → set the variable
 ///   - `KEY` alone → print `KEY=<value>` if set (silent otherwise)
+///
 /// An empty list prints all user variables. When any assignment fails,
 /// an error line is emitted and the first failure sets exit_code=1;
-/// subsequent assignments are still attempted (bash-compatible).
+/// subsequent assignments are still attempted (bash-style behavior).
 fn execute_export(assignments: Vec<String>) -> CommandResult {
     if assignments.is_empty() {
         // No args: show all variables
@@ -408,14 +293,18 @@ fn execute_export(assignments: Vec<String>) -> CommandResult {
 
     let mut output: Vec<OutputLine> = Vec::new();
     let mut exit_code = 0;
+    let mut state_changed = false;
     for arg in assignments {
         if let Some((key, value)) = arg.split_once('=') {
             let key = key.trim();
             let value = value.trim().trim_matches('"').trim_matches('\'');
-            if let Err(e) = env::set_user_var(key, value) {
-                output.push(OutputLine::error(format!("export: {}", e)));
-                if exit_code == 0 {
-                    exit_code = 1;
+            match env::set_user_var(key, value) {
+                Ok(_) => state_changed = true,
+                Err(e) => {
+                    output.push(OutputLine::error(format!("export: {}", e)));
+                    if exit_code == 0 {
+                        exit_code = 1;
+                    }
                 }
             }
         } else {
@@ -428,14 +317,22 @@ fn execute_export(assignments: Vec<String>) -> CommandResult {
         }
     }
 
-    CommandResult::output(output).with_exit_code(exit_code)
+    let mut result = CommandResult::output(output).with_exit_code(exit_code);
+    if state_changed {
+        result.side_effect = Some(SideEffect::InvalidateRuntimeState);
+    }
+    result
 }
 
 /// Execute `unset` command.
 fn execute_unset(key: String) -> CommandResult {
     if env::get_user_var(&key).is_some() {
         match env::unset_user_var(&key) {
-            Ok(()) => CommandResult::empty(),
+            Ok(_) => CommandResult {
+                output: vec![],
+                exit_code: 0,
+                side_effect: Some(SideEffect::InvalidateRuntimeState),
+            },
             Err(e) => CommandResult::error_line(format!("unset: {}", e)),
         }
     } else {
@@ -446,40 +343,36 @@ fn execute_unset(key: String) -> CommandResult {
 /// Execute `explorer` command.
 fn execute_explorer(
     path: Option<super::PathArg>,
-    fs: &VirtualFs,
-    current_route: &AppRoute,
+    fs: &GlobalFs,
+    cwd: &VirtualPath,
 ) -> CommandResult {
-    use crate::models::ViewMode;
-
     let Some(path_arg) = path else {
         return CommandResult::switch_view(ViewMode::Explorer);
     };
 
-    let current_path = current_route.fs_path();
-    match fs.resolve_path(current_path, path_arg.as_str()) {
-        Some(new_path) if fs.is_directory(&new_path) => {
-            let mount = current_route
-                .mount()
-                .cloned()
-                .unwrap_or_else(|| mounts().home().clone());
-            CommandResult::open_explorer(AppRoute::Browse {
-                mount,
-                path: new_path,
-            })
-        }
-        Some(_) => CommandResult::error_line(format!(
-            "explorer: not a directory: {}",
-            path_arg
-        )),
-        None => CommandResult::error_line(format!(
+    let resolved = match resolve_path_arg("explorer", path_arg.as_str(), cwd) {
+        Ok(path) => path,
+        Err(e) => return e,
+    };
+
+    if !fs.exists(&resolved) {
+        return CommandResult::error_line(format!(
             "explorer: no such file or directory: {}",
             path_arg
-        )),
+        ));
     }
+
+    if !fs.is_directory(&resolved) {
+        return CommandResult::error_line(format!("explorer: not a directory: {}", path_arg));
+    }
+
+    CommandResult::open_explorer(RouteRequest::new(request_path_for_canonical_path(
+        &resolved,
+    )))
 }
 
 // =============================================================================
-// Phase 4 — Write / Sync execution arms
+// Write / Sync execution arms
 // =============================================================================
 
 /// Resolve an admin + mount preflight for write commands. Returns the write
@@ -488,17 +381,22 @@ fn execute_explorer(
 ///
 /// Centralising this lets every write arm emit the same error string and keeps
 /// admin gating in one place.
+#[allow(clippy::result_large_err)]
 fn require_write_access(
     cmd_label: &str,
     wallet_state: &WalletState,
-    current_route: &AppRoute,
-) -> Result<Mount, CommandResult> {
-    let mount = current_route
-        .mount()
-        .cloned()
-        .unwrap_or_else(|| mounts().home().clone());
-    if can_write_to(wallet_state, &mount) {
-        Ok(mount)
+    runtime_mounts: &[RuntimeMount],
+    path: &VirtualPath,
+) -> Result<(), CommandResult> {
+    let Some(mount) = mount_for_path(runtime_mounts, path) else {
+        return Err(CommandResult::error_line(format!(
+            "{}: permission denied (admin login required)",
+            cmd_label
+        )));
+    };
+
+    if can_write_to(wallet_state, mount.writable) {
+        Ok(())
     } else {
         Err(CommandResult::error_line(format!(
             "{}: permission denied (admin login required)",
@@ -510,24 +408,13 @@ fn require_write_access(
 /// Resolve `path` (possibly relative) against `current_route` into an absolute
 /// `VirtualPath` (with a leading `/`). Returns an error `CommandResult` with
 /// the given `cmd_label` if the absolute form cannot be constructed.
+#[allow(clippy::result_large_err)]
 fn resolve_abs_path(
     cmd_label: &str,
     path: &PathArg,
-    current_route: &AppRoute,
-) -> Result<(VirtualPath, String), CommandResult> {
-    let rel = VirtualFs::resolve_path_string(current_route.fs_path(), path.as_str());
-    let abs_str = if rel.is_empty() {
-        "/".to_string()
-    } else {
-        format!("/{}", rel)
-    };
-    match VirtualPath::from_absolute(&abs_str) {
-        Ok(vp) => Ok((vp, rel)),
-        Err(e) => Err(CommandResult::error_line(format!(
-            "{}: invalid path '{}': {}",
-            cmd_label, path, e
-        ))),
-    }
+    cwd: &VirtualPath,
+) -> Result<VirtualPath, CommandResult> {
+    resolve_path_arg(cmd_label, path.as_str(), cwd)
 }
 
 /// Single-letter status tag for a ChangeType (A/M/D).
@@ -545,19 +432,20 @@ fn change_tag(change: &ChangeType) -> &'static str {
 fn execute_touch(
     path: PathArg,
     wallet_state: &WalletState,
-    fs: &VirtualFs,
-    current_route: &AppRoute,
+    runtime_mounts: &[RuntimeMount],
+    fs: &GlobalFs,
+    cwd: &VirtualPath,
 ) -> CommandResult {
-    if let Err(e) = require_write_access("touch", wallet_state, current_route) {
-        return e;
-    }
-
-    let (vp, rel) = match resolve_abs_path("touch", &path, current_route) {
+    let vp = match resolve_abs_path("touch", &path, cwd) {
         Ok(v) => v,
         Err(e) => return e,
     };
 
-    if fs.get_entry(&rel).is_some() {
+    if let Err(e) = require_write_access("touch", wallet_state, runtime_mounts, &vp) {
+        return e;
+    }
+
+    if fs.exists(&vp) {
         return CommandResult::error_line(format!("touch: {}: path already exists", path));
     }
 
@@ -578,19 +466,20 @@ fn execute_touch(
 fn execute_mkdir(
     path: PathArg,
     wallet_state: &WalletState,
-    fs: &VirtualFs,
-    current_route: &AppRoute,
+    runtime_mounts: &[RuntimeMount],
+    fs: &GlobalFs,
+    cwd: &VirtualPath,
 ) -> CommandResult {
-    if let Err(e) = require_write_access("mkdir", wallet_state, current_route) {
-        return e;
-    }
-
-    let (vp, rel) = match resolve_abs_path("mkdir", &path, current_route) {
+    let vp = match resolve_abs_path("mkdir", &path, cwd) {
         Ok(v) => v,
         Err(e) => return e,
     };
 
-    if fs.get_entry(&rel).is_some() {
+    if let Err(e) = require_write_access("mkdir", wallet_state, runtime_mounts, &vp) {
+        return e;
+    }
+
+    if fs.exists(&vp) {
         return CommandResult::error_line(format!("mkdir: {}: path already exists", path));
     }
 
@@ -609,7 +498,7 @@ fn execute_mkdir(
 /// Execute `rm` — delete a file or directory (with `-r` for directories).
 ///
 /// When the target exists only as a pending `Create*` in `changes` (not in the
-/// base VFS), `rm` emits `SideEffect::DiscardChange` to drop the pending create
+/// base `GlobalFs`), `rm` emits `SideEffect::DiscardChange` to drop the pending create
 /// entirely instead of stacking a `DeleteFile`/`DeleteDirectory` on top. For
 /// `rm -r` on a pending `CreateDirectory` with pending children, only the
 /// target's create is discarded — any orphan pending children are left for the
@@ -618,20 +507,21 @@ fn execute_rm(
     path: PathArg,
     recursive: bool,
     wallet_state: &WalletState,
-    fs: &VirtualFs,
-    current_route: &AppRoute,
+    runtime_mounts: &[RuntimeMount],
+    fs: &GlobalFs,
+    cwd: &VirtualPath,
     changes: &ChangeSet,
 ) -> CommandResult {
-    if let Err(e) = require_write_access("rm", wallet_state, current_route) {
-        return e;
-    }
-
-    let (vp, rel) = match resolve_abs_path("rm", &path, current_route) {
+    let vp = match resolve_abs_path("rm", &path, cwd) {
         Ok(v) => v,
         Err(e) => return e,
     };
 
-    let Some(entry) = fs.get_entry(&rel) else {
+    if let Err(e) = require_write_access("rm", wallet_state, runtime_mounts, &vp) {
+        return e;
+    }
+
+    let Some(entry) = fs.get_entry(&vp) else {
         return CommandResult::error_line(format!("rm: {}: no such file or directory", path));
     };
 
@@ -666,20 +556,21 @@ fn execute_rm(
 fn execute_rmdir(
     path: PathArg,
     wallet_state: &WalletState,
-    fs: &VirtualFs,
-    current_route: &AppRoute,
+    runtime_mounts: &[RuntimeMount],
+    fs: &GlobalFs,
+    cwd: &VirtualPath,
     changes: &ChangeSet,
 ) -> CommandResult {
-    if let Err(e) = require_write_access("rmdir", wallet_state, current_route) {
-        return e;
-    }
-
-    let (vp, rel) = match resolve_abs_path("rmdir", &path, current_route) {
+    let vp = match resolve_abs_path("rmdir", &path, cwd) {
         Ok(v) => v,
         Err(e) => return e,
     };
 
-    let Some(entry) = fs.get_entry(&rel) else {
+    if let Err(e) = require_write_access("rmdir", wallet_state, runtime_mounts, &vp) {
+        return e;
+    }
+
+    let Some(entry) = fs.get_entry(&vp) else {
         return CommandResult::error_line(format!("rmdir: {}: no such file or directory", path));
     };
 
@@ -687,7 +578,7 @@ fn execute_rmdir(
         return CommandResult::error_line(format!("rmdir: {}: not a directory", path));
     }
 
-    if fs.has_children(&rel) {
+    if fs.has_children(&vp) {
         return CommandResult::error_line(format!("rmdir: {}: directory not empty", path));
     }
 
@@ -712,7 +603,7 @@ fn execute_rmdir(
 
 /// True iff `changes` has an entry at `path` whose `ChangeType` is one of the
 /// `Create*` variants (i.e., the path exists only as a pending create, not in
-/// the base VFS).
+/// the base `GlobalFs`).
 fn is_pending_create(changes: &ChangeSet, path: &VirtualPath) -> bool {
     matches!(
         changes.get(path).map(|e| &e.change),
@@ -728,20 +619,21 @@ fn is_pending_create(changes: &ChangeSet, path: &VirtualPath) -> bool {
 fn execute_edit(
     path: PathArg,
     wallet_state: &WalletState,
-    fs: &VirtualFs,
-    current_route: &AppRoute,
+    runtime_mounts: &[RuntimeMount],
+    fs: &GlobalFs,
+    cwd: &VirtualPath,
 ) -> CommandResult {
-    if let Err(e) = require_write_access("edit", wallet_state, current_route) {
-        return e;
-    }
-
-    let (vp, rel) = match resolve_abs_path("edit", &path, current_route) {
+    let vp = match resolve_abs_path("edit", &path, cwd) {
         Ok(v) => v,
         Err(e) => return e,
     };
 
+    if let Err(e) = require_write_access("edit", wallet_state, runtime_mounts, &vp) {
+        return e;
+    }
+
     // Path must either not exist yet (create-on-save) or be a file.
-    if let Some(entry) = fs.get_entry(&rel)
+    if let Some(entry) = fs.get_entry(&vp)
         && entry.is_directory()
     {
         return CommandResult::error_line(format!("edit: {}: is a directory", path));
@@ -759,19 +651,20 @@ fn execute_echo_redirect(
     body: String,
     path: PathArg,
     wallet_state: &WalletState,
-    fs: &VirtualFs,
-    current_route: &AppRoute,
+    runtime_mounts: &[RuntimeMount],
+    fs: &GlobalFs,
+    cwd: &VirtualPath,
 ) -> CommandResult {
-    if let Err(e) = require_write_access("echo", wallet_state, current_route) {
-        return e;
-    }
-
-    let (vp, rel) = match resolve_abs_path("echo", &path, current_route) {
+    let vp = match resolve_abs_path("echo", &path, cwd) {
         Ok(v) => v,
         Err(e) => return e,
     };
 
-    let change = match fs.get_entry(&rel) {
+    if let Err(e) = require_write_access("echo", wallet_state, runtime_mounts, &vp) {
+        return e;
+    }
+
+    let change = match fs.get_entry(&vp) {
         Some(entry) if entry.is_directory() => {
             return CommandResult::error_line(format!("echo: {}: is a directory", path));
         }
@@ -796,20 +689,17 @@ fn execute_echo_redirect(
 fn execute_sync(
     sub: SyncSubcommand,
     wallet_state: &WalletState,
-    current_route: &AppRoute,
+    runtime_mounts: &[RuntimeMount],
+    cwd: &VirtualPath,
     changes: &ChangeSet,
     remote_head: Option<&str>,
 ) -> CommandResult {
     match sub {
         SyncSubcommand::Status => execute_sync_status(changes, remote_head),
         SyncSubcommand::Commit { message } => {
-            execute_sync_commit(message, wallet_state, current_route, changes, remote_head)
+            execute_sync_commit(message, wallet_state, runtime_mounts, cwd, changes)
         }
-        SyncSubcommand::Refresh => CommandResult {
-            output: vec![],
-            exit_code: 0,
-            side_effect: Some(SideEffect::RefreshManifest),
-        },
+        SyncSubcommand::Refresh => execute_sync_refresh(runtime_mounts, cwd),
         SyncSubcommand::Auth(action) => execute_sync_auth(action),
     }
 }
@@ -871,14 +761,10 @@ fn execute_sync_status(changes: &ChangeSet, remote_head: Option<&str>) -> Comman
 fn execute_sync_commit(
     message: String,
     wallet_state: &WalletState,
-    current_route: &AppRoute,
+    runtime_mounts: &[RuntimeMount],
+    cwd: &VirtualPath,
     changes: &ChangeSet,
-    remote_head: Option<&str>,
 ) -> CommandResult {
-    if let Err(e) = require_write_access("sync commit", wallet_state, current_route) {
-        return e;
-    }
-
     if message.trim().is_empty() {
         return CommandResult::error_line("sync commit: empty commit message");
     }
@@ -888,13 +774,35 @@ fn execute_sync_commit(
         return CommandResult::error_line("sync commit: no staged changes");
     }
 
+    let mount_root = match sync_mount_root(runtime_mounts, cwd, changes) {
+        Ok(root) => root,
+        Err(e) => return e,
+    };
+
+    if let Err(e) = require_write_access("sync commit", wallet_state, runtime_mounts, &mount_root) {
+        return e;
+    }
+
     CommandResult {
         output: vec![],
         exit_code: 0,
         side_effect: Some(SideEffect::Commit {
             message,
-            expected_head: remote_head.map(|s| s.to_string()),
+            mount_root,
         }),
+    }
+}
+
+fn execute_sync_refresh(runtime_mounts: &[RuntimeMount], cwd: &VirtualPath) -> CommandResult {
+    let mount_root = match sync_mount_root(runtime_mounts, cwd, &ChangeSet::new()) {
+        Ok(root) => root,
+        Err(e) => return e,
+    };
+
+    CommandResult {
+        output: vec![],
+        exit_code: 0,
+        side_effect: Some(SideEffect::ReloadRuntimeMount { mount_root }),
     }
 }
 
@@ -918,20 +826,88 @@ fn execute_sync_auth(action: AuthAction) -> CommandResult {
     }
 }
 
+#[allow(clippy::result_large_err)]
+fn resolve_path_arg(
+    cmd_label: &str,
+    raw: &str,
+    cwd: &VirtualPath,
+) -> Result<VirtualPath, CommandResult> {
+    canonicalize_user_path(cwd, raw)
+        .ok_or_else(|| CommandResult::error_line(format!("{}: invalid path '{}'", cmd_label, raw)))
+}
+
+fn mount_for_path(runtime_mounts: &[RuntimeMount], path: &VirtualPath) -> Option<RuntimeMount> {
+    runtime_mounts
+        .iter()
+        .filter(|mount| mount.contains(path))
+        .max_by_key(|mount| mount.root.as_str().len())
+        .cloned()
+}
+
+fn can_write_path(
+    wallet_state: &WalletState,
+    runtime_mounts: &[RuntimeMount],
+    path: &VirtualPath,
+) -> bool {
+    mount_for_path(runtime_mounts, path)
+        .as_ref()
+        .is_some_and(|mount| can_write_to(wallet_state, mount.writable))
+}
+
+#[allow(clippy::result_large_err)]
+fn sync_mount_root(
+    runtime_mounts: &[RuntimeMount],
+    cwd: &VirtualPath,
+    changes: &ChangeSet,
+) -> Result<VirtualPath, CommandResult> {
+    let mut staged_root: Option<VirtualPath> = None;
+    for (path, _) in changes.iter_staged() {
+        let Some(mount) = mount_for_path(runtime_mounts, path) else {
+            return Err(CommandResult::error_line(
+                "sync: no writable mount for staged changes",
+            ));
+        };
+
+        match &staged_root {
+            None => staged_root = Some(mount.root),
+            Some(root) if root == &mount.root => {}
+            Some(_) => {
+                return Err(CommandResult::error_line(
+                    "sync commit: staged changes span multiple mounts",
+                ));
+            }
+        }
+    }
+
+    if let Some(root) = staged_root {
+        return Ok(root);
+    }
+
+    if let Some(mount) = mount_for_path(runtime_mounts, cwd) {
+        return Ok(mount.root);
+    }
+
+    runtime_mounts
+        .iter()
+        .find(|mount| mount.root.as_str() == "/site")
+        .map(|mount| mount.root.clone())
+        .ok_or_else(|| CommandResult::error_line("sync: no writable mount available"))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::SideEffect;
+    use super::*;
     use crate::app::TerminalState;
-    use crate::core::VirtualFs;
     use crate::core::changes::ChangeSet;
-    use crate::models::{AppRoute, ViewMode, WalletState};
+    use crate::core::engine::GlobalFs;
+    use crate::models::{ViewMode, WalletState};
 
-    fn empty_state() -> (TerminalState, WalletState, VirtualFs) {
+    fn empty_state() -> (TerminalState, WalletState, GlobalFs) {
         (
             TerminalState::new(),
             WalletState::Disconnected,
-            VirtualFs::empty(),
+            GlobalFs::empty(),
         )
     }
 
@@ -946,18 +922,44 @@ mod tests {
         }
     }
 
-    fn home_browse(path: &str) -> AppRoute {
-        AppRoute::Browse {
-            mount: crate::config::mounts().home().clone(),
-            path: path.to_string(),
-        }
+    fn root_cwd() -> VirtualPath {
+        VirtualPath::root()
+    }
+
+    fn home_cwd(path: &str) -> VirtualPath {
+        VirtualPath::from_absolute("/site").unwrap().join(path)
+    }
+
+    fn home_vpath(path: &str) -> VirtualPath {
+        home_cwd(path)
+    }
+
+    fn execute_command(
+        cmd: Command,
+        state: &TerminalState,
+        wallet_state: &WalletState,
+        fs: &GlobalFs,
+        cwd: &VirtualPath,
+        changes: &ChangeSet,
+        remote_head: Option<&str>,
+    ) -> CommandResult {
+        super::execute_command(
+            cmd,
+            state,
+            wallet_state,
+            &[crate::core::storage::boot::bootstrap_runtime_mount()],
+            fs,
+            cwd,
+            changes,
+            remote_head,
+        )
     }
 
     #[test]
     fn test_login_returns_login_side_effect() {
         let (ts, ws, fs) = empty_state();
         let cs = ChangeSet::new();
-        let result = execute_command(Command::Login, &ts, &ws, &fs, &AppRoute::Root, &cs, None);
+        let result = execute_command(Command::Login, &ts, &ws, &fs, &root_cwd(), &cs, None);
         assert_eq!(result.side_effect, Some(SideEffect::Login));
         assert_eq!(result.exit_code, 0);
     }
@@ -966,7 +968,7 @@ mod tests {
     fn test_logout_returns_logout_side_effect() {
         let (ts, ws, fs) = empty_state();
         let cs = ChangeSet::new();
-        let result = execute_command(Command::Logout, &ts, &ws, &fs, &AppRoute::Root, &cs, None);
+        let result = execute_command(Command::Logout, &ts, &ws, &fs, &root_cwd(), &cs, None);
         assert_eq!(result.side_effect, Some(SideEffect::Logout));
     }
 
@@ -979,7 +981,7 @@ mod tests {
             &ts,
             &ws,
             &fs,
-            &AppRoute::Root,
+            &root_cwd(),
             &cs,
             None,
         );
@@ -998,7 +1000,7 @@ mod tests {
             &ts,
             &ws,
             &fs,
-            &AppRoute::Root,
+            &root_cwd(),
             &cs,
             None,
         );
@@ -1017,7 +1019,7 @@ mod tests {
             &ts,
             &ws,
             &fs,
-            &AppRoute::Root,
+            &root_cwd(),
             &cs,
             None,
         );
@@ -1029,7 +1031,7 @@ mod tests {
     fn test_cat_missing_operand_exit_1() {
         let (ts, ws, fs) = empty_state();
         let cs = ChangeSet::new();
-        let result = execute_command(Command::Cat(None), &ts, &ws, &fs, &AppRoute::Root, &cs, None);
+        let result = execute_command(Command::Cat(None), &ts, &ws, &fs, &root_cwd(), &cs, None);
         assert_eq!(result.exit_code, 1);
         assert!(
             result
@@ -1043,7 +1045,7 @@ mod tests {
     fn test_unset_missing_operand_exit_1() {
         let (ts, ws, fs) = empty_state();
         let cs = ChangeSet::new();
-        let result = execute_command(Command::Unset(None), &ts, &ws, &fs, &AppRoute::Root, &cs, None);
+        let result = execute_command(Command::Unset(None), &ts, &ws, &fs, &root_cwd(), &cs, None);
         assert_eq!(result.exit_code, 1);
     }
 
@@ -1064,7 +1066,7 @@ mod tests {
             &ts,
             &ws,
             &fs,
-            &AppRoute::Root,
+            &root_cwd(),
             &cs,
             None,
         );
@@ -1098,7 +1100,7 @@ mod tests {
         // short-circuit to the generic mount-alias error.
         let (ts, ws, fs) = empty_state();
         let cs = ChangeSet::new();
-        let browse_route = home_browse("");
+        let browse_route = home_cwd("");
         let result = execute_command(
             Command::Cd(super::super::PathArg::new("")),
             &ts,
@@ -1121,7 +1123,7 @@ mod tests {
     }
 
     // ======================================================================
-    // Phase 4 write-command tests
+    // Write-command tests
     // ======================================================================
 
     #[test]
@@ -1129,11 +1131,13 @@ mod tests {
         let (ts, ws, fs) = empty_state();
         let cs = ChangeSet::new();
         let result = execute_command(
-            Command::Touch { path: PathArg::new("new.md") },
+            Command::Touch {
+                path: PathArg::new("new.md"),
+            },
             &ts,
             &ws,
             &fs,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );
@@ -1147,18 +1151,23 @@ mod tests {
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
-            Command::Touch { path: PathArg::new("new.md") },
+            Command::Touch {
+                path: PathArg::new("new.md"),
+            },
             &ts,
             &ws,
             &fs,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );
         assert_eq!(result.exit_code, 0);
         match result.side_effect {
-            Some(SideEffect::ApplyChange { ref path, ref change }) => {
-                assert_eq!(path.as_str(), "/new.md");
+            Some(SideEffect::ApplyChange {
+                ref path,
+                ref change,
+            }) => {
+                assert_eq!(path.as_str(), "/site/new.md");
                 assert!(matches!(change, ChangeType::CreateFile { .. }));
             }
             other => panic!("expected ApplyChange, got {:?}", other),
@@ -1168,21 +1177,19 @@ mod tests {
     #[test]
     fn test_touch_errors_when_path_exists_in_fs() {
         // Build an fs with a file at "new.md"
-        let mut fs = VirtualFs::empty();
-        fs.upsert_file(
-            VirtualPath::from_absolute("/new.md").unwrap(),
-            String::new(),
-            FileMetadata::default(),
-        );
+        let mut fs = GlobalFs::empty();
+        fs.upsert_file(home_vpath("new.md"), String::new(), FileMetadata::default());
         let ts = TerminalState::new();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
-            Command::Touch { path: PathArg::new("new.md") },
+            Command::Touch {
+                path: PathArg::new("new.md"),
+            },
             &ts,
             &ws,
             &fs,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );
@@ -1195,18 +1202,23 @@ mod tests {
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
-            Command::Mkdir { path: PathArg::new("newdir") },
+            Command::Mkdir {
+                path: PathArg::new("newdir"),
+            },
             &ts,
             &ws,
             &fs,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );
         assert_eq!(result.exit_code, 0);
         match result.side_effect {
-            Some(SideEffect::ApplyChange { ref path, ref change }) => {
-                assert_eq!(path.as_str(), "/newdir");
+            Some(SideEffect::ApplyChange {
+                ref path,
+                ref change,
+            }) => {
+                assert_eq!(path.as_str(), "/site/newdir");
                 assert!(matches!(change, ChangeType::CreateDirectory { .. }));
             }
             other => panic!("expected ApplyChange, got {:?}", other),
@@ -1215,20 +1227,22 @@ mod tests {
 
     #[test]
     fn test_mkdir_errors_when_path_exists() {
-        let mut fs = VirtualFs::empty();
+        let mut fs = GlobalFs::empty();
         fs.upsert_directory(
-            VirtualPath::from_absolute("/dir").unwrap(),
+            home_vpath("dir"),
             crate::models::DirectoryMetadata::default(),
         );
         let ts = TerminalState::new();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
-            Command::Mkdir { path: PathArg::new("dir") },
+            Command::Mkdir {
+                path: PathArg::new("dir"),
+            },
             &ts,
             &ws,
             &fs,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );
@@ -1237,9 +1251,9 @@ mod tests {
 
     #[test]
     fn test_rm_file_side_effect() {
-        let mut fs = VirtualFs::empty();
+        let mut fs = GlobalFs::empty();
         fs.upsert_file(
-            VirtualPath::from_absolute("/doomed.md").unwrap(),
+            home_vpath("doomed.md"),
             String::new(),
             FileMetadata::default(),
         );
@@ -1247,18 +1261,24 @@ mod tests {
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
-            Command::Rm { path: PathArg::new("doomed.md"), recursive: false },
+            Command::Rm {
+                path: PathArg::new("doomed.md"),
+                recursive: false,
+            },
             &ts,
             &ws,
             &fs,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );
         assert_eq!(result.exit_code, 0);
         match result.side_effect {
-            Some(SideEffect::ApplyChange { ref path, change: ChangeType::DeleteFile }) => {
-                assert_eq!(path.as_str(), "/doomed.md");
+            Some(SideEffect::ApplyChange {
+                ref path,
+                change: ChangeType::DeleteFile,
+            }) => {
+                assert_eq!(path.as_str(), "/site/doomed.md");
             }
             other => panic!("expected DeleteFile ApplyChange, got {:?}", other),
         }
@@ -1266,20 +1286,23 @@ mod tests {
 
     #[test]
     fn test_rm_directory_without_r_errors() {
-        let mut fs = VirtualFs::empty();
+        let mut fs = GlobalFs::empty();
         fs.upsert_directory(
-            VirtualPath::from_absolute("/dir").unwrap(),
+            home_vpath("dir"),
             crate::models::DirectoryMetadata::default(),
         );
         let ts = TerminalState::new();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
-            Command::Rm { path: PathArg::new("dir"), recursive: false },
+            Command::Rm {
+                path: PathArg::new("dir"),
+                recursive: false,
+            },
             &ts,
             &ws,
             &fs,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );
@@ -1288,27 +1311,33 @@ mod tests {
 
     #[test]
     fn test_rm_directory_recursive_side_effect() {
-        let mut fs = VirtualFs::empty();
+        let mut fs = GlobalFs::empty();
         fs.upsert_directory(
-            VirtualPath::from_absolute("/dir").unwrap(),
+            home_vpath("dir"),
             crate::models::DirectoryMetadata::default(),
         );
         let ts = TerminalState::new();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
-            Command::Rm { path: PathArg::new("dir"), recursive: true },
+            Command::Rm {
+                path: PathArg::new("dir"),
+                recursive: true,
+            },
             &ts,
             &ws,
             &fs,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );
         assert_eq!(result.exit_code, 0);
         match result.side_effect {
-            Some(SideEffect::ApplyChange { ref path, change: ChangeType::DeleteDirectory }) => {
-                assert_eq!(path.as_str(), "/dir");
+            Some(SideEffect::ApplyChange {
+                ref path,
+                change: ChangeType::DeleteDirectory,
+            }) => {
+                assert_eq!(path.as_str(), "/site/dir");
             }
             other => panic!("expected DeleteDirectory ApplyChange, got {:?}", other),
         }
@@ -1320,11 +1349,14 @@ mod tests {
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
-            Command::Rm { path: PathArg::new("ghost.md"), recursive: false },
+            Command::Rm {
+                path: PathArg::new("ghost.md"),
+                recursive: false,
+            },
             &ts,
             &ws,
             &fs,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );
@@ -1333,39 +1365,44 @@ mod tests {
 
     #[test]
     fn test_rmdir_empty_directory_side_effect() {
-        let mut fs = VirtualFs::empty();
+        let mut fs = GlobalFs::empty();
         fs.upsert_directory(
-            VirtualPath::from_absolute("/empty").unwrap(),
+            home_vpath("empty"),
             crate::models::DirectoryMetadata::default(),
         );
         let ts = TerminalState::new();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
-            Command::Rmdir { path: PathArg::new("empty") },
+            Command::Rmdir {
+                path: PathArg::new("empty"),
+            },
             &ts,
             &ws,
             &fs,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );
         assert_eq!(result.exit_code, 0);
         match result.side_effect {
-            Some(SideEffect::ApplyChange { change: ChangeType::DeleteDirectory, .. }) => {}
+            Some(SideEffect::ApplyChange {
+                change: ChangeType::DeleteDirectory,
+                ..
+            }) => {}
             other => panic!("expected DeleteDirectory, got {:?}", other),
         }
     }
 
     #[test]
     fn test_rmdir_nonempty_directory_errors() {
-        let mut fs = VirtualFs::empty();
+        let mut fs = GlobalFs::empty();
         fs.upsert_directory(
-            VirtualPath::from_absolute("/dir").unwrap(),
+            home_vpath("dir"),
             crate::models::DirectoryMetadata::default(),
         );
         fs.upsert_file(
-            VirtualPath::from_absolute("/dir/child.md").unwrap(),
+            home_vpath("dir/child.md"),
             String::new(),
             FileMetadata::default(),
         );
@@ -1373,11 +1410,13 @@ mod tests {
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
-            Command::Rmdir { path: PathArg::new("dir") },
+            Command::Rmdir {
+                path: PathArg::new("dir"),
+            },
             &ts,
             &ws,
             &fs,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );
@@ -1386,9 +1425,9 @@ mod tests {
 
     #[test]
     fn test_rmdir_on_file_errors() {
-        let mut fs = VirtualFs::empty();
+        let mut fs = GlobalFs::empty();
         fs.upsert_file(
-            VirtualPath::from_absolute("/file.md").unwrap(),
+            home_vpath("file.md"),
             String::new(),
             FileMetadata::default(),
         );
@@ -1396,11 +1435,13 @@ mod tests {
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
-            Command::Rmdir { path: PathArg::new("file.md") },
+            Command::Rmdir {
+                path: PathArg::new("file.md"),
+            },
             &ts,
             &ws,
             &fs,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );
@@ -1409,9 +1450,9 @@ mod tests {
 
     #[test]
     fn test_edit_opens_editor_for_existing_file() {
-        let mut fs = VirtualFs::empty();
+        let mut fs = GlobalFs::empty();
         fs.upsert_file(
-            VirtualPath::from_absolute("/note.md").unwrap(),
+            home_vpath("note.md"),
             "hi".to_string(),
             FileMetadata::default(),
         );
@@ -1419,18 +1460,20 @@ mod tests {
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
-            Command::Edit { path: PathArg::new("note.md") },
+            Command::Edit {
+                path: PathArg::new("note.md"),
+            },
             &ts,
             &ws,
             &fs,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );
         assert_eq!(result.exit_code, 0);
         match result.side_effect {
             Some(SideEffect::OpenEditor { ref path }) => {
-                assert_eq!(path.as_str(), "/note.md");
+                assert_eq!(path.as_str(), "/site/note.md");
             }
             other => panic!("expected OpenEditor, got {:?}", other),
         }
@@ -1443,11 +1486,13 @@ mod tests {
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
-            Command::Edit { path: PathArg::new("fresh.md") },
+            Command::Edit {
+                path: PathArg::new("fresh.md"),
+            },
             &ts,
             &ws,
             &fs,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );
@@ -1460,20 +1505,22 @@ mod tests {
 
     #[test]
     fn test_edit_on_directory_errors() {
-        let mut fs = VirtualFs::empty();
+        let mut fs = GlobalFs::empty();
         fs.upsert_directory(
-            VirtualPath::from_absolute("/dir").unwrap(),
+            home_vpath("dir"),
             crate::models::DirectoryMetadata::default(),
         );
         let ts = TerminalState::new();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
-            Command::Edit { path: PathArg::new("dir") },
+            Command::Edit {
+                path: PathArg::new("dir"),
+            },
             &ts,
             &ws,
             &fs,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );
@@ -1493,14 +1540,17 @@ mod tests {
             &ts,
             &ws,
             &fs,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );
         assert_eq!(result.exit_code, 0);
         match result.side_effect {
-            Some(SideEffect::ApplyChange { ref path, ref change }) => {
-                assert_eq!(path.as_str(), "/greeting.md");
+            Some(SideEffect::ApplyChange {
+                ref path,
+                ref change,
+            }) => {
+                assert_eq!(path.as_str(), "/site/greeting.md");
                 match change {
                     ChangeType::CreateFile { content, .. } => assert_eq!(content, "hello"),
                     other => panic!("expected CreateFile, got {:?}", other),
@@ -1512,9 +1562,9 @@ mod tests {
 
     #[test]
     fn test_echo_redirect_updates_existing_file() {
-        let mut fs = VirtualFs::empty();
+        let mut fs = GlobalFs::empty();
         fs.upsert_file(
-            VirtualPath::from_absolute("/greet.md").unwrap(),
+            home_vpath("greet.md"),
             "old".to_string(),
             FileMetadata::default(),
         );
@@ -1529,13 +1579,16 @@ mod tests {
             &ts,
             &ws,
             &fs,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );
         assert_eq!(result.exit_code, 0);
         match result.side_effect {
-            Some(SideEffect::ApplyChange { change: ChangeType::UpdateFile { ref content, .. }, .. }) => {
+            Some(SideEffect::ApplyChange {
+                change: ChangeType::UpdateFile { ref content, .. },
+                ..
+            }) => {
                 assert_eq!(content, "new");
             }
             other => panic!("expected UpdateFile, got {:?}", other),
@@ -1554,7 +1607,7 @@ mod tests {
             &ts,
             &ws,
             &fs,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );
@@ -1571,7 +1624,7 @@ mod tests {
             &ts,
             &ws,
             &fs,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );
@@ -1602,14 +1655,14 @@ mod tests {
             &ts,
             &ws,
             &fs,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             Some("abcdef1234567890"),
         );
         assert_eq!(result.exit_code, 0);
-        let has_head = result.output.iter().any(|l| {
-            matches!(&l.data, crate::models::OutputLineData::Text(s) if s.contains("abcdef12"))
-        });
+        let has_head = result.output.iter().any(
+            |l| matches!(&l.data, crate::models::OutputLineData::Text(s) if s.contains("abcdef12")),
+        );
         assert!(has_head, "expected remote HEAD prefix in output");
     }
 
@@ -1619,20 +1672,20 @@ mod tests {
         let ws = admin_wallet();
         let mut cs = ChangeSet::new();
         cs.upsert(
-            VirtualPath::from_absolute("/new.md").unwrap(),
-            ChangeType::CreateFile { content: "x".to_string(), meta: FileMetadata::default() },
+            home_vpath("new.md"),
+            ChangeType::CreateFile {
+                content: "x".to_string(),
+                meta: FileMetadata::default(),
+            },
         );
-        cs.upsert(
-            VirtualPath::from_absolute("/del.md").unwrap(),
-            ChangeType::DeleteFile,
-        );
-        cs.unstage(&VirtualPath::from_absolute("/del.md").unwrap());
+        cs.upsert(home_vpath("del.md"), ChangeType::DeleteFile);
+        cs.unstage(&home_vpath("del.md"));
         let result = execute_command(
             Command::Sync(SyncSubcommand::Status),
             &ts,
             &ws,
             &fs,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );
@@ -1646,8 +1699,16 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(rendered.contains("/new.md"), "missing /new.md: {}", rendered);
-        assert!(rendered.contains("/del.md"), "missing /del.md: {}", rendered);
+        assert!(
+            rendered.contains("/site/new.md"),
+            "missing /site/new.md: {}",
+            rendered
+        );
+        assert!(
+            rendered.contains("/site/del.md"),
+            "missing /site/del.md: {}",
+            rendered
+        );
     }
 
     #[test]
@@ -1656,23 +1717,31 @@ mod tests {
         let ws = admin_wallet();
         let mut cs = ChangeSet::new();
         cs.upsert(
-            VirtualPath::from_absolute("/a.md").unwrap(),
-            ChangeType::CreateFile { content: "x".to_string(), meta: FileMetadata::default() },
+            home_vpath("a.md"),
+            ChangeType::CreateFile {
+                content: "x".to_string(),
+                meta: FileMetadata::default(),
+            },
         );
         let result = execute_command(
-            Command::Sync(SyncSubcommand::Commit { message: "feat: x".to_string() }),
+            Command::Sync(SyncSubcommand::Commit {
+                message: "feat: x".to_string(),
+            }),
             &ts,
             &ws,
             &fs,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             Some("deadbeef"),
         );
         assert_eq!(result.exit_code, 0);
         match result.side_effect {
-            Some(SideEffect::Commit { ref message, ref expected_head }) => {
+            Some(SideEffect::Commit {
+                ref message,
+                ref mount_root,
+            }) => {
                 assert_eq!(message, "feat: x");
-                assert_eq!(expected_head.as_deref(), Some("deadbeef"));
+                assert_eq!(mount_root.as_str(), "/site");
             }
             other => panic!("expected Commit, got {:?}", other),
         }
@@ -1684,15 +1753,49 @@ mod tests {
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
-            Command::Sync(SyncSubcommand::Commit { message: "msg".to_string() }),
+            Command::Sync(SyncSubcommand::Commit {
+                message: "msg".to_string(),
+            }),
             &ts,
             &ws,
             &fs,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );
         assert_eq!(result.exit_code, 1);
+    }
+
+    #[test]
+    fn test_sync_commit_rejects_changes_across_multiple_mounts() {
+        let runtime_mounts = vec![
+            crate::core::storage::boot::bootstrap_runtime_mount(),
+            crate::models::RuntimeMount::new(
+                VirtualPath::from_absolute("/mnt/db").unwrap(),
+                "db",
+                crate::models::RuntimeBackendKind::GitHub,
+                true,
+            ),
+        ];
+        let mut cs = ChangeSet::new();
+        cs.upsert(
+            home_vpath("a.md"),
+            ChangeType::CreateFile {
+                content: "site".to_string(),
+                meta: FileMetadata::default(),
+            },
+        );
+        cs.upsert(
+            VirtualPath::from_absolute("/mnt/db/b.md").unwrap(),
+            ChangeType::CreateFile {
+                content: "db".to_string(),
+                meta: FileMetadata::default(),
+            },
+        );
+
+        let err = sync_mount_root(&runtime_mounts, &home_cwd(""), &cs)
+            .expect_err("mixed mount changes must not select a single backend");
+        assert_eq!(err.exit_code, 1);
     }
 
     #[test]
@@ -1705,12 +1808,17 @@ mod tests {
             &ts,
             &ws,
             &fs,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );
         assert_eq!(result.exit_code, 0);
-        assert_eq!(result.side_effect, Some(SideEffect::RefreshManifest));
+        assert_eq!(
+            result.side_effect,
+            Some(SideEffect::ReloadRuntimeMount {
+                mount_root: VirtualPath::from_absolute("/site").unwrap(),
+            })
+        );
     }
 
     #[test]
@@ -1725,7 +1833,7 @@ mod tests {
             &ts,
             &ws,
             &fs,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );
@@ -1746,7 +1854,7 @@ mod tests {
             &ts,
             &ws,
             &fs,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );
@@ -1756,64 +1864,67 @@ mod tests {
 
     #[test]
     fn test_has_children_empty_dir_is_false() {
-        let mut fs = VirtualFs::empty();
+        let mut fs = GlobalFs::empty();
         fs.upsert_directory(
-            VirtualPath::from_absolute("/empty").unwrap(),
+            home_vpath("empty"),
             crate::models::DirectoryMetadata::default(),
         );
-        assert!(!fs.has_children("empty"));
+        assert!(!fs.has_children(&home_vpath("empty")));
     }
 
     #[test]
     fn test_has_children_with_child_is_true() {
-        let mut fs = VirtualFs::empty();
+        let mut fs = GlobalFs::empty();
         fs.upsert_directory(
-            VirtualPath::from_absolute("/dir").unwrap(),
+            home_vpath("dir"),
             crate::models::DirectoryMetadata::default(),
         );
         fs.upsert_file(
-            VirtualPath::from_absolute("/dir/child.md").unwrap(),
+            home_vpath("dir/child.md"),
             String::new(),
             FileMetadata::default(),
         );
-        assert!(fs.has_children("dir"));
+        assert!(fs.has_children(&home_vpath("dir")));
     }
 
     #[test]
     fn test_has_children_nonexistent_is_false() {
-        let fs = VirtualFs::empty();
-        assert!(!fs.has_children("ghost"));
+        let fs = GlobalFs::empty();
+        assert!(!fs.has_children(&home_vpath("ghost")));
     }
 
     #[test]
     fn test_has_children_file_is_false() {
-        let mut fs = VirtualFs::empty();
+        let mut fs = GlobalFs::empty();
         fs.upsert_file(
-            VirtualPath::from_absolute("/file.md").unwrap(),
+            home_vpath("file.md"),
             String::new(),
             FileMetadata::default(),
         );
-        assert!(!fs.has_children("file.md"));
+        assert!(!fs.has_children(&home_vpath("file.md")));
     }
 
     // ======================================================================
-    // Phase 3a follow-up: view_fs + discard-on-pending-create (rm/rmdir)
+    // Merged runtime view + discard-on-pending-create.
     // ======================================================================
 
-    use crate::core::merge::merge_view;
-
     /// Build the merged "current view" that the terminal dispatcher sees.
-    fn view(base: &VirtualFs, changes: &ChangeSet) -> VirtualFs {
-        merge_view(base, changes)
+    fn view(base: &GlobalFs, changes: &ChangeSet) -> GlobalFs {
+        crate::core::runtime::build_view_global_fs(
+            base,
+            changes,
+            &WalletState::Disconnected,
+            &crate::core::runtime::RuntimeStateSnapshot::default(),
+        )
     }
 
     #[test]
     fn test_rm_on_pending_create_file_emits_discard_change() {
-        // Base VFS empty; ChangeSet has a pending CreateFile at /a.md.
-        let base = VirtualFs::empty();
+        // Base fs empty; ChangeSet has a pending CreateFile at /site/a.md.
+        let base = GlobalFs::empty();
         let mut cs = ChangeSet::new();
         cs.upsert(
-            VirtualPath::from_absolute("/a.md").unwrap(),
+            home_vpath("a.md"),
             ChangeType::CreateFile {
                 content: String::new(),
                 meta: FileMetadata::default(),
@@ -1824,18 +1935,21 @@ mod tests {
         let ts = TerminalState::new();
         let ws = admin_wallet();
         let result = execute_command(
-            Command::Rm { path: PathArg::new("a.md"), recursive: false },
+            Command::Rm {
+                path: PathArg::new("a.md"),
+                recursive: false,
+            },
             &ts,
             &ws,
             &merged,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );
         assert_eq!(result.exit_code, 0);
         match result.side_effect {
             Some(SideEffect::DiscardChange { ref path }) => {
-                assert_eq!(path.as_str(), "/a.md");
+                assert_eq!(path.as_str(), "/site/a.md");
             }
             other => panic!("expected DiscardChange, got {:?}", other),
         }
@@ -1843,10 +1957,10 @@ mod tests {
 
     #[test]
     fn test_rm_recursive_on_pending_create_directory_emits_discard_change() {
-        let base = VirtualFs::empty();
+        let base = GlobalFs::empty();
         let mut cs = ChangeSet::new();
         cs.upsert(
-            VirtualPath::from_absolute("/d").unwrap(),
+            home_vpath("d"),
             ChangeType::CreateDirectory {
                 meta: crate::models::DirectoryMetadata::default(),
             },
@@ -1856,18 +1970,21 @@ mod tests {
         let ts = TerminalState::new();
         let ws = admin_wallet();
         let result = execute_command(
-            Command::Rm { path: PathArg::new("d"), recursive: true },
+            Command::Rm {
+                path: PathArg::new("d"),
+                recursive: true,
+            },
             &ts,
             &ws,
             &merged,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );
         assert_eq!(result.exit_code, 0);
         match result.side_effect {
             Some(SideEffect::DiscardChange { ref path }) => {
-                assert_eq!(path.as_str(), "/d");
+                assert_eq!(path.as_str(), "/site/d");
             }
             other => panic!("expected DiscardChange, got {:?}", other),
         }
@@ -1875,10 +1992,10 @@ mod tests {
 
     #[test]
     fn test_rmdir_on_pending_create_directory_emits_discard_change() {
-        let base = VirtualFs::empty();
+        let base = GlobalFs::empty();
         let mut cs = ChangeSet::new();
         cs.upsert(
-            VirtualPath::from_absolute("/d").unwrap(),
+            home_vpath("d"),
             ChangeType::CreateDirectory {
                 meta: crate::models::DirectoryMetadata::default(),
             },
@@ -1888,18 +2005,20 @@ mod tests {
         let ts = TerminalState::new();
         let ws = admin_wallet();
         let result = execute_command(
-            Command::Rmdir { path: PathArg::new("d") },
+            Command::Rmdir {
+                path: PathArg::new("d"),
+            },
             &ts,
             &ws,
             &merged,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );
         assert_eq!(result.exit_code, 0);
         match result.side_effect {
             Some(SideEffect::DiscardChange { ref path }) => {
-                assert_eq!(path.as_str(), "/d");
+                assert_eq!(path.as_str(), "/site/d");
             }
             other => panic!("expected DiscardChange, got {:?}", other),
         }
@@ -1907,10 +2026,10 @@ mod tests {
 
     #[test]
     fn test_rm_on_base_file_still_emits_apply_change_delete() {
-        // File is in base VFS, NOT in ChangeSet → Delete, not Discard.
-        let mut base = VirtualFs::empty();
+        // File is in base fs, NOT in ChangeSet -> Delete, not Discard.
+        let mut base = GlobalFs::empty();
         base.upsert_file(
-            VirtualPath::from_absolute("/existing.md").unwrap(),
+            home_vpath("existing.md"),
             "hi".into(),
             FileMetadata::default(),
         );
@@ -1920,11 +2039,14 @@ mod tests {
         let ts = TerminalState::new();
         let ws = admin_wallet();
         let result = execute_command(
-            Command::Rm { path: PathArg::new("existing.md"), recursive: false },
+            Command::Rm {
+                path: PathArg::new("existing.md"),
+                recursive: false,
+            },
             &ts,
             &ws,
             &merged,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );
@@ -1934,21 +2056,21 @@ mod tests {
                 ref path,
                 change: ChangeType::DeleteFile,
             }) => {
-                assert_eq!(path.as_str(), "/existing.md");
+                assert_eq!(path.as_str(), "/site/existing.md");
             }
             other => panic!("expected ApplyChange(DeleteFile), got {:?}", other),
         }
     }
 
     #[test]
-    fn test_touch_errors_when_path_is_pending_create_in_view_fs() {
+    fn test_touch_errors_when_path_is_pending_create_in_merged_view() {
         // Base does not contain /a.md, but the ChangeSet does as CreateFile.
-        // After view_fs is computed via merge_view and passed to execute, the
+        // After the merged runtime view is computed and passed to execute, the
         // existing `fs.get_entry(...).is_some()` guard must fire.
-        let base = VirtualFs::empty();
+        let base = GlobalFs::empty();
         let mut cs = ChangeSet::new();
         cs.upsert(
-            VirtualPath::from_absolute("/a.md").unwrap(),
+            home_vpath("a.md"),
             ChangeType::CreateFile {
                 content: String::new(),
                 meta: FileMetadata::default(),
@@ -1959,11 +2081,13 @@ mod tests {
         let ts = TerminalState::new();
         let ws = admin_wallet();
         let result = execute_command(
-            Command::Touch { path: PathArg::new("a.md") },
+            Command::Touch {
+                path: PathArg::new("a.md"),
+            },
             &ts,
             &ws,
             &merged,
-            &home_browse(""),
+            &home_cwd(""),
             &cs,
             None,
         );

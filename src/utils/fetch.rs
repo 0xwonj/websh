@@ -1,9 +1,9 @@
 //! Network fetching utilities with timeout support.
 //!
-//! Provides async fetch functions with timeout racing and caching support.
+//! Provides async fetch functions with timeout racing.
 
 use js_sys::{Array, Promise};
-use serde::{Serialize, de::DeserializeOwned};
+use serde::de::DeserializeOwned;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
@@ -11,7 +11,6 @@ use web_sys::{Request, RequestInit, RequestMode, Response};
 
 use crate::config::FETCH_TIMEOUT_MS;
 use crate::core::error::FetchError;
-use crate::utils::cache;
 
 // =============================================================================
 // Promise Racing Utilities
@@ -77,29 +76,6 @@ pub async fn race_with_timeout(promise: Promise, timeout_ms: i32) -> RaceResult 
 pub async fn fetch_json<T: DeserializeOwned>(url: &str) -> Result<T, FetchError> {
     let text = fetch_url(url).await?;
     serde_json::from_str(&text).map_err(|e| FetchError::JsonParseError(e.to_string()))
-}
-
-/// Fetch and parse JSON with sessionStorage caching.
-///
-/// Tries to retrieve data from session cache first. If not found,
-/// fetches from network and stores in cache for the current session.
-/// Cache is automatically cleared when the browser tab is closed.
-pub async fn fetch_json_cached<T>(url: &str, cache_key: &str) -> Result<T, FetchError>
-where
-    T: DeserializeOwned + Serialize,
-{
-    // Try cache first
-    if let Some(cached) = cache::get::<T>(cache_key) {
-        return Ok(cached);
-    }
-
-    // Fetch from network
-    let data = fetch_json::<T>(url).await?;
-
-    // Store in cache (ignore errors - caching is best-effort)
-    let _ = cache::set(cache_key, &data);
-
-    Ok(data)
 }
 
 /// Fetch text content from a URL.

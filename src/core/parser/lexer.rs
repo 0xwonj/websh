@@ -300,13 +300,14 @@ impl<'a> Lexer<'a> {
                     match self.read_variable_name() {
                         VariableRead::Name(name) => {
                             if let Some(v) = env::get_user_var(&name) {
-                                if !v.is_empty() {
+                                if v.is_empty() {
+                                    // empty value: contributes nothing, doesn't
+                                    // count as content — preserves empty-drop
+                                    // semantics when there's no other content.
+                                } else {
                                     acc.push_str(&v);
                                     any_var_nonempty = true;
                                 }
-                                // empty value: contributes nothing, doesn't
-                                // count as content — preserves empty-drop
-                                // semantics when there's no other content.
                             }
                             // else: undefined var, same treatment as empty.
                         }
@@ -444,10 +445,7 @@ mod tests {
         let tokens: Vec<_> = (&mut lexer).collect();
         assert_eq!(
             tokens,
-            vec![
-                Token::Word("echo".to_string()),
-                Token::Word("".to_string()),
-            ]
+            vec![Token::Word("echo".to_string()), Token::Word("".to_string()),]
         );
     }
 

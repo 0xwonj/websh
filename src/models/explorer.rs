@@ -1,5 +1,7 @@
 //! Explorer-related data types for the file browser UI.
 
+use crate::models::VirtualPath;
+
 /// Main view mode (Terminal or Explorer).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ViewMode {
@@ -23,8 +25,8 @@ pub enum ExplorerViewType {
 /// Selected item in the explorer (file or directory).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Selection {
-    /// Path relative to mount root.
-    pub path: String,
+    /// Absolute canonical path for the selected node.
+    pub path: VirtualPath,
     /// Whether this is a directory.
     pub is_dir: bool,
 }

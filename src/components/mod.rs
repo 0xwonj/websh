@@ -20,4 +20,4 @@ pub mod status;
 pub mod terminal;
 
 pub use breadcrumb::Breadcrumb;
-pub use router::AppRouter;
+pub use router::RouterView;

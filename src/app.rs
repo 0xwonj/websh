@@ -3,20 +3,25 @@
 //! Contains the main App component, AppContext definition, TerminalState,
 //! and application-level setup logic following Leptos conventions.
 
+use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::Arc;
 
 use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
-use crate::components::AppRouter;
+use crate::components::RouterView;
 use crate::config::{APP_NAME, MAX_COMMAND_HISTORY, MAX_TERMINAL_HISTORY};
 use crate::core::changes::ChangeSet;
-use crate::core::merge;
+use crate::core::engine::{GlobalFs, display_path_for};
+use crate::core::error::FetchError;
+use crate::core::runtime;
+use crate::core::runtime::RuntimeStateSnapshot;
 use crate::core::storage::StorageBackend;
-use crate::core::storage::persist::DraftPersister;
-use crate::core::VirtualFs;
-use crate::models::{AppRoute, ExplorerViewType, OutputLine, Selection, ViewMode, WalletState};
+use crate::core::storage::persist::{DraftPersister, GLOBAL_DRAFT_ID};
+use crate::models::{
+    ExplorerViewType, OutputLine, RuntimeMount, Selection, ViewMode, VirtualPath, WalletState,
+};
 use crate::utils::RingBuffer;
 
 stylance::import_crate_style!(err_css, "src/components/error_boundary.module.css");
@@ -187,7 +192,7 @@ impl ExplorerState {
     }
 
     /// Selects an item (file or directory).
-    pub fn select(&self, path: String, is_dir: bool) {
+    pub fn select(&self, path: VirtualPath, is_dir: bool) {
         self.selection.set(Some(Selection { path, is_dir }));
     }
 
@@ -237,8 +242,10 @@ impl Default for ExplorerState {
 #[derive(Clone, Copy)]
 pub struct AppContext {
     // === Shared State ===
-    /// Virtual filesystem for file navigation.
-    pub fs: RwSignal<VirtualFs>,
+    /// Global canonical filesystem tree (`/site`, `/mnt/*`, `/state/*`).
+    pub global_fs: RwSignal<GlobalFs>,
+    /// Current canonical working directory for shell/explorer surfaces.
+    pub cwd: RwSignal<VirtualPath>,
     /// Wallet connection state.
     pub wallet: RwSignal<WalletState>,
 
@@ -252,21 +259,21 @@ pub struct AppContext {
     /// Explorer state (selection, view type, sheet).
     pub explorer: ExplorerState,
 
-    // === Phase 3: Write-direct-commit state ===
+    // === Runtime filesystem/write state ===
     /// Staged + working-tree edits awaiting commit.
     pub changes: RwSignal<ChangeSet>,
-    /// Merged view of the filesystem with `changes` overlaid on top of `fs`.
-    // Signal::derive_local — Rc<VirtualFs> is neither Send nor Sync (and
-    // VirtualFs doesn't derive PartialEq), so default SyncStorage Memo/Signal
-    // are unusable. WASM CSR is single-threaded, so LocalStorage is correct.
-    pub view_fs: Signal<Rc<VirtualFs>, LocalStorage>,
-    /// Write backend for the home mount (None when no token or mount is read-only).
-    // LocalStorage — `dyn StorageBackend` is !Send+!Sync.
-    pub backend: StoredValue<Option<Arc<dyn StorageBackend>>, LocalStorage>,
-    /// Last observed remote HEAD OID for the writable mount (optimistic-concurrency token).
-    pub remote_head: StoredValue<Option<String>>,
+    /// Merged global canonical filesystem with local `changes` overlaid.
+    pub view_global_fs: Signal<Rc<GlobalFs>, LocalStorage>,
+    /// Backend registry keyed by canonical mount roots.
+    backends: StoredValue<BTreeMap<VirtualPath, Arc<dyn StorageBackend>>, LocalStorage>,
+    /// Runtime mount ownership keyed by canonical roots.
+    pub runtime_mounts: RwSignal<Vec<RuntimeMount>>,
+    /// Remote HEAD registry keyed by canonical mount roots.
+    pub remote_heads: RwSignal<BTreeMap<VirtualPath, String>>,
+    /// Browser-hydrated runtime state rendered under `/state`.
+    pub runtime_state: RwSignal<RuntimeStateSnapshot>,
 
-    // === Phase 5: Editor modal ===
+    // === Editor modal ===
     /// When `Some(path)`, the `EditModal` is open editing that path. `None` = closed.
     pub editor_open: RwSignal<Option<crate::models::VirtualPath>>,
 }
@@ -281,26 +288,33 @@ impl AppContext {
     /// - Filesystem: Empty
     /// - View: Terminal mode
     pub fn new() -> Self {
-        let fs = RwSignal::new(VirtualFs::empty());
+        let initial_load = crate::core::runtime::bootstrap_runtime_load();
+        let global_fs = RwSignal::new(initial_load.global_fs);
         let changes = RwSignal::new(ChangeSet::new());
-
-        // Merged view: `changes` overlaid on top of `fs`. Recomputed on each read
-        // (no PartialEq caching). `merge_view` is O(staged changes) — bounded
-        // small for MVP. Uses LocalStorage because `Rc<VirtualFs>` is !Send+!Sync.
-        let view_fs = Signal::derive_local(move || {
-            Rc::new(fs.with(|base| changes.with(|cs| merge::merge_view(base, cs))))
+        let wallet = RwSignal::new(WalletState::default());
+        let runtime_state = RwSignal::new(crate::core::runtime::state::snapshot());
+        let view_global_fs = Signal::derive_local(move || {
+            Rc::new(global_fs.with(|base| {
+                changes.with(|cs| {
+                    wallet.with(|ws| {
+                        runtime_state.with(|rs| runtime::build_view_global_fs(base, cs, ws, rs))
+                    })
+                })
+            }))
         });
 
-        let backend: StoredValue<Option<Arc<dyn StorageBackend>>, LocalStorage> =
-            StoredValue::new_local(None);
-        let remote_head: StoredValue<Option<String>> = StoredValue::new(None);
+        let backends: StoredValue<BTreeMap<VirtualPath, Arc<dyn StorageBackend>>, LocalStorage> =
+            StoredValue::new_local(initial_load.backends);
+        let runtime_mounts = RwSignal::new(initial_load.runtime_mounts);
+        let remote_heads = RwSignal::new(initial_load.remote_heads);
 
         let editor_open = RwSignal::new(None);
 
         Self {
             // Shared state
-            fs,
-            wallet: RwSignal::new(WalletState::default()),
+            global_fs,
+            cwd: RwSignal::new(VirtualPath::from_absolute("/site").expect("valid cwd")),
+            wallet,
 
             // View management
             view_mode: RwSignal::new(ViewMode::default()),
@@ -309,13 +323,15 @@ impl AppContext {
             terminal: TerminalState::new(),
             explorer: ExplorerState::new(),
 
-            // Phase 3 write-direct-commit state
+            // Runtime filesystem/write state
             changes,
-            view_fs,
-            backend,
-            remote_head,
+            view_global_fs,
+            backends,
+            runtime_mounts,
+            remote_heads,
+            runtime_state,
 
-            // Phase 5 editor state
+            // Editor state
             editor_open,
         }
     }
@@ -328,10 +344,60 @@ impl AppContext {
     /// - ENS name if available
     /// - Shortened address (0x1234...5678) if connected
     /// - "guest" if disconnected
-    pub fn get_prompt(&self, route: &AppRoute) -> String {
-        let display_path = route.display_path();
+    pub fn get_prompt(&self, cwd: &VirtualPath) -> String {
+        let display_path = display_path_for(cwd);
         let username = self.wallet.get().display_name();
         format!("{}@{}:{}", username, APP_NAME, display_path)
+    }
+
+    /// Best-effort lookup for the backend responsible for a canonical path.
+    pub fn backend_for_path(&self, path: &VirtualPath) -> Option<Arc<dyn StorageBackend>> {
+        self.backends.with_value(|map| {
+            map.iter()
+                .filter(|(root, _)| path.starts_with(root))
+                .max_by_key(|(root, _)| root.as_str().len())
+                .map(|(_, backend)| backend.clone())
+        })
+    }
+
+    pub async fn read_text(&self, path: &VirtualPath) -> Result<String, FetchError> {
+        let fs = self.view_global_fs.get();
+        let backends = self.backends.with_value(|map| map.clone());
+        crate::core::engine::read_text(&fs, &backends, path).await
+    }
+
+    pub async fn read_bytes(&self, path: &VirtualPath) -> Result<Vec<u8>, FetchError> {
+        let fs = self.view_global_fs.get();
+        let backends = self.backends.with_value(|map| map.clone());
+        crate::core::engine::read_bytes(&fs, &backends, path).await
+    }
+
+    pub fn runtime_mount_for_path(&self, path: &VirtualPath) -> Option<RuntimeMount> {
+        self.runtime_mounts.with(|mounts| {
+            mounts
+                .iter()
+                .filter(|mount| mount.contains(path))
+                .max_by_key(|mount| mount.root.as_str().len())
+                .cloned()
+        })
+    }
+
+    /// Best-effort lookup for the last known remote HEAD responsible for a
+    /// canonical path.
+    pub fn remote_head_for_path(&self, path: &VirtualPath) -> Option<String> {
+        self.remote_heads.with(|map| {
+            map.iter()
+                .filter(|(root, _)| path.starts_with(root))
+                .max_by_key(|(root, _)| root.as_str().len())
+                .map(|(_, head)| head.clone())
+        })
+    }
+
+    pub fn apply_runtime_load(&self, load: runtime::RuntimeLoad) {
+        self.global_fs.set(load.global_fs);
+        self.backends.set_value(load.backends);
+        self.runtime_mounts.set(load.runtime_mounts);
+        self.remote_heads.set(load.remote_heads);
     }
 
     /// Toggles between Terminal and Explorer view modes.
@@ -363,33 +429,28 @@ pub fn App() -> impl IntoView {
     // Create and provide application context
     let ctx = AppContext::new();
     provide_context(ctx);
-
-    let token = crate::utils::session::get_gh_token();
-
-    let home = crate::config::mounts().home();
-    let initial_backend = crate::core::storage::boot::build_backend_for_mount(home, token.as_deref());
-    ctx.backend.set_value(initial_backend);
-
-    let mount_id = home.alias().to_string();
     let changes_signal = ctx.changes;
-    let head_store = ctx.remote_head;
     spawn_local(async move {
-        match crate::core::storage::boot::hydrate_drafts(&mount_id).await {
+        match crate::core::storage::boot::hydrate_drafts(GLOBAL_DRAFT_ID).await {
             Ok(cs) if !cs.is_empty() => changes_signal.set(cs),
             Ok(_) => {}
             Err(e) => web_sys::console::error_1(&format!("hydrate drafts: {e}").into()),
         }
-        match crate::core::storage::boot::hydrate_remote_head(&mount_id).await {
-            Ok(h) => head_store.set_value(h),
-            Err(e) => web_sys::console::error_1(&format!("hydrate head: {e}").into()),
-        }
     });
 
-    let persister = Rc::new(DraftPersister::new(home.alias()));
+    let persister = Rc::new(DraftPersister::new(GLOBAL_DRAFT_ID));
     let persister_for_effect = persister.clone();
     Effect::new(move |_| {
         let snapshot = ctx.changes.get();
         persister_for_effect.schedule(snapshot);
+    });
+
+    let boot_started = StoredValue::new(false);
+    Effect::new(move |_| {
+        if !boot_started.get_value() {
+            boot_started.set_value(true);
+            crate::components::terminal::boot::run(ctx);
+        }
     });
 
     view! {
@@ -429,7 +490,7 @@ pub fn App() -> impl IntoView {
                 </div>
             }
         >
-            <AppRouter />
+            <RouterView />
             <crate::components::editor::EditModal />
         </ErrorBoundary>
     }

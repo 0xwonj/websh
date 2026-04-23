@@ -8,8 +8,7 @@ use leptos_icons::Icon;
 
 use super::{PreviewBody, PreviewData, PreviewStyles};
 use crate::components::icons as ic;
-use crate::components::terminal::RouteContext;
-use crate::models::AppRoute;
+use crate::core::engine::{push_request_path, request_path_for_canonical_path};
 
 stylance::import_crate_style!(css, "src/components/explorer/sheet.module.css");
 stylance::import_crate_style!(md_css, "src/components/explorer/markdown.module.css");
@@ -47,8 +46,6 @@ fn sheet_styles() -> PreviewStyles {
 /// Mobile bottom sheet component.
 #[component]
 pub fn BottomSheet(data: PreviewData) -> impl IntoView {
-    let route_ctx = use_context::<RouteContext>().expect("RouteContext must be provided");
-
     let (is_dragging, set_is_dragging) = signal(false);
     let (drag_start_y, set_drag_start_y) = signal(0.0_f64);
     let (drag_offset, set_drag_offset) = signal(0.0_f64);
@@ -65,25 +62,7 @@ pub fn BottomSheet(data: PreviewData) -> impl IntoView {
             return;
         };
 
-        let route = route_ctx.0.get_untracked();
-        let mount = route
-            .mount()
-            .cloned()
-            .unwrap_or_else(|| crate::config::mounts().home().clone());
-
-        if selection.is_dir {
-            // Navigate into directory
-            route
-                .join(selection.path.rsplit('/').next().unwrap_or_default())
-                .push();
-        } else {
-            // Open file in reader
-            AppRoute::Read {
-                mount,
-                path: selection.path,
-            }
-            .push();
-        }
+        push_request_path(&request_path_for_canonical_path(&selection.path));
         data.close();
     };
 
@@ -166,17 +145,15 @@ pub fn BottomSheet(data: PreviewData) -> impl IntoView {
     // The handle is primarily a pointer/touch affordance — dragging down
     // closes the sheet, dragging up navigates into the item. Implementing a
     // full keyboard drag UX is out of scope here; this is a best-effort
-    // accessibility shim so keyboard-only users can at least dismiss the
+    // accessibility fallback so keyboard-only users can at least dismiss the
     // sheet via the handle (Enter/Space mirror the "drag down to close"
     // gesture).
-    let on_handle_keydown = move |ev: leptos::ev::KeyboardEvent| {
-        match ev.key().as_str() {
-            "Enter" | " " => {
-                ev.prevent_default();
-                data.close();
-            }
-            _ => {}
+    let on_handle_keydown = move |ev: leptos::ev::KeyboardEvent| match ev.key().as_str() {
+        "Enter" | " " => {
+            ev.prevent_default();
+            data.close();
         }
+        _ => {}
     };
 
     // Compute inline transform style during drag

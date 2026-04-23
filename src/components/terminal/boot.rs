@@ -1,16 +1,15 @@
 //! Boot sequence logic
 //!
-//! Handles the initial boot animation and system initialization.
+//! Handles the initial terminal animation and applies the pure runtime loader.
 
 use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
 use crate::app::AppContext;
-use crate::config::{APP_NAME, APP_TAGLINE, APP_VERSION, ASCII_BANNER, boot_delays, cache};
-use crate::core::{VirtualFs, env, wallet};
-use crate::models::{Manifest, OutputLine, ViewMode, WalletState};
+use crate::config::{APP_NAME, APP_TAGLINE, APP_VERSION, ASCII_BANNER, boot_delays};
+use crate::core::{env, runtime, wallet};
+use crate::models::{OutputLine, ViewMode, WalletState};
 use crate::utils::dom::is_mobile_or_tablet;
-use crate::utils::fetch_json_cached;
 use crate::utils::format::{format_elapsed, format_eth_address};
 
 /// Delay helper using setTimeout
@@ -25,7 +24,7 @@ async fn delay(window: &web_sys::Window, ms: i32) {
 ///
 /// Initializes the application by:
 /// 1. Booting the kernel and WASM runtime
-/// 2. Fetching and mounting the virtual filesystem
+/// 2. Fetching and mounting the runtime filesystem
 /// 3. Restoring wallet session if available
 /// 4. Displaying the welcome banner
 /// 5. Setting the initial view mode based on device type
@@ -35,10 +34,9 @@ pub fn run(ctx: AppContext) {
         let start = js_sys::Date::now();
         let elapsed = || js_sys::Date::now() - start;
 
-        // Initialize default environment variables
         env::init_defaults();
+        ctx.runtime_state.set(runtime::state::snapshot());
 
-        // Kernel init
         ctx.terminal.push_output(OutputLine::info(format!(
             "{} Booting websh kernel v{}",
             format_elapsed(elapsed()),
@@ -46,74 +44,37 @@ pub fn run(ctx: AppContext) {
         )));
         delay(&window, boot_delays::KERNEL_INIT).await;
 
-        // WASM runtime
         ctx.terminal.push_output(OutputLine::success(format!(
             "{} WASM runtime initialized",
             format_elapsed(elapsed())
         )));
         delay(&window, boot_delays::WASM_RUNTIME).await;
 
-        // Mount filesystems from registry
         ctx.terminal.push_output(OutputLine::text(format!(
             "{} Mounting filesystems...",
             format_elapsed(elapsed())
         )));
 
-        // Fetch manifests for all configured mounts
-        let mut combined_manifest = Manifest {
-            files: Vec::new(),
-            directories: Vec::new(),
-        };
-        let mut mount_errors = Vec::new();
-
-        for mount in crate::config::mounts().all() {
-            let manifest_url = mount.manifest_url();
-            let cache_key = format!("{}_{}", cache::MANIFEST_KEY, mount.alias());
-
-            match fetch_json_cached::<Manifest>(&manifest_url, &cache_key).await {
-                Ok(manifest) => {
-                    let file_count = manifest.files.len();
-                    combined_manifest.files.extend(manifest.files);
-                    combined_manifest.directories.extend(manifest.directories);
-                    ctx.terminal.push_output(OutputLine::success(format!(
-                        "{} Mounted '{}' ({} files)",
-                        format_elapsed(elapsed()),
-                        mount.alias(),
-                        file_count
-                    )));
-                }
-                Err(e) => {
-                    mount_errors.push((mount.alias().to_string(), e.to_string()));
-                    ctx.terminal.push_output(OutputLine::error(format!(
-                        "{} Failed to mount '{}': {}",
-                        format_elapsed(elapsed()),
-                        mount.alias(),
-                        e
-                    )));
-                }
+        match runtime::reload_runtime().await {
+            Ok(load) => {
+                let total_files = load.total_files;
+                ctx.apply_runtime_load(load);
+                ctx.terminal.push_output(OutputLine::success(format!(
+                    "{} Total: {} files mounted",
+                    format_elapsed(elapsed()),
+                    total_files
+                )));
+            }
+            Err(error) => {
+                ctx.apply_runtime_load(runtime::bootstrap_runtime_load());
+                ctx.terminal.push_output(OutputLine::error(format!(
+                    "{} Failed to mount filesystems: {}",
+                    format_elapsed(elapsed()),
+                    error
+                )));
             }
         }
 
-        // Build filesystem from manifest
-        if !combined_manifest.files.is_empty() {
-            let total_files = combined_manifest.files.len();
-            ctx.fs.set(VirtualFs::from_manifest(&combined_manifest));
-            ctx.terminal.push_output(OutputLine::success(format!(
-                "{} Total: {} files mounted",
-                format_elapsed(elapsed()),
-                total_files
-            )));
-        } else if mount_errors.is_empty() {
-            ctx.terminal.push_output(OutputLine::text(format!(
-                "{} No mounts configured",
-                format_elapsed(elapsed())
-            )));
-            ctx.fs.set(VirtualFs::empty());
-        } else {
-            ctx.fs.set(VirtualFs::empty());
-        }
-
-        // Check wallet connection (only if previously logged in)
         if wallet::is_available() && wallet::has_session() {
             ctx.terminal.push_output(OutputLine::text(format!(
                 "{} Restoring wallet session...",
@@ -129,7 +90,6 @@ pub fn run(ctx: AppContext) {
                         short_addr
                     )));
 
-                    // Get chain ID
                     let chain_id = wallet::get_chain_id().await;
                     if let Some(id) = chain_id {
                         ctx.terminal.push_output(OutputLine::info(format!(
@@ -140,7 +100,6 @@ pub fn run(ctx: AppContext) {
                         )));
                     }
 
-                    // Resolve ENS
                     let ens_name = wallet::resolve_ens(&address).await;
                     if let Some(ref name) = ens_name {
                         ctx.terminal.push_output(OutputLine::success(format!(
@@ -155,10 +114,20 @@ pub fn run(ctx: AppContext) {
                         ens_name,
                         chain_id,
                     });
+                    match runtime::state::set_wallet_session(true) {
+                        Ok(snapshot) => ctx.runtime_state.set(snapshot),
+                        Err(error) => ctx.terminal.push_output(OutputLine::error(format!(
+                            "wallet: failed to persist session: {error}"
+                        ))),
+                    }
                 }
                 None => {
-                    // Session exists but wallet not connected, clear stale session
-                    wallet::clear_session();
+                    match wallet::clear_session() {
+                        Ok(snapshot) => ctx.runtime_state.set(snapshot),
+                        Err(error) => ctx.terminal.push_output(OutputLine::error(format!(
+                            "wallet: failed to clear session: {error}"
+                        ))),
+                    }
                     ctx.terminal.push_output(OutputLine::text(format!(
                         "{} Wallet session expired",
                         format_elapsed(elapsed())
@@ -167,9 +136,7 @@ pub fn run(ctx: AppContext) {
             }
         }
 
-        // Detect device type and set initial view mode
-        let is_mobile = is_mobile_or_tablet();
-        if is_mobile {
+        if is_mobile_or_tablet() {
             ctx.view_mode.set(ViewMode::Explorer);
             ctx.terminal.push_output(OutputLine::info(format!(
                 "{} Mobile device detected, switching to Explorer mode",
@@ -184,14 +151,12 @@ pub fn run(ctx: AppContext) {
         }
         delay(&window, boot_delays::BOOT_COMPLETE).await;
 
-        // Boot complete
         ctx.terminal.push_output(OutputLine::success(format!(
             "{} Boot complete. Welcome to {}",
             format_elapsed(elapsed()),
             APP_NAME
         )));
 
-        // Banner and info
         ctx.terminal.push_output(OutputLine::empty());
         ctx.terminal.push_output(OutputLine::ascii(ASCII_BANNER));
         ctx.terminal.push_output(OutputLine::empty());

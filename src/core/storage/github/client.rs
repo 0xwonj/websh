@@ -3,21 +3,23 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::core::changes::ChangeSet;
-use crate::core::storage::{BoxFuture, CommitOutcome, StorageBackend, StorageError, StorageResult};
-use crate::models::Manifest;
-
-use super::graphql::{
-    BranchRef, CommitMessage, CreateCommitInput, build_file_changes,
+use crate::core::storage::{
+    BoxFuture, CommitOutcome, CommitRequest, ScannedSubtree, StorageBackend, StorageError,
+    StorageResult,
 };
+use crate::models::VirtualPath;
+
+use super::graphql::{BranchRef, CommitMessage, CreateCommitInput, build_file_changes};
+use super::manifest::{parse_snapshot, serialize_snapshot};
+use super::path::{encoded_repo_relative_path, normalize_repo_prefix, prefixed_repo_path};
 
 #[allow(dead_code)]
 pub struct GitHubBackend {
-    pub repo_with_owner: String, // "0xwonj/db"
-    pub branch: String,          // "main"
-    pub content_prefix: String,  // mount's content_prefix, e.g., "~"
-    pub manifest_url: String,    // full URL to manifest.json (raw.githubusercontent.com)
-    token: String,
+    repo_with_owner: String,
+    branch: String,
+    mount_root: VirtualPath,
+    content_prefix: String,
+    gateway: String,
 }
 
 #[allow(dead_code)]
@@ -25,17 +27,59 @@ impl GitHubBackend {
     pub fn new(
         repo_with_owner: impl Into<String>,
         branch: impl Into<String>,
+        mount_root: VirtualPath,
         content_prefix: impl Into<String>,
-        manifest_url: impl Into<String>,
-        token: impl Into<String>,
-    ) -> Self {
-        Self {
+        gateway: impl Into<String>,
+    ) -> Result<Self, String> {
+        Ok(Self {
             repo_with_owner: repo_with_owner.into(),
             branch: branch.into(),
-            content_prefix: content_prefix.into(),
-            manifest_url: manifest_url.into(),
-            token: token.into(),
+            mount_root,
+            content_prefix: normalize_repo_prefix(&content_prefix.into())?,
+            gateway: gateway.into().trim_end_matches('/').to_string(),
+        })
+    }
+
+    fn base_url(&self) -> String {
+        if self.content_prefix.is_empty() {
+            format!("{}/{}/{}", self.gateway, self.repo_with_owner, self.branch)
+        } else {
+            let encoded_prefix = encoded_repo_relative_path(&self.content_prefix, false)
+                .expect("normalized content prefix must be URL-encodable");
+            format!(
+                "{}/{}/{}/{}",
+                self.gateway, self.repo_with_owner, self.branch, encoded_prefix
+            )
         }
+    }
+
+    fn manifest_url(&self) -> String {
+        format!("{}/manifest.json", self.base_url())
+    }
+
+    fn content_url(&self, rel_path: &str) -> Result<String, String> {
+        let base_url = self.base_url();
+        let rel_path = encoded_repo_relative_path(rel_path.trim_start_matches('/'), true)?;
+        if rel_path.is_empty() {
+            Ok(base_url)
+        } else {
+            Ok(format!("{base_url}/{rel_path}"))
+        }
+    }
+
+    async fn load_manifest_snapshot(&self) -> StorageResult<ScannedSubtree> {
+        let resp = gloo_net::http::Request::get(&self.manifest_url())
+            .send()
+            .await
+            .map_err(|e| StorageError::NetworkError(e.to_string()))?;
+        if !(200..300).contains(&resp.status()) {
+            return Err(map_http_status(resp.status(), None));
+        }
+        let body = resp
+            .text()
+            .await
+            .map_err(|e| StorageError::ValidationFailed(e.to_string()))?;
+        parse_snapshot(&body)
     }
 }
 
@@ -141,17 +185,62 @@ impl StorageBackend for GitHubBackend {
         "github"
     }
 
+    fn scan(&self) -> BoxFuture<'_, StorageResult<ScannedSubtree>> {
+        Box::pin(async move { self.load_manifest_snapshot().await })
+    }
+
+    fn read_text<'a>(&'a self, rel_path: &'a str) -> BoxFuture<'a, StorageResult<String>> {
+        Box::pin(async move {
+            let url = self
+                .content_url(rel_path)
+                .map_err(StorageError::BadRequest)?;
+            let resp = gloo_net::http::Request::get(&url)
+                .send()
+                .await
+                .map_err(|e| StorageError::NetworkError(e.to_string()))?;
+            if !(200..300).contains(&resp.status()) {
+                return Err(map_http_status(resp.status(), None));
+            }
+            resp.text()
+                .await
+                .map_err(|e| StorageError::ValidationFailed(e.to_string()))
+        })
+    }
+
+    fn read_bytes<'a>(&'a self, rel_path: &'a str) -> BoxFuture<'a, StorageResult<Vec<u8>>> {
+        Box::pin(async move {
+            let url = self
+                .content_url(rel_path)
+                .map_err(StorageError::BadRequest)?;
+            let resp = gloo_net::http::Request::get(&url)
+                .send()
+                .await
+                .map_err(|e| StorageError::NetworkError(e.to_string()))?;
+            if !(200..300).contains(&resp.status()) {
+                return Err(map_http_status(resp.status(), None));
+            }
+            resp.binary()
+                .await
+                .map_err(|e| StorageError::ValidationFailed(e.to_string()))
+        })
+    }
+
     fn commit<'a>(
         &'a self,
-        changes: &'a ChangeSet,
-        message: &'a str,
-        expected_head: Option<&'a str>,
+        request: &'a CommitRequest,
     ) -> BoxFuture<'a, StorageResult<CommitOutcome>> {
         Box::pin(async move {
-            // Caller invariant: the dispatcher has already upserted a staged
-            // ChangeType::UpdateFile for "/manifest.json" reflecting the
-            // post-merge state. This method is a pure "batch-apply" primitive.
-            let file_changes = build_file_changes(changes, &self.content_prefix, None);
+            let token = request.auth_token.as_deref().ok_or(StorageError::NoToken)?;
+            let manifest_body = serialize_snapshot(&request.merged_snapshot)?;
+            let manifest_repo_path = prefixed_repo_path(&self.content_prefix, "manifest.json")
+                .map_err(StorageError::BadRequest)?;
+            let file_changes = build_file_changes(
+                &request.delta,
+                &self.mount_root,
+                &self.content_prefix,
+                Some((manifest_repo_path.as_str(), &manifest_body)),
+            )
+            .map_err(StorageError::BadRequest)?;
 
             let input = CreateCommitInput {
                 branch: BranchRef {
@@ -159,9 +248,9 @@ impl StorageBackend for GitHubBackend {
                     branch_name: self.branch.clone(),
                 },
                 message: CommitMessage {
-                    headline: message.to_string(),
+                    headline: request.message.clone(),
                 },
-                expected_head_oid: expected_head.map(String::from),
+                expected_head_oid: request.expected_head.clone(),
                 file_changes,
             };
 
@@ -173,7 +262,7 @@ impl StorageBackend for GitHubBackend {
                 .map_err(|e| StorageError::BadRequest(e.to_string()))?;
 
             let resp = gloo_net::http::Request::post(GRAPHQL_ENDPOINT)
-                .header("Authorization", &format!("bearer {}", self.token))
+                .header("Authorization", &format!("bearer {}", token))
                 .header("Content-Type", "application/json")
                 .header("User-Agent", "websh/0.1")
                 .body(body_json)
@@ -206,30 +295,10 @@ impl StorageBackend for GitHubBackend {
                 .map(|c| c.commit.oid)
                 .ok_or_else(|| StorageError::ValidationFailed("empty data".into()))?;
 
-            // GraphQL's createCommitOnBranch doesn't echo file contents; the
-            // dispatcher re-fetches via fetch_manifest() after commit. See §5.2.
-            let committed_paths: Vec<_> =
-                changes.iter_staged().map(|(p, _)| p.clone()).collect();
             Ok(CommitOutcome {
                 new_head,
-                manifest: None,
-                committed_paths,
+                committed_paths: request.cleanup_paths.clone(),
             })
-        })
-    }
-
-    fn fetch_manifest(&self) -> BoxFuture<'_, StorageResult<Manifest>> {
-        Box::pin(async move {
-            let resp = gloo_net::http::Request::get(&self.manifest_url)
-                .send()
-                .await
-                .map_err(|e| StorageError::NetworkError(e.to_string()))?;
-            if !(200..300).contains(&resp.status()) {
-                return Err(map_http_status(resp.status(), None));
-            }
-            resp.json::<Manifest>()
-                .await
-                .map_err(|e| StorageError::ValidationFailed(e.to_string()))
         })
     }
 }
@@ -272,5 +341,91 @@ mod tests {
             err_type: None,
         }];
         assert_eq!(map_graphql_error(&e), StorageError::AuthFailed);
+    }
+
+    #[test]
+    fn content_url_uses_manifest_directory_as_base() {
+        let backend = GitHubBackend::new(
+            "owner/repo",
+            "main",
+            VirtualPath::from_absolute("/site").unwrap(),
+            "~",
+            "https://raw.githubusercontent.com",
+        )
+        .unwrap();
+
+        assert_eq!(
+            backend.content_url(".websh/site.json").unwrap(),
+            "https://raw.githubusercontent.com/owner/repo/main/~/.websh/site.json"
+        );
+    }
+
+    #[test]
+    fn content_url_encodes_path_segments() {
+        let backend = GitHubBackend::new(
+            "owner/repo",
+            "main",
+            VirtualPath::from_absolute("/site").unwrap(),
+            "~",
+            "https://raw.githubusercontent.com",
+        )
+        .unwrap();
+
+        assert_eq!(
+            backend.content_url("docs/file #1.md").unwrap(),
+            "https://raw.githubusercontent.com/owner/repo/main/~/docs/file%20%231.md"
+        );
+    }
+
+    #[test]
+    fn content_url_rejects_traversal_segments() {
+        let backend = GitHubBackend::new(
+            "owner/repo",
+            "main",
+            VirtualPath::from_absolute("/site").unwrap(),
+            "~",
+            "https://raw.githubusercontent.com",
+        )
+        .unwrap();
+
+        assert!(backend.content_url("../secret.md").is_err());
+    }
+
+    #[test]
+    fn constructor_rejects_traversal_content_prefix() {
+        let err = match GitHubBackend::new(
+            "owner/repo",
+            "main",
+            VirtualPath::from_absolute("/site").unwrap(),
+            "content/../other",
+            "https://raw.githubusercontent.com",
+        ) {
+            Ok(_) => panic!("constructor should reject traversal content prefix"),
+            Err(err) => err,
+        };
+        assert!(err.contains("traversal"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn commit_requires_token_from_request() {
+        let backend = GitHubBackend::new(
+            "owner/repo",
+            "main",
+            VirtualPath::from_absolute("/site").unwrap(),
+            "~",
+            "https://raw.githubusercontent.com",
+        )
+        .unwrap();
+        let request = CommitRequest {
+            delta: crate::core::storage::CommitDelta::default(),
+            cleanup_paths: vec![],
+            merged_snapshot: ScannedSubtree::default(),
+            message: "msg".to_string(),
+            expected_head: None,
+            auth_token: None,
+        };
+
+        let err = backend.commit(&request).await.unwrap_err();
+        assert_eq!(err, StorageError::NoToken);
     }
 }

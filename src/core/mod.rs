@@ -2,22 +2,22 @@
 //!
 //! This module provides:
 //! - [`Command`] parsing and [`execute_pipeline`] execution
-//! - [`VirtualFs`] virtual filesystem management
+//! - mounted subtree assembly for the canonical global filesystem engine
 //! - [`autocomplete`] and [`get_hint`] for tab completion
 
-mod autocomplete;
 pub mod admin;
+mod autocomplete;
 pub mod changes;
 mod commands;
-pub mod env;
+pub(crate) mod engine;
 pub mod error;
-mod filesystem;
 pub mod merge;
 pub mod parser;
+pub mod runtime;
 pub mod storage;
-pub mod wallet;
 
+pub use crate::models::DirEntry;
 pub use autocomplete::{AutocompleteResult, autocomplete, get_hint};
 pub use commands::{Command, SideEffect, execute_pipeline};
-pub use filesystem::{DirEntry, VirtualFs};
 pub use parser::parse_input;
+pub use runtime::{env, wallet};

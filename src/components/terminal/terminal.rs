@@ -6,7 +6,10 @@ use leptos::prelude::*;
 
 use crate::app::AppContext;
 use crate::components::terminal::{Input, Output, RouteContext};
-use crate::core::{SideEffect, autocomplete, execute_pipeline, get_hint, parse_input, wallet};
+use crate::core::engine::route_cwd;
+use crate::core::{
+    SideEffect, autocomplete, execute_pipeline, get_hint, parse_input, runtime, wallet,
+};
 use crate::models::{OutputLine, WalletState};
 use crate::utils::dom::focus_terminal_input;
 
@@ -21,7 +24,7 @@ fn handle_login(ctx: AppContext) {
     wasm_bindgen_futures::spawn_local(async move {
         if !wallet::is_available() {
             ctx.terminal.push_output(OutputLine::error(
-                "MetaMask not found. Please install MetaMask extension.",
+                "No EIP-1193 wallet found. Please install a browser wallet extension.",
             ));
             return;
         }
@@ -32,7 +35,12 @@ fn handle_login(ctx: AppContext) {
 
         match wallet::connect().await {
             Ok(address) => {
-                wallet::save_session();
+                match wallet::save_session() {
+                    Ok(snapshot) => ctx.runtime_state.set(snapshot),
+                    Err(error) => ctx.terminal.push_output(OutputLine::error(format!(
+                        "login: failed to persist session: {error}"
+                    ))),
+                }
                 let chain_id = wallet::get_chain_id().await;
 
                 ctx.wallet.set(WalletState::Connected {
@@ -75,9 +83,14 @@ fn handle_login(ctx: AppContext) {
 /// Execute wallet logout command.
 fn handle_logout(ctx: &AppContext) {
     if ctx.wallet.with(|w| w.is_connected()) {
-        wallet::disconnect(ctx);
-        ctx.terminal
-            .push_output(OutputLine::success("Disconnected from wallet."));
+        match wallet::disconnect(ctx) {
+            Ok(()) => ctx
+                .terminal
+                .push_output(OutputLine::success("Disconnected from wallet.")),
+            Err(error) => ctx.terminal.push_output(OutputLine::error(format!(
+                "logout: failed to clear session: {error}"
+            ))),
+        }
     } else {
         ctx.terminal
             .push_output(OutputLine::info("No wallet connected."));
@@ -96,7 +109,7 @@ pub fn Terminal(output_ref: NodeRef<leptos::html::Div>) -> impl IntoView {
     // Derived signals
     let prompt = Signal::derive(move || {
         let route = route_ctx.0.get();
-        ctx.get_prompt(&route)
+        ctx.get_prompt(&route_cwd(&route))
     });
 
     // Callbacks need route access
@@ -137,13 +150,19 @@ pub fn Terminal(output_ref: NodeRef<leptos::html::Div>) -> impl IntoView {
 
 fn create_submit_callback(ctx: AppContext, route_ctx: RouteContext) -> Callback<String> {
     Callback::new(move |input: String| {
-        let current_route = route_ctx.0.get();
-        let prompt = ctx.get_prompt(&current_route);
+        let current_frame = route_ctx.0.get();
+        let cwd = route_cwd(&current_frame);
+        let prompt = ctx.get_prompt(&cwd);
+        let display_input = display_command(&input);
 
         if !input.is_empty() {
             ctx.terminal
-                .push_output(OutputLine::command(prompt, &input));
-            ctx.terminal.add_to_command_history(&input);
+                .push_output(OutputLine::command(prompt, &display_input));
+            if should_store_command_history(&input) {
+                ctx.terminal.add_to_command_history(&input);
+            } else {
+                ctx.terminal.history_index.set(None);
+            }
         }
 
         let pipeline = ctx
@@ -152,15 +171,17 @@ fn create_submit_callback(ctx: AppContext, route_ctx: RouteContext) -> Callback<
             .with(|history| parse_input(&input, history));
 
         let wallet_state = ctx.wallet.get();
-        let remote_head = ctx.remote_head.get_value();
+        let remote_head = ctx.remote_head_for_path(&cwd);
+        let runtime_mounts = ctx.runtime_mounts.get();
         let result = ctx.changes.with_untracked(|changes| {
-            ctx.view_fs.with(|current_fs| {
+            ctx.view_global_fs.with(|current_fs| {
                 execute_pipeline(
                     &pipeline,
                     &ctx.terminal,
                     &wallet_state,
+                    &runtime_mounts,
                     current_fs,
-                    &current_route,
+                    &cwd,
                     changes,
                     remote_head.as_deref(),
                 )
@@ -205,59 +226,80 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
             ctx.changes.update(|cs| cs.unstage_all());
         }
         SideEffect::SetAuthToken { token } => {
-            crate::utils::session::set_gh_token(&token);
-            let home = crate::config::mounts().home();
-            let backend = crate::core::storage::boot::build_backend_for_mount(home, Some(&token));
-            ctx.backend.set_value(backend);
+            match crate::core::runtime::state::set_github_token(&token) {
+                Ok(snapshot) => ctx.runtime_state.set(snapshot),
+                Err(error) => ctx.terminal.push_output(OutputLine::error(format!(
+                    "sync auth: failed to persist token: {error}"
+                ))),
+            }
         }
-        SideEffect::ClearAuthToken => {
-            crate::utils::session::clear_gh_token();
-            ctx.backend.set_value(None);
+        SideEffect::ClearAuthToken => match crate::core::runtime::state::clear_github_token() {
+            Ok(snapshot) => ctx.runtime_state.set(snapshot),
+            Err(error) => ctx.terminal.push_output(OutputLine::error(format!(
+                "sync auth: failed to clear token: {error}"
+            ))),
+        },
+        SideEffect::InvalidateRuntimeState => {
+            ctx.runtime_state
+                .set(crate::core::runtime::state::snapshot());
         }
         SideEffect::OpenEditor { path } => {
             ctx.editor_open.set(Some(path));
         }
-        SideEffect::Commit { message, expected_head } => {
-            let Some(backend) = ctx.backend.get_value() else {
+        SideEffect::Commit {
+            message,
+            mount_root,
+        } => {
+            let Some(backend) = ctx.backend_for_path(&mount_root) else {
                 ctx.terminal.push_output(crate::models::OutputLine::error(
-                    "sync: no backend (not authenticated?)".to_string()
+                    "sync: no backend for path".to_string(),
                 ));
                 return;
             };
             let changes_signal = ctx.changes;
-            let fs_signal = ctx.fs;
-            let head_store = ctx.remote_head;
+            let runtime_mounts_signal = ctx.runtime_mounts;
             let terminal = ctx.terminal;
-            let home = crate::config::mounts().home();
-            let mount_id = home.alias().to_string();
+            let mount_root_for_commit = mount_root.clone();
+            let expected_head = ctx.remote_head_for_path(&mount_root_for_commit);
+            let auth_token = runtime::state::github_token_for_commit();
+            let app_ctx = *ctx;
 
             wasm_bindgen_futures::spawn_local(async move {
                 let staged_snapshot = changes_signal.with_untracked(|cs| cs.clone());
-                let merged = fs_signal.with_untracked(|base| {
-                    crate::core::merge::merge_view(base, &staged_snapshot)
-                });
-                let new_manifest = merged.serialize_manifest();
-                let manifest_body = serde_json::to_string_pretty(&new_manifest).unwrap_or_default();
 
-                let mut snapshot_with_manifest = staged_snapshot.clone();
-                let manifest_path = crate::models::VirtualPath::from_absolute("/manifest.json")
-                    .expect("valid path");
-                snapshot_with_manifest.upsert(
-                    manifest_path.clone(),
-                    crate::core::changes::ChangeType::UpdateFile {
-                        content: manifest_body,
-                        description: None,
-                    },
-                );
-
-                match backend.commit(&snapshot_with_manifest, &message, expected_head.as_deref()).await {
+                match runtime::commit_backend(
+                    backend,
+                    mount_root_for_commit.clone(),
+                    staged_snapshot,
+                    message,
+                    expected_head,
+                    auth_token,
+                )
+                .await
+                {
                     Ok(outcome) => {
-                        match backend.fetch_manifest().await {
-                            Ok(manifest) => fs_signal.set(
-                                crate::core::VirtualFs::from_manifest(&manifest)
-                            ),
-                            Err(e) => terminal.push_output(crate::models::OutputLine::info(
-                                format!("sync: commit ok, refresh failed: {e}")
+                        let mount_storage_id = runtime_mounts_signal
+                            .get_untracked()
+                            .into_iter()
+                            .find(|mount| mount.root == mount_root_for_commit)
+                            .map(|mount| mount.storage_id())
+                            .unwrap_or_else(|| mount_id_for_root(&mount_root_for_commit));
+                        let head_val = outcome.new_head.clone();
+                        if let Ok(db) = crate::core::storage::idb::open_db().await {
+                            let _ = crate::core::storage::idb::save_metadata(
+                                &db,
+                                &format!("remote_head.{mount_storage_id}"),
+                                &head_val,
+                            )
+                            .await;
+                        }
+
+                        match runtime::reload_runtime().await {
+                            Ok(load) => {
+                                app_ctx.apply_runtime_load(load);
+                            }
+                            Err(error) => terminal.push_output(crate::models::OutputLine::info(
+                                format!("sync: commit ok, runtime reload failed: {error}"),
                             )),
                         }
 
@@ -265,18 +307,6 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
                         changes_signal.update(|cs| {
                             for p in committed.iter() {
                                 cs.discard(p);
-                            }
-                            cs.discard(&manifest_path);
-                        });
-
-                        head_store.set_value(Some(outcome.new_head.clone()));
-                        let head_val = outcome.new_head.clone();
-                        let mid = mount_id.clone();
-                        wasm_bindgen_futures::spawn_local(async move {
-                            if let Ok(db) = crate::core::storage::idb::open_db().await {
-                                let _ = crate::core::storage::idb::save_metadata(
-                                    &db, &format!("remote_head.{mid}"), &head_val,
-                                ).await;
                             }
                         });
 
@@ -287,34 +317,61 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
                         )));
                     }
                     Err(e) => {
-                        terminal.push_output(crate::models::OutputLine::error(format!("sync: {e}")));
+                        terminal
+                            .push_output(crate::models::OutputLine::error(format!("sync: {e}")));
                     }
                 }
             });
         }
-        SideEffect::RefreshManifest => {
-            let Some(backend) = ctx.backend.get_value() else {
-                ctx.terminal.push_output(crate::models::OutputLine::error(
-                    "sync refresh: no backend".to_string()
-                ));
-                return;
-            };
-            let fs_signal = ctx.fs;
+        SideEffect::ReloadRuntimeMount { mount_root: _ } => {
+            let app_ctx = *ctx;
             let terminal = ctx.terminal;
             wasm_bindgen_futures::spawn_local(async move {
-                match backend.fetch_manifest().await {
-                    Ok(manifest) => {
-                        fs_signal.set(crate::core::VirtualFs::from_manifest(&manifest));
+                match runtime::reload_runtime().await {
+                    Ok(load) => {
+                        app_ctx.apply_runtime_load(load);
                         terminal.push_output(crate::models::OutputLine::info(
-                            "sync: manifest refreshed.".to_string()
+                            "sync: runtime reloaded.".to_string(),
                         ));
                     }
-                    Err(e) => terminal.push_output(crate::models::OutputLine::error(
-                        format!("sync refresh: {e}")
-                    )),
+                    Err(error) => terminal.push_output(crate::models::OutputLine::error(format!(
+                        "sync refresh: {error}"
+                    ))),
                 }
             });
         }
+    }
+}
+
+fn display_command(input: &str) -> String {
+    let trimmed = input.trim_start();
+    if is_sync_auth_set(trimmed) {
+        let leading = &input[..input.len() - trimmed.len()];
+        format!("{leading}sync auth set <redacted>")
+    } else {
+        input.to_string()
+    }
+}
+
+fn should_store_command_history(input: &str) -> bool {
+    !is_sync_auth_set(input.trim_start())
+}
+
+fn is_sync_auth_set(input: &str) -> bool {
+    let mut parts = input.split_whitespace();
+    matches!(
+        (parts.next(), parts.next(), parts.next(), parts.next()),
+        (Some("sync"), Some("auth"), Some("set"), Some(_))
+    )
+}
+
+fn mount_id_for_root(root: &crate::models::VirtualPath) -> String {
+    if root.as_str() == "/site" {
+        "~".to_string()
+    } else {
+        root.file_name()
+            .map(str::to_string)
+            .unwrap_or_else(|| root.as_str().to_string())
     }
 }
 
@@ -327,9 +384,9 @@ fn create_autocomplete_callback(
     route_ctx: RouteContext,
 ) -> Callback<String, crate::core::AutocompleteResult> {
     Callback::new(move |input: String| {
-        let current_route = route_ctx.0.get();
-        ctx.view_fs
-            .with(|current_fs| autocomplete(&input, &current_route, current_fs))
+        let cwd = route_cwd(&route_ctx.0.get());
+        ctx.view_global_fs
+            .with(|current_fs| autocomplete(&input, &cwd, current_fs))
     })
 }
 
@@ -338,9 +395,31 @@ fn create_hint_callback(
     route_ctx: RouteContext,
 ) -> Callback<String, Option<String>> {
     Callback::new(move |input: String| {
-        let current_route = route_ctx.0.get();
-        ctx.view_fs
-            .with(|current_fs| get_hint(&input, &current_route, current_fs))
+        let cwd = route_cwd(&route_ctx.0.get());
+        ctx.view_global_fs
+            .with(|current_fs| get_hint(&input, &cwd, current_fs))
     })
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn auth_set_command_is_redacted_for_display() {
+        assert_eq!(
+            display_command("sync auth set ghp_secret"),
+            "sync auth set <redacted>"
+        );
+        assert_eq!(
+            display_command("  sync auth set ghp_secret"),
+            "  sync auth set <redacted>"
+        );
+    }
+
+    #[test]
+    fn auth_set_command_is_not_stored_in_history() {
+        assert!(!should_store_command_history("sync auth set ghp_secret"));
+        assert!(should_store_command_history("sync auth clear"));
+    }
+}

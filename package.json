@@ -1,0 +1,11 @@
+{
+  "name": "websh-qa",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "e2e": "env -u NO_COLOR playwright test tests/e2e --reporter=line --workers=1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0"
+  }
+}

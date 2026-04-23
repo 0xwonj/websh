@@ -1,11 +1,8 @@
-//! Environment variable management using localStorage.
-//!
-//! User variables are stored with a prefix and can be modified with export/unset.
-//! All other localStorage entries are read-only.
+//! Environment variable management backed by the runtime `/state` model.
 
-use crate::config::{DEFAULT_USER_VARS, USER_VAR_PREFIX, display};
+use crate::config::{DEFAULT_USER_VARS, USER_VAR_PREFIX};
 use crate::core::error::EnvironmentError;
-use crate::utils::dom;
+use crate::core::runtime::{RuntimeStateSnapshot, state};
 
 /// Check if a variable name is valid.
 ///
@@ -29,32 +26,22 @@ pub fn is_valid_var_name(name: &str) -> bool {
 }
 
 /// Set a user environment variable.
-pub fn set_user_var(key: &str, value: &str) -> Result<(), EnvironmentError> {
+pub fn set_user_var(key: &str, value: &str) -> Result<RuntimeStateSnapshot, EnvironmentError> {
     if !is_valid_var_name(key) {
         return Err(EnvironmentError::InvalidVariableName);
     }
 
-    let storage = dom::local_storage().ok_or(EnvironmentError::StorageUnavailable)?;
-    let prefixed_key = format!("{}{}", USER_VAR_PREFIX, key);
-    storage
-        .set_item(&prefixed_key, value)
-        .map_err(|_| EnvironmentError::SaveFailed)
+    state::set_env_var(key, value)
 }
 
 /// Get a user environment variable.
 pub fn get_user_var(key: &str) -> Option<String> {
-    let storage = dom::local_storage()?;
-    let prefixed_key = format!("{}{}", USER_VAR_PREFIX, key);
-    storage.get_item(&prefixed_key).ok()?
+    state::get_env_var(key)
 }
 
 /// Remove a user environment variable.
-pub fn unset_user_var(key: &str) -> Result<(), EnvironmentError> {
-    let storage = dom::local_storage().ok_or(EnvironmentError::StorageUnavailable)?;
-    let prefixed_key = format!("{}{}", USER_VAR_PREFIX, key);
-    storage
-        .remove_item(&prefixed_key)
-        .map_err(|_| EnvironmentError::RemoveFailed)
+pub fn unset_user_var(key: &str) -> Result<RuntimeStateSnapshot, EnvironmentError> {
+    state::unset_env_var(key)
 }
 
 /// Initialize default user variables if not already set
@@ -68,96 +55,22 @@ pub fn init_defaults() {
 
 /// Get all user variables as (key, value) pairs.
 pub fn get_all_user_vars() -> Vec<(String, String)> {
-    let Some(storage) = dom::local_storage() else {
-        return Vec::new();
-    };
-
-    let mut vars = Vec::new();
-    let len = storage.length().unwrap_or(0);
-
-    for i in 0..len {
-        if let Ok(Some(key)) = storage.key(i)
-            && let Some(var_name) = key.strip_prefix(USER_VAR_PREFIX)
-            && let Ok(Some(value)) = storage.get_item(&key)
-        {
-            vars.push((var_name.to_string(), value));
-        }
-    }
-
+    let mut vars = state::all_env_vars();
     vars.sort_by(|a, b| a.0.cmp(&b.0));
     vars
 }
 
-/// Get all localStorage entries (raw, no prefix filtering).
+/// Get all runtime-managed storage entries.
 pub fn get_all_storage() -> Vec<(String, String)> {
-    let Some(storage) = dom::local_storage() else {
-        return Vec::new();
-    };
-
-    let mut vars = Vec::new();
-    let len = storage.length().unwrap_or(0);
-
-    for i in 0..len {
-        if let Ok(Some(key)) = storage.key(i)
-            && let Ok(Some(value)) = storage.get_item(&key)
-        {
-            vars.push((key, value));
-        }
-    }
+    let snapshot = state::snapshot();
+    let mut vars = snapshot
+        .env
+        .into_iter()
+        .map(|(key, value)| (format!("{USER_VAR_PREFIX}{key}"), value))
+        .collect::<Vec<_>>();
 
     vars.sort_by(|a, b| a.0.cmp(&b.0));
     vars
-}
-
-/// Generate .profile content from all localStorage entries
-pub fn generate_profile() -> String {
-    let mut lines = Vec::new();
-    lines.push("# ~/.profile".to_string());
-    lines.push(String::new());
-
-    let all_storage = get_all_storage();
-
-    if all_storage.is_empty() {
-        lines.push("# No data in localStorage".to_string());
-        lines.push("# Use 'export KEY=value' to set variables".to_string());
-    } else {
-        // Group by prefix
-        let mut user_vars = Vec::new();
-        let mut other_vars = Vec::new();
-
-        for (key, value) in all_storage {
-            if let Some(var_name) = key.strip_prefix(USER_VAR_PREFIX) {
-                user_vars.push((var_name.to_string(), value));
-            } else {
-                other_vars.push((key, value));
-            }
-        }
-
-        // Show other/system variables first
-        if !other_vars.is_empty() {
-            lines.push("# System variables (read-only)".to_string());
-            for (key, value) in other_vars {
-                // Truncate long values for display
-                let display_value = if value.len() > display::MAX_VAR_DISPLAY_LEN {
-                    format!("{}...", &value[..display::TRUNCATED_PREVIEW_LEN])
-                } else {
-                    value
-                };
-                lines.push(format!("{}=\"{}\"", key, display_value));
-            }
-            lines.push(String::new());
-        }
-
-        // Show user variables
-        if !user_vars.is_empty() {
-            lines.push("# User variables".to_string());
-            for (key, value) in user_vars {
-                lines.push(format!("export {}=\"{}\"", key, value));
-            }
-        }
-    }
-
-    lines.join("\n")
 }
 
 /// Format user variables for `export` command output

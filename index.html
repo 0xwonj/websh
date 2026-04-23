@@ -8,10 +8,10 @@
     <!-- Primary Meta Tags -->
     <title>wonjae.eth</title>
     <meta name="title" content="wonjae.eth">
-    <meta name="description" content="Cryptographic Unix-like shell and VFS for decentralized personal archives.">
+    <meta name="description" content="Cryptographic Unix-like filesystem shell for GitHub-backed personal archives.">
     <meta name="author" content="Wonjae Choi">
     <meta name="keywords"
-        content="cryptography, web3, ethereum, zero-knowledge, webassembly, rust, decentralized, unix-shell, terminal">
+        content="cryptography, web3, ethereum, zero-knowledge, webassembly, rust, filesystem, unix-shell, terminal">
     <meta name="theme-color" content="#0d1117">
     <meta name="robots" content="index, follow">
 
@@ -22,7 +22,7 @@
                  style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
                  img-src 'self' data: https:;
                  font-src 'self' https://fonts.gstatic.com;
-                 connect-src 'self' https://*.githubusercontent.com https://*.infura.io https://*.etherscan.io https://*.cloudflare-eth.com https://api.ensideas.com ws://localhost:* ws://127.0.0.1:*;
+                 connect-src 'self' https://*.githubusercontent.com https://api.github.com https://*.infura.io https://*.etherscan.io https://*.cloudflare-eth.com https://api.ensideas.com ws://localhost:* ws://127.0.0.1:*;
                  frame-src 'self' https://*.githubusercontent.com https://mozilla.github.io;
                  worker-src 'self' blob:;
                  manifest-src 'self';
@@ -30,7 +30,6 @@
                  form-action 'self';">
     <!-- For production, use stricter CSP without 'unsafe-inline' and 'unsafe-eval' -->
     <meta http-equiv="X-Content-Type-Options" content="nosniff">
-    <meta http-equiv="X-Frame-Options" content="DENY">
     <meta name="referrer" content="strict-origin-when-cross-origin">
 
     <!-- Open Graph / Facebook / Discord -->
@@ -38,7 +37,7 @@
     <meta property="og:url" content="https://wonjae.eth.limo/">
     <meta property="og:title" content="wonjae.eth - Cryptographic Terminal">
     <meta property="og:description"
-        content="Cryptographic Unix-like shell and VFS for decentralized personal archives.">
+        content="Cryptographic Unix-like filesystem shell for GitHub-backed personal archives.">
     <meta property="og:image" content="https://wonjae.eth.limo/assets/preview.png">
 
     <!-- Twitter -->
@@ -46,7 +45,7 @@
     <meta property="twitter:url" content="https://wonjae.eth.limo/">
     <meta property="twitter:title" content="wonjae.eth - Cryptographic Terminal">
     <meta property="twitter:description"
-        content="Cryptographic Unix-like shell and VFS for decentralized personal archives.">
+        content="Cryptographic Unix-like filesystem shell for GitHub-backed personal archives.">
     <meta property="twitter:image" content="https://wonjae.eth.limo/assets/preview.png">
 
     <!-- Performance Optimization -->
@@ -64,6 +63,7 @@
     <link data-trunk rel="css" href="assets/base.css">
     <link data-trunk rel="css" href="assets/bundle.css">
     <link data-trunk rel="icon" href="assets/favicon.svg">
+    <link data-trunk rel="copy-file" href="_headers">
     <link rel="apple-touch-icon" href="assets/favicon.svg">
 </head>
 

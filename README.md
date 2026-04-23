@@ -8,9 +8,9 @@
 
 ```
 
-Websh is a decentralized personal vault designed to persist and organize personal archives. Built as a Virtual File System (VFS) with a terminal-based interface, it provides a familiar Unix-shell experience within the browser.
+Websh is a browser-native filesystem shell for personal archives. It exposes a canonical `/` tree through a terminal and explorer UI, with runtime mounts backed by GitHub content repositories.
 
-By hosting both the application and its data on decentralized storage, it functions without reliance on centralized infrastructure. Some files are access-restricted to listed recipients; those entries are filtered from the UI for other visitors. The underlying storage is public and no cryptographic confidentiality is provided in the current release.
+Content is loaded from declared runtime mounts and assembled into a single `GlobalFs` view at boot. Some files are access-restricted to listed recipients; those entries are filtered from the UI for other visitors. The underlying storage is public and no cryptographic confidentiality is provided in the current release.
 
 [![Built with Rust](https://img.shields.io/badge/built%20with-Rust-orange.svg)](https://www.rust-lang.org/)
 [![WebAssembly](https://img.shields.io/badge/WebAssembly-654FF0?logo=webassembly&logoColor=white)](https://webassembly.org/)
@@ -26,7 +26,7 @@ By hosting both the application and its data on decentralized storage, it functi
 - **Environment Variables**: Persistent `export`/`unset` stored in localStorage
 
 ### Filesystem & Content
-- **Virtual Filesystem**: Navigate hierarchical directory structure
+- **Canonical Filesystem**: Navigate one hierarchical `/` tree assembled from runtime mounts
 - **Markdown Rendering**: View `.md` files with full HTML rendering
 - **XSS Protection**: Content sanitization with ammonia
 - **Remote Content**: Dynamic loading from remote storage
@@ -38,7 +38,7 @@ By hosting both the application and its data on decentralized storage, it functi
 - **ENS Resolution**: Native resolution of ENS names for user identification and profile mapping.
 
 ### Deployment
-- **Decentralized Static Hosting**: Optimized for serverless, decentralized hosting using purely static assets.
+- **Static Hosting**: Optimized for serverless hosting using purely static assets.
 - **Zero-Backend**: Executes all system logic client-side via WebAssembly, requiring no traditional backend.
 - **Decoupled Content**: Separates application logic from data. Content is dynamically fetched from remote repositories without the need to redeploy the core shell.
 - **WASM Runtime**: Compiled from Rust to an optimized WebAssembly binary for consistent performance and security across any hosting environment.
@@ -116,7 +116,7 @@ trunk build --release
 - `tail [-n]` - Show last n lines (default: 10)
 - `wc` - Count lines
 
-### Writing to the filesystem (Phase 3a)
+### Writing to the filesystem
 
 Admins (wallets listed in the allowlist) can edit `~` and commit atomically to GitHub.
 
@@ -124,17 +124,19 @@ Commands:
 - `touch <path>`, `mkdir <path>`, `rm [-r] <path>`, `rmdir <path>`, `edit <path>`
 - `echo "body" > <path>` — write-or-replace file content
 - `sync status` — show drafted changes
-- `sync commit -m "<msg>"` — push staged changes atomically
-- `sync refresh` — re-fetch remote manifest
-- `sync auth <github_pat>` / `sync auth clear` — session-scoped token
+- `sync commit <msg>` — push staged changes atomically
+- `sync refresh` — reload the runtime from configured storage backends
+- `sync auth set <github_pat>` / `sync auth clear` — session-scoped token
 
 Drafts persist in IndexedDB across reloads. Commits use GraphQL
 `createCommitOnBranch` with `expectedHeadOid` compare-and-swap, so if the
 remote moved since you started drafting, the commit fails with
 "remote changed — run `sync refresh`" rather than clobbering.
 
-**Security caveat:** the GitHub PAT lives in sessionStorage. Any injected
-script can read it. See Phase 5 (CSP hardening) before wider admin rollout.
+**Security caveat:** the GitHub PAT is sensitive browser runtime state. The
+terminal redacts `sync auth set <token>` and keeps it out of command history;
+still keep mounted content sanitized, use minimum token scopes, and enforce
+deployment CSP headers before wider admin rollout.
 
 ## Architecture
 

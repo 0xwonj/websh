@@ -31,13 +31,6 @@ pub const APP_TAGLINE: &str =
     "Applied Cryptography Researcher | Zero-Knowledge Proofs | Blockchain Security";
 
 // =============================================================================
-// Filesystem Configuration
-// =============================================================================
-
-/// Profile file name (relative to mount root).
-pub const PROFILE_FILE: &str = ".profile";
-
-// =============================================================================
 // Network Configuration
 // =============================================================================
 
@@ -134,16 +127,6 @@ pub mod boot_delays {
 pub const MS_PER_SECOND: f64 = 1000.0;
 
 // =============================================================================
-// Cache Configuration
-// =============================================================================
-
-/// Session cache configuration.
-pub mod cache {
-    /// sessionStorage key for manifest cache.
-    pub const MANIFEST_KEY: &str = "manifest_cache";
-}
-
-// =============================================================================
 // UI Configuration
 // =============================================================================
 
@@ -165,45 +148,27 @@ pub enum IconTheme {
 pub const ICON_THEME: IconTheme = IconTheme::Bootstrap;
 
 // =============================================================================
-// Mount Configuration
+// Bootstrap Source Configuration
 // =============================================================================
 
-use crate::models::{Mount, MountRegistry};
-use std::sync::OnceLock;
+use crate::models::BootstrapSiteSource;
 
-/// Static mount list. Private — external callers use `mounts()`.
-fn mount_list() -> Vec<Mount> {
-    vec![Mount::github_writable(
-        "~",
-        "https://raw.githubusercontent.com/0xwonj/db/main",
-        "~",
-    )]
-}
-
-/// Get the global mount registry.
-///
-/// Initialized once on first access. The registry is guaranteed to be
-/// non-empty (see `MountRegistry::from_mounts`).
-pub fn mounts() -> &'static MountRegistry {
-    static REGISTRY: OnceLock<MountRegistry> = OnceLock::new();
-    REGISTRY.get_or_init(|| MountRegistry::from_mounts(mount_list()))
-}
+pub const BOOTSTRAP_SITE: BootstrapSiteSource = BootstrapSiteSource {
+    repo_with_owner: "0xwonj/db",
+    branch: "main",
+    content_root: "~",
+    gateway: "https://raw.githubusercontent.com",
+    writable: true,
+};
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_mounts_is_singleton() {
-        let a = mounts() as *const _;
-        let b = mounts() as *const _;
-        assert_eq!(a, b, "mounts() must return the same static reference");
-    }
-
-    #[test]
-    fn test_mounts_has_home() {
-        let home = mounts().home();
-        assert_eq!(home.alias(), "~");
+    fn bootstrap_site_is_site_root() {
+        assert_eq!(BOOTSTRAP_SITE.mount_root().as_str(), "/site");
+        assert_eq!(BOOTSTRAP_SITE.label(), "~");
     }
 
     #[test]

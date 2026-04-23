@@ -6,9 +6,8 @@
 use leptos::prelude::*;
 
 use crate::app::AppContext;
-use crate::components::terminal::RouteContext;
 use crate::models::{DirectoryMetadata, FileType, FsEntry, Selection};
-use crate::utils::{fetch_content, markdown_to_html};
+use crate::utils::{data_url_for_bytes, markdown_to_html, media_type_for_path};
 
 /// File metadata tuple: (description, size, modified timestamp)
 pub type FileMeta = (String, Option<u64>, Option<u64>);
@@ -20,6 +19,8 @@ pub enum PreviewContent {
     Html(String),
     /// Raw text content
     Text(String),
+    /// Binary asset rendered from the engine read surface
+    AssetUrl(String),
     /// Error occurred while fetching
     Error(String),
 }
@@ -93,7 +94,6 @@ impl PreviewData {
 /// Call this once in your preview component to get all the data you need.
 pub fn use_preview() -> PreviewData {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
-    let route_ctx = use_context::<RouteContext>().expect("RouteContext must be provided");
 
     let selection = ctx.explorer.selection;
 
@@ -101,7 +101,7 @@ pub fn use_preview() -> PreviewData {
     let item_name = Signal::derive(move || {
         selection
             .get()
-            .and_then(|s| s.path.rsplit('/').next().map(String::from))
+            .and_then(|s| s.path.file_name().map(String::from))
             .unwrap_or_default()
     });
 
@@ -113,7 +113,7 @@ pub fn use_preview() -> PreviewData {
             .get()
             .filter(|s| !s.is_dir)
             .map(|s| {
-                ctx.view_fs.with(|fs| {
+                ctx.view_global_fs.with(|fs| {
                     fs.get_entry(&s.path)
                         .map(|entry| entry.is_restricted())
                         .unwrap_or(false)
@@ -123,25 +123,21 @@ pub fn use_preview() -> PreviewData {
     });
 
     // Get content path for fetching (files only)
-    let content_path = Signal::derive(move || {
-        selection
-            .get()
-            .filter(|s| !s.is_dir)
-            .and_then(|s| ctx.view_fs.with(|fs| fs.get_file_content_path(&s.path)))
-    });
+    let content_path =
+        Signal::derive(move || selection.get().filter(|s| !s.is_dir).map(|s| s.path));
 
     // Detect file type
     let file_type = Signal::derive(move || {
         content_path
             .get()
-            .map(|p| FileType::from_path(&p))
+            .map(|p| FileType::from_path(p.as_str()))
             .unwrap_or(FileType::Unknown)
     });
 
     // Get file metadata
     let file_meta = Signal::derive(move || {
         selection.get().filter(|s| !s.is_dir).and_then(|s| {
-            ctx.view_fs.with(|fs| {
+            ctx.view_global_fs.with(|fs| {
                 fs.get_entry(&s.path).and_then(|entry| match entry {
                     FsEntry::File {
                         meta, description, ..
@@ -155,13 +151,13 @@ pub fn use_preview() -> PreviewData {
     // Get directory metadata from FsEntry
     let dir_meta = Signal::derive(move || {
         selection.get().filter(|s| s.is_dir).map(|s| {
-            ctx.view_fs.with(|fs| {
+            ctx.view_global_fs.with(|fs| {
                 let mut meta = fs
                     .get_entry(&s.path)
                     .and_then(|e| e.dir_meta())
                     .map(DirMeta::from)
                     .unwrap_or_else(|| DirMeta {
-                        title: s.path.rsplit('/').next().unwrap_or("").to_string(),
+                        title: s.path.file_name().unwrap_or("").to_string(),
                         ..Default::default()
                     });
 
@@ -177,51 +173,45 @@ pub fn use_preview() -> PreviewData {
         })
     });
 
-    // Helper to get content base URL from route
-    let base_url = Signal::derive(move || {
-        let route = route_ctx.0.get();
-        route
-            .mount()
-            .map(|m| m.content_base_url())
-            .unwrap_or_else(|| crate::config::mounts().home().content_base_url())
-    });
-
-    // Build image URL for thumbnails
-    let image_url = Signal::derive(move || {
-        content_path
-            .get()
-            .map(|p| format!("{}/{}", base_url.get(), p))
-    });
-
     // Fetch content for preview (files only)
     let content = LocalResource::new(move || {
         let path = content_path.get();
         let ftype = file_type.get();
         let encrypted = is_restricted.get();
-        let url_base = base_url.get();
 
         async move {
             if encrypted {
                 return None;
             }
             let path = path?;
-            let url = format!("{}/{}", url_base, path);
 
             match ftype {
-                FileType::Markdown => match fetch_content(&url).await {
+                FileType::Markdown => match ctx.read_text(&path).await {
                     Ok(content) => {
                         let html = markdown_to_html(&content);
                         Some(PreviewContent::Html(html))
                     }
                     Err(e) => Some(PreviewContent::Error(e.to_string())),
                 },
-                FileType::Unknown => match fetch_content(&url).await {
+                FileType::Unknown => match ctx.read_text(&path).await {
                     Ok(content) => Some(PreviewContent::Text(content)),
+                    Err(e) => Some(PreviewContent::Error(e.to_string())),
+                },
+                FileType::Image => match ctx.read_bytes(&path).await {
+                    Ok(bytes) => Some(PreviewContent::AssetUrl(data_url_for_bytes(
+                        &bytes,
+                        media_type_for_path(path.as_str()),
+                    ))),
                     Err(e) => Some(PreviewContent::Error(e.to_string())),
                 },
                 _ => None,
             }
         }
+    });
+
+    let image_url = Signal::derive(move || match content.get() {
+        Some(Some(PreviewContent::AssetUrl(url))) => Some(url),
+        _ => None,
     });
 
     PreviewData {

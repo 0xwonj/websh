@@ -1,6 +1,6 @@
 //! Application router component.
 //!
-//! Handles URL-based routing with hash history for IPFS compatibility.
+//! Handles URL-based routing with hash history for static hosting.
 //! Uses native hashchange events instead of leptos_router for true hash routing.
 //!
 //! # Architecture
@@ -18,8 +18,12 @@ use wasm_bindgen::prelude::Closure;
 use crate::app::AppContext;
 use crate::components::reader::Reader;
 use crate::components::terminal::Shell;
-use crate::components::terminal::shell::OVERLAY_CLASS;
-use crate::models::AppRoute;
+use crate::components::terminal::shell::{OVERLAY_CLASS, RouteContext};
+#[cfg(target_arch = "wasm32")]
+use crate::core::engine::FsEngine;
+use crate::core::engine::{
+    RenderIntent, RouteFrame, RouteRequest, parent_request_path, push_request_path,
+};
 use crate::utils::dom::focus_terminal_input;
 
 // ============================================================================
@@ -29,24 +33,23 @@ use crate::utils::dom::focus_terminal_input;
 /// Main application router.
 ///
 /// Sets up hash-based routing with the following structure:
-/// - `#/` → Root (mount selection)
-/// - `#/~/` → Home mount directory (Browse)
-/// - `#/~/path/` → Browse directory
-/// - `#/~/path/file.ext` → Read file (with overlay)
+/// - `#/` → site/public route resolution
+/// - `#/shell` → shell entrypoint at `/site`
+/// - `#/fs/*path` → canonical filesystem browsing namespace
 #[component]
-pub fn AppRouter() -> impl IntoView {
+pub fn RouterView() -> impl IntoView {
     #[cfg(target_arch = "wasm32")]
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
 
-    // Raw route from URL hash (updated on hashchange).
-    let raw_route = RwSignal::new(AppRoute::current());
+    // Raw request from URL hash (updated on hashchange).
+    let _raw_request = RwSignal::new(RouteRequest::current());
 
     // Set up hashchange event listener (runs once on mount).
     #[cfg(target_arch = "wasm32")]
     {
         use wasm_bindgen::JsCast;
         let closure = Closure::wrap(Box::new(move || {
-            raw_route.set(AppRoute::current());
+            _raw_request.set(RouteRequest::current());
         }) as Box<dyn Fn()>);
 
         if let Some(window) = web_sys::window() {
@@ -58,38 +61,49 @@ pub fn AppRouter() -> impl IntoView {
         closure.forget();
     }
 
-    // Resolved route: re-runs whenever the hash changes OR fs loads/changes.
-    // Heuristic-only on non-wasm tests (no ctx.fs).
+    // Resolved route frame: re-runs whenever the hash changes OR fs loads/changes.
     #[cfg(target_arch = "wasm32")]
     let route = Memo::new(move |_| {
-        let raw = raw_route.get();
-        // Fast path: Root doesn't depend on fs, avoid tracking ctx.fs.
-        if matches!(raw, AppRoute::Root) {
-            return raw;
-        }
-        ctx.view_fs.with(|fs| raw.resolve(fs))
+        let request = _raw_request.get();
+        ctx.view_global_fs.with(|fs| {
+            let resolution = fs.resolve_route(&request)?;
+            let intent = fs.build_render_intent(&resolution)?;
+            Some(RouteFrame {
+                request,
+                resolution,
+                intent,
+            })
+        })
     });
     #[cfg(not(target_arch = "wasm32"))]
-    let route = Memo::new(move |_| raw_route.get());
+    let route = Memo::new(move |_| None::<RouteFrame>);
 
-    // Focus terminal input when returning from reader overlay
-    Effect::new(move |prev_was_file: Option<bool>| {
-        let is_file = route.get().is_file();
-        // If we were viewing a file and now we're not, focus the terminal input
-        if prev_was_file == Some(true) && !is_file {
+    // Focus terminal input when returning to a shell/explorer surface.
+    Effect::new(move |prev_was_reader: Option<bool>| {
+        let is_reader = route.get().is_some_and(|frame| {
+            !matches!(
+                frame.intent,
+                RenderIntent::TerminalApp { .. } | RenderIntent::DirectoryListing { .. }
+            )
+        });
+        if prev_was_reader == Some(true) && !is_reader {
             focus_terminal_input();
         }
-        is_file
+        is_reader
     });
 
     view! {
-        // Shell is always rendered (stable across route changes)
-        <Shell route=route />
-
-        // ReaderOverlay is shown only for file routes
-        <Show when=move || route.get().is_file()>
-            <ReaderOverlay route=route />
-        </Show>
+        {move || match route.get() {
+            Some(frame) => match frame.intent {
+                RenderIntent::TerminalApp { .. } | RenderIntent::DirectoryListing { .. } => {
+                    view! { <Shell route=Memo::new(move |_| route.get().expect("frame available")) /> }.into_any()
+                }
+                _ => {
+                    view! { <ReaderOverlay route=Memo::new(move |_| route.get().expect("frame available")) /> }.into_any()
+                }
+            },
+            None => view! { <NotFound /> }.into_any(),
+        }}
     }
 }
 
@@ -99,20 +113,29 @@ pub fn AppRouter() -> impl IntoView {
 
 /// Overlay component for reading files.
 ///
-/// Renders on top of Shell when the current route is a file.
-/// Closes by navigating to the parent directory. The browser's own
-/// history tracks the closed file, so forward navigation works without
-/// any in-app stack.
+/// Renders a reader-like surface for non-shell intents.
 #[component]
-fn ReaderOverlay(route: Memo<AppRoute>) -> impl IntoView {
+fn ReaderOverlay(route: Memo<RouteFrame>) -> impl IntoView {
+    provide_context(RouteContext(route));
+
     // Close handler - navigate to parent directory
     let on_close = Callback::new(move |_: ()| {
-        route.get().parent().push();
+        push_request_path(&parent_request_path(&route.get().request.url_path));
     });
 
     view! {
         <div class=OVERLAY_CLASS>
             <Reader route=route on_close=on_close />
+        </div>
+    }
+}
+
+#[component]
+fn NotFound() -> impl IntoView {
+    view! {
+        <div style="padding: 2rem; font-family: monospace;">
+            <h1>"404"</h1>
+            <p>"No route matched the current path."</p>
         </div>
     }
 }

@@ -38,11 +38,8 @@ fn filter_grep(args: &[String], lines: Vec<OutputLine>) -> CommandResult {
                 "--extended-regexp" => {} // no-op: regex crate is always extended
                 "--fixed-strings" => fixed_strings = true,
                 _ => {
-                    return CommandResult::error_line(format!(
-                        "grep: unknown option: {}",
-                        arg
-                    ))
-                    .with_exit_code(2);
+                    return CommandResult::error_line(format!("grep: unknown option: {}", arg))
+                        .with_exit_code(2);
                 }
             }
         } else if let Some(rest) = arg.strip_prefix('-') {
@@ -263,10 +260,7 @@ mod tests {
 
     #[test]
     fn test_grep_case_sensitive_by_default() {
-        let lines = vec![
-            OutputLine::text("Apple"),
-            OutputLine::text("apple"),
-        ];
+        let lines = vec![OutputLine::text("Apple"), OutputLine::text("apple")];
         let result = apply_filter("grep", &args(&["apple"]), lines);
         // default is case-sensitive now (was case-insensitive previously)
         assert_eq!(result.exit_code, 0);
@@ -300,10 +294,7 @@ mod tests {
 
     #[test]
     fn test_grep_combined_short_flags() {
-        let lines = vec![
-            OutputLine::text("Apple"),
-            OutputLine::text("banana"),
-        ];
+        let lines = vec![OutputLine::text("Apple"), OutputLine::text("banana")];
         let result = apply_filter("grep", &args(&["-iv", "apple"]), lines);
         // -i case-insensitive AND -v invert: "Apple" matches case-insensitive so is excluded;
         // "banana" doesn't match, so is kept
