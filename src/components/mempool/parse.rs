@@ -28,6 +28,7 @@ pub fn parse_priority(value: &str) -> Option<Priority> {
 /// at the top, joins continuation lines with a single space, truncates at
 /// `DESC_MAX_CHARS` with an ellipsis.
 pub fn extract_first_paragraph(body: &str) -> String {
+    let body = strip_frontmatter(body);
     let mut lines = body
         .lines()
         .skip_while(|line| line.is_empty() || line.starts_with('#'));
@@ -259,6 +260,19 @@ mod tests {
     fn extracts_first_paragraph_with_no_heading() {
         let body = "Standalone para.\n\nAnother.\n";
         assert_eq!(extract_first_paragraph(body), "Standalone para.");
+    }
+
+    #[test]
+    fn extracts_first_paragraph_skips_frontmatter() {
+        let body = "---\n\
+                    title: foo\n\
+                    status: draft\n\
+                    modified: 2026-04-01\n\
+                    ---\n\
+                    # Heading\n\
+                    \n\
+                    Real body paragraph.\n";
+        assert_eq!(extract_first_paragraph(body), "Real body paragraph.");
     }
 
     #[test]

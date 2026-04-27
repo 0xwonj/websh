@@ -26,7 +26,13 @@ pub async fn load_mempool_files(ctx: AppContext) -> Vec<LoadedMempoolFile> {
     for path in paths {
         match ctx.read_text(&path).await {
             Ok(body) => {
-                let meta = parse_mempool_frontmatter(&body).unwrap_or_default();
+                let Some(meta) = parse_mempool_frontmatter(&body) else {
+                    leptos::logging::warn!(
+                        "mempool: skipping {} — no recognizable frontmatter",
+                        path.as_str()
+                    );
+                    continue;
+                };
                 let byte_len = body.as_bytes().len();
                 let is_markdown = path.as_str().ends_with(".md");
                 out.push(LoadedMempoolFile {
@@ -63,7 +69,9 @@ fn walk(fs: &GlobalFs, current: &VirtualPath, out: &mut Vec<VirtualPath>) {
             }
         }
         FsEntry::File { .. } => {
-            out.push(current.clone());
+            if current.as_str().ends_with(".md") {
+                out.push(current.clone());
+            }
         }
     }
 }
