@@ -5,6 +5,7 @@ mod loader;
 mod model;
 mod parse;
 mod preview;
+mod serialize;
 
 pub use component::Mempool;
 pub use loader::{load_mempool_files, mempool_root};
@@ -14,3 +15,4 @@ pub use model::{
 };
 pub use parse::{RawMempoolMeta, parse_mempool_frontmatter};
 pub use preview::MempoolPreviewModal;
+pub use serialize::{ComposePayload, serialize_mempool_file, slug_from_title};
