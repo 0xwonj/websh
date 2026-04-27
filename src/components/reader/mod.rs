@@ -11,11 +11,13 @@ use leptos_icons::Icon;
 use crate::app::AppContext;
 use crate::components::Breadcrumb;
 use crate::components::icons as ic;
-use crate::core::engine::{RouteFrame, request_path_for_canonical_path};
-use crate::models::FileType;
+use crate::components::markdown::MarkdownView;
+use crate::components::shared::FileMetaStrip;
+use crate::core::engine::{RouteFrame, RouteSurface, request_path_for_canonical_path};
+use crate::models::{FileMetadata, FileType, FsEntry};
 use crate::utils::{
-    UrlValidation, data_url_for_bytes, markdown_to_html, media_type_for_path, sanitize_html,
-    validate_redirect_url,
+    RenderedMarkdown, UrlValidation, data_url_for_bytes, media_type_for_path, render_markdown,
+    rendered_from_html, sanitize_html, validate_redirect_url,
 };
 
 stylance::import_crate_style!(css, "src/components/reader/reader.module.css");
@@ -24,7 +26,7 @@ stylance::import_crate_style!(css, "src/components/reader/reader.module.css");
 #[derive(Clone)]
 enum ReaderContent {
     /// Markdown rendered to sanitized HTML.
-    Html(String),
+    Html(RenderedMarkdown),
     /// Unknown type, plain text.
     Text(String),
     /// Binary asset rendered from the engine read surface.
@@ -35,13 +37,55 @@ enum ReaderContent {
     Error(String),
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct ContentMeta {
+    date: Option<String>,
+    tags: Vec<String>,
+}
+
+impl ContentMeta {
+    fn from_file_meta(meta: &FileMetadata) -> Self {
+        Self {
+            date: meta.date.as_deref().and_then(non_empty_text),
+            tags: meta
+                .tags
+                .iter()
+                .filter_map(|value| non_empty_text(value))
+                .collect::<Vec<_>>(),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.date.is_none() && self.tags.is_empty()
+    }
+}
+
+/// Display mode for the [`Reader`] component.
+///
+/// `Full` renders the complete header surface (used by the route-based reader
+/// page). `Preview` hides path-revealing affordances (breadcrumb and the
+/// open-in-new-tab anchors) so the reader can be embedded without leaking
+/// internal request paths such as `/mempool/...`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ReaderMode {
+    #[default]
+    Full,
+    Preview,
+}
+
 /// Reader component for displaying file content.
 ///
 /// # Props
 /// - `route`: The current route frame (must resolve to a reader-capable intent)
 /// - `on_close`: Callback invoked when the reader should be closed
+/// - `mode`: Display mode controlling whether path-revealing UI is shown
+///   (defaults to [`ReaderMode::Full`])
 #[component]
-pub fn Reader(route: Memo<RouteFrame>, on_close: Callback<()>) -> impl IntoView {
+pub fn Reader(
+    route: Memo<RouteFrame>,
+    on_close: Callback<()>,
+    #[prop(default = ReaderMode::Full)] mode: ReaderMode,
+) -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
     let canonical_path = Memo::new(move |_| route.get().resolution.node_path.clone());
 
@@ -54,7 +98,7 @@ pub fn Reader(route: Memo<RouteFrame>, on_close: Callback<()>) -> impl IntoView 
     let route_href = Memo::new(move |_| {
         format!(
             "#{}",
-            request_path_for_canonical_path(&canonical_path.get())
+            request_path_for_canonical_path(&canonical_path.get(), RouteSurface::Content)
         )
     });
 
@@ -77,11 +121,11 @@ pub fn Reader(route: Memo<RouteFrame>, on_close: Callback<()>) -> impl IntoView 
         async move {
             match ft {
                 FileType::Html => match ctx.read_text(&canonical).await {
-                    Ok(html) => ReaderContent::Html(sanitize_html(&html)),
+                    Ok(html) => ReaderContent::Html(rendered_from_html(sanitize_html(&html))),
                     Err(e) => ReaderContent::Error(e.to_string()),
                 },
                 FileType::Markdown => match ctx.read_text(&canonical).await {
-                    Ok(md) => ReaderContent::Html(markdown_to_html(&md)),
+                    Ok(md) => ReaderContent::Html(render_markdown(&md)),
                     Err(e) => ReaderContent::Error(e.to_string()),
                 },
                 FileType::Unknown => match ctx.read_text(&canonical).await {
@@ -124,6 +168,10 @@ pub fn Reader(route: Memo<RouteFrame>, on_close: Callback<()>) -> impl IntoView 
     // Content text/html for display. Empty string when not applicable.
     let content = Signal::derive(move || match resource.get() {
         Some(ReaderContent::Html(h)) => h,
+        _ => RenderedMarkdown::default(),
+    });
+
+    let text_content = Signal::derive(move || match resource.get() {
         Some(ReaderContent::Text(t)) => t,
         _ => String::new(),
     });
@@ -137,6 +185,18 @@ pub fn Reader(route: Memo<RouteFrame>, on_close: Callback<()>) -> impl IntoView 
     let error = Signal::derive(move || match resource.get() {
         Some(ReaderContent::Error(e)) => Some(e),
         _ => None,
+    });
+
+    let content_meta = Signal::derive(move || {
+        let path = canonical_path.get();
+        ctx.view_global_fs.with(|fs| {
+            fs.get_entry(&path)
+                .and_then(|entry| match entry {
+                    FsEntry::File { meta, .. } => Some(ContentMeta::from_file_meta(meta)),
+                    FsEntry::Directory { .. } => None,
+                })
+                .unwrap_or_default()
+        })
     });
 
     // Handle keyboard events for closing
@@ -210,20 +270,24 @@ pub fn Reader(route: Memo<RouteFrame>, on_close: Callback<()>) -> impl IntoView 
                 </div>
 
                 // Breadcrumb path (center)
-                <Breadcrumb />
+                <Show when=move || mode == ReaderMode::Full>
+                    <Breadcrumb />
+                </Show>
 
                 // Action buttons (right)
                 <div class=css::headerActions>
                     // Open in new tab
-                    <a
-                        href=move || route_href.get()
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class=format!("{} {}", css::actionButton, css::desktopOnly)
-                        title="Open in new tab"
-                    >
-                        <Icon icon=ic::EXTERNAL_LINK />
-                    </a>
+                    <Show when=move || mode == ReaderMode::Full>
+                        <a
+                            href=move || route_href.get()
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class=format!("{} {}", css::actionButton, css::desktopOnly)
+                            title="Open in new tab"
+                        >
+                            <Icon icon=ic::EXTERNAL_LINK />
+                        </a>
+                    </Show>
 
                     // More menu
                     <div class=css::dropdownWrapper>
@@ -243,15 +307,17 @@ pub fn Reader(route: Memo<RouteFrame>, on_close: Callback<()>) -> impl IntoView 
                                 </button>
 
                                 // Open in new tab (mobile)
-                                <a
-                                    href=move || route_href.get()
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    class=format!("{} {}", css::dropdownItem, css::mobileOnly)
-                                >
-                                    <span class=css::dropdownIcon><Icon icon=ic::EXTERNAL_LINK /></span>
-                                    "Open in new tab"
-                                </a>
+                                <Show when=move || mode == ReaderMode::Full>
+                                    <a
+                                        href=move || route_href.get()
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        class=format!("{} {}", css::dropdownItem, css::mobileOnly)
+                                    >
+                                        <span class=css::dropdownIcon><Icon icon=ic::EXTERNAL_LINK /></span>
+                                        "Open in new tab"
+                                    </a>
+                                </Show>
 
                                 <div class=css::dropdownDivider />
 
@@ -300,7 +366,10 @@ pub fn Reader(route: Memo<RouteFrame>, on_close: Callback<()>) -> impl IntoView 
                             match file_type.get() {
                                 FileType::Html | FileType::Markdown => {
                                     view! {
-                                        <div class=css::markdown inner_html=content />
+                                        <Show when=move || !content_meta.get().is_empty()>
+                                            <ReaderContentMeta meta=content_meta />
+                                        </Show>
+                                        <MarkdownView rendered=content class=css::markdown />
                                     }.into_any()
                                 }
                                 FileType::Pdf => {
@@ -332,7 +401,7 @@ pub fn Reader(route: Memo<RouteFrame>, on_close: Callback<()>) -> impl IntoView 
                                 }
                                 FileType::Unknown => {
                                     view! {
-                                        <div class=css::rawText>{content}</div>
+                                        <div class=css::rawText>{text_content}</div>
                                     }.into_any()
                                 }
                             }
@@ -347,4 +416,26 @@ pub fn Reader(route: Memo<RouteFrame>, on_close: Callback<()>) -> impl IntoView 
             </div>
         </div>
     }
+}
+
+#[component]
+fn ReaderContentMeta(meta: Signal<ContentMeta>) -> impl IntoView {
+    let date = Signal::derive(move || meta.get().date);
+    let tags = Signal::derive(move || meta.get().tags);
+
+    view! {
+        <FileMetaStrip
+            date=date
+            tags=tags
+            class=css::metaRow
+            date_class=css::metaDate
+            tags_class=css::metaTags
+            tag_class=css::metaTag
+        />
+    }
+}
+
+fn non_empty_text(value: &str) -> Option<String> {
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_string())
 }

@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use leptos::prelude::*;
 
 use crate::app::AppContext;
-use crate::components::reader::Reader;
+use crate::components::reader::{Reader, ReaderMode};
 use crate::core::engine::{
     RenderIntent, ResolvedKind, RouteFrame, RouteRequest, RouteResolution, RouteSurface,
     build_render_intent, resolve_route,
@@ -52,7 +52,7 @@ pub fn MempoolPreviewModal(
                             >
                                 "\u{00d7}"
                             </button>
-                            <Reader route=route on_close=on_close />
+                            <Reader route=route on_close=on_close mode=ReaderMode::Preview />
                         </div>
                     </div>
                 }
