@@ -212,6 +212,7 @@ fn LedgerFilterBar(model: LedgerModel) -> impl IntoView {
                 }
             }).collect_view()}
             <span class=css::dash aria-hidden="true"></span>
+            <span class=css::filterBarSlot aria-hidden="true"></span>
         </nav>
     }
 }
