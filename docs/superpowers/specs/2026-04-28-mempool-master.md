@@ -59,7 +59,7 @@ Three phases, executed sequentially. Each is its own PR.
 |---|---|---|---|
 | 1 | Read-only Mempool | Mempool section renders pending entries from `/mempool` mount; click opens modal preview; filter integration | **Complete** |
 | 2 | Authoring (Compose & Edit) | Author-mode toggle, compose modal, edit existing draft, GitHub commit to mempool repo | **Complete** |
-| 3 | Promotion | Promote button on mempool item, two-commit transaction, deploy hint banner | **In Design** |
+| 3 | Promotion | Promote button on mempool item, two-commit transaction, deploy hint banner | **Complete** |
 
 After Phase 3, V1 is complete. V2 items (§7) are queued separately.
 
@@ -111,8 +111,8 @@ Generated as phases progress. Update the table when a new artifact lands.
 | 1 | Plan | `docs/superpowers/plans/2026-04-28-mempool-phase1-plan.md` | Complete |
 | 2 | Design | `docs/superpowers/specs/2026-04-28-mempool-phase2-design.md` | Approved |
 | 2 | Plan | `docs/superpowers/plans/2026-04-28-mempool-phase2-plan.md` | Complete |
-| 3 | Design | _(to be added)_ | — |
-| 3 | Plan | _(to be added)_ | — |
+| 3 | Design | `docs/superpowers/specs/2026-04-28-mempool-phase3-design.md` | Approved |
+| 3 | Plan | `docs/superpowers/plans/2026-04-28-mempool-phase3-plan.md` | Complete |
 
 ## 7. Out of Scope (V2 and Beyond)
 
@@ -163,3 +163,4 @@ Captured chronologically. Append-only.
 | 2026-04-28 | Phase 1 (read-only) complete: 12 tasks shipped, reviewer findings (1 Critical, 2 Important) addressed in 2 fix commits | §4 |
 | 2026-04-28 | Phase 2 (authoring) complete: ComposeModal + save flow + author-mode wiring shipped across 4 feat commits + 1 test commit; reviewer findings (1 Critical slug-collision, 2 High YAML/edit-fetch) closed in `9bd0d06` along with priority/tags validators and Esc/Cmd-S shortcuts | §4 |
 | 2026-04-28 | Phase 2 visual QA (design §8.3) **skipped** — `0xwonj/websh-mempool` repo not yet provisioned (HTTP 404 from api.github.com). Mempool section renders empty state when mount scan returns zero entries, so the live UX cannot be exercised until the repo exists. Automated coverage (478 tests + wasm/host typechecks) stands; manual QA deferred to first natural opportunity (Phase 3 promote flow needs the repo too) | §4 |
+| 2026-04-28 | Phase 3 (promotion) complete: pure helpers + apply_commit_outcome bookkeeping (closes Phase 2's stale `remote_heads` bug) + two-commit promote orchestration with partial-failure recovery + PromoteConfirmModal + per-item Promote button + LedgerPage banners + 12-test integration suite, shipped across 6 feat/test/fix commits + 1 docs commit. Reviewer findings (Esc handler, backdrop-while-running guard, page banner timing, dead variants) closed in `69de9c0`. Visual QA skipped per user direction; deferred to first natural opportunity together with Phase 2 once `0xwonj/websh-mempool` is provisioned. V1 `draft → mempool → promote → deploy → block` loop is now closed end-to-end pending live validation. | §4 |

@@ -19,7 +19,6 @@ In:
 - Partial-failure handling: if step 1 fails, no mempool change is made. If step 2 fails after step 1 succeeded, surface a recovery banner that explains exactly what state the user is now in (entry exists in both repos) and gives a one-click "retry mempool delete" option.
 - Deploy-hint banner that appears after the full transaction succeeds, instructing the user to run `just pin`. Persists across mempool list refresh until dismissed (or until the user navigates away from `/ledger`).
 - Mempool list refresh on success (uses the same `mempool_refresh` signal Phase 2 already wired).
-- Terminal `OutputLine` echoes for both commits (consistent with how `sync` reports to the terminal today).
 
 Out (covered by master §7):
 
