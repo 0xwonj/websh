@@ -3,5 +3,8 @@
 mod model;
 mod parse;
 
-pub use model::{LedgerFilterShape, MempoolEntry, MempoolModel, MempoolStatus, Priority};
+pub use model::{
+    LedgerFilterShape, LoadedMempoolFile, MempoolEntry, MempoolModel, MempoolStatus, Priority,
+    build_mempool_model,
+};
 pub use parse::{RawMempoolMeta, parse_mempool_frontmatter};
