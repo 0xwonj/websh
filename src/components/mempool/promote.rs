@@ -32,8 +32,6 @@ pub enum PromoteError {
     BackendMissingFor(VirtualPath),
     TokenMissing,
     BodyReadFailed(String),
-    BundleCommitFailed(String),
-    MempoolCommitFailed(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -396,7 +394,25 @@ pub fn PromoteConfirmModal(
 ) -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
 
-    let close = move || set_state.set(PromoteState::Idle);
+    let dismissable = move || !matches!(state.get(), PromoteState::Running { .. });
+
+    let close = move || {
+        if !dismissable() {
+            return;
+        }
+        // If the user dismisses while in PartialFailure, propagate to the
+        // page-level partial banner so the warning stays visible after the
+        // modal closes.
+        if let PromoteState::PartialFailure {
+            source,
+            target,
+            error,
+        } = state.get_untracked()
+        {
+            on_partial.run((source, target, error));
+        }
+        set_state.set(PromoteState::Idle);
+    };
 
     let on_confirm = {
         let ctx = ctx.clone();
@@ -436,6 +452,13 @@ pub fn PromoteConfirmModal(
         }
     };
 
+    let on_panel_keydown = move |ev: leptos::ev::KeyboardEvent| {
+        if ev.key() == "Escape" {
+            ev.prevent_default();
+            close();
+        }
+    };
+
     view! {
         <Show when=move || state.with(|s| !matches!(s, PromoteState::Idle | PromoteState::Done { .. }))>
             <div class=css::backdrop on:click=move |_| close()>
@@ -443,7 +466,9 @@ pub fn PromoteConfirmModal(
                     class=css::panel
                     role="dialog"
                     aria-label="Promote mempool entry"
+                    tabindex="-1"
                     on:click=|ev: leptos::ev::MouseEvent| ev.stop_propagation()
+                    on:keydown=on_panel_keydown
                 >
                     <header class=css::header>
                         <span class=css::title>"promote to canonical chain"</span>
@@ -477,21 +502,16 @@ fn handle_terminal_state(
     next: PromoteState,
     set_state: WriteSignal<PromoteState>,
     on_done: Callback<(VirtualPath, VirtualPath)>,
-    on_partial: Callback<(VirtualPath, VirtualPath, String)>,
+    _on_partial: Callback<(VirtualPath, VirtualPath, String)>,
 ) {
     match &next {
         PromoteState::Done { source, target } => {
             on_done.run((source.clone(), target.clone()));
             set_state.set(PromoteState::Idle);
         }
-        PromoteState::PartialFailure {
-            source,
-            target,
-            error,
-        } => {
-            on_partial.run((source.clone(), target.clone(), error.clone()));
-            set_state.set(next);
-        }
+        // PartialFailure → keep the modal open with its in-place retry banner.
+        // The page-level banner only appears once the user dismisses the modal
+        // without retrying (handled by the close path below).
         _ => set_state.set(next),
     }
 }
@@ -598,7 +618,6 @@ pub fn humanize_promote_error(err: &PromoteError) -> String {
         }
         PromoteError::TokenMissing => "missing GitHub token".to_string(),
         PromoteError::BodyReadFailed(s) => format!("failed to read mempool body: {s}"),
-        PromoteError::BundleCommitFailed(s) | PromoteError::MempoolCommitFailed(s) => s.clone(),
     }
 }
 
