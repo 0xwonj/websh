@@ -1,0 +1,9 @@
+{
+  "backend": "github",
+  "mount_at": "/mempool",
+  "repo": "0xwonj/websh-mempool",
+  "branch": "main",
+  "root": "",
+  "name": "mempool",
+  "writable": true
+}
