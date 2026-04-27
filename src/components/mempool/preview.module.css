@@ -1,0 +1,38 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+}
+
+.panel {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-muted);
+  width: min(720px, 92vw);
+  max-height: 86vh;
+  overflow: auto;
+  padding: 28px 32px 32px;
+  position: relative;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+}
+
+.close {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: 22px;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 0 6px;
+}
+
+.close:hover {
+  color: var(--text-primary);
+}

@@ -8,8 +8,8 @@ use crate::app::AppContext;
 use crate::components::chrome::SiteChrome;
 use crate::components::ledger_routes::LEDGER_CATEGORIES;
 use crate::components::mempool::{
-    LedgerFilterShape, Mempool, MempoolEntry, build_mempool_model, load_mempool_files,
-    mempool_root,
+    LedgerFilterShape, Mempool, MempoolEntry, MempoolPreviewModal, build_mempool_model,
+    load_mempool_files, mempool_root,
 };
 use crate::components::shared::{
     AttestationSigFooter, MetaRow, MetaTable, SiteContentFrame, SiteSurface,
@@ -75,8 +75,10 @@ pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
         async move { load_mempool_files(ctx).await }
     });
 
-    let on_mempool_select = Callback::new(move |_entry: MempoolEntry| {
-        // Modal preview wiring lands in Task 9.
+    let (preview_open, set_preview_open) = signal(None::<VirtualPath>);
+
+    let on_mempool_select = Callback::new(move |entry: MempoolEntry| {
+        set_preview_open.set(Some(entry.path));
     });
 
     let attestation_route = Signal::derive(|| CONTENT_LEDGER_ROUTE.to_string());
@@ -140,6 +142,7 @@ pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
                 </Suspense>
                 <AttestationSigFooter route=attestation_route show_pending=true />
             </SiteContentFrame>
+            <MempoolPreviewModal open_path=preview_open set_open_path=set_preview_open />
         </SiteSurface>
     }
 }
