@@ -8,11 +8,15 @@
 //! async pipeline lives in `promote_entry` and orchestrates the two
 //! `commit_backend` calls plus post-commit bookkeeping.
 
-use leptos::prelude::{Update, WithUntracked};
+use std::sync::Arc;
+
+use leptos::prelude::{Update, With, WithUntracked};
 
 use crate::app::AppContext;
 use crate::core::changes::{ChangeSet, ChangeType};
-use crate::core::storage::CommitOutcome;
+use crate::core::runtime::state::github_token_for_commit;
+use crate::core::runtime::{commit_backend, reload_runtime};
+use crate::core::storage::{CommitOutcome, StorageBackend};
 use crate::models::{FileMetadata, RuntimeMount, VirtualPath};
 
 use super::loader::mempool_root;
@@ -157,6 +161,245 @@ fn mount_id_fallback(root: &VirtualPath) -> String {
         "~".to_string()
     } else {
         root.as_str().trim_start_matches('/').replace('/', ":")
+    }
+}
+
+/// Visible state of the promote flow. `LedgerPage` and `PromoteConfirmModal`
+/// drive their banners and buttons off this enum.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PromoteState {
+    Idle,
+    Confirming {
+        source: VirtualPath,
+        target: VirtualPath,
+    },
+    Running {
+        source: VirtualPath,
+        target: VirtualPath,
+    },
+    PartialFailure {
+        source: VirtualPath,
+        target: VirtualPath,
+        error: String,
+    },
+    Done {
+        source: VirtualPath,
+        target: VirtualPath,
+    },
+    Failed {
+        source: VirtualPath,
+        error: String,
+    },
+}
+
+/// Run the full two-commit promotion. On bundle-add failure: returns Failed
+/// without touching the mempool. On mempool-drop failure after bundle-add
+/// succeeded: returns PartialFailure so the UI can offer Retry.
+pub async fn promote_entry(ctx: AppContext, source: VirtualPath) -> PromoteState {
+    let bundle_root = VirtualPath::root();
+    let mempool = mempool_root();
+
+    let source_exists = ctx.view_global_fs.with(|fs| fs.exists(&source));
+    let target_exists_path = match promote_target_path(&source) {
+        Ok(t) => t,
+        Err(err) => {
+            return PromoteState::Failed {
+                source,
+                error: humanize_promote_error(&err),
+            };
+        }
+    };
+    let target_exists = ctx
+        .view_global_fs
+        .with(|fs| fs.exists(&target_exists_path));
+    let bundle_backend = ctx.backend_for_path(&bundle_root);
+    let mempool_backend = ctx.backend_for_path(&mempool);
+    let token = github_token_for_commit();
+
+    let target = match preflight_promote_paths(
+        &source,
+        source_exists,
+        target_exists,
+        bundle_backend.is_some(),
+        mempool_backend.is_some(),
+        token.is_some(),
+    ) {
+        Ok(t) => t,
+        Err(err) => {
+            return PromoteState::Failed {
+                source,
+                error: humanize_promote_error(&err),
+            };
+        }
+    };
+    let bundle_backend = bundle_backend.expect("preflight ensured present");
+    let mempool_backend = mempool_backend.expect("preflight ensured present");
+    let token = token.expect("preflight ensured present");
+
+    let body = match ctx.read_text(&source).await {
+        Ok(body) => body,
+        Err(error) => {
+            return PromoteState::Failed {
+                source,
+                error: humanize_promote_error(&PromoteError::BodyReadFailed(error.to_string())),
+            };
+        }
+    };
+
+    let messages = match promote_commit_messages(&source) {
+        Ok(m) => m,
+        Err(err) => {
+            return PromoteState::Failed {
+                source,
+                error: humanize_promote_error(&err),
+            };
+        }
+    };
+
+    let bundle_changes = build_bundle_add_change_set(&target, &body);
+    let bundle_expected_head = ctx.remote_head_for_path(&bundle_root);
+    let bundle_outcome = match commit_backend(
+        bundle_backend,
+        bundle_root.clone(),
+        bundle_changes,
+        messages.bundle_add.clone(),
+        bundle_expected_head,
+        Some(token.clone()),
+    )
+    .await
+    {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            return PromoteState::Failed {
+                source,
+                error: error.to_string(),
+            };
+        }
+    };
+    apply_commit_outcome(&ctx, &bundle_root, &bundle_outcome).await;
+
+    match commit_mempool_drop(
+        &ctx,
+        &source,
+        &mempool_backend,
+        &messages.mempool_drop,
+        &token,
+    )
+    .await
+    {
+        Ok(outcome) => {
+            apply_commit_outcome(&ctx, &mempool, &outcome).await;
+            reload_and_apply(&ctx).await;
+            PromoteState::Done { source, target }
+        }
+        Err(error) => PromoteState::PartialFailure {
+            source,
+            target,
+            error,
+        },
+    }
+}
+
+/// Replay only the mempool-drop arm. Used by the modal's Retry button after
+/// a partial failure.
+pub async fn retry_mempool_drop(
+    ctx: AppContext,
+    source: VirtualPath,
+    target: VirtualPath,
+) -> PromoteState {
+    let mempool = mempool_root();
+    let backend = match ctx.backend_for_path(&mempool) {
+        Some(b) => b,
+        None => {
+            return PromoteState::PartialFailure {
+                source,
+                target,
+                error: "mempool backend not configured".to_string(),
+            };
+        }
+    };
+    let token = match github_token_for_commit() {
+        Some(t) => t,
+        None => {
+            return PromoteState::PartialFailure {
+                source,
+                target,
+                error: "missing GitHub token".to_string(),
+            };
+        }
+    };
+    let messages = match promote_commit_messages(&source) {
+        Ok(m) => m,
+        Err(err) => {
+            return PromoteState::PartialFailure {
+                source,
+                target,
+                error: humanize_promote_error(&err),
+            };
+        }
+    };
+
+    match commit_mempool_drop(&ctx, &source, &backend, &messages.mempool_drop, &token).await {
+        Ok(outcome) => {
+            apply_commit_outcome(&ctx, &mempool, &outcome).await;
+            reload_and_apply(&ctx).await;
+            PromoteState::Done { source, target }
+        }
+        Err(error) => PromoteState::PartialFailure {
+            source,
+            target,
+            error,
+        },
+    }
+}
+
+async fn commit_mempool_drop(
+    ctx: &AppContext,
+    source: &VirtualPath,
+    backend: &Arc<dyn StorageBackend>,
+    message: &str,
+    token: &str,
+) -> Result<CommitOutcome, String> {
+    let mempool = mempool_root();
+    let changes = build_mempool_drop_change_set(source);
+    let expected_head = ctx.remote_head_for_path(&mempool);
+    commit_backend(
+        backend.clone(),
+        mempool,
+        changes,
+        message.to_string(),
+        expected_head,
+        Some(token.to_string()),
+    )
+    .await
+    .map_err(|err| err.to_string())
+}
+
+async fn reload_and_apply(ctx: &AppContext) {
+    match reload_runtime().await {
+        Ok(load) => ctx.apply_runtime_load(load),
+        Err(error) => leptos::logging::warn!(
+            "promote: runtime reload after commit failed: {error}"
+        ),
+    }
+}
+
+pub fn humanize_promote_error(err: &PromoteError) -> String {
+    match err {
+        PromoteError::SourceNotInMempool(p) => format!("{p} is not under /mempool"),
+        PromoteError::MempoolEntryMissing(p) => {
+            format!("mempool entry {} no longer exists", p.as_str())
+        }
+        PromoteError::BundleTargetCollision(p) => format!(
+            "{} already exists in the canonical chain — cannot promote without overwriting",
+            p.as_str()
+        ),
+        PromoteError::BackendMissingFor(p) => {
+            format!("no backend configured for {}", p.as_str())
+        }
+        PromoteError::TokenMissing => "missing GitHub token".to_string(),
+        PromoteError::BodyReadFailed(s) => format!("failed to read mempool body: {s}"),
+        PromoteError::BundleCommitFailed(s) | PromoteError::MempoolCommitFailed(s) => s.clone(),
     }
 }
 
