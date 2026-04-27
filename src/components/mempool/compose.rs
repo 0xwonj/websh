@@ -291,10 +291,18 @@ pub async fn save_compose(
     let message = commit_message(&mode, &form);
     let changes = build_change_set(&mode, &form);
 
-    commit_backend(backend, root, changes, message, expected_head, Some(token))
-        .await
-        .map(|_outcome| ())
-        .map_err(|err| err.to_string())
+    let outcome = commit_backend(
+        backend,
+        root.clone(),
+        changes,
+        message,
+        expected_head,
+        Some(token),
+    )
+    .await
+    .map_err(|err| err.to_string())?;
+    super::promote::apply_commit_outcome(&ctx, &root, &outcome).await;
+    Ok(())
 }
 
 #[component]

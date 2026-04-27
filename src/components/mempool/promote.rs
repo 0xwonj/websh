@@ -8,8 +8,12 @@
 //! async pipeline lives in `promote_entry` and orchestrates the two
 //! `commit_backend` calls plus post-commit bookkeeping.
 
+use leptos::prelude::{Update, WithUntracked};
+
+use crate::app::AppContext;
 use crate::core::changes::{ChangeSet, ChangeType};
-use crate::models::{FileMetadata, VirtualPath};
+use crate::core::storage::CommitOutcome;
+use crate::models::{FileMetadata, RuntimeMount, VirtualPath};
 
 use super::loader::mempool_root;
 
@@ -106,6 +110,54 @@ pub fn preflight_promote_paths(
         return Err(PromoteError::TokenMissing);
     }
     Ok(target)
+}
+
+/// Update `ctx.remote_heads` and persist the new HEAD to IDB so subsequent
+/// `expected_head` lookups for the same mount reflect the just-committed
+/// OID. Best-effort: a failed IDB write is logged but does not poison the
+/// in-memory signal. Mirrors the bookkeeping the terminal `sync` flow does
+/// after its commit, so author-driven flows do not drift.
+pub async fn apply_commit_outcome(
+    ctx: &AppContext,
+    mount_root: &VirtualPath,
+    outcome: &CommitOutcome,
+) {
+    ctx.remote_heads.update(|map| {
+        map.insert(mount_root.clone(), outcome.new_head.clone());
+    });
+
+    let storage_id = ctx
+        .runtime_mounts
+        .with_untracked(|mounts| {
+            mounts
+                .iter()
+                .find(|m| &m.root == mount_root)
+                .map(RuntimeMount::storage_id)
+        })
+        .unwrap_or_else(|| mount_id_fallback(mount_root));
+
+    if let Ok(db) = crate::core::storage::idb::open_db().await {
+        if let Err(error) = crate::core::storage::idb::save_metadata(
+            &db,
+            &format!("remote_head.{storage_id}"),
+            &outcome.new_head,
+        )
+        .await
+        {
+            leptos::logging::warn!(
+                "promote: persist remote_head for {} failed: {error}",
+                mount_root.as_str()
+            );
+        }
+    }
+}
+
+fn mount_id_fallback(root: &VirtualPath) -> String {
+    if root.is_root() {
+        "~".to_string()
+    } else {
+        root.as_str().trim_start_matches('/').replace('/', ":")
+    }
 }
 
 #[cfg(test)]
@@ -247,6 +299,19 @@ mod tests {
             ),
             Err(PromoteError::BackendMissingFor(_))
         ));
+    }
+
+    #[test]
+    fn mount_id_fallback_handles_root_and_nested() {
+        assert_eq!(mount_id_fallback(&VirtualPath::root()), "~");
+        assert_eq!(
+            mount_id_fallback(&p("/mempool")),
+            "mempool"
+        );
+        assert_eq!(
+            mount_id_fallback(&p("/db/notes")),
+            "db:notes"
+        );
     }
 
     #[test]
