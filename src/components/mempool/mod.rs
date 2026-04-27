@@ -10,7 +10,9 @@ mod serialize;
 
 pub use component::Mempool;
 pub use compose::{
-    ComposeError, ComposeForm, ComposeMode, form_to_payload, target_path, validate_form,
+    ComposeError, ComposeForm, ComposeModal, ComposeMode, build_change_set, commit_message,
+    derive_form_from_mode, form_to_payload, save_compose, save_path_for, target_path,
+    validate_form,
 };
 pub use loader::{load_mempool_files, mempool_root};
 pub use model::{
