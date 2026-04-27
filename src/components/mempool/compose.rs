@@ -29,6 +29,16 @@ use super::serialize::{ComposePayload, serialize_mempool_file, slug_from_title};
 stylance::import_crate_style!(css, "src/components/mempool/compose.module.css");
 
 const ALLOWED_STATUSES: &[&str] = &["draft", "review"];
+const ALLOWED_PRIORITIES: &[&str] = &["low", "med", "high"];
+
+/// Characters in a `title` that the simple quoted-string YAML serializer
+/// cannot round-trip through `parse_mempool_frontmatter`. Validation
+/// rejects them outright rather than risk silent corruption on save.
+const TITLE_RESERVED: &[char] = &['"', '\\', '\n', '\r', ':'];
+
+/// Characters in a single `tag` that break the inline-list shape
+/// `tags: [a, b, c]`. Same validation rationale as titles.
+const TAG_RESERVED: &[char] = &['[', ']', ',', '"', '\n', '\r'];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ComposeMode {
@@ -51,16 +61,21 @@ pub struct ComposeForm {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ComposeError {
     TitleEmpty,
+    TitleHasReservedChars,
     SlugInvalid,
     StatusUnknown,
     ModifiedNotIso,
     CategoryUnknown,
+    PriorityUnknown,
+    TagHasReservedChars,
 }
 
 pub fn validate_form(form: &ComposeForm) -> Vec<ComposeError> {
     let mut errors = Vec::new();
     if form.title.trim().is_empty() {
         errors.push(ComposeError::TitleEmpty);
+    } else if form.title.chars().any(|c| TITLE_RESERVED.contains(&c)) {
+        errors.push(ComposeError::TitleHasReservedChars);
     }
     if !slug_is_valid(&form.slug) {
         errors.push(ComposeError::SlugInvalid);
@@ -73,6 +88,18 @@ pub fn validate_form(form: &ComposeForm) -> Vec<ComposeError> {
     }
     if !LEDGER_CATEGORIES.contains(&form.category.as_str()) {
         errors.push(ComposeError::CategoryUnknown);
+    }
+    if let Some(priority) = &form.priority {
+        if !ALLOWED_PRIORITIES.contains(&priority.as_str()) {
+            errors.push(ComposeError::PriorityUnknown);
+        }
+    }
+    if form
+        .tags
+        .iter()
+        .any(|tag| tag.chars().any(|c| TAG_RESERVED.contains(&c)))
+    {
+        errors.push(ComposeError::TagHasReservedChars);
     }
     errors
 }
@@ -242,6 +269,17 @@ pub async fn save_compose(
         return Err(format!("invalid form ({} field error(s))", errs.len()));
     }
 
+    if matches!(mode, ComposeMode::New { .. }) {
+        let target = target_path(&form);
+        let collides = ctx.view_global_fs.with(|fs| fs.exists(&target));
+        if collides {
+            return Err(format!(
+                "draft already exists at {} — pick a different slug",
+                target.as_str()
+            ));
+        }
+    }
+
     let root = mempool_root();
     let backend = ctx
         .backend_for_path(&root)
@@ -352,7 +390,10 @@ pub fn ComposeModal(
         form.update(|f| f.body = event_target_value(&ev));
     };
 
-    let on_save = move |_| {
+    let try_save: Callback<()> = Callback::new(move |_| {
+        if saving.get_untracked() {
+            return;
+        }
         let Some(mode) = open.get_untracked() else {
             return;
         };
@@ -377,9 +418,22 @@ pub fn ComposeModal(
                 Err(message) => save_error.set(Some(message)),
             }
         });
-    };
+    });
+
+    let on_save_click = move |_| try_save.run(());
 
     let on_cancel = move |_| close();
+
+    let on_panel_keydown = move |event: leptos::ev::KeyboardEvent| {
+        let key = event.key();
+        if key == "Escape" {
+            event.prevent_default();
+            close();
+        } else if (event.meta_key() || event.ctrl_key()) && (key == "s" || key == "S") {
+            event.prevent_default();
+            try_save.run(());
+        }
+    };
 
     let mode_label = move || match open.get() {
         Some(ComposeMode::New { .. }) => "compose",
@@ -404,7 +458,9 @@ pub fn ComposeModal(
                     class=css::panel
                     role="dialog"
                     aria-label="Mempool compose"
+                    tabindex="-1"
                     on:click=|ev: leptos::ev::MouseEvent| ev.stop_propagation()
+                    on:keydown=on_panel_keydown
                 >
                     <header class=css::header>
                         <span class=css::modeTag>{mode_label}</span>
@@ -432,6 +488,9 @@ pub fn ComposeModal(
                                 />
                                 {move || has_error(ComposeError::TitleEmpty).then(|| view! {
                                     <span class=css::fieldError>"title is required"</span>
+                                })}
+                                {move || has_error(ComposeError::TitleHasReservedChars).then(|| view! {
+                                    <span class=css::fieldError>{"title cannot contain \" \\ : or newlines"}</span>
                                 })}
                             </label>
                         </div>
@@ -491,6 +550,9 @@ pub fn ComposeModal(
                                     <option value="med">"med"</option>
                                     <option value="high">"high"</option>
                                 </select>
+                                {move || has_error(ComposeError::PriorityUnknown).then(|| view! {
+                                    <span class=css::fieldError>"priority must be low, med, or high"</span>
+                                })}
                             </label>
                             <label class={format!("{} {}", css::field, css::fieldNarrow)}>
                                 <span class=css::label>"modified"</span>
@@ -514,6 +576,9 @@ pub fn ComposeModal(
                                     prop:value=tags_value
                                     on:input=tags_input
                                 />
+                                {move || has_error(ComposeError::TagHasReservedChars).then(|| view! {
+                                    <span class=css::fieldError>{"tags cannot contain [ ] \" or newlines"}</span>
+                                })}
                             </label>
                         </div>
                         <textarea
@@ -535,7 +600,7 @@ pub fn ComposeModal(
                         <button
                             class=css::save
                             type="button"
-                            on:click=on_save
+                            on:click=on_save_click
                             prop:disabled=save_disabled
                         >
                             {move || if saving.get() { "Saving…" } else { "Save" }}
@@ -584,6 +649,46 @@ mod tests {
     fn validate_form_accepts_minimal_valid() {
         let payload = sample(|_| {});
         assert!(validate_form(&payload).is_empty());
+    }
+
+    #[test]
+    fn validate_form_rejects_title_with_reserved_chars() {
+        for bad in ['"', '\\', '\n', '\r', ':'] {
+            let payload = sample(|p| p.title = format!("hello {bad} world"));
+            let errs = validate_form(&payload);
+            assert!(
+                errs.contains(&ComposeError::TitleHasReservedChars),
+                "expected TitleHasReservedChars for char {:?}; got {:?}",
+                bad,
+                errs
+            );
+        }
+    }
+
+    #[test]
+    fn validate_form_rejects_unknown_priority() {
+        let payload = sample(|p| p.priority = Some("urgent".into()));
+        let errs = validate_form(&payload);
+        assert!(errs.contains(&ComposeError::PriorityUnknown));
+    }
+
+    #[test]
+    fn validate_form_accepts_known_priority_or_none() {
+        for value in [None, Some("low".into()), Some("med".into()), Some("high".into())] {
+            let payload = sample(|p| p.priority = value.clone());
+            assert!(
+                validate_form(&payload).is_empty(),
+                "expected no errors for priority {:?}",
+                value
+            );
+        }
+    }
+
+    #[test]
+    fn validate_form_rejects_tags_with_reserved_chars() {
+        let payload = sample(|p| p.tags = vec!["good".into(), "bad[tag]".into()]);
+        let errs = validate_form(&payload);
+        assert!(errs.contains(&ComposeError::TagHasReservedChars));
     }
 
     #[test]

@@ -92,8 +92,13 @@ pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
             let ctx = select_ctx.clone();
             let path = entry.path.clone();
             spawn_local(async move {
-                let body = ctx.read_text(&path).await.unwrap_or_default();
-                set_compose_open.set(Some(ComposeMode::Edit { path, body }));
+                match ctx.read_text(&path).await {
+                    Ok(body) => set_compose_open.set(Some(ComposeMode::Edit { path, body })),
+                    Err(error) => leptos::logging::warn!(
+                        "mempool: failed to read {} for edit: {error}",
+                        path.as_str()
+                    ),
+                }
             });
         } else {
             set_preview_open.set(Some(entry.path));

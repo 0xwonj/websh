@@ -93,6 +93,30 @@ fn validation_passes_minimal_valid_form() {
 }
 
 #[test]
+fn validation_rejects_title_chars_that_break_yaml_roundtrip() {
+    let mut form = sample_form();
+    form.title = "He said \"hi\"".into();
+    let errs = validate_form(&form);
+    assert!(errs.contains(&ComposeError::TitleHasReservedChars));
+}
+
+#[test]
+fn validation_rejects_priority_outside_known_set() {
+    let mut form = sample_form();
+    form.priority = Some("urgent".into());
+    let errs = validate_form(&form);
+    assert!(errs.contains(&ComposeError::PriorityUnknown));
+}
+
+#[test]
+fn validation_rejects_tags_that_break_inline_list() {
+    let mut form = sample_form();
+    form.tags = vec!["safe".into(), "bad,comma".into()];
+    let errs = validate_form(&form);
+    assert!(errs.contains(&ComposeError::TagHasReservedChars));
+}
+
+#[test]
 fn change_set_for_new_mode_emits_create_file_at_target_path() {
     let form = sample_form();
     let mode = ComposeMode::New {
