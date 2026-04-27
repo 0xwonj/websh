@@ -128,6 +128,24 @@ pub fn format_eth_address(address: &str) -> String {
     }
 }
 
+/// If `value` begins with a 10-character `YYYY-MM-DD` prefix, return that
+/// prefix as a borrowed slice. Otherwise return `None`. Used as a low-cost
+/// sortable key for content dates.
+pub fn iso_date_prefix(value: &str) -> Option<&str> {
+    let bytes = value.as_bytes();
+    if bytes.len() >= 10
+        && bytes[4] == b'-'
+        && bytes[7] == b'-'
+        && bytes[..4].iter().all(|byte| byte.is_ascii_digit())
+        && bytes[5..7].iter().all(|byte| byte.is_ascii_digit())
+        && bytes[8..10].iter().all(|byte| byte.is_ascii_digit())
+    {
+        Some(&value[..10])
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,5 +185,30 @@ mod tests {
         assert_eq!(join_path("", "foo"), "foo");
         assert_eq!(join_path("dir", "file"), "dir/file");
         assert_eq!(join_path("a/b", "c"), "a/b/c");
+    }
+}
+
+#[cfg(test)]
+mod iso_date_prefix_tests {
+    use super::*;
+
+    #[test]
+    fn iso_date_prefix_accepts_canonical_iso() {
+        assert_eq!(iso_date_prefix("2026-04-22"), Some("2026-04-22"));
+    }
+
+    #[test]
+    fn iso_date_prefix_accepts_iso_with_time_suffix() {
+        assert_eq!(iso_date_prefix("2026-04-22T12:00:00Z"), Some("2026-04-22"));
+    }
+
+    #[test]
+    fn iso_date_prefix_rejects_non_iso() {
+        assert_eq!(iso_date_prefix(""), None);
+        assert_eq!(iso_date_prefix("undated"), None);
+        assert_eq!(iso_date_prefix("Apr 22, 2026"), None);
+        assert_eq!(iso_date_prefix("2026/04/22"), None);
+        assert_eq!(iso_date_prefix("2026-4-22"), None);
+        assert_eq!(iso_date_prefix("20260422"), None);
     }
 }
