@@ -1,0 +1,190 @@
+.mempool {
+  border: 1px dashed var(--ledger-rule);
+  margin: var(--space-3_5) 0 var(--space-7);
+  font-family: var(--font-mono);
+  background: rgba(214, 163, 92, 0.02);
+  position: relative;
+  opacity: 0.94;
+}
+
+.mpHead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3_5);
+  padding: var(--space-1_25) var(--space-3);
+  border-bottom: 1px dashed var(--ledger-rule);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.04em;
+  color: var(--ledger-faint);
+  text-transform: uppercase;
+}
+
+.mpLabel {
+  color: var(--ledger-amber);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.mpLabel::before {
+  content: "⏳ ";
+  opacity: 0.85;
+}
+
+.mpCount {
+  color: var(--ledger-dim);
+}
+
+.mpList {
+  display: flex;
+  flex-direction: column;
+}
+
+.mpItem {
+  display: grid;
+  grid-template-columns: 92px 1fr auto;
+  gap: var(--space-3_5);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px dashed var(--ledger-rule);
+  font-size: var(--font-size-sm);
+  color: var(--ledger-dim);
+  align-items: start;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.mpItem:last-child {
+  border-bottom: 0;
+}
+
+.mpItem:hover {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.mpStatus {
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ledger-faint);
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.mpStatus::before {
+  content: "⏳";
+  opacity: 0.6;
+  font-size: 10px;
+}
+
+.mpItemDraft .mpStatus {
+  color: var(--ledger-dim);
+}
+
+.mpItemReview .mpStatus {
+  color: var(--ledger-amber);
+}
+
+.mpItemReview .mpStatus::before {
+  content: "⌛";
+  animation: ledgerBlink 1.6s steps(2, end) infinite;
+}
+
+.mpTitle {
+  color: var(--ledger-ink);
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.mpKindTag {
+  border: 1px solid var(--ledger-rule);
+  padding: 0 5px;
+  font-size: 10px;
+  margin-right: 6px;
+  letter-spacing: 0;
+  text-transform: none;
+  display: inline-block;
+  line-height: 1.55;
+}
+
+.mpKindTag[data-kind="paper"] {
+  color: var(--ledger-accent);
+  border-color: var(--ledger-accent-dim);
+}
+
+.mpKindTag[data-kind="project"] {
+  color: var(--ledger-hex);
+}
+
+.mpKindTag[data-kind="writing"] {
+  color: var(--ledger-amber);
+}
+
+.mpKindTag[data-kind="talk"] {
+  color: var(--ledger-ink);
+}
+
+.mpKindTag[data-kind="note"] {
+  color: var(--ledger-dim);
+}
+
+.mpDesc {
+  color: var(--ledger-faint);
+  font-size: 11.5px;
+  margin-top: 2px;
+}
+
+.mpMeta {
+  margin-top: 4px;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 10.5px;
+  color: var(--ledger-faint);
+}
+
+.mpMetaKv {
+  display: inline-flex;
+  gap: 4px;
+  align-items: baseline;
+}
+
+.mpMetaKey {
+  color: var(--ledger-faint);
+  opacity: 0.7;
+}
+
+.mpMetaValue {
+  color: var(--ledger-dim);
+}
+
+.mpPriHigh {
+  color: var(--ledger-accent);
+}
+
+.mpPriMed {
+  color: var(--ledger-amber);
+}
+
+.mpPriLow {
+  color: var(--ledger-dim);
+}
+
+.mpModified {
+  color: var(--ledger-faint);
+  font-size: 10.5px;
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  align-self: start;
+  padding-top: 1px;
+  letter-spacing: 0.02em;
+}
+
+.mpEmpty {
+  padding: 14px 16px;
+  color: var(--ledger-faint);
+  font-size: 11.5px;
+  text-align: center;
+  font-style: italic;
+  border-top: 1px dashed var(--ledger-rule);
+}
