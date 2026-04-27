@@ -1,0 +1,51 @@
+/* ============================================
+   Tier 2 — Semantic Tokens (theme-agnostic)
+   Role-based aliases over Tier 1 primitives.
+   Component module.css references these — never primitives directly.
+
+   Color/surface tokens for theming live in assets/themes/<theme>.css.
+   ============================================ */
+
+:root {
+  /* ===== Padding roles ===== */
+  --pad-tight:   var(--space-1_5);   /* 6px  - inline code, dense badges */
+  --pad-snug:    var(--space-2);     /* 8px  - small cells, compact rows */
+  --pad-default: var(--space-3);     /* 12px - buttons, inputs */
+  --pad-card:    var(--space-4);     /* 16px - card interior */
+  --pad-section: var(--space-7);     /* 28px - page sections */
+
+  /* ===== Gap roles ===== */
+  --gap-inline:  var(--space-2);
+  --gap-stack:   var(--space-3);
+  --gap-section: var(--space-6);
+
+  /* ===== Typography roles ===== */
+  --text-meta-size:       var(--font-size-xs);
+  --text-meta-leading:    var(--leading-snug);
+  --text-body-size:       var(--font-size-base);
+  --text-body-leading:    var(--leading-normal);
+  --text-prose-size:      var(--font-size-md);
+  --text-prose-leading:   var(--leading-relaxed);
+  --text-heading-size:    var(--font-size-2xl);
+  --text-heading-leading: var(--leading-tight);
+
+  /* ===== Layout ===== */
+  --content-width-narrow:  46rem;
+  --content-width-default: 50rem;
+  --content-pad-x:         var(--space-7);
+  --content-pad-x-mobile:  var(--space-4);
+
+  /* ===== Motion roles ===== */
+  --motion-hover:
+    background-color var(--transition-fast),
+    color            var(--transition-fast),
+    border-color     var(--transition-fast);
+  --motion-transform: transform var(--transition-fast);
+  --motion-fade:      opacity   var(--transition-normal);
+
+  /* ===== Z roles ===== */
+  --z-dropdown: var(--z-popover);
+  --z-sheet:    var(--z-overlay);
+  --z-tooltip:  var(--z-popover);
+  --z-header:   var(--z-chrome);
+}

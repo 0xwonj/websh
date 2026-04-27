@@ -41,6 +41,15 @@ impl GitHubBackend {
     }
 
     fn base_url(&self) -> String {
+        if self.gateway == "self" {
+            return if self.content_prefix.is_empty() {
+                ".".to_string()
+            } else {
+                encoded_repo_relative_path(&self.content_prefix, false)
+                    .expect("normalized content prefix must be URL-encodable")
+            };
+        }
+
         if self.content_prefix.is_empty() {
             format!("{}/{}/{}", self.gateway, self.repo_with_owner, self.branch)
         } else {
@@ -348,7 +357,7 @@ mod tests {
         let backend = GitHubBackend::new(
             "owner/repo",
             "main",
-            VirtualPath::from_absolute("/site").unwrap(),
+            VirtualPath::root(),
             "~",
             "https://raw.githubusercontent.com",
         )
@@ -365,7 +374,7 @@ mod tests {
         let backend = GitHubBackend::new(
             "owner/repo",
             "main",
-            VirtualPath::from_absolute("/site").unwrap(),
+            VirtualPath::root(),
             "~",
             "https://raw.githubusercontent.com",
         )
@@ -382,7 +391,7 @@ mod tests {
         let backend = GitHubBackend::new(
             "owner/repo",
             "main",
-            VirtualPath::from_absolute("/site").unwrap(),
+            VirtualPath::root(),
             "~",
             "https://raw.githubusercontent.com",
         )
@@ -396,7 +405,7 @@ mod tests {
         let err = match GitHubBackend::new(
             "owner/repo",
             "main",
-            VirtualPath::from_absolute("/site").unwrap(),
+            VirtualPath::root(),
             "content/../other",
             "https://raw.githubusercontent.com",
         ) {
@@ -411,7 +420,7 @@ mod tests {
         let backend = GitHubBackend::new(
             "owner/repo",
             "main",
-            VirtualPath::from_absolute("/site").unwrap(),
+            VirtualPath::root(),
             "~",
             "https://raw.githubusercontent.com",
         )

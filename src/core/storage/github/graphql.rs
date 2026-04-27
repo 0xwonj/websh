@@ -169,10 +169,10 @@ mod tests {
     #[test]
     fn additions_are_sorted_and_base64() {
         let delta = CommitDelta {
-            additions: vec![add("/site/z.md", "zz"), add("/site/a.md", "aa")],
+            additions: vec![add("/z.md", "zz"), add("/a.md", "aa")],
             ..Default::default()
         };
-        let fc = build_file_changes(&delta, &p("/site"), "~", None).unwrap();
+        let fc = build_file_changes(&delta, &VirtualPath::root(), "~", None).unwrap();
         assert_eq!(fc.additions.len(), 2);
         assert_eq!(fc.additions[0].path, "~/a.md");
         assert_eq!(fc.additions[1].path, "~/z.md");
@@ -182,10 +182,10 @@ mod tests {
     #[test]
     fn deletions_are_emitted() {
         let delta = CommitDelta {
-            deletions: vec![p("/site/gone.md")],
+            deletions: vec![p("/gone.md")],
             ..Default::default()
         };
-        let fc = build_file_changes(&delta, &p("/site"), "", None).unwrap();
+        let fc = build_file_changes(&delta, &VirtualPath::root(), "", None).unwrap();
         assert_eq!(fc.deletions.len(), 1);
         assert_eq!(fc.deletions[0].path, "gone.md");
         assert!(fc.additions.is_empty());
@@ -194,18 +194,23 @@ mod tests {
     #[test]
     fn unstaged_is_excluded() {
         let delta = CommitDelta::default();
-        let fc = build_file_changes(&delta, &p("/site"), "", None).unwrap();
+        let fc = build_file_changes(&delta, &VirtualPath::root(), "", None).unwrap();
         assert!(fc.additions.is_empty());
     }
 
     #[test]
     fn manifest_is_appended_and_sorted_in() {
         let delta = CommitDelta {
-            additions: vec![add("/site/b.md", "b")],
+            additions: vec![add("/b.md", "b")],
             ..Default::default()
         };
-        let fc =
-            build_file_changes(&delta, &p("/site"), "", Some(("manifest.json", "{}"))).unwrap();
+        let fc = build_file_changes(
+            &delta,
+            &VirtualPath::root(),
+            "",
+            Some(("manifest.json", "{}")),
+        )
+        .unwrap();
         let paths: Vec<_> = fc.additions.iter().map(|a| a.path.as_str()).collect();
         assert_eq!(paths, vec!["b.md", "manifest.json"]);
     }
@@ -213,18 +218,23 @@ mod tests {
     #[test]
     fn manifest_path_collision_is_rejected() {
         let delta = CommitDelta {
-            additions: vec![add("/site/manifest.json", "user")],
+            additions: vec![add("/manifest.json", "user")],
             ..Default::default()
         };
-        let err = build_file_changes(&delta, &p("/site"), "~", Some(("~/manifest.json", "{}")))
-            .unwrap_err();
+        let err = build_file_changes(
+            &delta,
+            &VirtualPath::root(),
+            "~",
+            Some(("~/manifest.json", "{}")),
+        )
+        .unwrap_err();
         assert!(err.contains("duplicate addition path"));
     }
 
     #[test]
     fn directory_creates_are_dropped() {
         let delta = CommitDelta::default();
-        let fc = build_file_changes(&delta, &p("/site"), "", None).unwrap();
+        let fc = build_file_changes(&delta, &VirtualPath::root(), "", None).unwrap();
         assert!(fc.additions.is_empty());
         assert!(fc.deletions.is_empty());
     }
@@ -232,30 +242,30 @@ mod tests {
     #[test]
     fn mount_root_is_stripped_before_repo_prefix_is_applied() {
         let delta = CommitDelta {
-            additions: vec![add("/mnt/work/note.md", "hello")],
+            additions: vec![add("/work/note.md", "hello")],
             ..Default::default()
         };
-        let fc = build_file_changes(&delta, &p("/mnt/work"), "content", None).unwrap();
+        let fc = build_file_changes(&delta, &p("/work"), "content", None).unwrap();
         assert_eq!(fc.additions[0].path, "content/note.md");
     }
 
     #[test]
     fn staged_path_outside_mount_root_is_rejected() {
         let delta = CommitDelta {
-            additions: vec![add("/mnt/other/note.md", "hello")],
+            additions: vec![add("/other/note.md", "hello")],
             ..Default::default()
         };
-        let err = build_file_changes(&delta, &p("/mnt/work"), "content", None).unwrap_err();
+        let err = build_file_changes(&delta, &p("/work"), "content", None).unwrap_err();
         assert!(err.contains("outside mount root"));
     }
 
     #[test]
     fn directory_delete_descendants_are_emitted() {
         let delta = CommitDelta {
-            deletions: vec![p("/site/docs/a.md"), p("/site/docs/deep/b.md")],
+            deletions: vec![p("/docs/a.md"), p("/docs/deep/b.md")],
             ..Default::default()
         };
-        let fc = build_file_changes(&delta, &p("/site"), "~", None).unwrap();
+        let fc = build_file_changes(&delta, &VirtualPath::root(), "~", None).unwrap();
         let paths: Vec<_> = fc
             .deletions
             .iter()
@@ -283,10 +293,11 @@ mod tests {
     #[test]
     fn invalid_repo_prefix_is_rejected() {
         let delta = CommitDelta {
-            additions: vec![add("/site/a.md", "a")],
+            additions: vec![add("/a.md", "a")],
             ..Default::default()
         };
-        let err = build_file_changes(&delta, &p("/site"), "content/../x", None).unwrap_err();
+        let err =
+            build_file_changes(&delta, &VirtualPath::root(), "content/../x", None).unwrap_err();
         assert!(err.contains("traversal"));
     }
 }

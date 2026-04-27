@@ -1,8 +1,7 @@
 /* ==========================================================================
    ErrorBoundary Fallback
    Fullscreen error screen shown by Leptos <ErrorBoundary/> when rendering
-   fails. Kept independent from the rest of the app theming so it stays
-   rendering even if the main stylesheet is broken.
+   fails.
    ========================================================================== */
 
 .container {
@@ -11,10 +10,10 @@
   align-items: center;
   justify-content: center;
   height: 100vh;
-  padding: 2rem;
-  background: #0a0e27;
-  color: #e0e0e0;
-  font-family: 'Courier New', monospace;
+  padding: var(--space-8);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
 }
 
 .inner {
@@ -23,42 +22,42 @@
 }
 
 .title {
-  color: #ff6b6b;
-  margin-bottom: 1rem;
+  color: var(--terminal-red);
+  margin-bottom: var(--space-4);
 }
 
 .message {
-  color: #a0a0a0;
-  margin-bottom: 2rem;
+  color: var(--text-dim);
+  margin-bottom: var(--space-8);
 }
 
 .details {
   text-align: left;
-  background: #151a35;
-  padding: 1rem;
-  border-radius: 4px;
-  margin-bottom: 1rem;
+  background: var(--bg-secondary);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-4);
 }
 
 .summary {
   cursor: pointer;
-  color: #6c7a89;
+  color: var(--text-muted);
 }
 
 .detailsList {
-  margin: 1rem 0 0 0;
-  padding-left: 1.5rem;
-  color: #ff6b6b;
+  margin: var(--space-4) 0 0 0;
+  padding-left: var(--space-6);
+  color: var(--terminal-red);
   font-size: 0.9rem;
 }
 
 .reloadButton {
-  background: #4a90e2;
-  color: white;
+  background: var(--accent);
+  color: var(--bg-primary);
   border: none;
-  padding: 0.75rem 2rem;
-  border-radius: 4px;
+  padding: var(--space-3) var(--space-8);
+  border-radius: var(--radius-md);
   cursor: pointer;
-  font-family: 'Courier New', monospace;
-  font-size: 1rem;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xl);
 }

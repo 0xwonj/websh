@@ -20,7 +20,7 @@ impl Default for MockBackend {
             commit_calls: Mutex::new(vec![]),
             next_outcome: Mutex::new(None),
             next_scan: Mutex::new(None),
-            mount_root: VirtualPath::from_absolute("/site").unwrap(),
+            mount_root: VirtualPath::root(),
         }
     }
 }
@@ -44,7 +44,7 @@ impl MockBackend {
             commit_calls: Mutex::new(vec![]),
             next_outcome: Mutex::new(Some(Ok(outcome))),
             next_scan: Mutex::new(Some(Ok(scan))),
-            mount_root: VirtualPath::from_absolute("/site").unwrap(),
+            mount_root: VirtualPath::root(),
         }
     }
 
@@ -55,7 +55,7 @@ impl MockBackend {
                 remote_head: head.into(),
             }))),
             next_scan: Mutex::new(Some(Ok(ScannedSubtree::default()))),
-            mount_root: VirtualPath::from_absolute("/site").unwrap(),
+            mount_root: VirtualPath::root(),
         }
     }
 }

@@ -285,9 +285,10 @@ impl GlobalFs {
         let FsEntry::Directory { children, meta } = self.get_entry(mount_root)? else {
             return None;
         };
+        let excluded_roots = self.export_excluded_roots(mount_root);
 
         let mut files = Vec::new();
-        collect_scanned_files("", children, &mut files);
+        collect_scanned_files(mount_root, "", children, &excluded_roots, &mut files);
         files.sort_by(|a, b| a.path.cmp(&b.path));
 
         let mut directories = Vec::new();
@@ -297,10 +298,25 @@ impl GlobalFs {
                 meta: meta.clone(),
             });
         }
-        collect_scanned_directories("", children, &mut directories);
+        collect_scanned_directories(mount_root, "", children, &excluded_roots, &mut directories);
         directories.sort_by(|a, b| a.path.cmp(&b.path));
 
         Some(ScannedSubtree { files, directories })
+    }
+
+    fn export_excluded_roots(&self, mount_root: &VirtualPath) -> Vec<VirtualPath> {
+        let synthetic_state =
+            VirtualPath::from_absolute("/.websh/state").expect("constant synthetic path");
+        self.mount_points
+            .iter()
+            .filter(|path| *path != mount_root && path.starts_with(mount_root))
+            .cloned()
+            .chain(
+                synthetic_state
+                    .starts_with(mount_root)
+                    .then_some(synthetic_state),
+            )
+            .collect()
     }
 }
 
@@ -454,8 +470,10 @@ fn scanned_directory_entry(
 }
 
 fn collect_scanned_files(
+    mount_root: &VirtualPath,
     prefix: &str,
     children: &HashMap<String, FsEntry>,
+    excluded_roots: &[VirtualPath],
     out: &mut Vec<ScannedFile>,
 ) {
     let mut names: Vec<&String> = children.keys().collect();
@@ -467,6 +485,10 @@ fn collect_scanned_files(
         } else {
             format!("{}/{}", prefix, name)
         };
+        let abs = mount_root.join(&rel);
+        if path_is_excluded(&abs, excluded_roots) {
+            continue;
+        }
         match entry {
             FsEntry::File {
                 content_path,
@@ -487,15 +509,17 @@ fn collect_scanned_files(
                 });
             }
             FsEntry::Directory { children, .. } => {
-                collect_scanned_files(&rel, children, out);
+                collect_scanned_files(mount_root, &rel, children, excluded_roots, out);
             }
         }
     }
 }
 
 fn collect_scanned_directories(
+    mount_root: &VirtualPath,
     prefix: &str,
     children: &HashMap<String, FsEntry>,
+    excluded_roots: &[VirtualPath],
     out: &mut Vec<ScannedDirectory>,
 ) {
     let mut names: Vec<&String> = children.keys().collect();
@@ -512,15 +536,43 @@ fn collect_scanned_directories(
             } else {
                 format!("{}/{}", prefix, name)
             };
-            if sub.is_empty() || has_manifest_metadata(&rel, meta) {
+            let abs = mount_root.join(&rel);
+            if path_is_excluded(&abs, excluded_roots) {
+                continue;
+            }
+            if exportable_children_empty(mount_root, &rel, sub, excluded_roots)
+                || has_manifest_metadata(&rel, meta)
+            {
                 out.push(ScannedDirectory {
                     path: rel.clone(),
                     meta: meta.clone(),
                 });
             }
-            collect_scanned_directories(&rel, sub, out);
+            collect_scanned_directories(mount_root, &rel, sub, excluded_roots, out);
         }
     }
+}
+
+fn exportable_children_empty(
+    mount_root: &VirtualPath,
+    prefix: &str,
+    children: &HashMap<String, FsEntry>,
+    excluded_roots: &[VirtualPath],
+) -> bool {
+    !children.iter().any(|(name, _)| {
+        let rel = if prefix.is_empty() {
+            name.clone()
+        } else {
+            format!("{}/{}", prefix, name)
+        };
+        !path_is_excluded(&mount_root.join(&rel), excluded_roots)
+    })
+}
+
+fn path_is_excluded(path: &VirtualPath, excluded_roots: &[VirtualPath]) -> bool {
+    excluded_roots
+        .iter()
+        .any(|excluded| path.starts_with(excluded))
 }
 
 fn has_manifest_metadata(path: &str, meta: &DirectoryMetadata) -> bool {
@@ -680,20 +732,20 @@ mod tests {
         let db = snapshot(&["notes/todo.md"], &["notes"]);
 
         global
-            .mount_scanned_subtree(VirtualPath::from_absolute("/site").unwrap(), &site)
+            .mount_scanned_subtree(VirtualPath::root(), &site)
             .unwrap();
         global
-            .mount_scanned_subtree(VirtualPath::from_absolute("/mnt/db").unwrap(), &db)
+            .mount_scanned_subtree(VirtualPath::from_absolute("/db").unwrap(), &db)
             .unwrap();
 
         assert!(
             global
-                .get_entry(&VirtualPath::from_absolute("/site/index.html").unwrap())
+                .get_entry(&VirtualPath::from_absolute("/index.html").unwrap())
                 .is_some()
         );
         assert!(
             global
-                .get_entry(&VirtualPath::from_absolute("/mnt/db/notes/todo.md").unwrap())
+                .get_entry(&VirtualPath::from_absolute("/db/notes/todo.md").unwrap())
                 .is_some()
         );
     }
@@ -703,14 +755,14 @@ mod tests {
         let mut global = GlobalFs::empty();
         global
             .mount_scanned_subtree(
-                VirtualPath::from_absolute("/site").unwrap(),
+                VirtualPath::from_absolute("/db").unwrap(),
                 &snapshot(&["index.md"], &[]),
             )
             .unwrap();
 
         let err = global
             .mount_scanned_subtree(
-                VirtualPath::from_absolute("/site").unwrap(),
+                VirtualPath::from_absolute("/db").unwrap(),
                 &snapshot(&["other.md"], &[]),
             )
             .unwrap_err();
@@ -718,7 +770,7 @@ mod tests {
         assert_eq!(
             err,
             MountError::MountPointOccupied {
-                path: VirtualPath::from_absolute("/site").unwrap()
+                path: VirtualPath::from_absolute("/db").unwrap()
             }
         );
     }
@@ -748,22 +800,22 @@ mod tests {
         let mut global = GlobalFs::empty();
         global
             .mount_scanned_subtree(
-                VirtualPath::from_absolute("/site").unwrap(),
+                VirtualPath::root(),
                 &snapshot(&["blog/hello.md"], &["blog"]),
             )
             .unwrap();
 
         let entries = global
-            .list_dir(&VirtualPath::from_absolute("/site/blog").unwrap())
+            .list_dir(&VirtualPath::from_absolute("/blog").unwrap())
             .unwrap();
 
-        assert_eq!(entries[0].path.as_str(), "/site/blog/hello.md");
+        assert_eq!(entries[0].path.as_str(), "/blog/hello.md");
     }
 
     #[test]
     fn pending_text_tracks_upserts() {
         let mut global = GlobalFs::empty();
-        let path = VirtualPath::from_absolute("/site/new.md").unwrap();
+        let path = VirtualPath::from_absolute("/new.md").unwrap();
         global.upsert_file(path.clone(), "hello".to_string(), FileMetadata::default());
 
         assert_eq!(global.read_pending_text(&path).as_deref(), Some("hello"));
@@ -776,7 +828,7 @@ mod tests {
             crate::core::storage::github::manifest::parse_snapshot(golden).expect("golden parses");
 
         let mut global = GlobalFs::empty();
-        let root = VirtualPath::from_absolute("/site").unwrap();
+        let root = VirtualPath::root();
         global
             .mount_scanned_subtree(root.clone(), &snapshot)
             .unwrap();
@@ -828,7 +880,7 @@ mod tests {
         };
 
         let mut global = GlobalFs::empty();
-        let root = VirtualPath::from_absolute("/site").unwrap();
+        let root = VirtualPath::root();
         global
             .mount_scanned_subtree(root.clone(), &snapshot)
             .unwrap();
@@ -842,7 +894,7 @@ mod tests {
     #[test]
     fn exported_mount_snapshot_uses_relative_paths_for_pending_files() {
         let mut global = GlobalFs::empty();
-        let root = VirtualPath::from_absolute("/site").unwrap();
+        let root = VirtualPath::root();
         global
             .mount_scanned_subtree(root.clone(), &ScannedSubtree::default())
             .unwrap();
@@ -860,7 +912,7 @@ mod tests {
     #[test]
     fn exported_mount_snapshot_preserves_empty_directories() {
         let mut global = GlobalFs::empty();
-        let root = VirtualPath::from_absolute("/site").unwrap();
+        let root = VirtualPath::root();
         global
             .mount_scanned_subtree(root.clone(), &ScannedSubtree::default())
             .unwrap();
@@ -873,5 +925,72 @@ mod tests {
             .map(|dir| dir.path.as_str())
             .collect();
         assert_eq!(paths, vec!["empty"]);
+    }
+
+    #[test]
+    fn root_export_excludes_descendant_mounts_and_runtime_state() {
+        let mut global = GlobalFs::empty();
+        global
+            .mount_scanned_subtree(
+                VirtualPath::root(),
+                &snapshot(
+                    &[
+                        "index.md",
+                        ".websh/site.json",
+                        ".websh/mounts/db.mount.json",
+                    ],
+                    &[".websh", ".websh/mounts"],
+                ),
+            )
+            .unwrap();
+        global
+            .mount_scanned_subtree(
+                VirtualPath::from_absolute("/db").unwrap(),
+                &snapshot(&["fresh.md"], &[]),
+            )
+            .unwrap();
+        global.upsert_directory(
+            VirtualPath::from_absolute("/.websh/state").unwrap(),
+            DirectoryMetadata::default(),
+        );
+        global.upsert_file(
+            VirtualPath::from_absolute("/.websh/state/session/wallet_session").unwrap(),
+            "1".into(),
+            FileMetadata::default(),
+        );
+
+        let snapshot = global.export_mount_snapshot(&VirtualPath::root()).unwrap();
+        let files: Vec<_> = snapshot
+            .files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect();
+
+        assert!(files.contains(&"index.md"));
+        assert!(files.contains(&".websh/site.json"));
+        assert!(files.contains(&".websh/mounts/db.mount.json"));
+        assert!(!files.iter().any(|path| path.starts_with("db/")));
+        assert!(!files.iter().any(|path| path.starts_with(".websh/state/")));
+    }
+
+    #[test]
+    fn descendant_mount_export_includes_only_mount_relative_files() {
+        let mut global = GlobalFs::empty();
+        global
+            .mount_scanned_subtree(VirtualPath::root(), &snapshot(&["index.md"], &[]))
+            .unwrap();
+        let db_root = VirtualPath::from_absolute("/db").unwrap();
+        global
+            .mount_scanned_subtree(db_root.clone(), &snapshot(&["fresh.md"], &[]))
+            .unwrap();
+
+        let snapshot = global.export_mount_snapshot(&db_root).unwrap();
+        let files: Vec<_> = snapshot
+            .files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect();
+
+        assert_eq!(files, vec!["fresh.md"]);
     }
 }

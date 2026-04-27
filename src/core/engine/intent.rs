@@ -119,7 +119,7 @@ mod tests {
 
         let mut global = GlobalFs::empty();
         global
-            .mount_scanned_subtree(VirtualPath::from_absolute("/site").unwrap(), &snapshot)
+            .mount_scanned_subtree(VirtualPath::root(), &snapshot)
             .unwrap();
         global
     }
@@ -133,7 +133,7 @@ mod tests {
         assert_eq!(
             intent,
             RenderIntent::HtmlPage {
-                node_path: VirtualPath::from_absolute("/site/index.html").unwrap(),
+                node_path: VirtualPath::from_absolute("/index.html").unwrap(),
                 layout: None,
             }
         );
@@ -148,7 +148,7 @@ mod tests {
         assert_eq!(
             intent,
             RenderIntent::MarkdownPage {
-                node_path: VirtualPath::from_absolute("/site/about.md").unwrap(),
+                node_path: VirtualPath::from_absolute("/about.md").unwrap(),
                 layout: None,
             }
         );
@@ -156,14 +156,14 @@ mod tests {
 
     #[test]
     fn builds_terminal_app_intent() {
-        let fs = site(&["shell.app"], &[]);
-        let resolution = resolve_route(&fs, &RouteRequest::new("/shell")).unwrap();
+        let fs = site(&[], &[]);
+        let resolution = resolve_route(&fs, &RouteRequest::new("/websh")).unwrap();
         let intent = build_render_intent(&fs, &resolution).unwrap();
 
         assert_eq!(
             intent,
             RenderIntent::TerminalApp {
-                node_path: VirtualPath::from_absolute("/site/shell.app").unwrap(),
+                node_path: VirtualPath::root(),
                 layout: None,
             }
         );
@@ -178,7 +178,7 @@ mod tests {
         assert_eq!(
             intent,
             RenderIntent::DirectoryListing {
-                node_path: VirtualPath::from_absolute("/site/blog").unwrap(),
+                node_path: VirtualPath::from_absolute("/blog").unwrap(),
                 layout: None,
             }
         );
@@ -193,7 +193,7 @@ mod tests {
         assert_eq!(
             intent,
             RenderIntent::Redirect {
-                node_path: VirtualPath::from_absolute("/site/jump.link").unwrap(),
+                node_path: VirtualPath::from_absolute("/jump.link").unwrap(),
             }
         );
     }

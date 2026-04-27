@@ -1,5 +1,5 @@
 //! One-shot boot helpers: construct backends, load persisted draft ChangeSets,
-//! and seed bootstrap route nodes.
+//! and seed bootstrap runtime defaults.
 
 use std::sync::Arc;
 
@@ -8,8 +8,7 @@ use crate::core::changes::ChangeSet;
 use crate::core::engine::GlobalFs;
 use crate::core::storage::{StorageBackend, StorageResult};
 use crate::models::{
-    BootstrapSiteSource, DirectoryMetadata, FileMetadata, FileSidecarMetadata, MountDeclaration,
-    NodeKind, RendererKind, RuntimeBackendKind, RuntimeMount, VirtualPath,
+    BootstrapSiteSource, MountDeclaration, RuntimeBackendKind, RuntimeMount, VirtualPath,
 };
 
 use super::github::GitHubBackend;
@@ -110,42 +109,11 @@ fn is_canonical_mount_root(path: &VirtualPath) -> bool {
 }
 
 pub(crate) fn bootstrap_global_fs() -> GlobalFs {
-    let mut global = GlobalFs::empty();
-    seed_bootstrap_routes(&mut global);
-    global
+    GlobalFs::empty()
 }
 
-pub(crate) fn seed_bootstrap_routes(global: &mut GlobalFs) {
-    let site_root = VirtualPath::from_absolute("/site").expect("constant path");
-    if !global.exists(&site_root) {
-        global.upsert_directory(
-            site_root,
-            DirectoryMetadata {
-                title: "site".to_string(),
-                ..Default::default()
-            },
-        );
-    }
-
-    seed_bootstrap_app(global, "/site/shell.app", "/shell");
-    seed_bootstrap_app(global, "/site/fs.app", "/fs/*path");
-}
-
-fn seed_bootstrap_app(global: &mut GlobalFs, node_path: &str, route: &str) {
-    let node_path = VirtualPath::from_absolute(node_path).expect("constant path");
-    if !global.exists(&node_path) {
-        global.upsert_binary_placeholder(node_path.clone(), FileMetadata::default());
-    }
-    global.set_node_metadata(
-        node_path,
-        FileSidecarMetadata {
-            kind: Some(NodeKind::App),
-            renderer: Some(RendererKind::TerminalApp),
-            route: Some(route.to_string()),
-            ..Default::default()
-        }
-        .into(),
-    );
+pub(crate) fn seed_bootstrap_routes(_global: &mut GlobalFs) {
+    // Shell and explorer are reserved code routes, not filesystem app nodes.
 }
 
 pub(crate) async fn hydrate_drafts(draft_id: &str) -> StorageResult<ChangeSet> {
@@ -167,7 +135,7 @@ mod tests {
     fn declaration_builds_github_backend() {
         let declaration = MountDeclaration {
             backend: "github".to_string(),
-            mount_at: "/mnt/db".to_string(),
+            mount_at: "/db".to_string(),
             repo: Some("0xwonj/db".to_string()),
             branch: Some("main".to_string()),
             root: Some("content".to_string()),
@@ -177,7 +145,7 @@ mod tests {
         let (mount, backend) = build_backend_for_declaration(&declaration)
             .expect("valid declaration")
             .expect("backend");
-        assert_eq!(mount.root.as_str(), "/mnt/db");
+        assert_eq!(mount.root.as_str(), "/db");
         assert_eq!(mount.label, "db");
         assert_eq!(backend.backend_type(), "github");
     }
@@ -186,7 +154,7 @@ mod tests {
     fn declaration_rejects_noncanonical_mount_root() {
         let declaration = MountDeclaration {
             backend: "github".to_string(),
-            mount_at: "/mnt/../db".to_string(),
+            mount_at: "/db/../bad".to_string(),
             repo: Some("0xwonj/db".to_string()),
             branch: Some("main".to_string()),
             root: Some("content".to_string()),
@@ -197,28 +165,17 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_global_fs_seeds_shell_and_fs_routes() {
+    fn bootstrap_global_fs_has_root_directory_without_app_routes() {
         let global = bootstrap_global_fs();
-        assert!(global.exists(&VirtualPath::from_absolute("/site/shell.app").unwrap()));
-        assert!(global.exists(&VirtualPath::from_absolute("/site/fs.app").unwrap()));
-        assert_eq!(
-            global
-                .node_metadata(&VirtualPath::from_absolute("/site/shell.app").unwrap())
-                .and_then(|meta| meta.route.as_deref()),
-            Some("/shell")
-        );
-        assert_eq!(
-            global
-                .node_metadata(&VirtualPath::from_absolute("/site/fs.app").unwrap())
-                .and_then(|meta| meta.route.as_deref()),
-            Some("/fs/*path")
-        );
+        assert!(global.exists(&VirtualPath::root()));
+        assert!(!global.exists(&VirtualPath::from_absolute("/shell.app").unwrap()));
+        assert!(!global.exists(&VirtualPath::from_absolute("/fs.app").unwrap()));
     }
 
     #[test]
-    fn bootstrap_runtime_mount_is_site_root() {
+    fn bootstrap_runtime_mount_is_root() {
         let mount = bootstrap_runtime_mount();
-        assert_eq!(mount.root.as_str(), "/site");
+        assert_eq!(mount.root.as_str(), "/");
         assert_eq!(mount.label, "~");
         assert!(mount.writable);
     }

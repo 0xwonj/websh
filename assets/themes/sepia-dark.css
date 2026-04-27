@@ -1,0 +1,41 @@
+/* ============================================
+   Theme: sepia-dark (Flexoki dark)
+   Default theme. Applied when data-theme is unset or "sepia-dark".
+   ============================================ */
+
+:root,
+:root[data-theme="sepia-dark"] {
+  color-scheme: dark;
+
+  --bg-primary: #100f0f;
+  --bg-secondary: #1c1b1a;
+  --bg-elevated: #282726;
+  --bg-inset: #0b0a0a;
+
+  --text-primary: #cecdc3;
+  --text-dim: #878580;
+  --text-muted: #575653;
+
+  --terminal-green: #879a39;
+  --terminal-cyan: #3aa99f;
+  --terminal-yellow: #d0a215;
+  --terminal-red: #d14d41;
+  --terminal-purple: #8b7ec8;
+  --terminal-orange: #da702c;
+
+  --accent: #da702c;
+  --accent-muted: #d0a215;
+  --accent-glow: rgba(218, 112, 44, 0.26);
+
+  --border-muted: rgba(135, 133, 128, 0.36);
+  --border-subtle: rgba(135, 133, 128, 0.18);
+  --archive-bar-bg: #050505;
+  --surface-tint: rgba(206, 205, 195, 0.035);
+  --selection-bg: rgba(218, 112, 44, 0.22);
+  --selected-bg: rgba(58, 169, 159, 0.14);
+  --selected-hover-bg: rgba(58, 169, 159, 0.22);
+  --backdrop-bg: rgba(11, 10, 10, 0.72);
+  --shadow-color: rgba(0, 0, 0, 0.42);
+  --crt-scanline: rgba(0, 0, 0, 0.12);
+  --crt-sweep: rgba(206, 205, 195, 0.022);
+}

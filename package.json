@@ -3,9 +3,12 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "e2e": "env -u NO_COLOR playwright test tests/e2e --reporter=line --workers=1"
+    "e2e": "env -u NO_COLOR playwright test tests/e2e --reporter=line --workers=1",
+    "lint:css": "stylelint 'src/**/*.module.css' 'assets/tokens/*.css' 'assets/themes/*.css' 'assets/base.css'"
   },
   "devDependencies": {
-    "@playwright/test": "^1.52.0"
+    "@playwright/test": "^1.52.0",
+    "stylelint": "^16.10.0",
+    "stylelint-config-standard": "^36.0.1"
   }
 }

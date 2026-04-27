@@ -17,6 +17,8 @@ pub struct FileMetadata {
     pub size: Option<u64>,
     /// Last modification time as Unix timestamp
     pub modified: Option<u64>,
+    /// Human-authored content date for feed-like surfaces.
+    pub date: Option<String>,
     /// Tags for categorization.
     pub tags: Vec<String>,
     /// Access filter (None = publicly readable)

@@ -237,19 +237,18 @@ mod tests {
     }
 
     #[test]
-    fn staged_root_apply_keeps_canonical_mount_prefix() {
+    fn staged_root_apply_keeps_root_paths() {
         let mut fs = GlobalFs::empty();
         let mut cs = ChangeSet::new();
         cs.upsert(
-            p("/site/note.md"),
+            p("/note.md"),
             ChangeType::CreateFile {
                 content: "hi".into(),
                 meta: FileMetadata::default(),
             },
         );
-        apply_staged_changes_to_global_for_root(&mut fs, &cs, &p("/site"));
-        assert!(fs.get_entry(&p("/site/note.md")).is_some());
-        assert!(fs.get_entry(&p("/note.md")).is_none());
+        apply_staged_changes_to_global_for_root(&mut fs, &cs, &VirtualPath::root());
+        assert!(fs.get_entry(&p("/note.md")).is_some());
     }
 
     #[test]
@@ -257,21 +256,21 @@ mod tests {
         let mut fs = GlobalFs::empty();
         let mut cs = ChangeSet::new();
         cs.upsert(
-            p("/mnt/work/note.md"),
+            p("/work/note.md"),
             ChangeType::CreateFile {
                 content: "hi".into(),
                 meta: FileMetadata::default(),
             },
         );
-        apply_staged_changes_to_global_for_root(&mut fs, &cs, &p("/site"));
-        assert!(fs.get_entry(&p("/mnt/work/note.md")).is_none());
+        apply_staged_changes_to_global_for_root(&mut fs, &cs, &p("/db"));
+        assert!(fs.get_entry(&p("/work/note.md")).is_none());
     }
 
     #[test]
     fn staged_root_apply_ignores_unstaged_changes() {
         let mut fs = GlobalFs::empty();
         let mut cs = ChangeSet::new();
-        let path = p("/site/draft.md");
+        let path = p("/draft.md");
         cs.upsert(
             path.clone(),
             ChangeType::CreateFile {
@@ -281,7 +280,7 @@ mod tests {
         );
         cs.unstage(&path);
 
-        apply_staged_changes_to_global_for_root(&mut fs, &cs, &p("/site"));
+        apply_staged_changes_to_global_for_root(&mut fs, &cs, &VirtualPath::root());
         assert!(fs.get_entry(&path).is_none());
     }
 }

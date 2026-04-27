@@ -1,0 +1,41 @@
+/* ============================================
+   Theme: catppuccin-latte
+   https://catppuccin.com (Latte — lightest flavor, light pair to Mocha)
+   Signature: cream base with mauve accent.
+   ============================================ */
+
+:root[data-theme="catppuccin-latte"] {
+  color-scheme: light;
+
+  --bg-primary: #eff1f5;
+  --bg-secondary: #e6e9ef;
+  --bg-elevated: #dce0e8;
+  --bg-inset: #eaecf2;
+
+  --text-primary: #4c4f69;
+  --text-dim: #6c6f85;
+  --text-muted: #9ca0b0;
+
+  --terminal-green: #40a02b;
+  --terminal-cyan: #179299;
+  --terminal-yellow: #df8e1d;
+  --terminal-red: #d20f39;
+  --terminal-purple: #8839ef;
+  --terminal-orange: #fe640b;
+
+  --accent: #8839ef;
+  --accent-muted: #ea76cb;
+  --accent-glow: rgba(136, 57, 239, 0.18);
+
+  --border-muted: rgba(108, 111, 133, 0.34);
+  --border-subtle: rgba(108, 111, 133, 0.16);
+  --archive-bar-bg: var(--bg-secondary);
+  --surface-tint: rgba(76, 79, 105, 0.035);
+  --selection-bg: rgba(136, 57, 239, 0.18);
+  --selected-bg: rgba(76, 79, 105, 0.07);
+  --selected-hover-bg: rgba(76, 79, 105, 0.11);
+  --backdrop-bg: rgba(76, 79, 105, 0.26);
+  --shadow-color: rgba(76, 79, 105, 0.14);
+  --crt-scanline: rgba(76, 79, 105, 0.035);
+  --crt-sweep: rgba(76, 79, 105, 0.016);
+}

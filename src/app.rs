@@ -242,7 +242,7 @@ impl Default for ExplorerState {
 #[derive(Clone, Copy)]
 pub struct AppContext {
     // === Shared State ===
-    /// Global canonical filesystem tree (`/site`, `/mnt/*`, `/state/*`).
+    /// Global canonical filesystem tree (`/`, `/db/*`, `/.websh/state/*`).
     pub global_fs: RwSignal<GlobalFs>,
     /// Current canonical working directory for shell/explorer surfaces.
     pub cwd: RwSignal<VirtualPath>,
@@ -252,6 +252,8 @@ pub struct AppContext {
     // === View Management ===
     /// Current view mode (Terminal or Explorer).
     pub view_mode: RwSignal<ViewMode>,
+    /// Current visual palette, mirrored to `html[data-theme]`.
+    pub theme: RwSignal<&'static str>,
 
     // === View-Specific State ===
     /// Terminal state (history, commands).
@@ -270,7 +272,7 @@ pub struct AppContext {
     pub runtime_mounts: RwSignal<Vec<RuntimeMount>>,
     /// Remote HEAD registry keyed by canonical mount roots.
     pub remote_heads: RwSignal<BTreeMap<VirtualPath, String>>,
-    /// Browser-hydrated runtime state rendered under `/state`.
+    /// Browser-hydrated runtime state rendered under `/.websh/state`.
     pub runtime_state: RwSignal<RuntimeStateSnapshot>,
 
     // === Editor modal ===
@@ -307,17 +309,19 @@ impl AppContext {
             StoredValue::new_local(initial_load.backends);
         let runtime_mounts = RwSignal::new(initial_load.runtime_mounts);
         let remote_heads = RwSignal::new(initial_load.remote_heads);
+        let theme = RwSignal::new(crate::utils::theme::initial_theme());
 
         let editor_open = RwSignal::new(None);
 
         Self {
             // Shared state
             global_fs,
-            cwd: RwSignal::new(VirtualPath::from_absolute("/site").expect("valid cwd")),
+            cwd: RwSignal::new(VirtualPath::root()),
             wallet,
 
             // View management
             view_mode: RwSignal::new(ViewMode::default()),
+            theme,
 
             // View-specific state
             terminal: TerminalState::new(),
@@ -429,6 +433,12 @@ pub fn App() -> impl IntoView {
     // Create and provide application context
     let ctx = AppContext::new();
     provide_context(ctx);
+    let theme_signal = ctx.theme;
+    Effect::new(move |_| {
+        let theme = theme_signal.get();
+        let _ = crate::utils::theme::apply_theme(theme);
+    });
+
     let changes_signal = ctx.changes;
     spawn_local(async move {
         match crate::core::storage::boot::hydrate_drafts(GLOBAL_DRAFT_ID).await {

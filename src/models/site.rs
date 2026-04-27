@@ -50,6 +50,7 @@ pub struct FileSidecarMetadata {
     pub layout: Option<String>,
     pub title: Option<String>,
     pub description: Option<String>,
+    pub date: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
     pub trust: Option<TrustLevel>,
@@ -111,6 +112,8 @@ pub struct LoadedNodeMetadata {
     pub layout: Option<String>,
     pub title: Option<String>,
     pub description: Option<String>,
+    pub date: Option<String>,
+    pub tags: Vec<String>,
 }
 
 impl From<FileSidecarMetadata> for LoadedNodeMetadata {
@@ -122,6 +125,8 @@ impl From<FileSidecarMetadata> for LoadedNodeMetadata {
             layout: value.layout,
             title: value.title,
             description: value.description,
+            date: value.date,
+            tags: value.tags,
         }
     }
 }
@@ -135,6 +140,8 @@ impl From<DirectorySidecarMetadata> for LoadedNodeMetadata {
             layout: value.layout,
             title: value.title,
             description: value.description,
+            date: None,
+            tags: value.tags,
         }
     }
 }
@@ -163,7 +170,7 @@ mod tests {
         let decl: MountDeclaration = serde_json::from_str(
             r#"{
                 "backend": "github",
-                "mount_at": "/mnt/db",
+                "mount_at": "/db",
                 "repo": "0xwonj/db",
                 "branch": "main",
                 "writable": true
@@ -172,7 +179,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(decl.backend, "github");
-        assert_eq!(decl.mount_at, "/mnt/db");
+        assert_eq!(decl.mount_at, "/db");
         assert_eq!(decl.repo.as_deref(), Some("0xwonj/db"));
         assert_eq!(decl.branch.as_deref(), Some("main"));
         assert!(decl.writable);

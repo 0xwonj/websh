@@ -1,0 +1,39 @@
+/* ============================================
+   Theme: tokyonight-night
+   ============================================ */
+
+:root[data-theme="tokyonight-night"] {
+  color-scheme: dark;
+
+  --bg-primary: #1a1b26;
+  --bg-secondary: #15161e;
+  --bg-elevated: #24283b;
+  --bg-inset: #11121a;
+
+  --text-primary: #c0caf5;
+  --text-dim: #737aa2;
+  --text-muted: #414868;
+
+  --terminal-green: #9ece6a;
+  --terminal-cyan: #7dcfff;
+  --terminal-yellow: #e0af68;
+  --terminal-red: #f7768e;
+  --terminal-purple: #bb9af7;
+  --terminal-orange: #ff9e64;
+
+  --accent: #7aa2f7;
+  --accent-muted: #565f89;
+  --accent-glow: rgba(122, 162, 247, 0.32);
+
+  --border-muted: rgba(169, 177, 214, 0.32);
+  --border-subtle: rgba(169, 177, 214, 0.16);
+  --archive-bar-bg: var(--bg-secondary);
+  --surface-tint: rgba(192, 202, 245, 0.035);
+  --selection-bg: rgba(122, 162, 247, 0.22);
+  --selected-bg: rgba(122, 162, 247, 0.16);
+  --selected-hover-bg: rgba(122, 162, 247, 0.24);
+  --backdrop-bg: rgba(17, 18, 26, 0.68);
+  --shadow-color: rgba(0, 0, 0, 0.34);
+  --crt-scanline: rgba(0, 0, 0, 0.1);
+  --crt-sweep: rgba(192, 202, 245, 0.03);
+}

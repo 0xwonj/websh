@@ -15,7 +15,7 @@ pub use content::{BackendRegistry, read_bytes, read_text};
 pub use global_fs::{FsEngine, GlobalFs, MountError};
 pub use intent::{RenderIntent, build_render_intent};
 pub use routing::{
-    ResolvedKind, RouteFrame, RouteRequest, RouteResolution, canonicalize_user_path,
+    ResolvedKind, RouteFrame, RouteRequest, RouteResolution, RouteSurface, canonicalize_user_path,
     display_path_for, parent_request_path, push_request_path, replace_request_path,
     request_path_for_canonical_path, resolve_route, route_cwd,
 };

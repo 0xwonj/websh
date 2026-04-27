@@ -1,0 +1,42 @@
+/* ============================================
+   Theme: nord
+   https://www.nordtheme.com
+   Signature: arctic gray-blue background, frost-cyan accent.
+   Polar Night + Snow Storm + Frost + Aurora.
+   ============================================ */
+
+:root[data-theme="nord"] {
+  color-scheme: dark;
+
+  --bg-primary: #2e3440;
+  --bg-secondary: #3b4252;
+  --bg-elevated: #434c5e;
+  --bg-inset: #242933;
+
+  --text-primary: #d8dee9;
+  --text-dim: #abb1bb;
+  --text-muted: #4c566a;
+
+  --terminal-green: #a3be8c;
+  --terminal-cyan: #88c0d0;
+  --terminal-yellow: #ebcb8b;
+  --terminal-red: #bf616a;
+  --terminal-purple: #b48ead;
+  --terminal-orange: #d08770;
+
+  --accent: #88c0d0;
+  --accent-muted: #5e81ac;
+  --accent-glow: rgba(136, 192, 208, 0.28);
+
+  --border-muted: rgba(216, 222, 233, 0.22);
+  --border-subtle: rgba(216, 222, 233, 0.12);
+  --archive-bar-bg: #242933;
+  --surface-tint: rgba(216, 222, 233, 0.035);
+  --selection-bg: rgba(136, 192, 208, 0.22);
+  --selected-bg: rgba(143, 188, 187, 0.14);
+  --selected-hover-bg: rgba(143, 188, 187, 0.22);
+  --backdrop-bg: rgba(36, 41, 51, 0.68);
+  --shadow-color: rgba(0, 0, 0, 0.34);
+  --crt-scanline: rgba(0, 0, 0, 0.1);
+  --crt-sweep: rgba(216, 222, 233, 0.025);
+}

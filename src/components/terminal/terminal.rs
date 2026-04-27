@@ -207,6 +207,10 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
             route.push();
             ctx.view_mode.set(mode);
         }
+        SideEffect::SetTheme { theme } => match crate::utils::theme::apply_theme(&theme) {
+            Ok(theme_id) => ctx.theme.set(theme_id),
+            Err(error) => ctx.terminal.push_output(OutputLine::error(error)),
+        },
         SideEffect::ApplyChange { path, change } => {
             ctx.changes.update(|cs| cs.upsert(path, change));
         }
@@ -366,7 +370,7 @@ fn is_sync_auth_set(input: &str) -> bool {
 }
 
 fn mount_id_for_root(root: &crate::models::VirtualPath) -> String {
-    if root.as_str() == "/site" {
+    if root.is_root() {
         "~".to_string()
     } else {
         root.file_name()

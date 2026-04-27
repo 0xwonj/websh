@@ -182,21 +182,21 @@ mod tests {
 
     #[test]
     fn join_and_parent_work() {
-        let path = VirtualPath::root().join("site/blog");
-        assert_eq!(path.as_str(), "/site/blog");
+        let path = VirtualPath::root().join("blog");
+        assert_eq!(path.as_str(), "/blog");
         assert_eq!(path.file_name(), Some("blog"));
-        assert_eq!(path.parent().unwrap().as_str(), "/site");
+        assert_eq!(path.parent().unwrap().as_str(), "/");
     }
 
     #[test]
     fn starts_with_respects_segment_boundaries() {
-        let prefix = VirtualPath::from_absolute("/site").unwrap();
-        let child = VirtualPath::from_absolute("/site/blog/post.md").unwrap();
-        let other = VirtualPath::from_absolute("/site-map").unwrap();
+        let prefix = VirtualPath::from_absolute("/blog").unwrap();
+        let child = VirtualPath::from_absolute("/blog/post.md").unwrap();
+        let other = VirtualPath::from_absolute("/blog-map").unwrap();
 
         assert!(child.starts_with(&prefix));
         assert!(!other.starts_with(&prefix));
-        assert_eq!(child.strip_prefix(&prefix), Some("blog/post.md"));
+        assert_eq!(child.strip_prefix(&prefix), Some("post.md"));
         assert_eq!(other.strip_prefix(&prefix), None);
     }
 }

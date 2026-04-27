@@ -8,7 +8,9 @@ use leptos_icons::Icon;
 
 use super::{DirMeta, FileMeta, PreviewContent, PreviewData};
 use crate::components::icons as ic;
-use crate::core::engine::{push_request_path, request_path_for_canonical_path};
+use crate::components::markdown::MarkdownView;
+use crate::components::shared::FileMetaStrip;
+use crate::core::engine::{RouteSurface, push_request_path, request_path_for_canonical_path};
 use crate::models::{FileType, Selection};
 use crate::utils::format::format_size;
 
@@ -44,6 +46,10 @@ pub struct PreviewStyles {
     pub error: &'static str,
     pub description: &'static str,
     pub markdown: &'static str,
+    pub file_meta: &'static str,
+    pub file_meta_date: &'static str,
+    pub file_meta_tags: &'static str,
+    pub file_meta_tag: &'static str,
     // Common
     pub hint: &'static str,
 }
@@ -82,12 +88,13 @@ pub fn PreviewBody(
                 }.into_any()
             } else {
                 let meta_desc = data.file_meta.get()
-                    .map(|(desc, _, _)| desc)
+                    .map(|meta| meta.description)
                     .filter(|d| !d.is_empty());
                 view! {
                     <TextPreview
                         content=data.content
                         meta_desc=meta_desc
+                        file_meta=data.file_meta
                         styles=styles
                     />
                 }.into_any()
@@ -193,12 +200,12 @@ fn ImagePreview(
                     />
                 }
             })}
-            {move || file_meta.get().map(|(desc, size, _)| {
+            {move || file_meta.get().map(|meta| {
                 view! {
-                    <p class=image_desc_class>{desc}</p>
+                    <p class=image_desc_class>{meta.description}</p>
                     {image_size_class.map(|class| view! {
                         <p class=class>
-                            {format_size(size, false)}
+                            {format_size(meta.size, false)}
                         </p>
                     })}
                 }
@@ -212,6 +219,7 @@ fn ImagePreview(
 fn TextPreview(
     content: LocalResource<Option<PreviewContent>>,
     meta_desc: Option<String>,
+    file_meta: Signal<Option<FileMeta>>,
     styles: PreviewStyles,
 ) -> impl IntoView {
     let text_preview_class = styles.text_preview;
@@ -225,14 +233,20 @@ fn TextPreview(
 
     view! {
         <div class=text_preview_class>
+            <Show when=move || file_meta.get().is_some_and(|meta| meta.has_display_meta())>
+                <PreviewFileMeta meta=file_meta styles=styles />
+            </Show>
             <Suspense fallback=move || view! { <div class=loading_class>"Loading..."</div> }>
                 {move || {
                     let desc = meta_desc.clone();
                     content.get().map(move |c| {
                         match c {
-                            Some(PreviewContent::Html(html)) => view! {
-                                <div class=markdown_class inner_html=html />
-                            }.into_any(),
+                            Some(PreviewContent::Html(rendered)) => {
+                                let rendered = Signal::derive(move || rendered.clone());
+                                view! {
+                                    <MarkdownView rendered=rendered class=markdown_class />
+                                }.into_any()
+                            },
                             Some(PreviewContent::Text(text)) => view! {
                                 <pre class=preview_text_class>{text}</pre>
                             }.into_any(),
@@ -267,6 +281,23 @@ fn TextPreview(
     }
 }
 
+#[component]
+fn PreviewFileMeta(meta: Signal<Option<FileMeta>>, styles: PreviewStyles) -> impl IntoView {
+    let date = Signal::derive(move || meta.get().and_then(|meta| meta.clean_date()));
+    let tags = Signal::derive(move || meta.get().map(|meta| meta.clean_tags()).unwrap_or_default());
+
+    view! {
+        <FileMetaStrip
+            date=date
+            tags=tags
+            class=styles.file_meta
+            date_class=styles.file_meta_date
+            tags_class=styles.file_meta_tags
+            tag_class=styles.file_meta_tag
+        />
+    }
+}
+
 /// Open in reader button.
 ///
 /// Shared by both PreviewPanel and BottomSheet.
@@ -292,7 +323,10 @@ pub fn OpenButton(
                     if let Some(s) = selection.get()
                         && !s.is_dir
                     {
-                        push_request_path(&request_path_for_canonical_path(&s.path));
+                        push_request_path(&request_path_for_canonical_path(
+                            &s.path,
+                            RouteSurface::Content,
+                        ));
                     }
                 }
                 title="Open file"

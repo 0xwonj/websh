@@ -166,7 +166,7 @@ pub fn run(ctx: AppContext) {
         ctx.terminal
             .push_output(OutputLine::text("  - Type 'help' for available commands"));
         ctx.terminal.push_output(OutputLine::text(
-            "  - Use the view toggle (top-right) to switch to Explorer mode",
+            "  - Use the archive bar to switch between websh and explorer",
         ));
         ctx.terminal.push_output(OutputLine::empty());
     });

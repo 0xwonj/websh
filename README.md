@@ -8,9 +8,9 @@
 
 ```
 
-Websh is a browser-native filesystem shell for personal archives. It exposes a canonical `/` tree through a terminal and explorer UI, with runtime mounts backed by GitHub content repositories.
+Websh is a browser-native filesystem shell for personal archives. It exposes a canonical `/` tree through a terminal and explorer UI, with the primary runtime mount backed by the repository `content/` directory.
 
-Content is loaded from declared runtime mounts and assembled into a single `GlobalFs` view at boot. Some files are access-restricted to listed recipients; those entries are filtered from the UI for other visitors. The underlying storage is public and no cryptographic confidentiality is provided in the current release.
+Content is loaded from `content/manifest.json` and declared runtime mounts, then assembled into a single `GlobalFs` view at boot. Some files are access-restricted to listed recipients; those entries are filtered from the UI for other visitors. The underlying storage is public and no cryptographic confidentiality is provided in the current release.
 
 [![Built with Rust](https://img.shields.io/badge/built%20with-Rust-orange.svg)](https://www.rust-lang.org/)
 [![WebAssembly](https://img.shields.io/badge/WebAssembly-654FF0?logo=webassembly&logoColor=white)](https://webassembly.org/)
@@ -74,6 +74,26 @@ trunk serve
 # Open http://127.0.0.1:8080
 ```
 
+### Content and Attestations
+
+Put public content files under `content/`, then run:
+
+```bash
+cargo run --bin websh-cli -- attest
+```
+
+That single command runs the same manifest builder as `websh-cli content manifest`,
+scans the content tree, refreshes page subjects, and writes
+`assets/crypto/attestations.json`. If
+`content/keys/wonjae.asc` exists, it also asks local `gpg` to create verified PGP
+detached signatures with `Wonjae Choi <wonjae@snu.ac.kr>` for the subjects.
+
+To refresh only the filesystem manifest without signing:
+
+```bash
+cargo run --bin websh-cli -- content manifest
+```
+
 ### Production Build
 
 ```bash
@@ -82,6 +102,16 @@ trunk build --release
 
 # Output in ./dist directory
 ```
+
+### Pinata / ENS Deploy
+
+```bash
+cargo run --bin websh-cli -- deploy pinata
+```
+
+The deploy command refreshes content attestations, builds the release bundle,
+uploads `dist/` to Pinata, writes the CID to `.last-cid`, and prints an
+`ipfs://...` contenthash that can be copied directly into the ENS records page.
 
 ## Available Commands
 
@@ -157,9 +187,43 @@ src/
 
 - **Language**: Rust compiled to WebAssembly
 - **Framework**: [Leptos 0.8](https://leptos.dev/) - Fine-grained reactive UI
-- **Styling**: [Stylance](https://github.com/basro/stylance) - Type-safe CSS modules
+- **Styling**: [Stylance](https://github.com/basro/stylance) - Type-safe CSS modules over a 3-tier design token system
 - **Build Tool**: [Trunk](https://trunkrs.dev/) - WASM application bundler
 - **Wallet**: secp256k1 signatures via EIP-1193
+
+### CSS Architecture
+
+CSS uses a 3-tier token model. Component `*.module.css` files reference Tier 2
+semantic tokens only — never raw px, hex, or duration literals. This is
+enforced by `stylelint` (`just lint-css`).
+
+```
+assets/tokens/primitive.css   Tier 1 — raw scale (--space-*, --font-size-*,
+                                       --leading-*, --weight-*, --radius-*,
+                                       --duration-*, --z-*)
+assets/tokens/semantic.css    Tier 2 — role aliases (--pad-card, --motion-hover,
+                                       --content-width-*, --z-modal …)
+assets/tokens/typography.css  @font-face + --font-mono
+assets/themes/<theme>.css     Tier 2 — color tokens, one file per theme
+                                       (--bg-*, --text-*, --terminal-*, --accent)
+assets/base.css               global reset, ::selection, scrollbar utility,
+                                       blink keyframe
+src/components/**/*.module.css  Tier 3 — only var(--semantic-*) references
+```
+
+Themes are switched by setting `data-theme` on the `<html>` element. The
+inline bootstrap script in `index.html` does this synchronously before
+hydration, so there is no flash of unstyled content. Adding a new theme is
+one additional file under `assets/themes/`.
+
+Component-scoped responsiveness uses container queries — see
+`src/components/explorer/file_list.module.css` and
+`src/components/terminal/terminal.module.css` for the pattern. Page-level
+breakpoints (chrome, sidebars) continue to use `@media`.
+
+Mobile-tuned token overrides live inside an `@media` block at the bottom of
+`assets/tokens/primitive.css`; consumers don't change, the value just shrinks
+below 768px.
 
 ## Security
 

@@ -1,54 +1,68 @@
 /* Output - Scoped CSS Module */
 
 .line {
-  white-space: pre;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .lineEmpty {
-  height: 1.25rem;
+  height: 0.85rem;
 }
 
 .command {
   display: flex;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .listEntry {
   display: flex;
-  gap: 1rem;
-  padding-left: 1rem;
+  gap: var(--space-4);
+  padding-left: 1.2ch;
+  min-width: 0;
+  color: var(--text-dim);
 }
 
 .listEntry span:first-child {
-  min-width: 16rem;
+  min-width: 18ch;
 }
 
 .longEntry {
-  display: flex;
-  gap: 0.75rem;
-  padding-left: 1rem;
-  font-family: monospace;
+  display: grid;
+  grid-template-columns: 11ch 7ch 12ch minmax(16ch, 1fr);
+  column-gap: 1ch;
+  padding-left: 1.2ch;
+  font-family: var(--font-mono);
+  min-width: 0;
+  color: var(--text-dim);
 }
 
 .longEntry span:nth-child(1) { /* permissions */
-  min-width: 4ch;
+  min-width: 0;
 }
 
 .longEntry span:nth-child(2) { /* size */
-  min-width: 5ch;
   text-align: right;
 }
 
 .longEntry span:nth-child(3) { /* date */
-  min-width: 12ch;
+  min-width: 0;
 }
 
 .ascii {
+  margin: 0;
   font-size: var(--font-size-xs);
   line-height: 1.25;
   color: var(--terminal-cyan);
+  white-space: pre;
+  overflow-x: auto;
+  text-shadow:
+    0 0 1px currentColor,
+    0 0 6px var(--accent-glow),
+    0 0 10px color-mix(in srgb, var(--terminal-green) 16%, transparent);
+  filter: saturate(1.06);
 }
-
-/* Note: Apply .glow class from base.css for text-shadow effect */
 
 /* Text Colors */
 .textFg {
@@ -61,10 +75,11 @@
 
 .textGreen {
   color: var(--terminal-green);
+  text-shadow: 0 0 1px color-mix(in srgb, currentColor 72%, transparent);
 }
 
-.textCyan {
-  color: var(--terminal-cyan);
+.textAccent {
+  color: var(--accent);
 }
 
 .textYellow {
@@ -76,7 +91,7 @@
 }
 
 .fontBold {
-  font-weight: 700;
+  font-weight: var(--weight-semibold);
 }
 
 /* Lock icon marker for encrypted entries. Mirrors the explorer file_list
@@ -90,4 +105,13 @@
   vertical-align: middle;
 }
 
-/* Removed: .glowSubtle - use .glow class from base.css instead */
+@container terminal (max-width: 40rem) {
+  .longEntry {
+    grid-template-columns: 9ch 6ch 9ch minmax(12ch, 1fr);
+    column-gap: 0.75ch;
+  }
+
+  .listEntry span:first-child {
+    min-width: 14ch;
+  }
+}

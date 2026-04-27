@@ -4,14 +4,22 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  padding: 0 var(--space-4);
+  min-height: 0;
+  background: var(--bg-inset);
+  color: var(--text-primary);
   cursor: text;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-base);
+  line-height: var(--leading-relaxed);
+  container-type: inline-size;
+  container-name: terminal;
 }
 
 .output {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: var(--space-4);
+  padding: var(--space-3_5) var(--space-4_5) var(--space-2_5);
 
   /* Scrollbar styling */
   scrollbar-width: thin;
@@ -19,7 +27,7 @@
 }
 
 .output::-webkit-scrollbar {
-  width: 6px;
+  width: var(--space-1_5);
 }
 
 .output::-webkit-scrollbar-track {
@@ -28,7 +36,7 @@
 
 .output::-webkit-scrollbar-thumb {
   background-color: var(--text-muted);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
 }
 
 .output::-webkit-scrollbar-thumb:hover {
@@ -38,5 +46,20 @@
 .inputArea {
   flex: none;
   border-top: 1px solid var(--border-subtle);
-  background-color: var(--bg-primary);
+  background-color: var(--bg-inset);
+  padding: 0 var(--space-4_5);
+}
+
+@container terminal (max-width: 40rem) {
+  .container {
+    font-size: 12.5px;
+  }
+
+  .output {
+    padding: var(--space-3) var(--space-3) var(--space-2);
+  }
+
+  .inputArea {
+    padding: 0 var(--space-3);
+  }
 }

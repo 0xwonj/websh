@@ -8,7 +8,7 @@ use leptos_icons::Icon;
 
 use crate::components::icons as ic;
 use crate::components::terminal::RouteContext;
-use crate::core::engine::{RouteRequest, request_path_for_canonical_path};
+use crate::core::engine::{RouteRequest, RouteSurface, request_path_for_canonical_path};
 use crate::models::VirtualPath;
 
 stylance::import_crate_style!(css, "src/components/breadcrumb.module.css");
@@ -59,7 +59,7 @@ pub fn Breadcrumb(
                     segment_data.push(BreadcrumbSegment {
                         label: "/".to_string(),
                         icon: ic::SERVER,
-                        target: Some(RouteRequest::new("/fs")),
+                        target: Some(RouteRequest::new("/")),
                     });
                 }
 
@@ -82,10 +82,13 @@ pub fn Breadcrumb(
                     let target = if is_last {
                         None // Current segment is not clickable
                     } else if is_home_segment {
-                        Some(RouteRequest::new("/shell"))
+                        Some(RouteRequest::new("/"))
                     } else {
                         let path = canonical_segment_path(&segments, idx);
-                        Some(RouteRequest::new(request_path_for_canonical_path(&path)))
+                        Some(RouteRequest::new(request_path_for_canonical_path(
+                            &path,
+                            RouteSurface::Content,
+                        )))
                     };
 
                     segment_data.push(BreadcrumbSegment {
@@ -138,9 +141,9 @@ fn canonical_segment_path(segments: &[&str], idx: usize) -> VirtualPath {
     if segments.first() == Some(&"~") {
         let rel = build_segment_path(segments, idx);
         if rel.is_empty() {
-            return VirtualPath::from_absolute("/site").expect("constant path");
+            return VirtualPath::root();
         }
-        return VirtualPath::from_absolute(format!("/site/{rel}")).expect("constant path");
+        return VirtualPath::from_absolute(format!("/{rel}")).expect("constant path");
     }
 
     let abs = format!("/{}", segments[..=idx].join("/"));

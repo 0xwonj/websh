@@ -9,7 +9,7 @@ stylance::import_crate_style!(css, "src/components/terminal/output.module.css");
 /// Get CSS class for a TextStyle
 fn style_class(style: TextStyle) -> &'static str {
     match style {
-        TextStyle::Directory => css::textCyan,
+        TextStyle::Directory => css::textAccent,
         TextStyle::File => css::textFg,
         TextStyle::Hidden => css::textDim,
     }
@@ -27,7 +27,7 @@ pub fn Output(line: OutputLine) -> impl IntoView {
         }
         .into_any(),
         OutputLineData::Text(text) => view! {
-            <div class=format!("{} {}", css::line, css::textFg)>{text}</div>
+            <div class=format!("{} {}", css::line, css::textDim)>{text}</div>
         }
         .into_any(),
         OutputLineData::ListEntry {

@@ -6,53 +6,15 @@
   width: 100vw;
   display: flex;
   flex-direction: column;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
 }
 
 .main {
   flex: 1;
+  min-height: 0;
   overflow: hidden;
   position: relative;
-}
-
-/* Content overlay (for Reader from Explorer) */
-.overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 10000;
-  background-color: var(--bg-primary);
-}
-
-/* ==========================================================================
-   CRT Effects
-   ========================================================================== */
-
-.crtOverlay {
-  pointer-events: none;
-  position: fixed;
-  inset: 0;
-  background: repeating-linear-gradient(
-    0deg,
-    rgba(0, 0, 0, 0.1) 0px,
-    rgba(0, 0, 0, 0.1) 1px,
-    transparent 1px,
-    transparent 2px
-  );
-  z-index: 9999;
-}
-
-.scanline {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 4px;
-  background: linear-gradient(
-    to bottom,
-    transparent,
-    rgba(255, 255, 255, 0.03),
-    transparent
-  );
-  animation: scanline 8s linear infinite;
-  pointer-events: none;
-  z-index: 9998;
+  background: var(--bg-inset);
 }

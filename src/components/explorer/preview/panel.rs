@@ -38,6 +38,10 @@ fn panel_styles() -> PreviewStyles {
         error: css::error,
         description: css::description,
         markdown: md_css::markdown,
+        file_meta: css::fileMeta,
+        file_meta_date: css::fileMetaDate,
+        file_meta_tags: css::fileMetaTags,
+        file_meta_tag: css::fileMetaTag,
         hint: css::hint,
     }
 }

@@ -1,0 +1,39 @@
+/* ============================================
+   Theme: solarized-light
+   ============================================ */
+
+:root[data-theme="solarized-light"] {
+  color-scheme: light;
+
+  --bg-primary: #fdf6e3;
+  --bg-secondary: #eee8d5;
+  --bg-elevated: #e9dfc4;
+  --bg-inset: #f8f0d9;
+
+  --text-primary: #586e75;
+  --text-dim: #657b83;
+  --text-muted: #93a1a1;
+
+  --terminal-green: #859900;
+  --terminal-cyan: #2aa198;
+  --terminal-yellow: #b58900;
+  --terminal-red: #dc322f;
+  --terminal-purple: #6c71c4;
+  --terminal-orange: #cb4b16;
+
+  --accent: #268bd2;
+  --accent-muted: #2aa198;
+  --accent-glow: rgba(38, 139, 210, 0.24);
+
+  --border-muted: rgba(101, 123, 131, 0.34);
+  --border-subtle: rgba(101, 123, 131, 0.18);
+  --archive-bar-bg: var(--bg-secondary);
+  --surface-tint: rgba(0, 43, 54, 0.035);
+  --selection-bg: rgba(38, 139, 210, 0.2);
+  --selected-bg: rgba(38, 139, 210, 0.13);
+  --selected-hover-bg: rgba(38, 139, 210, 0.2);
+  --backdrop-bg: rgba(0, 43, 54, 0.28);
+  --shadow-color: rgba(0, 43, 54, 0.18);
+  --crt-scanline: rgba(0, 43, 54, 0.045);
+  --crt-sweep: rgba(0, 43, 54, 0.018);
+}

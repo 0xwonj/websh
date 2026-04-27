@@ -8,7 +8,7 @@ use leptos_icons::Icon;
 
 use super::{PreviewBody, PreviewData, PreviewStyles};
 use crate::components::icons as ic;
-use crate::core::engine::{push_request_path, request_path_for_canonical_path};
+use crate::core::engine::{RouteSurface, push_request_path, request_path_for_canonical_path};
 
 stylance::import_crate_style!(css, "src/components/explorer/sheet.module.css");
 stylance::import_crate_style!(md_css, "src/components/explorer/markdown.module.css");
@@ -39,6 +39,10 @@ fn sheet_styles() -> PreviewStyles {
         error: css::error,
         description: css::description,
         markdown: md_css::markdown,
+        file_meta: css::fileMeta,
+        file_meta_date: css::fileMetaDate,
+        file_meta_tags: css::fileMetaTags,
+        file_meta_tag: css::fileMetaTag,
         hint: css::hint,
     }
 }
@@ -62,7 +66,12 @@ pub fn BottomSheet(data: PreviewData) -> impl IntoView {
             return;
         };
 
-        push_request_path(&request_path_for_canonical_path(&selection.path));
+        let surface = if selection.is_dir {
+            RouteSurface::Explorer
+        } else {
+            RouteSurface::Content
+        };
+        push_request_path(&request_path_for_canonical_path(&selection.path, surface));
         data.close();
     };
 

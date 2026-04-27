@@ -1,10 +1,14 @@
 use std::collections::BTreeMap;
 
-use crate::models::{LoadedNodeMetadata, NodeKind, RendererKind, VirtualPath};
+use crate::models::{NodeKind, RendererKind, VirtualPath};
 use crate::utils::dom;
 
 use super::global_fs::GlobalFs;
 use super::intent::RenderIntent;
+
+const SHELL_ROUTE_PREFIX: &str = "/websh";
+const LEGACY_SHELL_ROUTE_PREFIX: &str = "/shell";
+const EXPLORER_ROUTE_PREFIX: &str = "/explorer";
 
 /// Browser request normalized into a filesystem-first input shape.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -43,6 +47,18 @@ impl RouteRequest {
     }
 }
 
+/// User-facing route surface.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RouteSurface {
+    /// Canonical content route, e.g. `#/blog/hello.md`.
+    #[default]
+    Content,
+    /// Shell route for a canonical cwd, e.g. `#/websh/blog`.
+    Shell,
+    /// Explorer route for a canonical cwd, e.g. `#/explorer/blog`.
+    Explorer,
+}
+
 /// Broad resolution result prior to renderer-specific details.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ResolvedKind {
@@ -58,6 +74,7 @@ pub enum ResolvedKind {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RouteResolution {
     pub request_path: String,
+    pub surface: RouteSurface,
     pub node_path: VirtualPath,
     pub kind: ResolvedKind,
     pub params: BTreeMap<String, String>,
@@ -73,11 +90,15 @@ pub struct RouteFrame {
 
 impl RouteFrame {
     pub fn is_root(&self) -> bool {
-        route_cwd(self).is_root()
+        !self.is_file() && route_cwd(self).is_root()
     }
 
     pub fn is_home(&self) -> bool {
-        route_cwd(self).as_str() == "/site"
+        route_cwd(self).is_root()
+    }
+
+    pub fn surface(&self) -> RouteSurface {
+        self.resolution.surface
     }
 
     pub fn display_path(&self) -> String {
@@ -105,13 +126,17 @@ pub fn replace_request_path(path: &str) {
     dom::replace_hash(&format!("#{}", normalize_request_path(path)));
 }
 
-pub fn request_path_for_canonical_path(path: &VirtualPath) -> String {
-    if path.as_str() == "/site" {
-        "/shell".to_string()
-    } else if path.is_root() {
-        "/fs".to_string()
-    } else {
-        format!("/fs/{}", path.as_str().trim_start_matches('/'))
+pub fn request_path_for_canonical_path(path: &VirtualPath, surface: RouteSurface) -> String {
+    match surface {
+        RouteSurface::Content => {
+            if path.is_root() {
+                "/".to_string()
+            } else {
+                path.as_str().to_string()
+            }
+        }
+        RouteSurface::Shell => surface_request_path(SHELL_ROUTE_PREFIX, path),
+        RouteSurface::Explorer => surface_request_path(EXPLORER_ROUTE_PREFIX, path),
     }
 }
 
@@ -120,17 +145,19 @@ pub fn parent_request_path(path: &str) -> String {
     if normalized == "/" {
         return "/".to_string();
     }
-    if normalized == "/shell" {
-        return "/shell".to_string();
-    }
-    if let Some(rest) = normalized.strip_prefix("/fs/") {
-        let Some(current) = canonical_path_from_fs_request(rest) else {
-            return "/fs".to_string();
-        };
+
+    if let Some((surface, current)) = surface_target_from_request(&normalized) {
         return current
             .parent()
-            .map(|parent| request_path_for_canonical_path(&parent))
-            .unwrap_or_else(|| "/fs".to_string());
+            .map(|parent| request_path_for_canonical_path(&parent, surface))
+            .unwrap_or_else(|| request_path_for_canonical_path(&VirtualPath::root(), surface));
+    }
+
+    if let Ok(current) = VirtualPath::from_absolute(normalized.clone()) {
+        return current
+            .parent()
+            .map(|parent| request_path_for_canonical_path(&parent, RouteSurface::Content))
+            .unwrap_or_else(|| "/".to_string());
     }
 
     match normalized.rsplit_once('/') {
@@ -158,13 +185,7 @@ pub fn route_cwd(frame: &RouteFrame) -> VirtualPath {
 
 pub fn display_path_for(path: &VirtualPath) -> String {
     if path.is_root() {
-        return "/".to_string();
-    }
-    if path.as_str() == "/site" {
         return "~".to_string();
-    }
-    if let Some(rest) = path.strip_prefix(&VirtualPath::from_absolute("/site").unwrap()) {
-        return format!("~/{}", rest);
     }
     path.as_str().to_string()
 }
@@ -175,9 +196,9 @@ pub fn canonicalize_user_path(cwd: &VirtualPath, raw: &str) -> Option<VirtualPat
     }
 
     let input = if raw == "~" {
-        "/site".to_string()
+        "/".to_string()
     } else if let Some(rest) = raw.strip_prefix("~/") {
-        format!("/site/{}", rest)
+        format!("/{}", rest)
     } else if raw.starts_with('/') {
         raw.to_string()
     } else if cwd.is_root() {
@@ -190,15 +211,17 @@ pub fn canonicalize_user_path(cwd: &VirtualPath, raw: &str) -> Option<VirtualPat
 }
 
 /// Resolve routes in priority order:
-/// 1. explicit metadata route
+/// 1. reserved shell/explorer route
 /// 2. derived index
 /// 3. convention fallback
 pub fn resolve_route(fs: &GlobalFs, request: &RouteRequest) -> Option<RouteResolution> {
     let path = normalize_request_path(&request.url_path);
 
-    resolve_metadata_route(fs, &path)
-        .or_else(|| resolve_index_route(fs, &path))
-        .or_else(|| resolve_convention_route(fs, &path))
+    if is_reserved_request_path(&path) {
+        return resolve_reserved_route(fs, &path);
+    }
+
+    resolve_index_route(fs, &path).or_else(|| resolve_convention_route(fs, &path))
 }
 
 pub fn normalize_request_path(path: &str) -> String {
@@ -214,54 +237,35 @@ pub fn normalize_request_path(path: &str) -> String {
     }
 }
 
-fn resolve_metadata_route(fs: &GlobalFs, request_path: &str) -> Option<RouteResolution> {
-    let mut best: Option<(usize, RouteResolution)> = None;
-
-    for (source_path, meta) in fs.metadata_entries() {
-        let Some(route) = meta.route.as_deref() else {
-            continue;
-        };
-        let Some(params) = match_route_pattern(route, request_path) else {
-            continue;
-        };
-
-        let resolution = if route == "/fs/*path" {
-            let suffix = params.get("path").cloned().unwrap_or_default();
-            let target = canonical_path_from_fs_request(&suffix)?;
-            let kind = classify_candidate(fs, &target)?;
-            let mut params = params;
-            params.insert(
-                "cwd".to_string(),
-                route_cwd_for_target(fs, &target).to_string(),
-            );
-            RouteResolution {
-                request_path: request_path.to_string(),
-                node_path: target,
-                kind,
-                params,
-            }
-        } else {
-            let mut params = params;
-            let node_path = source_path.clone();
-            params.insert("cwd".to_string(), "/site".to_string());
-            RouteResolution {
-                request_path: request_path.to_string(),
-                node_path: node_path.clone(),
-                kind: metadata_kind(fs, &node_path, meta),
-                params,
-            }
-        };
-
-        let specificity = route.len();
-        if best
-            .as_ref()
-            .is_none_or(|(best_len, _)| specificity > *best_len)
-        {
-            best = Some((specificity, resolution));
-        }
+fn resolve_reserved_route(fs: &GlobalFs, request_path: &str) -> Option<RouteResolution> {
+    let (surface, cwd) = surface_target_from_request(request_path)?;
+    if !fs.is_directory(&cwd) {
+        return None;
     }
 
-    best.map(|(_, resolution)| resolution)
+    let mut params = BTreeMap::new();
+    params.insert("cwd".to_string(), cwd.to_string());
+
+    Some(RouteResolution {
+        request_path: request_path.to_string(),
+        surface,
+        node_path: cwd,
+        kind: match surface {
+            RouteSurface::Shell => ResolvedKind::App,
+            RouteSurface::Explorer => ResolvedKind::Directory,
+            RouteSurface::Content => return None,
+        },
+        params,
+    })
+}
+
+fn is_reserved_request_path(request_path: &str) -> bool {
+    matches!(
+        request_path,
+        SHELL_ROUTE_PREFIX | LEGACY_SHELL_ROUTE_PREFIX | EXPLORER_ROUTE_PREFIX
+    ) || request_path.starts_with(&format!("{SHELL_ROUTE_PREFIX}/"))
+        || request_path.starts_with(&format!("{LEGACY_SHELL_ROUTE_PREFIX}/"))
+        || request_path.starts_with(&format!("{EXPLORER_ROUTE_PREFIX}/"))
 }
 
 fn resolve_index_route(fs: &GlobalFs, request_path: &str) -> Option<RouteResolution> {
@@ -273,6 +277,7 @@ fn resolve_index_route(fs: &GlobalFs, request_path: &str) -> Option<RouteResolut
 
     Some(RouteResolution {
         request_path: request_path.to_string(),
+        surface: RouteSurface::Content,
         node_path: node_path.clone(),
         kind: resolved_kind_from_index(
             fs,
@@ -291,6 +296,7 @@ fn resolve_convention_route(fs: &GlobalFs, request_path: &str) -> Option<RouteRe
         if let Some(kind) = classify_candidate(fs, &candidate) {
             return Some(RouteResolution {
                 request_path: request_path.to_string(),
+                surface: RouteSurface::Content,
                 node_path: candidate,
                 kind,
                 params: BTreeMap::new(),
@@ -299,14 +305,6 @@ fn resolve_convention_route(fs: &GlobalFs, request_path: &str) -> Option<RouteRe
     }
 
     None
-}
-
-fn metadata_kind(
-    fs: &GlobalFs,
-    node_path: &VirtualPath,
-    meta: &LoadedNodeMetadata,
-) -> ResolvedKind {
-    resolved_kind_from_index(fs, node_path, meta.kind.as_ref(), meta.renderer.as_ref())
 }
 
 fn resolved_kind_from_index(
@@ -342,28 +340,6 @@ fn resolved_kind_from_index(
     classify_candidate(fs, node_path).unwrap_or(ResolvedKind::Document)
 }
 
-fn route_cwd_for_target(fs: &GlobalFs, target: &VirtualPath) -> VirtualPath {
-    if fs.is_directory(target) {
-        target.clone()
-    } else {
-        target.parent().unwrap_or_else(VirtualPath::root)
-    }
-}
-
-fn match_route_pattern(pattern: &str, request_path: &str) -> Option<BTreeMap<String, String>> {
-    if let Some((prefix, name)) = pattern.split_once('*') {
-        let prefix = prefix.trim_end_matches('/');
-        let request = request_path
-            .trim_start_matches(prefix)
-            .trim_start_matches('/');
-        let mut params = BTreeMap::new();
-        params.insert(name.to_string(), request.to_string());
-        return request_path.starts_with(prefix).then_some(params);
-    }
-
-    (pattern == request_path).then(BTreeMap::new)
-}
-
 fn classify_candidate(fs: &GlobalFs, candidate: &VirtualPath) -> Option<ResolvedKind> {
     let entry = fs.get_entry(candidate)?;
     if entry.is_directory() {
@@ -388,7 +364,7 @@ fn classify_candidate(fs: &GlobalFs, candidate: &VirtualPath) -> Option<Resolved
 fn route_candidates(relative_request: &str) -> Vec<VirtualPath> {
     let mut out = Vec::new();
     let trimmed = relative_request.trim_matches('/');
-    let site_root = VirtualPath::from_absolute("/site").expect("constant absolute path");
+    let site_root = VirtualPath::root();
 
     if trimmed.is_empty() {
         for suffix in [
@@ -424,11 +400,33 @@ fn route_candidates(relative_request: &str) -> Vec<VirtualPath> {
     out
 }
 
-fn canonical_path_from_fs_request(suffix: &str) -> Option<VirtualPath> {
-    if suffix.is_empty() {
-        return Some(VirtualPath::root());
+fn surface_request_path(prefix: &str, path: &VirtualPath) -> String {
+    if path.is_root() {
+        prefix.to_string()
+    } else {
+        format!("{}/{}", prefix, path.as_str().trim_start_matches('/'))
     }
-    normalize_absolute_path(&format!("/{}", suffix))
+}
+
+fn surface_target_from_request(request_path: &str) -> Option<(RouteSurface, VirtualPath)> {
+    if request_path == SHELL_ROUTE_PREFIX || request_path == LEGACY_SHELL_ROUTE_PREFIX {
+        return Some((RouteSurface::Shell, VirtualPath::root()));
+    }
+    if request_path == EXPLORER_ROUTE_PREFIX {
+        return Some((RouteSurface::Explorer, VirtualPath::root()));
+    }
+    if let Some(rest) = request_path
+        .strip_prefix(&format!("{SHELL_ROUTE_PREFIX}/"))
+        .or_else(|| request_path.strip_prefix(&format!("{LEGACY_SHELL_ROUTE_PREFIX}/")))
+    {
+        return normalize_absolute_path(&format!("/{rest}"))
+            .map(|path| (RouteSurface::Shell, path));
+    }
+    if let Some(rest) = request_path.strip_prefix(&format!("{EXPLORER_ROUTE_PREFIX}/")) {
+        return normalize_absolute_path(&format!("/{rest}"))
+            .map(|path| (RouteSurface::Explorer, path));
+    }
+    None
 }
 
 fn normalize_absolute_path(path: &str) -> Option<VirtualPath> {
@@ -454,7 +452,7 @@ fn normalize_absolute_path(path: &str) -> Option<VirtualPath> {
 #[cfg(test)]
 mod tests {
     use crate::core::storage::{ScannedDirectory, ScannedFile, ScannedSubtree};
-    use crate::models::{DirectoryMetadata, FileMetadata, FileSidecarMetadata, RouteIndexEntry};
+    use crate::models::{DirectoryMetadata, FileMetadata, RouteIndexEntry};
 
     use super::*;
 
@@ -482,28 +480,8 @@ mod tests {
 
         let mut global = GlobalFs::empty();
         global
-            .mount_scanned_subtree(VirtualPath::from_absolute("/site").unwrap(), &snapshot)
+            .mount_scanned_subtree(VirtualPath::root(), &snapshot)
             .unwrap();
-        global.set_node_metadata(
-            VirtualPath::from_absolute("/site/shell.app").unwrap(),
-            FileSidecarMetadata {
-                kind: Some(NodeKind::App),
-                renderer: Some(RendererKind::TerminalApp),
-                route: Some("/shell".to_string()),
-                ..Default::default()
-            }
-            .into(),
-        );
-        global.set_node_metadata(
-            VirtualPath::from_absolute("/site/fs.app").unwrap(),
-            FileSidecarMetadata {
-                kind: Some(NodeKind::App),
-                renderer: Some(RendererKind::TerminalApp),
-                route: Some("/fs/*path".to_string()),
-                ..Default::default()
-            }
-            .into(),
-        );
         global
     }
 
@@ -515,29 +493,69 @@ mod tests {
     }
 
     #[test]
-    fn resolves_bootstrap_shell_route_from_metadata() {
-        let fs = site(&["shell.app"], &[]);
-        let resolved = resolve_route(&fs, &RouteRequest::new("/shell")).unwrap();
+    fn resolves_shell_route_from_reserved_surface() {
+        let fs = site(&["blog/post.md"], &["blog"]);
+        let resolved = resolve_route(&fs, &RouteRequest::new("/websh")).unwrap();
 
         assert_eq!(resolved.kind, ResolvedKind::App);
-        assert_eq!(resolved.node_path.as_str(), "/site/shell.app");
+        assert_eq!(resolved.surface, RouteSurface::Shell);
+        assert_eq!(resolved.node_path.as_str(), "/");
+        assert_eq!(resolved.params.get("cwd").map(String::as_str), Some("/"));
+    }
+
+    #[test]
+    fn resolves_nested_shell_route_to_canonical_cwd() {
+        let fs = site(&["blog/post.md"], &["blog"]);
+        let resolved = resolve_route(&fs, &RouteRequest::new("/websh/blog")).unwrap();
+
+        assert_eq!(resolved.kind, ResolvedKind::App);
+        assert_eq!(resolved.surface, RouteSurface::Shell);
+        assert_eq!(resolved.node_path.as_str(), "/blog");
         assert_eq!(
             resolved.params.get("cwd").map(String::as_str),
-            Some("/site")
+            Some("/blog")
         );
     }
 
     #[test]
-    fn resolves_fs_namespace_to_canonical_target() {
-        let fs = site(&["fs.app", "blog/post.md"], &["blog"]);
-        let resolved = resolve_route(&fs, &RouteRequest::new("/fs/site/blog/post.md")).unwrap();
+    fn resolves_legacy_shell_route_as_shell_surface() {
+        let fs = site(&["blog/post.md"], &["blog"]);
+        let resolved = resolve_route(&fs, &RouteRequest::new("/shell/blog")).unwrap();
 
-        assert_eq!(resolved.kind, ResolvedKind::Page);
-        assert_eq!(resolved.node_path.as_str(), "/site/blog/post.md");
+        assert_eq!(resolved.kind, ResolvedKind::App);
+        assert_eq!(resolved.surface, RouteSurface::Shell);
+        assert_eq!(resolved.node_path.as_str(), "/blog");
         assert_eq!(
-            resolved.params.get("cwd").map(String::as_str),
-            Some("/site/blog")
+            request_path_for_canonical_path(&resolved.node_path, RouteSurface::Shell),
+            "/websh/blog"
         );
+    }
+
+    #[test]
+    fn resolves_explorer_route_to_canonical_cwd() {
+        let fs = site(&["db/fresh.md"], &["db"]);
+        let resolved = resolve_route(&fs, &RouteRequest::new("/explorer/db")).unwrap();
+
+        assert_eq!(resolved.kind, ResolvedKind::Directory);
+        assert_eq!(resolved.surface, RouteSurface::Explorer);
+        assert_eq!(resolved.node_path.as_str(), "/db");
+        assert_eq!(resolved.params.get("cwd").map(String::as_str), Some("/db"));
+    }
+
+    #[test]
+    fn legacy_fs_namespace_is_not_a_route() {
+        let fs = site(&["blog/post.md"], &["blog"]);
+        assert!(resolve_route(&fs, &RouteRequest::new("/fs/site/blog/post.md")).is_none());
+    }
+
+    #[test]
+    fn reserved_shell_route_wins_over_content_node() {
+        let fs = site(&["shell/index.md"], &["shell"]);
+        let resolved = resolve_route(&fs, &RouteRequest::new("/websh")).unwrap();
+
+        assert_eq!(resolved.kind, ResolvedKind::App);
+        assert_eq!(resolved.surface, RouteSurface::Shell);
+        assert_eq!(resolved.node_path.as_str(), "/");
     }
 
     #[test]
@@ -545,13 +563,14 @@ mod tests {
         let mut fs = site(&["about.md"], &[]);
         fs.replace_route_index([RouteIndexEntry {
             route: "/company".to_string(),
-            node_path: "/site/about.md".to_string(),
+            node_path: "/about.md".to_string(),
             kind: Some(NodeKind::Page),
             renderer: Some(RendererKind::MarkdownPage),
         }]);
 
         let resolved = resolve_route(&fs, &RouteRequest::new("/company")).unwrap();
-        assert_eq!(resolved.node_path.as_str(), "/site/about.md");
+        assert_eq!(resolved.surface, RouteSurface::Content);
+        assert_eq!(resolved.node_path.as_str(), "/about.md");
         assert_eq!(resolved.kind, ResolvedKind::Page);
     }
 
@@ -561,37 +580,58 @@ mod tests {
         let resolved = resolve_route(&fs, &RouteRequest::new("/")).unwrap();
 
         assert_eq!(resolved.kind, ResolvedKind::Page);
-        assert_eq!(resolved.node_path.as_str(), "/site/index.page.md");
+        assert_eq!(resolved.node_path.as_str(), "/index.page.md");
     }
 
     #[test]
-    fn display_path_uses_site_alias() {
+    fn resolves_direct_canonical_content_file() {
+        let fs = site(&["about.md", "db/fresh.md"], &["db"]);
+        let resolved = resolve_route(&fs, &RouteRequest::new("/db/fresh.md")).unwrap();
+
+        assert_eq!(resolved.kind, ResolvedKind::Page);
+        assert_eq!(resolved.surface, RouteSurface::Content);
+        assert_eq!(resolved.node_path.as_str(), "/db/fresh.md");
+    }
+
+    #[test]
+    fn display_path_uses_home_alias_for_root() {
         assert_eq!(
-            display_path_for(&VirtualPath::from_absolute("/site/blog").unwrap()),
-            "~/blog"
+            display_path_for(&VirtualPath::from_absolute("/blog").unwrap()),
+            "/blog"
         );
-        assert_eq!(
-            display_path_for(&VirtualPath::from_absolute("/mnt/db").unwrap()),
-            "/mnt/db"
-        );
+        assert_eq!(display_path_for(&VirtualPath::root()), "~");
     }
 
     #[test]
     fn canonicalize_user_path_understands_aliases_and_parent_segments() {
-        let cwd = VirtualPath::from_absolute("/site/blog").unwrap();
+        let cwd = VirtualPath::from_absolute("/blog").unwrap();
         assert_eq!(
             canonicalize_user_path(&cwd, "../about.md")
                 .unwrap()
                 .as_str(),
-            "/site/about.md"
+            "/about.md"
         );
         assert_eq!(
             canonicalize_user_path(&cwd, "~/posts").unwrap().as_str(),
-            "/site/posts"
+            "/posts"
+        );
+        assert_eq!(canonicalize_user_path(&cwd, "/db").unwrap().as_str(), "/db");
+    }
+
+    #[test]
+    fn request_paths_are_surface_aware() {
+        let path = VirtualPath::from_absolute("/blog/hello.md").unwrap();
+        assert_eq!(
+            request_path_for_canonical_path(&path, RouteSurface::Content),
+            "/blog/hello.md"
         );
         assert_eq!(
-            canonicalize_user_path(&cwd, "/mnt/db").unwrap().as_str(),
-            "/mnt/db"
+            request_path_for_canonical_path(&path, RouteSurface::Shell),
+            "/websh/blog/hello.md"
+        );
+        assert_eq!(
+            request_path_for_canonical_path(&path, RouteSurface::Explorer),
+            "/explorer/blog/hello.md"
         );
     }
 }

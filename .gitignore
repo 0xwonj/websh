@@ -1,5 +1,7 @@
 /target
 /dist
+/dist-dev
+/dist-e2e
 /node_modules
 /test-results
 /playwright-report
@@ -17,8 +19,14 @@
 .env
 .last-cid
 
+# Local-only CLI state and private crypto material
+.websh/local/
+
 # Test content directory
 /content-test
+
+# Local dev content fixture (swap into content/ via `just dev-content`)
+/content-dev
 
 # Scripts test artifacts (content & generated manifest)
 /scripts/github-storage/~

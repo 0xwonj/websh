@@ -247,13 +247,13 @@ mod tests {
         });
         let mut changes = ChangeSet::new();
         changes.upsert(
-            p("/site/new.md"),
+            p("/new.md"),
             ChangeType::CreateFile {
                 content: "new".to_string(),
                 meta: FileMetadata::default(),
             },
         );
-        let unstaged = p("/site/draft.md");
+        let unstaged = p("/draft.md");
         changes.upsert(
             unstaged.clone(),
             ChangeType::CreateFile {
@@ -265,7 +265,7 @@ mod tests {
 
         let request = prepare_commit(
             &backend,
-            &p("/site"),
+            &VirtualPath::root(),
             &changes,
             "msg".to_string(),
             Some("old".to_string()),
@@ -283,7 +283,7 @@ mod tests {
         assert_eq!(paths, vec!["keep.md", "new.md"]);
         assert!(request.delta.deletions.is_empty());
         assert_eq!(request.delta.additions.len(), 1);
-        assert_eq!(request.cleanup_paths, vec![p("/site/new.md")]);
+        assert_eq!(request.cleanup_paths, vec![p("/new.md")]);
         assert_eq!(request.expected_head.as_deref(), Some("old"));
         assert_eq!(request.auth_token, None);
     }
@@ -295,7 +295,7 @@ mod tests {
         });
         let mut changes = ChangeSet::new();
         changes.upsert(
-            p("/mnt/db/new.md"),
+            p("/other/new.md"),
             ChangeType::CreateFile {
                 content: "db".to_string(),
                 meta: FileMetadata::default(),
@@ -304,7 +304,7 @@ mod tests {
 
         let error = prepare_commit(
             &backend,
-            &p("/site"),
+            &p("/db"),
             &changes,
             "msg".to_string(),
             Some("old".to_string()),
@@ -341,11 +341,11 @@ mod tests {
             })),
         });
         let mut changes = ChangeSet::new();
-        changes.upsert(p("/site/docs"), ChangeType::DeleteDirectory);
+        changes.upsert(p("/docs"), ChangeType::DeleteDirectory);
 
         let request = prepare_commit(
             &backend,
-            &p("/site"),
+            &VirtualPath::root(),
             &changes,
             "msg".to_string(),
             Some("old".to_string()),
@@ -360,7 +360,7 @@ mod tests {
             .iter()
             .map(|path| path.as_str())
             .collect();
-        assert_eq!(paths, vec!["/site/docs/a.md", "/site/docs/deep/b.md"]);
+        assert_eq!(paths, vec!["/docs/a.md", "/docs/deep/b.md"]);
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -377,17 +377,17 @@ mod tests {
         });
         let mut changes = ChangeSet::new();
         changes.upsert(
-            p("/site/docs/a.md"),
+            p("/docs/a.md"),
             ChangeType::UpdateFile {
                 content: "new".to_string(),
                 description: None,
             },
         );
-        changes.upsert(p("/site/docs"), ChangeType::DeleteDirectory);
+        changes.upsert(p("/docs"), ChangeType::DeleteDirectory);
 
         let request = prepare_commit(
             &backend,
-            &p("/site"),
+            &VirtualPath::root(),
             &changes,
             "msg".to_string(),
             Some("old".to_string()),
@@ -397,11 +397,8 @@ mod tests {
         .unwrap();
 
         assert!(request.delta.additions.is_empty());
-        assert_eq!(request.delta.deletions, vec![p("/site/docs/a.md")]);
-        assert_eq!(
-            request.cleanup_paths,
-            vec![p("/site/docs"), p("/site/docs/a.md")]
-        );
+        assert_eq!(request.delta.deletions, vec![p("/docs/a.md")]);
+        assert_eq!(request.cleanup_paths, vec![p("/docs"), p("/docs/a.md")]);
         assert!(request.merged_snapshot.files.is_empty());
     }
 }

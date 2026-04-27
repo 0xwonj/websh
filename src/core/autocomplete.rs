@@ -528,7 +528,7 @@ mod tests {
     // Write-command + sync-subcommand completion
     // ------------------------------------------------------------------------
 
-    /// Build a small fixture FS with two files and two dirs at `/site`:
+    /// Build a small fixture FS with two files and two dirs at `/`:
     /// - `home/` (dir), `help/` (dir)
     /// - `hello.md` (file), `hero.md` (file)
     ///
@@ -580,7 +580,7 @@ mod tests {
             ],
         };
         let mut fs = GlobalFs::empty();
-        fs.mount_scanned_subtree(VirtualPath::from_absolute("/site").unwrap(), &snapshot)
+        fs.mount_scanned_subtree(VirtualPath::root(), &snapshot)
             .unwrap();
         fs
     }
@@ -603,7 +603,7 @@ mod tests {
         let result = complete_path(
             "touch",
             "h",
-            &VirtualPath::from_absolute("/site").unwrap(),
+            &VirtualPath::root(),
             &fs,
             /* dirs_only */ false,
         );
@@ -637,7 +637,7 @@ mod tests {
         let result = complete_path(
             "rm",
             "h",
-            &VirtualPath::from_absolute("/site").unwrap(),
+            &VirtualPath::root(),
             &fs,
             /* dirs_only */ false,
         );
@@ -652,7 +652,7 @@ mod tests {
         let result = complete_path(
             "edit",
             "h",
-            &VirtualPath::from_absolute("/site").unwrap(),
+            &VirtualPath::root(),
             &fs,
             /* dirs_only */ false,
         );
@@ -669,7 +669,7 @@ mod tests {
         let result = complete_path(
             "mkdir",
             "h",
-            &VirtualPath::from_absolute("/site").unwrap(),
+            &VirtualPath::root(),
             &fs,
             /* dirs_only */ true,
         );
@@ -695,7 +695,7 @@ mod tests {
         let result = complete_path(
             "rmdir",
             "h",
-            &VirtualPath::from_absolute("/site").unwrap(),
+            &VirtualPath::root(),
             &fs,
             /* dirs_only */ true,
         );
@@ -797,7 +797,7 @@ mod tests {
         // mode-based branches. An empty GlobalFs is fine because `complete_sync`
         // never touches the filesystem.
         let fs = GlobalFs::empty();
-        let cwd = VirtualPath::from_absolute("/site").unwrap();
+        let cwd = VirtualPath::root();
         let result = autocomplete("sync s", &cwd, &fs);
         match result {
             AutocompleteResult::Single(s) => assert_eq!(s, "sync status "),

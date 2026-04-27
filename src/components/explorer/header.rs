@@ -109,7 +109,7 @@ fn NavButtons(is_root: Signal<bool>, is_home: Signal<bool>) -> impl IntoView {
 
     // Home
     let on_home = move |_: leptos::ev::MouseEvent| {
-        push_request_path("/shell");
+        push_request_path("/websh");
     };
 
     view! {
@@ -299,7 +299,7 @@ fn MoreMenu(
 
     let on_home = move |_: leptos::ev::MouseEvent| {
         set_menu_open.set(false);
-        push_request_path("/shell");
+        push_request_path("/websh");
     };
 
     let on_zoom_in = move |_: leptos::ev::MouseEvent| {

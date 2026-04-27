@@ -20,6 +20,10 @@ pub enum SideEffect {
     SwitchView(ViewMode),
     /// Switch view mode and navigate in one step.
     SwitchViewAndNavigate(ViewMode, RouteRequest),
+    /// Apply a global color palette.
+    SetTheme {
+        theme: String,
+    },
 
     // Filesystem mutations
     ApplyChange {
@@ -173,7 +177,7 @@ mod tests {
 
     #[test]
     fn test_navigate_constructor() {
-        let route = RouteRequest::new("/fs/site/blog");
+        let route = RouteRequest::new("/websh/blog");
         let r = CommandResult::navigate(route.clone());
         assert_eq!(r.exit_code, 0);
         assert_eq!(r.side_effect, Some(SideEffect::Navigate(route)));
@@ -203,7 +207,7 @@ mod tests {
 
     #[test]
     fn test_open_explorer_constructor() {
-        let route = RouteRequest::new("/fs/site/blog");
+        let route = RouteRequest::new("/explorer/blog");
         let r = CommandResult::open_explorer(route.clone());
         assert_eq!(
             r.side_effect,

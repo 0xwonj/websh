@@ -153,12 +153,12 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn pending_content_wins_over_backend_reads() {
         let mut fs = GlobalFs::empty();
-        let path = VirtualPath::from_absolute("/state/env/EDITOR").unwrap();
+        let path = VirtualPath::from_absolute("/.websh/state/env/EDITOR").unwrap();
         fs.upsert_file(path.clone(), "vim".to_string(), FileMetadata::default());
 
         let mut backends = BackendRegistry::new();
         backends.insert(
-            VirtualPath::from_absolute("/state").unwrap(),
+            VirtualPath::from_absolute("/.websh/state").unwrap(),
             Arc::new(StubBackend {
                 reads: Mutex::new(Vec::new()),
                 text: "nano".to_string(),
@@ -173,7 +173,7 @@ mod tests {
     async fn backend_reads_relative_path_under_mount_root() {
         let mut fs = GlobalFs::empty();
         fs.upsert_binary_placeholder(
-            VirtualPath::from_absolute("/site/blog/post.md").unwrap(),
+            VirtualPath::from_absolute("/blog/post.md").unwrap(),
             FileMetadata::default(),
         );
 
@@ -182,15 +182,12 @@ mod tests {
             text: "hello".to_string(),
         });
         let mut backends = BackendRegistry::new();
-        backends.insert(
-            VirtualPath::from_absolute("/site").unwrap(),
-            backend.clone(),
-        );
+        backends.insert(VirtualPath::root(), backend.clone());
 
         let text = read_text(
             &fs,
             &backends,
-            &VirtualPath::from_absolute("/site/blog/post.md").unwrap(),
+            &VirtualPath::from_absolute("/blog/post.md").unwrap(),
         )
         .await
         .expect("text");

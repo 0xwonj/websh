@@ -1,37 +1,13 @@
-use serde::{Deserialize, Serialize};
-
 use crate::core::storage::{
     ScannedDirectory, ScannedFile, ScannedSubtree, StorageError, StorageResult,
 };
-use crate::models::{AccessFilter, DirectoryMetadata, FileMetadata};
+use crate::models::manifest::{
+    ContentManifestDirectory as ManifestDirectory, ContentManifestDocument as ManifestDocument,
+    ContentManifestFile as ManifestFile,
+};
+use crate::models::{DirectoryMetadata, FileMetadata};
 
 use super::path::validate_repo_relative_path;
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-struct ManifestDocument {
-    files: Vec<ManifestFile>,
-    directories: Vec<ManifestDirectory>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-struct ManifestFile {
-    path: String,
-    title: String,
-    size: Option<u64>,
-    modified: Option<u64>,
-    tags: Vec<String>,
-    access: Option<AccessFilter>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-struct ManifestDirectory {
-    path: String,
-    title: String,
-    tags: Vec<String>,
-    description: Option<String>,
-    icon: Option<String>,
-    thumbnail: Option<String>,
-}
 
 pub(crate) fn parse_snapshot(body: &str) -> StorageResult<ScannedSubtree> {
     let manifest: ManifestDocument = serde_json::from_str(body)
@@ -50,6 +26,7 @@ pub(crate) fn parse_snapshot(body: &str) -> StorageResult<ScannedSubtree> {
                     meta: FileMetadata {
                         size: file.size,
                         modified: file.modified,
+                        date: file.date,
                         tags: file.tags,
                         access: file.access,
                     },
@@ -89,6 +66,7 @@ pub(crate) fn serialize_snapshot(snapshot: &ScannedSubtree) -> StorageResult<Str
                     title: file.description.clone(),
                     size: file.meta.size,
                     modified: file.meta.modified,
+                    date: file.meta.date.clone(),
                     tags: file.meta.tags.clone(),
                     access: file.meta.access.clone(),
                 })
@@ -128,6 +106,7 @@ mod tests {
                 meta: FileMetadata {
                     size: Some(7),
                     modified: Some(42),
+                    date: Some("2026-04-26".to_string()),
                     tags: vec!["intro".to_string()],
                     access: None,
                 },

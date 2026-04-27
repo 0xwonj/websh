@@ -21,10 +21,12 @@
   min-width: 0;
   scrollbar-width: thin;
   scrollbar-color: var(--text-muted) transparent;
+  container-type: inline-size;
+  container-name: file-list-pane;
 }
 
 .fileListPane::-webkit-scrollbar {
-  width: 6px;
+  width: var(--space-1_5);
 }
 
 .fileListPane::-webkit-scrollbar-track {
@@ -33,7 +35,7 @@
 
 .fileListPane::-webkit-scrollbar-thumb {
   background-color: var(--text-muted);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
 }
 
 @media (min-width: 769px) {

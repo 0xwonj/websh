@@ -1,0 +1,39 @@
+/* ============================================
+   Theme: gruvbox-dark
+   ============================================ */
+
+:root[data-theme="gruvbox-dark"] {
+  color-scheme: dark;
+
+  --bg-primary: #282828;
+  --bg-secondary: #3c3836;
+  --bg-elevated: #504945;
+  --bg-inset: #1d2021;
+
+  --text-primary: #ebdbb2;
+  --text-dim: #a89984;
+  --text-muted: #7c6f64;
+
+  --terminal-green: #8ec07c;
+  --terminal-cyan: #83a598;
+  --terminal-yellow: #fabd2f;
+  --terminal-red: #fb4934;
+  --terminal-purple: #d3869b;
+  --terminal-orange: #fe8019;
+
+  --accent: #cc241d;
+  --accent-muted: #d65d0e;
+  --accent-glow: rgba(204, 36, 29, 0.28);
+
+  --border-muted: rgba(168, 153, 132, 0.36);
+  --border-subtle: rgba(168, 153, 132, 0.18);
+  --archive-bar-bg: var(--bg-secondary);
+  --surface-tint: rgba(235, 219, 178, 0.035);
+  --selection-bg: rgba(142, 192, 124, 0.24);
+  --selected-bg: rgba(131, 165, 152, 0.16);
+  --selected-hover-bg: rgba(131, 165, 152, 0.24);
+  --backdrop-bg: rgba(29, 32, 33, 0.66);
+  --shadow-color: rgba(29, 32, 33, 0.36);
+  --crt-scanline: rgba(29, 32, 33, 0.12);
+  --crt-sweep: rgba(235, 219, 178, 0.025);
+}

@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "scheme": "websh.ack.hybrid.v1",
+  "hash": "sha256",
+  "normalization": "nfkc+trim+collapse-whitespace+lowercase",
+  "public": {
+    "count": 11,
+    "root": "0x1d6744dee3d67fa3828a00c0404408142980e0b3ab451b3f4518617d99b11959",
+    "leaves": [
+      "0x05c8f98319f13e722fced5b43044d18299e5d28a8719c86063551ac6e55d2db4",
+      "0x130093986e549f0eae14575fba32c3ecc28d123ce8b8cc9d7cffa9ecc28cd0dd",
+      "0x1bb8b2b0e02cf9fa725ae0301d72781bfe16b87650e53893f8b695d9f4fc03a0",
+      "0x1f41e0db0d03c00fa6a3feeab8fac8794e3de92bd4f9324c77a102a4f3c6a859",
+      "0x516f89ec075f1ff26f3154eda60d3ecb8cd3c222d869de8ab0a92df807b15e33",
+      "0x5680df9552cfc9fb660528bc2d8f02376e097f9740627331671daf99782eb87b",
+      "0xb1237da2a5ef2ca42d7b673221050e08d5bd7d3bfedee455a08d7a15c4287fb6",
+      "0xb641d090694bb4e5faaf991b682c628fe696f07395d8ec37c391bb5542d0a162",
+      "0xb7d81ca736dfd8c5d2deff85bc15da3dbd9bccba5a595113e574b271f2f2f1fa",
+      "0xb84bd4f5a85307cecc1dcc51834b3760a91690b02ae587217c8b403b722956a5",
+      "0xdcfe5eff4c71e5dfc3d0bcfb520efc36b5bccc5658f3c308db991883d6f4c86d"
+    ]
+  },
+  "private": {
+    "count": 0,
+    "root": "0x87fc1cdb18a04358ad3f7423b71707cbb4f1db60839bf12b41a4d83323f0433f"
+  },
+  "combined_root": "0x0cf81aff67ea9989eb08e49ca31f9ab054b809fa345d1e3fb9b98c2b981e87c9"
+}

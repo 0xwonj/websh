@@ -8,11 +8,12 @@ use crate::config::{ASCII_PROFILE, HELP_TEXT};
 use crate::core::admin::can_write_to;
 use crate::core::changes::{ChangeSet, ChangeType};
 use crate::core::engine::{
-    GlobalFs, RouteRequest, canonicalize_user_path, request_path_for_canonical_path,
+    GlobalFs, RouteRequest, RouteSurface, canonicalize_user_path, request_path_for_canonical_path,
 };
 use crate::core::{env, wallet};
-use crate::models::{FileMetadata, OutputLine, RuntimeMount, ViewMode, VirtualPath, WalletState};
+use crate::models::{FileMetadata, OutputLine, RuntimeMount, VirtualPath, WalletState};
 use crate::utils::sysinfo;
+use crate::utils::theme::{THEMES, normalize_theme_id, theme_ids, theme_label};
 
 use super::{AuthAction, Command, CommandResult, PathArg, SideEffect, SyncSubcommand};
 
@@ -54,6 +55,7 @@ pub fn execute_command(
         }
         Command::Id => execute_id(wallet_state),
         Command::Help => CommandResult::output(HELP_TEXT.lines().map(OutputLine::text).collect()),
+        Command::Theme(requested) => execute_theme(requested),
         Command::Clear => {
             state.clear_history();
             CommandResult::empty()
@@ -93,6 +95,35 @@ pub fn execute_command(
             cmd
         ))
         .with_exit_code(127),
+    }
+}
+
+fn execute_theme(requested: Option<String>) -> CommandResult {
+    let Some(requested) = requested else {
+        let mut lines = vec![OutputLine::text("available themes:")];
+        lines.extend(
+            THEMES
+                .iter()
+                .map(|theme| OutputLine::text(format!("  {:<18} {}", theme.id, theme.label))),
+        );
+        return CommandResult::output(lines);
+    };
+
+    let Some(theme) = normalize_theme_id(&requested) else {
+        return CommandResult::error_line(format!(
+            "theme: unknown theme '{}'. available: {}",
+            requested,
+            theme_ids().collect::<Vec<_>>().join(", ")
+        ));
+    };
+
+    let label = theme_label(theme).unwrap_or(theme);
+    CommandResult {
+        output: vec![OutputLine::success(format!("theme: {theme} ({label})"))],
+        exit_code: 0,
+        side_effect: Some(SideEffect::SetTheme {
+            theme: theme.to_string(),
+        }),
     }
 }
 
@@ -192,6 +223,7 @@ fn execute_cd(path: super::PathArg, fs: &GlobalFs, cwd: &VirtualPath) -> Command
 
     CommandResult::navigate(RouteRequest::new(request_path_for_canonical_path(
         &resolved,
+        RouteSurface::Shell,
     )))
 }
 
@@ -212,6 +244,7 @@ fn execute_cat(file: super::PathArg, fs: &GlobalFs, cwd: &VirtualPath) -> Comman
 
     CommandResult::navigate(RouteRequest::new(request_path_for_canonical_path(
         &resolved,
+        RouteSurface::Content,
     )))
 }
 
@@ -347,7 +380,10 @@ fn execute_explorer(
     cwd: &VirtualPath,
 ) -> CommandResult {
     let Some(path_arg) = path else {
-        return CommandResult::switch_view(ViewMode::Explorer);
+        return CommandResult::navigate(RouteRequest::new(request_path_for_canonical_path(
+            cwd,
+            RouteSurface::Explorer,
+        )));
     };
 
     let resolved = match resolve_path_arg("explorer", path_arg.as_str(), cwd) {
@@ -366,8 +402,9 @@ fn execute_explorer(
         return CommandResult::error_line(format!("explorer: not a directory: {}", path_arg));
     }
 
-    CommandResult::open_explorer(RouteRequest::new(request_path_for_canonical_path(
+    CommandResult::navigate(RouteRequest::new(request_path_for_canonical_path(
         &resolved,
+        RouteSurface::Explorer,
     )))
 }
 
@@ -388,6 +425,13 @@ fn require_write_access(
     runtime_mounts: &[RuntimeMount],
     path: &VirtualPath,
 ) -> Result<(), CommandResult> {
+    if is_synthetic_runtime_state_path(path) {
+        return Err(CommandResult::error_line(format!(
+            "{}: read-only filesystem",
+            cmd_label
+        )));
+    }
+
     let Some(mount) = mount_for_path(runtime_mounts, path) else {
         return Err(CommandResult::error_line(format!(
             "{}: permission denied (admin login required)",
@@ -849,9 +893,18 @@ fn can_write_path(
     runtime_mounts: &[RuntimeMount],
     path: &VirtualPath,
 ) -> bool {
+    if is_synthetic_runtime_state_path(path) {
+        return false;
+    }
+
     mount_for_path(runtime_mounts, path)
         .as_ref()
         .is_some_and(|mount| can_write_to(wallet_state, mount.writable))
+}
+
+fn is_synthetic_runtime_state_path(path: &VirtualPath) -> bool {
+    let state_root = VirtualPath::from_absolute("/.websh/state").expect("constant path");
+    path.starts_with(&state_root)
 }
 
 #[allow(clippy::result_large_err)]
@@ -889,7 +942,7 @@ fn sync_mount_root(
 
     runtime_mounts
         .iter()
-        .find(|mount| mount.root.as_str() == "/site")
+        .find(|mount| mount.root.is_root())
         .map(|mount| mount.root.clone())
         .ok_or_else(|| CommandResult::error_line("sync: no writable mount available"))
 }
@@ -901,7 +954,7 @@ mod tests {
     use crate::app::TerminalState;
     use crate::core::changes::ChangeSet;
     use crate::core::engine::GlobalFs;
-    use crate::models::{ViewMode, WalletState};
+    use crate::models::WalletState;
 
     fn empty_state() -> (TerminalState, WalletState, GlobalFs) {
         (
@@ -927,7 +980,7 @@ mod tests {
     }
 
     fn home_cwd(path: &str) -> VirtualPath {
-        VirtualPath::from_absolute("/site").unwrap().join(path)
+        VirtualPath::root().join(path)
     }
 
     fn home_vpath(path: &str) -> VirtualPath {
@@ -973,6 +1026,43 @@ mod tests {
     }
 
     #[test]
+    fn test_theme_lists_available_palettes() {
+        let (ts, ws, fs) = empty_state();
+        let cs = ChangeSet::new();
+        let result = execute_command(Command::Theme(None), &ts, &ws, &fs, &root_cwd(), &cs, None);
+        let rendered = result
+            .output
+            .iter()
+            .map(|line| format!("{:?}", line.data))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(rendered.contains("sepia-dark"));
+        assert!(rendered.contains("black-ink"));
+        assert!(result.side_effect.is_none());
+    }
+
+    #[test]
+    fn test_theme_sets_known_palette() {
+        let (ts, ws, fs) = empty_state();
+        let cs = ChangeSet::new();
+        let result = execute_command(
+            Command::Theme(Some("black-ink".to_string())),
+            &ts,
+            &ws,
+            &fs,
+            &root_cwd(),
+            &cs,
+            None,
+        );
+        assert_eq!(
+            result.side_effect,
+            Some(SideEffect::SetTheme {
+                theme: "black-ink".to_string()
+            })
+        );
+    }
+
+    #[test]
     fn test_explorer_no_arg_switches_view() {
         let (ts, ws, fs) = empty_state();
         let cs = ChangeSet::new();
@@ -987,7 +1077,89 @@ mod tests {
         );
         assert_eq!(
             result.side_effect,
-            Some(SideEffect::SwitchView(ViewMode::Explorer))
+            Some(SideEffect::Navigate(RouteRequest::new("/explorer")))
+        );
+    }
+
+    #[test]
+    fn test_cd_navigates_shell_surface() {
+        let mut fs = GlobalFs::empty();
+        fs.upsert_directory(
+            VirtualPath::from_absolute("/db").unwrap(),
+            crate::models::DirectoryMetadata::default(),
+        );
+        let ts = TerminalState::new();
+        let ws = WalletState::Disconnected;
+        let cs = ChangeSet::new();
+
+        let result = execute_command(
+            Command::Cd(PathArg::new("/db")),
+            &ts,
+            &ws,
+            &fs,
+            &root_cwd(),
+            &cs,
+            None,
+        );
+
+        assert_eq!(
+            result.side_effect,
+            Some(SideEffect::Navigate(RouteRequest::new("/websh/db")))
+        );
+    }
+
+    #[test]
+    fn test_explorer_path_navigates_explorer_surface() {
+        let mut fs = GlobalFs::empty();
+        fs.upsert_directory(
+            VirtualPath::from_absolute("/db").unwrap(),
+            crate::models::DirectoryMetadata::default(),
+        );
+        let ts = TerminalState::new();
+        let ws = WalletState::Disconnected;
+        let cs = ChangeSet::new();
+
+        let result = execute_command(
+            Command::Explorer(Some(PathArg::new("/db"))),
+            &ts,
+            &ws,
+            &fs,
+            &root_cwd(),
+            &cs,
+            None,
+        );
+
+        assert_eq!(
+            result.side_effect,
+            Some(SideEffect::Navigate(RouteRequest::new("/explorer/db")))
+        );
+    }
+
+    #[test]
+    fn test_cat_navigates_content_surface() {
+        let mut fs = GlobalFs::empty();
+        fs.upsert_file(
+            VirtualPath::from_absolute("/blog/hello.md").unwrap(),
+            "hello".into(),
+            FileMetadata::default(),
+        );
+        let ts = TerminalState::new();
+        let ws = WalletState::Disconnected;
+        let cs = ChangeSet::new();
+
+        let result = execute_command(
+            Command::Cat(Some(PathArg::new("/blog/hello.md"))),
+            &ts,
+            &ws,
+            &fs,
+            &root_cwd(),
+            &cs,
+            None,
+        );
+
+        assert_eq!(
+            result.side_effect,
+            Some(SideEffect::Navigate(RouteRequest::new("/blog/hello.md")))
         );
     }
 
@@ -1146,6 +1318,34 @@ mod tests {
     }
 
     #[test]
+    fn test_write_rejects_runtime_state_tree() {
+        let (ts, _ws, fs) = empty_state();
+        let ws = admin_wallet();
+        let cs = ChangeSet::new();
+        let result = execute_command(
+            Command::Touch {
+                path: PathArg::new("/.websh/state/new.md"),
+            },
+            &ts,
+            &ws,
+            &fs,
+            &home_cwd(""),
+            &cs,
+            None,
+        );
+
+        assert_eq!(result.exit_code, 1);
+        assert!(result.side_effect.is_none());
+        assert!(result.output.iter().any(|line| {
+            matches!(
+                &line.data,
+                crate::models::OutputLineData::Error(message)
+                    if message.contains("read-only filesystem")
+            )
+        }));
+    }
+
+    #[test]
     fn test_touch_creates_apply_change_side_effect() {
         let (ts, _ws, fs) = empty_state();
         let ws = admin_wallet();
@@ -1167,7 +1367,7 @@ mod tests {
                 ref path,
                 ref change,
             }) => {
-                assert_eq!(path.as_str(), "/site/new.md");
+                assert_eq!(path.as_str(), "/new.md");
                 assert!(matches!(change, ChangeType::CreateFile { .. }));
             }
             other => panic!("expected ApplyChange, got {:?}", other),
@@ -1218,7 +1418,7 @@ mod tests {
                 ref path,
                 ref change,
             }) => {
-                assert_eq!(path.as_str(), "/site/newdir");
+                assert_eq!(path.as_str(), "/newdir");
                 assert!(matches!(change, ChangeType::CreateDirectory { .. }));
             }
             other => panic!("expected ApplyChange, got {:?}", other),
@@ -1278,7 +1478,7 @@ mod tests {
                 ref path,
                 change: ChangeType::DeleteFile,
             }) => {
-                assert_eq!(path.as_str(), "/site/doomed.md");
+                assert_eq!(path.as_str(), "/doomed.md");
             }
             other => panic!("expected DeleteFile ApplyChange, got {:?}", other),
         }
@@ -1337,7 +1537,7 @@ mod tests {
                 ref path,
                 change: ChangeType::DeleteDirectory,
             }) => {
-                assert_eq!(path.as_str(), "/site/dir");
+                assert_eq!(path.as_str(), "/dir");
             }
             other => panic!("expected DeleteDirectory ApplyChange, got {:?}", other),
         }
@@ -1473,7 +1673,7 @@ mod tests {
         assert_eq!(result.exit_code, 0);
         match result.side_effect {
             Some(SideEffect::OpenEditor { ref path }) => {
-                assert_eq!(path.as_str(), "/site/note.md");
+                assert_eq!(path.as_str(), "/note.md");
             }
             other => panic!("expected OpenEditor, got {:?}", other),
         }
@@ -1550,7 +1750,7 @@ mod tests {
                 ref path,
                 ref change,
             }) => {
-                assert_eq!(path.as_str(), "/site/greeting.md");
+                assert_eq!(path.as_str(), "/greeting.md");
                 match change {
                     ChangeType::CreateFile { content, .. } => assert_eq!(content, "hello"),
                     other => panic!("expected CreateFile, got {:?}", other),
@@ -1700,13 +1900,13 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(
-            rendered.contains("/site/new.md"),
-            "missing /site/new.md: {}",
+            rendered.contains("/new.md"),
+            "missing /new.md: {}",
             rendered
         );
         assert!(
-            rendered.contains("/site/del.md"),
-            "missing /site/del.md: {}",
+            rendered.contains("/del.md"),
+            "missing /del.md: {}",
             rendered
         );
     }
@@ -1741,7 +1941,7 @@ mod tests {
                 ref mount_root,
             }) => {
                 assert_eq!(message, "feat: x");
-                assert_eq!(mount_root.as_str(), "/site");
+                assert_eq!(mount_root.as_str(), "/");
             }
             other => panic!("expected Commit, got {:?}", other),
         }
@@ -1771,7 +1971,7 @@ mod tests {
         let runtime_mounts = vec![
             crate::core::storage::boot::bootstrap_runtime_mount(),
             crate::models::RuntimeMount::new(
-                VirtualPath::from_absolute("/mnt/db").unwrap(),
+                VirtualPath::from_absolute("/db").unwrap(),
                 "db",
                 crate::models::RuntimeBackendKind::GitHub,
                 true,
@@ -1786,7 +1986,7 @@ mod tests {
             },
         );
         cs.upsert(
-            VirtualPath::from_absolute("/mnt/db/b.md").unwrap(),
+            VirtualPath::from_absolute("/db/b.md").unwrap(),
             ChangeType::CreateFile {
                 content: "db".to_string(),
                 meta: FileMetadata::default(),
@@ -1816,7 +2016,7 @@ mod tests {
         assert_eq!(
             result.side_effect,
             Some(SideEffect::ReloadRuntimeMount {
-                mount_root: VirtualPath::from_absolute("/site").unwrap(),
+                mount_root: VirtualPath::root(),
             })
         );
     }
@@ -1920,7 +2120,7 @@ mod tests {
 
     #[test]
     fn test_rm_on_pending_create_file_emits_discard_change() {
-        // Base fs empty; ChangeSet has a pending CreateFile at /site/a.md.
+        // Base fs empty; ChangeSet has a pending CreateFile at /a.md.
         let base = GlobalFs::empty();
         let mut cs = ChangeSet::new();
         cs.upsert(
@@ -1949,7 +2149,7 @@ mod tests {
         assert_eq!(result.exit_code, 0);
         match result.side_effect {
             Some(SideEffect::DiscardChange { ref path }) => {
-                assert_eq!(path.as_str(), "/site/a.md");
+                assert_eq!(path.as_str(), "/a.md");
             }
             other => panic!("expected DiscardChange, got {:?}", other),
         }
@@ -1984,7 +2184,7 @@ mod tests {
         assert_eq!(result.exit_code, 0);
         match result.side_effect {
             Some(SideEffect::DiscardChange { ref path }) => {
-                assert_eq!(path.as_str(), "/site/d");
+                assert_eq!(path.as_str(), "/d");
             }
             other => panic!("expected DiscardChange, got {:?}", other),
         }
@@ -2018,7 +2218,7 @@ mod tests {
         assert_eq!(result.exit_code, 0);
         match result.side_effect {
             Some(SideEffect::DiscardChange { ref path }) => {
-                assert_eq!(path.as_str(), "/site/d");
+                assert_eq!(path.as_str(), "/d");
             }
             other => panic!("expected DiscardChange, got {:?}", other),
         }
@@ -2056,7 +2256,7 @@ mod tests {
                 ref path,
                 change: ChangeType::DeleteFile,
             }) => {
-                assert_eq!(path.as_str(), "/site/existing.md");
+                assert_eq!(path.as_str(), "/existing.md");
             }
             other => panic!("expected ApplyChange(DeleteFile), got {:?}", other),
         }

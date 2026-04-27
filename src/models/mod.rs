@@ -10,6 +10,7 @@
 
 mod explorer;
 mod filesystem;
+pub mod manifest;
 mod mount;
 mod site;
 mod terminal;

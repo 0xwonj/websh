@@ -1,17 +1,17 @@
 .backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--backdrop-bg);
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 1000;
+    z-index: var(--z-modal);
 }
 
 .modal {
-    background: var(--bg-primary, #111);
-    color: var(--fg-primary, #eee);
-    border: 1px solid var(--border, #333);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-muted);
     width: min(800px, 90vw);
     height: min(600px, 85vh);
     display: flex;
@@ -20,8 +20,8 @@
 }
 
 .header {
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--border, #333);
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--border-subtle);
     font-size: 0.9em;
 }
 
@@ -31,7 +31,7 @@
 
 .textarea {
     flex: 1;
-    padding: 12px;
+    padding: var(--space-3);
     background: transparent;
     color: inherit;
     border: none;
@@ -42,23 +42,23 @@
 }
 
 .footer {
-    padding: 8px 12px;
-    border-top: 1px solid var(--border, #333);
+    padding: var(--space-2) var(--space-3);
+    border-top: 1px solid var(--border-subtle);
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
+    gap: var(--space-2);
 }
 
 .save, .cancel {
-    padding: 4px 12px;
+    padding: var(--space-1) var(--space-3);
     background: transparent;
     color: inherit;
-    border: 1px solid var(--border, #333);
+    border: 1px solid var(--border-muted);
     font-family: inherit;
     cursor: pointer;
 }
 
 .save {
-    border-color: var(--accent, #0af);
-    color: var(--accent, #0af);
+    border-color: var(--accent);
+    color: var(--accent);
 }

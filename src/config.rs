@@ -27,8 +27,7 @@ pub const APP_NAME: &str = "wonjae.eth";
 pub const APP_VERSION: &str = "0.1.0";
 
 /// User tagline displayed after boot.
-pub const APP_TAGLINE: &str =
-    "Applied Cryptography Researcher | Zero-Knowledge Proofs | Blockchain Security";
+pub const APP_TAGLINE: &str = "Zero-Knowledge Proofs | Compiler Design | Ethereum";
 
 // =============================================================================
 // Network Configuration
@@ -77,7 +76,7 @@ pub const USER_VAR_PREFIX: &str = "user.";
 
 /// Default user variables initialized on first visit.
 pub const DEFAULT_USER_VARS: &[(&str, &str)] =
-    &[("THEME", "dark"), ("LANG", "en"), ("EDITOR", "vim")];
+    &[("THEME", "sepia-dark"), ("LANG", "en"), ("EDITOR", "vim")];
 
 // =============================================================================
 // Terminal Configuration
@@ -154,10 +153,10 @@ pub const ICON_THEME: IconTheme = IconTheme::Bootstrap;
 use crate::models::BootstrapSiteSource;
 
 pub const BOOTSTRAP_SITE: BootstrapSiteSource = BootstrapSiteSource {
-    repo_with_owner: "0xwonj/db",
+    repo_with_owner: "0xwonj/websh",
     branch: "main",
-    content_root: "~",
-    gateway: "https://raw.githubusercontent.com",
+    content_root: "content",
+    gateway: "self",
     writable: true,
 };
 
@@ -166,14 +165,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bootstrap_site_is_site_root() {
-        assert_eq!(BOOTSTRAP_SITE.mount_root().as_str(), "/site");
+    fn bootstrap_site_is_root() {
+        assert_eq!(BOOTSTRAP_SITE.mount_root().as_str(), "/");
         assert_eq!(BOOTSTRAP_SITE.label(), "~");
     }
 
     #[test]
     fn help_mentions_all_commands() {
-        for cmd in &["touch", "mkdir", "rm", "rmdir", "edit", "sync"] {
+        for cmd in &["touch", "mkdir", "rm", "rmdir", "edit", "sync", "theme"] {
             assert!(HELP_TEXT.contains(cmd), "HELP_TEXT missing {cmd}");
         }
     }

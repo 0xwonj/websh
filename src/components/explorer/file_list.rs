@@ -14,7 +14,9 @@ use crate::components::icons as ic;
 use crate::components::terminal::RouteContext;
 use crate::core::DirEntry;
 use crate::core::admin::can_write_to;
-use crate::core::engine::{push_request_path, request_path_for_canonical_path, route_cwd};
+use crate::core::engine::{
+    RouteSurface, push_request_path, request_path_for_canonical_path, route_cwd,
+};
 use crate::models::{DisplayPermissions, FileType};
 use crate::utils::format::{format_date_iso, format_size};
 
@@ -137,7 +139,12 @@ fn FileListItem(entry: DirEntry) -> impl IntoView {
     let do_open = move || {
         ctx.explorer.clear_selection();
         let _ = &entry_name_for_nav;
-        push_request_path(&request_path_for_canonical_path(&item_path));
+        let surface = if is_dir {
+            RouteSurface::Explorer
+        } else {
+            RouteSurface::Content
+        };
+        push_request_path(&request_path_for_canonical_path(&item_path, surface));
     };
 
     let handle_click = {

@@ -2,7 +2,7 @@
 
 use crate::models::VirtualPath;
 
-/// The single code-declared bootstrap source used to discover `/site`.
+/// The single code-declared bootstrap source used to discover the root site.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BootstrapSiteSource {
     pub repo_with_owner: &'static str,
@@ -14,7 +14,7 @@ pub struct BootstrapSiteSource {
 
 impl BootstrapSiteSource {
     pub fn mount_root(&self) -> VirtualPath {
-        VirtualPath::from_absolute("/site").expect("bootstrap site root must be absolute")
+        VirtualPath::root()
     }
 
     pub fn label(&self) -> &'static str {
@@ -59,7 +59,7 @@ impl RuntimeMount {
     }
 
     pub fn storage_id(&self) -> String {
-        if self.root.as_str() == "/site" {
+        if self.root.is_root() {
             "~".to_string()
         } else {
             self.root.as_str().trim_start_matches('/').replace('/', ":")
@@ -72,7 +72,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bootstrap_site_mount_root_is_site() {
+    fn bootstrap_site_mount_root_is_root() {
         let source = BootstrapSiteSource {
             repo_with_owner: "0xwonj/db",
             branch: "main",
@@ -81,31 +81,26 @@ mod tests {
             writable: true,
         };
 
-        assert_eq!(source.mount_root().as_str(), "/site");
+        assert_eq!(source.mount_root().as_str(), "/");
         assert_eq!(source.label(), "~");
     }
 
     #[test]
-    fn runtime_mount_storage_id_uses_home_alias_for_site() {
-        let mount = RuntimeMount::new(
-            VirtualPath::from_absolute("/site").unwrap(),
-            "~",
-            RuntimeBackendKind::GitHub,
-            true,
-        );
+    fn runtime_mount_storage_id_uses_home_alias_for_root() {
+        let mount = RuntimeMount::new(VirtualPath::root(), "~", RuntimeBackendKind::GitHub, true);
         assert_eq!(mount.storage_id(), "~");
     }
 
     #[test]
     fn runtime_mount_contains_canonical_subpaths() {
         let mount = RuntimeMount::new(
-            VirtualPath::from_absolute("/mnt/db").unwrap(),
+            VirtualPath::from_absolute("/db").unwrap(),
             "db",
             RuntimeBackendKind::GitHub,
             false,
         );
 
-        assert!(mount.contains(&VirtualPath::from_absolute("/mnt/db/notes/todo.md").unwrap()));
-        assert!(!mount.contains(&VirtualPath::from_absolute("/mnt/db2").unwrap()));
+        assert!(mount.contains(&VirtualPath::from_absolute("/db/notes/todo.md").unwrap()));
+        assert!(!mount.contains(&VirtualPath::from_absolute("/db2").unwrap()));
     }
 }

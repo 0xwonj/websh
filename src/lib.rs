@@ -8,5 +8,9 @@ pub mod app;
 pub mod components;
 pub mod config;
 pub mod core;
+pub mod crypto;
 pub mod models;
 pub mod utils;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod cli;

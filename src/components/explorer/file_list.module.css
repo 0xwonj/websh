@@ -6,7 +6,7 @@
   grid-template-columns:
     [icon] 3rem [name] minmax(8rem, 2fr) [desc] minmax(6rem, 2fr) [date] minmax(10ch, 1fr) [size] minmax(6ch, 1fr) [perms] minmax(5ch, 1fr) [chevron] 1.5rem;
   font-family: var(--font-mono);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-xl);
   overflow-x: hidden;
 }
 
@@ -21,11 +21,11 @@
 .listHeader>span {
   padding: var(--space-2) var(--space-2);
   color: var(--text-muted);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   background-color: var(--bg-secondary);
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: var(--z-base);
   border-bottom: 1px solid var(--border-subtle);
   position: relative;
 }
@@ -80,7 +80,7 @@
   min-height: 3.5rem;
   display: flex;
   align-items: center;
-  transition: background-color 0.15s;
+  transition: background-color var(--duration-fast);
 }
 
 /* First and last cell padding */
@@ -101,12 +101,12 @@
 /* Selected state - macOS Finder style */
 .selected>span,
 .selected>div {
-  background-color: rgba(59, 130, 246, 0.15);
+  background-color: var(--selected-bg);
 }
 
 .selected:hover>span,
 .selected:hover>div {
-  background-color: rgba(59, 130, 246, 0.2);
+  background-color: var(--selected-hover-bg);
 }
 
 /* ==========================================================================
@@ -141,7 +141,7 @@
 }
 
 .nameBold {
-  font-weight: 700;
+  font-weight: var(--weight-bold);
 }
 
 .lockIcon {
@@ -183,12 +183,15 @@
 }
 
 /* ==========================================================================
-   Tablet
+   Tablet — container width 64rem (1024px)
+   Pilot for component-scoped responsive layout via container queries.
+   The file list adapts to its OWN pane width, not the viewport, so when
+   the preview pane is open the list switches earlier.
    ========================================================================== */
 
-@media (max-width: 1024px) {
+@container file-list-pane (max-width: 64rem) {
   .list {
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-md);
     grid-template-columns:
       [icon] 2.5rem [name] minmax(6rem, 2fr) [desc] minmax(4rem, 2fr) [date] minmax(10ch, 1fr) [size] minmax(5ch, 1fr) [perms] minmax(5ch, 1fr) [chevron] 1.5rem;
   }
@@ -204,10 +207,10 @@
 }
 
 /* ==========================================================================
-   Mobile - iOS Files style
+   Mobile — container width 40rem (640px), iOS Files style
    ========================================================================== */
 
-@media (max-width: 640px) {
+@container file-list-pane (max-width: 40rem) {
   .list {
     display: flex;
     flex-direction: column;
@@ -239,11 +242,11 @@
   }
 
   .selected {
-    background-color: rgba(59, 130, 246, 0.15);
+    background-color: var(--selected-bg);
   }
 
   .selected:hover {
-    background-color: rgba(59, 130, 246, 0.2);
+    background-color: var(--selected-hover-bg);
   }
 
   .icon {
@@ -258,11 +261,11 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--space-0_5);
   }
 
   .name {
-    font-size: var(--font-size-base);
+    font-size: var(--font-size-xl);
   }
 
   .mobileMeta {
@@ -270,7 +273,7 @@
     align-items: center;
     gap: var(--space-2);
     color: var(--text-muted);
-    font-size: var(--font-size-xs);
+    font-size: var(--font-size-sm);
   }
 
   .mobileMeta span:not(:last-child)::after {
@@ -287,7 +290,7 @@
   }
 
   .chevron {
-    font-size: 1.25rem;
+    font-size: var(--font-size-3xl);
     color: var(--text-muted);
     flex-shrink: 0;
     display: flex !important;
@@ -305,11 +308,11 @@
   justify-content: center;
   padding: var(--space-3);
   border: 1px solid var(--border-subtle);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: background-color 0.15s, border-color 0.15s;
+  transition: var(--motion-hover);
   font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-md);
   min-height: 5rem;
 }
 
@@ -320,7 +323,7 @@
 
 .gridPerms {
   color: var(--text-dim);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
   margin-bottom: var(--space-1);
 }
 
@@ -338,7 +341,7 @@
 
 .gridSize {
   color: var(--text-dim);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
   margin-top: var(--space-1);
 }
 

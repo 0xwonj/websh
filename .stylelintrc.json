@@ -1,0 +1,94 @@
+{
+  "extends": ["stylelint-config-standard"],
+  "rules": {
+    "selector-class-pattern": null,
+    "custom-property-pattern": null,
+    "no-descending-specificity": null,
+    "color-hex-length": "long",
+    "alpha-value-notation": null,
+    "color-function-notation": null,
+    "media-feature-range-notation": null,
+    "value-keyword-case": null,
+    "declaration-empty-line-before": null,
+    "rule-empty-line-before": null,
+    "comment-empty-line-before": null,
+    "no-empty-source": null,
+    "no-duplicate-selectors": null,
+    "shorthand-property-no-redundant-values": null,
+    "import-notation": null,
+    "at-rule-empty-line-before": null,
+    "block-no-empty": null,
+    "keyframes-name-pattern": null,
+    "declaration-block-no-redundant-longhand-properties": null,
+    "declaration-block-no-duplicate-properties": null,
+    "custom-property-empty-line-before": null,
+    "property-no-vendor-prefix": null,
+    "selector-pseudo-class-no-unknown": [
+      true,
+      { "ignorePseudoClasses": ["global"] }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["src/**/*.module.css"],
+      "rules": {
+        "color-no-hex": true,
+        "unit-allowed-list": [
+          ["%", "rem", "em", "ch", "vh", "vw", "vmin", "vmax", "fr", "deg", "px", "s", "ms"],
+          {
+            "ignoreProperties": {
+              "px": [
+                "border",
+                "border-width",
+                "border-top",
+                "border-right",
+                "border-bottom",
+                "border-left",
+                "border-top-width",
+                "border-right-width",
+                "border-bottom-width",
+                "border-left-width",
+                "outline",
+                "outline-width",
+                "box-shadow",
+                "text-shadow",
+                "background-size",
+                "transform",
+                "translate",
+                "background-position",
+                "stroke-width",
+                "letter-spacing",
+                "width",
+                "height",
+                "min-width",
+                "min-height",
+                "max-width",
+                "max-height",
+                "grid-template-columns",
+                "grid-template-rows",
+                "flex",
+                "flex-basis",
+                "top",
+                "right",
+                "bottom",
+                "left"
+              ]
+            }
+          }
+        ],
+        "declaration-property-value-allowed-list": {
+          "z-index": ["/^var\\(--z-/", "auto"],
+          "transition-duration": ["/^var\\(--duration-/", "0s"],
+          "animation-duration": ["/^var\\(--duration-/"],
+          "border-radius": [
+            "/^var\\(--radius-/",
+            "0",
+            "/%/",
+            "/^[0-9.]+rem [0-9.]+rem 0 0$/"
+          ],
+          "font-weight": ["/^var\\(--weight-/", "inherit", "normal", "bold"]
+        }
+      }
+    }
+  ]
+}

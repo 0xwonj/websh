@@ -1,0 +1,42 @@
+/* ============================================
+   Theme: kanagawa-wave
+   https://github.com/rebelot/kanagawa.nvim (Wave variant)
+   Signature: sumi-ink charcoal, crystal-blue accent, sakura/spring/wave companions.
+   Inspired by Hokusai's "The Great Wave off Kanagawa".
+   ============================================ */
+
+:root[data-theme="kanagawa-wave"] {
+  color-scheme: dark;
+
+  --bg-primary: #1f1f28;
+  --bg-secondary: #181820;
+  --bg-elevated: #2a2a37;
+  --bg-inset: #16161d;
+
+  --text-primary: #dcd7ba;
+  --text-dim: #938aa9;
+  --text-muted: #727169;
+
+  --terminal-green: #98bb6c;
+  --terminal-cyan: #7fb4ca;
+  --terminal-yellow: #e6c384;
+  --terminal-red: #c34043;
+  --terminal-purple: #957fb8;
+  --terminal-orange: #ffa066;
+
+  --accent: #7e9cd8;
+  --accent-muted: #d27e99;
+  --accent-glow: rgba(126, 156, 216, 0.32);
+
+  --border-muted: rgba(220, 215, 186, 0.22);
+  --border-subtle: rgba(220, 215, 186, 0.12);
+  --archive-bar-bg: #16161d;
+  --surface-tint: rgba(220, 215, 186, 0.035);
+  --selection-bg: rgba(126, 156, 216, 0.22);
+  --selected-bg: rgba(122, 168, 159, 0.14);
+  --selected-hover-bg: rgba(122, 168, 159, 0.22);
+  --backdrop-bg: rgba(22, 22, 29, 0.74);
+  --shadow-color: rgba(0, 0, 0, 0.42);
+  --crt-scanline: rgba(0, 0, 0, 0.12);
+  --crt-sweep: rgba(220, 215, 186, 0.022);
+}

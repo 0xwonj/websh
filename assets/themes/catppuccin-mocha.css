@@ -1,0 +1,41 @@
+/* ============================================
+   Theme: catppuccin-mocha
+   https://catppuccin.com (Mocha — darkest of the four flavors)
+   Signature: pastel mauve/pink on a soft warm-purple charcoal.
+   ============================================ */
+
+:root[data-theme="catppuccin-mocha"] {
+  color-scheme: dark;
+
+  --bg-primary: #1e1e2e;
+  --bg-secondary: #181825;
+  --bg-elevated: #313244;
+  --bg-inset: #11111b;
+
+  --text-primary: #cdd6f4;
+  --text-dim: #a6adc8;
+  --text-muted: #6c7086;
+
+  --terminal-green: #a6e3a1;
+  --terminal-cyan: #94e2d5;
+  --terminal-yellow: #f9e2af;
+  --terminal-red: #f38ba8;
+  --terminal-purple: #cba6f7;
+  --terminal-orange: #fab387;
+
+  --accent: #cba6f7;
+  --accent-muted: #f5c2e7;
+  --accent-glow: rgba(203, 166, 247, 0.28);
+
+  --border-muted: rgba(127, 132, 156, 0.36);
+  --border-subtle: rgba(127, 132, 156, 0.18);
+  --archive-bar-bg: #181825;
+  --surface-tint: rgba(205, 214, 244, 0.035);
+  --selection-bg: rgba(203, 166, 247, 0.22);
+  --selected-bg: rgba(148, 226, 213, 0.14);
+  --selected-hover-bg: rgba(148, 226, 213, 0.22);
+  --backdrop-bg: rgba(17, 17, 27, 0.72);
+  --shadow-color: rgba(0, 0, 0, 0.4);
+  --crt-scanline: rgba(0, 0, 0, 0.1);
+  --crt-sweep: rgba(205, 214, 244, 0.022);
+}

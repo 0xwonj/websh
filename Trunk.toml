@@ -7,8 +7,9 @@ public_url = "./"
 filehash = true
 
 [watch]
-watch = ["src", "index.html", "assets/base.css"]
+watch = ["src", "index.html", "assets/base.css", "assets/vendor", "content"]
 ignore = ["assets/bundle.css"]
+enable_cooldown = true
 
 [serve]
 addresses = ["127.0.0.1"]

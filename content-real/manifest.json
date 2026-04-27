@@ -1,0 +1,155 @@
+{
+  "files": [
+    {
+      "path": ".websh/ledger.json",
+      "title": "ledger",
+      "size": 4765,
+      "modified": 1777317129,
+      "date": null,
+      "tags": [],
+      "access": null
+    },
+    {
+      "path": "keys/wonjae.asc",
+      "title": "wonjae",
+      "size": 640,
+      "modified": 1777154978,
+      "date": null,
+      "tags": [],
+      "access": null
+    },
+    {
+      "path": "now.toml",
+      "title": "now",
+      "size": 348,
+      "modified": 1777155746,
+      "date": null,
+      "tags": [],
+      "access": null
+    },
+    {
+      "path": "papers/tabula.md",
+      "title": "tabula",
+      "size": 130,
+      "modified": 1777157914,
+      "date": "2026-04-26",
+      "tags": [
+        "EuroSys 2027",
+        "systems",
+        "zk",
+        "paper"
+      ],
+      "access": null
+    },
+    {
+      "path": "projects/websh.md",
+      "title": "websh",
+      "size": 148,
+      "modified": 1777157914,
+      "date": "2026-04-22",
+      "tags": [
+        "local app",
+        "rust",
+        "wasm",
+        "filesystem"
+      ],
+      "access": null
+    },
+    {
+      "path": "talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.pdf",
+      "title": "Evaluating Compiler Optimization Impacts on zkVM Performance",
+      "size": 3565336,
+      "modified": 1777157238,
+      "date": "2026-04-24",
+      "tags": [
+        "labseminar"
+      ],
+      "access": null
+    },
+    {
+      "path": "talks/zk-compilers.md",
+      "title": "zk compilers, and why they're hard",
+      "size": 173,
+      "modified": 1777157914,
+      "date": "2026-03-10",
+      "tags": [
+        "talk",
+        "zk",
+        "compilers"
+      ],
+      "access": null
+    },
+    {
+      "path": "writing/content-backed-homepage.md",
+      "title": "content-backed homepage",
+      "size": 913,
+      "modified": 1777166212,
+      "date": "2026-04-20",
+      "tags": [
+        "notes",
+        "websh",
+        "homepage",
+        "renderer-test"
+      ],
+      "access": null
+    }
+  ],
+  "directories": [
+    {
+      "path": "",
+      "title": "Home",
+      "tags": [],
+      "description": null,
+      "icon": null,
+      "thumbnail": null
+    },
+    {
+      "path": ".websh",
+      "title": ".websh",
+      "tags": [],
+      "description": null,
+      "icon": null,
+      "thumbnail": null
+    },
+    {
+      "path": "keys",
+      "title": "keys",
+      "tags": [],
+      "description": null,
+      "icon": null,
+      "thumbnail": null
+    },
+    {
+      "path": "papers",
+      "title": "papers",
+      "tags": [],
+      "description": null,
+      "icon": null,
+      "thumbnail": null
+    },
+    {
+      "path": "projects",
+      "title": "projects",
+      "tags": [],
+      "description": null,
+      "icon": null,
+      "thumbnail": null
+    },
+    {
+      "path": "talks",
+      "title": "talks",
+      "tags": [],
+      "description": null,
+      "icon": null,
+      "thumbnail": null
+    },
+    {
+      "path": "writing",
+      "title": "writing",
+      "tags": [],
+      "description": null,
+      "icon": null,
+      "thumbnail": null
+    }
+  ]
+}

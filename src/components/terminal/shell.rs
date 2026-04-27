@@ -8,16 +8,15 @@ use leptos::prelude::*;
 
 use super::terminal::Terminal;
 use crate::app::AppContext;
+use crate::components::chrome::SiteChrome;
 use crate::components::explorer::Explorer;
-use crate::components::status::Status;
-use crate::core::engine::{RouteFrame, route_cwd};
+use crate::core::engine::{
+    RenderIntent, RouteFrame, RouteSurface, request_path_for_canonical_path, route_cwd,
+};
 use crate::core::wallet;
 use crate::models::{OutputLine, ViewMode, WalletState};
 
 stylance::import_crate_style!(css, "src/components/terminal/shell.module.css");
-
-/// Re-export overlay class for router component.
-pub const OVERLAY_CLASS: &str = css::overlay;
 
 // ============================================================================
 // Route Context
@@ -25,8 +24,8 @@ pub const OVERLAY_CLASS: &str = css::overlay;
 
 /// Context for accessing the current route from any component.
 ///
-/// This allows child components (Terminal, Explorer, Status) to access
-/// the current route without prop drilling.
+/// This allows child components (Terminal and Explorer) to access the current
+/// route without prop drilling.
 #[derive(Clone, Copy)]
 pub struct RouteContext(pub Memo<RouteFrame>);
 
@@ -90,7 +89,7 @@ fn setup_wallet_events(ctx: AppContext) {
 /// - Provides route context to child components
 /// - Manages view switching between Terminal and Explorer (via ViewMode)
 /// - Handles boot sequence initialization
-/// - Provides global UI effects (CRT overlay, scanlines)
+/// - Provides terminal surface effects
 /// - Sets up wallet event listeners
 ///
 /// # Props
@@ -103,7 +102,24 @@ pub fn Shell(route: Memo<RouteFrame>) -> impl IntoView {
     provide_context(RouteContext(route));
 
     Effect::new(move |_| {
-        ctx.cwd.set(route_cwd(&route.get()));
+        let frame = route.get();
+        ctx.cwd.set(route_cwd(&frame));
+        match frame.surface() {
+            RouteSurface::Shell => {
+                let canonical =
+                    request_path_for_canonical_path(&route_cwd(&frame), RouteSurface::Shell);
+                if frame.request.url_path != canonical {
+                    crate::core::engine::RouteRequest::new(canonical).replace();
+                }
+                ctx.view_mode.set(ViewMode::Terminal);
+            }
+            RouteSurface::Explorer => ctx.view_mode.set(ViewMode::Explorer),
+            RouteSurface::Content => {
+                if matches!(frame.intent, RenderIntent::DirectoryListing { .. }) {
+                    ctx.view_mode.set(ViewMode::Explorer);
+                }
+            }
+        }
     });
 
     let output_ref = NodeRef::<leptos::html::Div>::new();
@@ -113,10 +129,7 @@ pub fn Shell(route: Memo<RouteFrame>) -> impl IntoView {
 
     view! {
         <div class=css::screen>
-            <div class=css::crtOverlay></div>
-            <div class=css::scanline></div>
-
-            <Status />
+            <SiteChrome route=route />
 
             <div class=css::main>
                 {move || {

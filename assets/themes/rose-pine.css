@@ -1,0 +1,42 @@
+/* ============================================
+   Theme: rose-pine
+   https://rosepinetheme.com (main flavor)
+   Signature: deep mauve-charcoal base, rose accent, foam + iris companions.
+   Note: native palette has no pure green; pine (teal-leaning) maps to terminal-green.
+   ============================================ */
+
+:root[data-theme="rose-pine"] {
+  color-scheme: dark;
+
+  --bg-primary: #191724;
+  --bg-secondary: #1f1d2e;
+  --bg-elevated: #26233a;
+  --bg-inset: #14121f;
+
+  --text-primary: #e0def4;
+  --text-dim: #908caa;
+  --text-muted: #6e6a86;
+
+  --terminal-green: #31748f;
+  --terminal-cyan: #9ccfd8;
+  --terminal-yellow: #f6c177;
+  --terminal-red: #eb6f92;
+  --terminal-purple: #c4a7e7;
+  --terminal-orange: #ebbcba;
+
+  --accent: #eb6f92;
+  --accent-muted: #f6c177;
+  --accent-glow: rgba(235, 111, 146, 0.28);
+
+  --border-muted: rgba(110, 106, 134, 0.42);
+  --border-subtle: rgba(110, 106, 134, 0.22);
+  --archive-bar-bg: #14121f;
+  --surface-tint: rgba(224, 222, 244, 0.035);
+  --selection-bg: rgba(235, 111, 146, 0.22);
+  --selected-bg: rgba(196, 167, 231, 0.14);
+  --selected-hover-bg: rgba(196, 167, 231, 0.22);
+  --backdrop-bg: rgba(20, 18, 31, 0.72);
+  --shadow-color: rgba(0, 0, 0, 0.42);
+  --crt-scanline: rgba(0, 0, 0, 0.12);
+  --crt-sweep: rgba(224, 222, 244, 0.022);
+}

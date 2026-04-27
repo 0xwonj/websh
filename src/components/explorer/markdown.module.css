@@ -2,14 +2,14 @@
 /* Common markdown styling for preview panel and bottom sheet */
 
 .markdown {
-  font-size: var(--font-size-sm);
-  line-height: 1.6;
+  font-size: var(--font-size-md);
+  line-height: var(--leading-relaxed);
   color: var(--text-primary);
 }
 
 .markdown :global(h1) {
-  font-size: var(--font-size-lg);
-  font-weight: 700;
+  font-size: var(--font-size-2xl);
+  font-weight: var(--weight-bold);
   color: var(--terminal-cyan);
   margin: 0 0 var(--space-3) 0;
   padding-bottom: var(--space-2);
@@ -17,15 +17,15 @@
 }
 
 .markdown :global(h2) {
-  font-size: var(--font-size-base);
-  font-weight: 700;
+  font-size: var(--font-size-xl);
+  font-weight: var(--weight-bold);
   color: var(--terminal-green);
   margin: var(--space-4) 0 var(--space-2) 0;
 }
 
 .markdown :global(h3) {
-  font-size: var(--font-size-sm);
-  font-weight: 700;
+  font-size: var(--font-size-md);
+  font-weight: var(--weight-bold);
   color: var(--terminal-yellow);
   margin: var(--space-3) 0 var(--space-2) 0;
 }
@@ -45,7 +45,7 @@
 }
 
 .markdown :global(strong) {
-  font-weight: 700;
+  font-weight: var(--weight-bold);
   color: var(--text-primary);
 }
 
@@ -55,8 +55,8 @@
 
 .markdown :global(code) {
   background-color: var(--bg-tertiary);
-  padding: 0.125rem 0.25rem;
-  border-radius: 3px;
+  padding: var(--space-0_5) var(--space-1);
+  border-radius: var(--radius-sm);
   color: var(--terminal-cyan);
   font-family: var(--font-mono);
   font-size: 0.85em;
@@ -65,7 +65,7 @@
 .markdown :global(pre) {
   background-color: var(--bg-tertiary);
   padding: var(--space-3);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   overflow-x: auto;
   margin: var(--space-3) 0;
   border: 1px solid var(--border-subtle);
@@ -120,7 +120,7 @@
   width: 100%;
   border-collapse: collapse;
   margin: var(--space-3) 0;
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
 }
 
 .markdown :global(th),
@@ -133,11 +133,11 @@
 .markdown :global(th) {
   background-color: var(--bg-tertiary);
   color: var(--terminal-cyan);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 
 .markdown :global(img) {
   max-width: 100%;
   height: auto;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
 }

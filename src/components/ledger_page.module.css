@@ -203,7 +203,7 @@
 }
 
 .chain {
-  margin: var(--space-3_5) 0 var(--space-6);
+  margin: var(--space-3_5) 0 0;
   font-family: var(--font-mono);
   display: flex;
   flex-direction: column;
@@ -399,7 +399,7 @@
   left: 50%;
   bottom: 100%;
   width: 1px;
-  height: 14px;
+  height: var(--space-6);
   background: var(--ledger-rule-bright);
   transform: translateX(-0.5px);
 }

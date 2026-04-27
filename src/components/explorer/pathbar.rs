@@ -7,7 +7,7 @@ use leptos_icons::Icon;
 
 use crate::components::icons as ic;
 use crate::components::terminal::RouteContext;
-use crate::core::engine::{RouteRequest, request_path_for_canonical_path};
+use crate::core::engine::{RouteRequest, RouteSurface, request_path_for_canonical_path};
 use crate::models::VirtualPath;
 
 stylance::import_crate_style!(css, "src/components/explorer/pathbar.module.css");
@@ -52,7 +52,7 @@ pub fn PathBar() -> impl IntoView {
                 segment_data.push(PathSegment {
                     label: "/".to_string(),
                     icon: ic::SERVER,
-                    target: Some(RouteRequest::new("/fs")),
+                    target: Some(RouteRequest::new("/explorer")),
                 });
 
                 // Path segments
@@ -73,19 +73,21 @@ pub fn PathBar() -> impl IntoView {
                     let target = if is_last {
                         None // Current segment is not clickable
                     } else if is_home_segment {
-                        Some(RouteRequest::new("/shell"))
+                        Some(RouteRequest::new("/explorer"))
                     } else if idx == 0 {
                         Some(RouteRequest::new(request_path_for_canonical_path(
                             &canonical_segment_path(&segments, idx),
+                            RouteSurface::Explorer,
                         )))
                     } else {
                         let start_idx = if segments.first() == Some(&"~") { 1 } else { 0 };
                         if idx >= start_idx {
                             Some(RouteRequest::new(request_path_for_canonical_path(
                                 &canonical_segment_path(&segments, idx),
+                                RouteSurface::Explorer,
                             )))
                         } else {
-                            Some(RouteRequest::new("/shell"))
+                            Some(RouteRequest::new("/explorer"))
                         }
                     };
 
@@ -138,10 +140,10 @@ pub fn PathBar() -> impl IntoView {
 fn canonical_segment_path(segments: &[&str], idx: usize) -> VirtualPath {
     if segments.first() == Some(&"~") {
         if idx == 0 {
-            return VirtualPath::from_absolute("/site").expect("constant path");
+            return VirtualPath::root();
         }
         let rel = segments[1..=idx].join("/");
-        return VirtualPath::from_absolute(format!("/site/{rel}")).expect("constant path");
+        return VirtualPath::from_absolute(format!("/{rel}")).expect("constant path");
     }
 
     VirtualPath::from_absolute(format!("/{}", segments[..=idx].join("/"))).expect("constant path")

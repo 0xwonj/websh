@@ -4,8 +4,8 @@
   "description": "Cryptographic Unix-like filesystem shell for GitHub-backed personal archives",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0d1117",
-  "theme_color": "#3fb950",
+  "background_color": "#100f0f",
+  "theme_color": "#100f0f",
   "orientation": "any",
   "icons": [
     {

@@ -3,20 +3,28 @@
 .line {
   display: flex;
   align-items: center;
-  padding: var(--space-2) 0;
+  min-height: 34px;
+  padding: var(--space-1_5) 0;
 }
 
 .prompt {
   color: var(--terminal-green);
-  text-shadow: 0 0 2px currentColor;
+  flex: 0 1 auto;
+  max-width: 46vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 0 1px color-mix(in srgb, currentColor 72%, transparent);
 }
 
 .separator {
   color: var(--text-dim);
+  flex: none;
 }
 
 .field {
   flex: 1;
+  min-width: 0;
   position: relative;
 }
 
@@ -27,10 +35,12 @@
   outline: none;
   color: var(--text-primary);
   font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-  caret-color: var(--terminal-green);
+  font-size: inherit;
+  line-height: var(--leading-relaxed);
+  caret-color: var(--accent);
   position: relative;
-  z-index: 1;
+  z-index: var(--z-base);
+  padding: 0;
 }
 
 .input:focus {
@@ -47,23 +57,24 @@
 .suggestions {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2);
-  padding: var(--space-2) 0;
-  margin-bottom: var(--space-1);
+  gap: var(--space-1_5);
+  padding: 0 0 var(--space-2);
+  margin-bottom: 0;
 }
 
 .suggestion {
   color: var(--text-muted);
-  padding: 0 var(--space-2);
+  padding: var(--space-px) var(--space-1_75);
   border: 1px solid var(--border-subtle);
-  border-radius: 2px;
-  font-size: var(--font-size-sm);
+  border-radius: var(--radius-xs);
+  font-size: var(--font-size-xs);
+  line-height: 1.45;
 }
 
 .suggestionActive {
-  color: var(--terminal-cyan);
-  border-color: var(--terminal-cyan);
-  background-color: rgba(0, 255, 255, 0.1);
+  color: var(--accent);
+  border-color: var(--border-muted);
+  background-color: var(--surface-tint);
 }
 
 /* Ghost text overlay (shows input + hint together) */
@@ -77,7 +88,7 @@
   align-items: center;
   pointer-events: none;
   font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
+  font-size: inherit;
   white-space: pre;
 }
 
@@ -87,5 +98,5 @@
 
 .ghostHint {
   color: var(--text-muted);
-  opacity: 0.5;
+  opacity: 0.58;
 }

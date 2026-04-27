@@ -15,6 +15,7 @@ Available commands:
   System:
     clear         Clear terminal screen
     echo <text>   Display text
+    theme [name]  List or set palette (sepia-dark, black-ink, gruvbox-dark, tokyonight-night, solarized-light)
 
   Filesystem (write, admin-only):
     edit <path>       Open file in the editor (creates on save)

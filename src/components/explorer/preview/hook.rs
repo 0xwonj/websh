@@ -7,16 +7,47 @@ use leptos::prelude::*;
 
 use crate::app::AppContext;
 use crate::models::{DirectoryMetadata, FileType, FsEntry, Selection};
-use crate::utils::{data_url_for_bytes, markdown_to_html, media_type_for_path};
+use crate::utils::{RenderedMarkdown, data_url_for_bytes, media_type_for_path, render_markdown};
 
-/// File metadata tuple: (description, size, modified timestamp)
-pub type FileMeta = (String, Option<u64>, Option<u64>);
+/// File metadata used by preview surfaces.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FileMeta {
+    pub description: String,
+    pub size: Option<u64>,
+    pub modified: Option<u64>,
+    pub date: Option<String>,
+    pub tags: Vec<String>,
+}
+
+impl FileMeta {
+    pub fn has_display_meta(&self) -> bool {
+        self.date
+            .as_ref()
+            .is_some_and(|date| !date.trim().is_empty())
+            || self.tags.iter().any(|tag| !tag.trim().is_empty())
+    }
+
+    pub fn clean_date(&self) -> Option<String> {
+        self.date
+            .as_ref()
+            .map(|date| date.trim().to_string())
+            .filter(|date| !date.is_empty())
+    }
+
+    pub fn clean_tags(&self) -> Vec<String> {
+        self.tags
+            .iter()
+            .map(|tag| tag.trim().to_string())
+            .filter(|tag| !tag.is_empty())
+            .collect()
+    }
+}
 
 /// Fetched content for preview.
 #[derive(Clone)]
 pub enum PreviewContent {
     /// Rendered HTML from markdown
-    Html(String),
+    Html(RenderedMarkdown),
     /// Raw text content
     Text(String),
     /// Binary asset rendered from the engine read surface
@@ -72,7 +103,7 @@ pub struct PreviewData {
     pub file_type: Signal<FileType>,
     /// Directory metadata from manifest (includes item counts)
     pub dir_meta: Signal<Option<DirMeta>>,
-    /// File metadata: (description, size, modified)
+    /// File metadata used by file-specific previews.
     pub file_meta: Signal<Option<FileMeta>>,
     /// URL for image preview
     pub image_url: Signal<Option<String>>,
@@ -141,7 +172,13 @@ pub fn use_preview() -> PreviewData {
                 fs.get_entry(&s.path).and_then(|entry| match entry {
                     FsEntry::File {
                         meta, description, ..
-                    } => Some((description.clone(), meta.size, meta.modified)),
+                    } => Some(FileMeta {
+                        description: description.clone(),
+                        size: meta.size,
+                        modified: meta.modified,
+                        date: meta.date.clone(),
+                        tags: meta.tags.clone(),
+                    }),
                     _ => None,
                 })
             })
@@ -188,8 +225,8 @@ pub fn use_preview() -> PreviewData {
             match ftype {
                 FileType::Markdown => match ctx.read_text(&path).await {
                     Ok(content) => {
-                        let html = markdown_to_html(&content);
-                        Some(PreviewContent::Html(html))
+                        let rendered = render_markdown(&content);
+                        Some(PreviewContent::Html(rendered))
                     }
                     Err(e) => Some(PreviewContent::Error(e.to_string())),
                 },

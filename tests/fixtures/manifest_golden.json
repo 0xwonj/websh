@@ -5,6 +5,7 @@
       "title": "A",
       "size": 2,
       "modified": 1700000001,
+      "date": null,
       "tags": [
         "intro"
       ],
@@ -21,6 +22,7 @@
       "title": "B",
       "size": 4,
       "modified": 1700000000,
+      "date": null,
       "tags": [],
       "access": null
     },
@@ -29,6 +31,7 @@
       "title": "First Post",
       "size": 128,
       "modified": 1700000100,
+      "date": null,
       "tags": [
         "rust",
         "leptos"

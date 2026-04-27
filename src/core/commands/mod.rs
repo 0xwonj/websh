@@ -100,6 +100,7 @@ pub enum Command {
     Whoami,
     Id,
     Help,
+    Theme(Option<String>),
     Clear,
     Echo(String),
     /// `export` command. Each element is one raw `KEY=value` assignment
@@ -162,7 +163,7 @@ impl Command {
         &[
             "cat", "cd", "clear", "cls", "echo", "edit", "explorer", "export", "grep", "head",
             "help", "id", "login", "logout", "ls", "mkdir", "pwd", "rm", "rmdir", "sync", "tail",
-            "touch", "unset", "wc", "whoami",
+            "theme", "touch", "unset", "wc", "whoami",
         ]
     }
 
@@ -191,6 +192,12 @@ impl Command {
             "whoami" => Self::Whoami,
             "id" => Self::Id,
             "help" | "?" => Self::Help,
+            "theme" => {
+                if args.len() > 1 {
+                    return Self::Unknown("theme".to_string());
+                }
+                Self::Theme(args.first().cloned())
+            }
             "clear" | "cls" => Self::Clear,
             "echo" => {
                 // Scan args for a whole-token redirect operator ">".
@@ -495,6 +502,19 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_theme() {
+        assert!(matches!(Command::parse("theme", &[]), Command::Theme(None)));
+        assert!(matches!(
+            Command::parse("theme", &args(&["black-ink"])),
+            Command::Theme(Some(ref theme)) if theme == "black-ink"
+        ));
+        assert!(matches!(
+            Command::parse("theme", &args(&["a", "b"])),
+            Command::Unknown(ref cmd) if cmd == "theme"
+        ));
+    }
+
+    #[test]
     fn test_parse_unknown() {
         assert!(matches!(
             Command::parse("foobar", &[]),
@@ -512,6 +532,7 @@ mod tests {
         assert!(names.contains(&"login"));
         assert!(names.contains(&"logout"));
         assert!(names.contains(&"explorer"));
+        assert!(names.contains(&"theme"));
         // Filter commands should be included for autocomplete
         assert!(names.contains(&"grep"));
         assert!(names.contains(&"head"));
@@ -535,7 +556,7 @@ mod tests {
         let state = TerminalState::new();
         let wallet = WalletState::Disconnected;
         let fs = GlobalFs::empty();
-        let cwd = VirtualPath::from_absolute("/site").unwrap();
+        let cwd = VirtualPath::root();
         let changes = ChangeSet::new();
 
         let pipeline = parse_input("login", &[]);
@@ -564,7 +585,7 @@ mod tests {
         let state = TerminalState::new();
         let wallet = WalletState::Disconnected;
         let fs = GlobalFs::empty();
-        let cwd = VirtualPath::from_absolute("/site").unwrap();
+        let cwd = VirtualPath::root();
         let changes = ChangeSet::new();
 
         let pipeline = parse_input("help | head -1", &[]);
@@ -592,7 +613,7 @@ mod tests {
         let state = TerminalState::new();
         let wallet = WalletState::Disconnected;
         let fs = GlobalFs::empty();
-        let cwd = VirtualPath::from_absolute("/site").unwrap();
+        let cwd = VirtualPath::root();
         let changes = ChangeSet::new();
 
         // `help | grep xyzzy` should exit 1 (grep no match)
@@ -921,7 +942,7 @@ mod tests {
         let state = TerminalState::new();
         let wallet = WalletState::Disconnected;
         let fs = GlobalFs::empty();
-        let cwd = VirtualPath::from_absolute("/site").unwrap();
+        let cwd = VirtualPath::root();
         let changes = ChangeSet::new();
 
         // Pipe with nothing on the right-hand side → parse error

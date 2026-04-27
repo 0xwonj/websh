@@ -7,8 +7,10 @@
 //!
 //! - **URL hash is the source of truth**: Navigation state is derived from `#/path`
 //! - **Shell never re-renders on navigation**: AppLayout is always mounted
-//! - **ReaderOverlay is conditional**: Only shown when URL points to a file
+//! - **RendererPage handles content files**: File routes use a stable page shell
 //! - **hashchange events**: Browser back/forward buttons work automatically
+
+use std::collections::BTreeMap;
 
 use leptos::prelude::*;
 #[cfg(target_arch = "wasm32")]
@@ -16,14 +18,17 @@ use wasm_bindgen::prelude::Closure;
 
 #[cfg(target_arch = "wasm32")]
 use crate::app::AppContext;
-use crate::components::reader::Reader;
+use crate::components::home::HomePage;
+use crate::components::ledger_page::LedgerPage;
+use crate::components::ledger_routes::{LEDGER_ROUTE, is_ledger_filter_route_segment};
+use crate::components::renderer_page::RendererPage;
 use crate::components::terminal::Shell;
-use crate::components::terminal::shell::{OVERLAY_CLASS, RouteContext};
 #[cfg(target_arch = "wasm32")]
 use crate::core::engine::FsEngine;
 use crate::core::engine::{
-    RenderIntent, RouteFrame, RouteRequest, parent_request_path, push_request_path,
+    RenderIntent, ResolvedKind, RouteFrame, RouteRequest, RouteResolution, RouteSurface,
 };
+use crate::models::VirtualPath;
 use crate::utils::dom::focus_terminal_input;
 
 // ============================================================================
@@ -33,9 +38,11 @@ use crate::utils::dom::focus_terminal_input;
 /// Main application router.
 ///
 /// Sets up hash-based routing with the following structure:
-/// - `#/` → site/public route resolution
-/// - `#/shell` → shell entrypoint at `/site`
-/// - `#/fs/*path` → canonical filesystem browsing namespace
+/// - `/` and `#/` → built-in homepage
+/// - `#/ledger` → merged content ledger
+/// - `#/websh/*path` → shell surface at canonical cwd
+/// - `#/explorer/*path` → explorer surface at canonical cwd
+/// - other `#/*` paths → content route resolution against `/`
 #[component]
 pub fn RouterView() -> impl IntoView {
     #[cfg(target_arch = "wasm32")]
@@ -80,6 +87,10 @@ pub fn RouterView() -> impl IntoView {
 
     // Focus terminal input when returning to a shell/explorer surface.
     Effect::new(move |prev_was_reader: Option<bool>| {
+        if _raw_request.with(is_builtin_home_route) {
+            return false;
+        }
+
         let is_reader = route.get().is_some_and(|frame| {
             !matches!(
                 frame.intent,
@@ -93,40 +104,92 @@ pub fn RouterView() -> impl IntoView {
     });
 
     view! {
-        {move || match route.get() {
-            Some(frame) => match frame.intent {
-                RenderIntent::TerminalApp { .. } | RenderIntent::DirectoryListing { .. } => {
-                    view! { <Shell route=Memo::new(move |_| route.get().expect("frame available")) /> }.into_any()
+        {move || {
+            if _raw_request.with(is_builtin_home_route) {
+                return view! {
+                    <HomePage route=Memo::new(move |_| {
+                        route
+                            .get()
+                            .unwrap_or_else(|| builtin_home_frame(_raw_request.get()))
+                    }) />
                 }
-                _ => {
-                    view! { <ReaderOverlay route=Memo::new(move |_| route.get().expect("frame available")) /> }.into_any()
+                .into_any();
+            }
+            if _raw_request.with(is_ledger_filter_route) {
+                return view! {
+                    <LedgerPage route=Memo::new(move |_| ledger_filter_frame(_raw_request.get())) />
                 }
-            },
-            None => view! { <NotFound /> }.into_any(),
+                .into_any();
+            }
+
+            match route.get() {
+                Some(frame) => match frame.intent {
+                    RenderIntent::TerminalApp { .. } => {
+                        view! { <Shell route=Memo::new(move |_| route.get().expect("frame available")) /> }.into_any()
+                    }
+                    RenderIntent::DirectoryListing { .. }
+                        if frame.surface() == RouteSurface::Explorer => {
+                            view! { <Shell route=Memo::new(move |_| route.get().expect("frame available")) /> }.into_any()
+                        }
+                    RenderIntent::DirectoryListing { .. } => {
+                        view! { <LedgerPage route=Memo::new(move |_| route.get().expect("frame available")) /> }.into_any()
+                    }
+                    _ => {
+                        view! { <RendererPage route=Memo::new(move |_| route.get().expect("frame available")) /> }.into_any()
+                    }
+                },
+                None => view! { <NotFound /> }.into_any(),
+            }
         }}
     }
 }
 
-// ============================================================================
-// Reader Overlay
-// ============================================================================
+fn is_builtin_home_route(request: &RouteRequest) -> bool {
+    request.url_path == "/"
+}
 
-/// Overlay component for reading files.
-///
-/// Renders a reader-like surface for non-shell intents.
-#[component]
-fn ReaderOverlay(route: Memo<RouteFrame>) -> impl IntoView {
-    provide_context(RouteContext(route));
+fn is_ledger_filter_route(request: &RouteRequest) -> bool {
+    is_ledger_filter_route_segment(request.url_path.trim_matches('/'))
+}
 
-    // Close handler - navigate to parent directory
-    let on_close = Callback::new(move |_: ()| {
-        push_request_path(&parent_request_path(&route.get().request.url_path));
-    });
+fn ledger_filter_frame(request: RouteRequest) -> RouteFrame {
+    let request = RouteRequest::new(request.url_path);
+    let node_path = if request.url_path.trim_matches('/') == LEDGER_ROUTE {
+        VirtualPath::root()
+    } else {
+        VirtualPath::from_absolute(&request.url_path).unwrap_or_else(|_| VirtualPath::root())
+    };
+    RouteFrame {
+        request: request.clone(),
+        resolution: RouteResolution {
+            request_path: request.url_path,
+            surface: RouteSurface::Content,
+            node_path: node_path.clone(),
+            kind: ResolvedKind::Directory,
+            params: BTreeMap::new(),
+        },
+        intent: RenderIntent::DirectoryListing {
+            node_path,
+            layout: None,
+        },
+    }
+}
 
-    view! {
-        <div class=OVERLAY_CLASS>
-            <Reader route=route on_close=on_close />
-        </div>
+fn builtin_home_frame(request: RouteRequest) -> RouteFrame {
+    let request = RouteRequest::new(request.url_path);
+    RouteFrame {
+        request: request.clone(),
+        resolution: RouteResolution {
+            request_path: request.url_path,
+            surface: RouteSurface::Content,
+            node_path: VirtualPath::root(),
+            kind: ResolvedKind::Directory,
+            params: BTreeMap::new(),
+        },
+        intent: RenderIntent::DirectoryListing {
+            node_path: VirtualPath::root(),
+            layout: None,
+        },
     }
 }
 

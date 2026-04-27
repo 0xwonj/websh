@@ -164,7 +164,7 @@ fn assemble_global_fs(
 }
 
 fn mount_label_for_root(root: &VirtualPath) -> String {
-    if root.as_str() == "/site" {
+    if root.is_root() {
         "~".to_string()
     } else {
         root.file_name()
@@ -177,7 +177,7 @@ async fn load_site_json_if_present(
     global: &GlobalFs,
     backends: &BackendRegistry,
 ) -> Result<(), String> {
-    let path = VirtualPath::from_absolute("/site/.websh/site.json").expect("constant path");
+    let path = VirtualPath::from_absolute("/.websh/site.json").expect("constant path");
     if !global.exists(&path) {
         return Ok(());
     }
@@ -197,7 +197,7 @@ async fn load_mount_declarations(
     backends: &BackendRegistry,
 ) -> Result<Vec<MountDeclaration>, String> {
     let site_root = BOOTSTRAP_SITE.mount_root();
-    let mounts_root = VirtualPath::from_absolute("/site/.websh/mounts").expect("constant path");
+    let mounts_root = VirtualPath::from_absolute("/.websh/mounts").expect("constant path");
     let Some(site_backend) = backends.get(&site_root) else {
         return Ok(Vec::new());
     };
@@ -228,9 +228,10 @@ async fn load_sidecar_metadata(
         .iter()
         .map(|(root, backend)| (root.clone(), backend.clone()))
         .collect();
+    let mount_roots = backends.keys().cloned().collect::<Vec<_>>();
 
     for (mount_root, backend) in mounts {
-        let files = collect_file_paths(global, &mount_root);
+        let files = collect_file_paths_for_mount(global, &mount_root, &mount_roots);
         for file_path in files {
             let Some(file_name) = file_path.file_name() else {
                 continue;
@@ -264,7 +265,7 @@ async fn load_sidecar_metadata(
 
 async fn load_route_index(global: &mut GlobalFs, backends: &BackendRegistry) -> Result<(), String> {
     let site_root = BOOTSTRAP_SITE.mount_root();
-    let index_path = VirtualPath::from_absolute("/site/.websh/index.json").expect("constant path");
+    let index_path = VirtualPath::from_absolute("/.websh/index.json").expect("constant path");
     let Some(site_backend) = backends.get(&site_root) else {
         global.replace_route_index(Vec::new());
         return Ok(());
@@ -299,6 +300,44 @@ fn collect_file_paths(global: &GlobalFs, root: &VirtualPath) -> Vec<VirtualPath>
     let mut out = Vec::new();
     collect_file_paths_recursive(global, root, &mut out);
     out
+}
+
+fn collect_file_paths_for_mount(
+    global: &GlobalFs,
+    root: &VirtualPath,
+    mount_roots: &[VirtualPath],
+) -> Vec<VirtualPath> {
+    let mut out = Vec::new();
+    collect_file_paths_for_mount_recursive(global, root, root, mount_roots, &mut out);
+    out
+}
+
+fn collect_file_paths_for_mount_recursive(
+    global: &GlobalFs,
+    mount_root: &VirtualPath,
+    path: &VirtualPath,
+    mount_roots: &[VirtualPath],
+    out: &mut Vec<VirtualPath>,
+) {
+    if path != mount_root
+        && mount_roots
+            .iter()
+            .any(|root| root != mount_root && path.starts_with(root))
+    {
+        return;
+    }
+
+    let Some(entry) = global.get_entry(path) else {
+        return;
+    };
+    if !entry.is_directory() {
+        out.push(path.clone());
+        return;
+    }
+
+    for child in global.list_dir(path).unwrap_or_default() {
+        collect_file_paths_for_mount_recursive(global, mount_root, &child.path, mount_roots, out);
+    }
 }
 
 fn collect_file_paths_recursive(global: &GlobalFs, path: &VirtualPath, out: &mut Vec<VirtualPath>) {
@@ -372,11 +411,11 @@ mod tests {
             }],
         };
 
-        let fs = assemble_global_fs(&[(VirtualPath::from_absolute("/site").unwrap(), scan)])
-            .expect("global fs should assemble");
+        let fs =
+            assemble_global_fs(&[(VirtualPath::root(), scan)]).expect("global fs should assemble");
 
         assert!(
-            fs.get_entry(&crate::models::VirtualPath::from_absolute("/site/index.md").unwrap())
+            fs.get_entry(&crate::models::VirtualPath::from_absolute("/index.md").unwrap())
                 .is_some()
         );
     }
@@ -399,14 +438,14 @@ mod tests {
             directories: vec![],
         };
 
-        let fs = assemble_global_fs(&[(VirtualPath::from_absolute("/site").unwrap(), scan)])
-            .expect("global fs should assemble");
+        let fs =
+            assemble_global_fs(&[(VirtualPath::root(), scan)]).expect("global fs should assemble");
         let target = resolve_file_sidecar_target(
             &fs,
-            &VirtualPath::from_absolute("/site/about.meta.json").unwrap(),
+            &VirtualPath::from_absolute("/about.meta.json").unwrap(),
         )
         .expect("target");
 
-        assert_eq!(target.as_str(), "/site/about.md");
+        assert_eq!(target.as_str(), "/about.md");
     }
 }
