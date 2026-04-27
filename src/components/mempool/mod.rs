@@ -1,6 +1,7 @@
 //! Mempool — pending content entries displayed above the chain on /ledger.
 
 mod component;
+mod compose;
 mod loader;
 mod model;
 mod parse;
@@ -8,6 +9,9 @@ mod preview;
 mod serialize;
 
 pub use component::Mempool;
+pub use compose::{
+    ComposeError, ComposeForm, ComposeMode, form_to_payload, target_path, validate_form,
+};
 pub use loader::{load_mempool_files, mempool_root};
 pub use model::{
     LedgerFilterShape, LoadedMempoolFile, MempoolEntry, MempoolModel, MempoolStatus, Priority,
