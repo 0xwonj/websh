@@ -10,7 +10,8 @@
 
 use std::sync::Arc;
 
-use leptos::prelude::{Update, With, WithUntracked};
+use leptos::prelude::*;
+use wasm_bindgen_futures::spawn_local;
 
 use crate::app::AppContext;
 use crate::core::changes::{ChangeSet, ChangeType};
@@ -20,6 +21,8 @@ use crate::core::storage::{CommitOutcome, StorageBackend};
 use crate::models::{FileMetadata, RuntimeMount, VirtualPath};
 
 use super::loader::mempool_root;
+
+stylance::import_crate_style!(css, "src/components/mempool/promote.module.css");
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PromoteError {
@@ -381,6 +384,202 @@ async fn reload_and_apply(ctx: &AppContext) {
         Err(error) => leptos::logging::warn!(
             "promote: runtime reload after commit failed: {error}"
         ),
+    }
+}
+
+#[component]
+pub fn PromoteConfirmModal(
+    state: ReadSignal<PromoteState>,
+    set_state: WriteSignal<PromoteState>,
+    #[prop(into)] on_done: Callback<(VirtualPath, VirtualPath)>,
+    #[prop(into)] on_partial: Callback<(VirtualPath, VirtualPath, String)>,
+) -> impl IntoView {
+    let ctx = use_context::<AppContext>().expect("AppContext must be provided");
+
+    let close = move || set_state.set(PromoteState::Idle);
+
+    let on_confirm = {
+        let ctx = ctx.clone();
+        move |_| {
+            let (source, target) = match state.get_untracked() {
+                PromoteState::Confirming { source, target } => (source, target),
+                _ => return,
+            };
+            set_state.set(PromoteState::Running {
+                source: source.clone(),
+                target: target.clone(),
+            });
+            let ctx = ctx.clone();
+            spawn_local(async move {
+                let next = promote_entry(ctx, source).await;
+                handle_terminal_state(next, set_state, on_done, on_partial);
+            });
+        }
+    };
+
+    let on_retry = {
+        let ctx = ctx.clone();
+        move |_| {
+            let (source, target) = match state.get_untracked() {
+                PromoteState::PartialFailure { source, target, .. } => (source, target),
+                _ => return,
+            };
+            set_state.set(PromoteState::Running {
+                source: source.clone(),
+                target: target.clone(),
+            });
+            let ctx = ctx.clone();
+            spawn_local(async move {
+                let next = retry_mempool_drop(ctx, source, target).await;
+                handle_terminal_state(next, set_state, on_done, on_partial);
+            });
+        }
+    };
+
+    view! {
+        <Show when=move || state.with(|s| !matches!(s, PromoteState::Idle | PromoteState::Done { .. }))>
+            <div class=css::backdrop on:click=move |_| close()>
+                <div
+                    class=css::panel
+                    role="dialog"
+                    aria-label="Promote mempool entry"
+                    on:click=|ev: leptos::ev::MouseEvent| ev.stop_propagation()
+                >
+                    <header class=css::header>
+                        <span class=css::title>"promote to canonical chain"</span>
+                        <button
+                            class=css::close
+                            type="button"
+                            aria-label="Close"
+                            on:click=move |_| close()
+                        >
+                            "\u{00d7}"
+                        </button>
+                    </header>
+                    <div class=css::body>
+                        {move || render_paths(state.get())}
+                        {move || render_status(state.get())}
+                    </div>
+                    <footer class=css::footer>
+                        {
+                            let on_confirm = on_confirm.clone();
+                            let on_retry = on_retry.clone();
+                            move || render_footer(state.get(), close, on_confirm.clone(), on_retry.clone())
+                        }
+                    </footer>
+                </div>
+            </div>
+        </Show>
+    }
+}
+
+fn handle_terminal_state(
+    next: PromoteState,
+    set_state: WriteSignal<PromoteState>,
+    on_done: Callback<(VirtualPath, VirtualPath)>,
+    on_partial: Callback<(VirtualPath, VirtualPath, String)>,
+) {
+    match &next {
+        PromoteState::Done { source, target } => {
+            on_done.run((source.clone(), target.clone()));
+            set_state.set(PromoteState::Idle);
+        }
+        PromoteState::PartialFailure {
+            source,
+            target,
+            error,
+        } => {
+            on_partial.run((source.clone(), target.clone(), error.clone()));
+            set_state.set(next);
+        }
+        _ => set_state.set(next),
+    }
+}
+
+fn render_paths(state: PromoteState) -> AnyView {
+    let pair = match state {
+        PromoteState::Confirming { source, target }
+        | PromoteState::Running { source, target }
+        | PromoteState::PartialFailure { source, target, .. }
+        | PromoteState::Done { source, target } => Some((source, target)),
+        _ => None,
+    };
+    match pair {
+        Some((source, target)) => view! {
+            <div class=css::pathRow>
+                <span class=css::pathKey>"from"</span>
+                <code>{source.as_str().to_string()}</code>
+            </div>
+            <div class=css::pathRow>
+                <span class=css::pathKey>"to"</span>
+                <code>{target.as_str().to_string()}</code>
+            </div>
+            <div class=css::pathRow>
+                <span class=css::pathKey>"commits"</span>
+                <span>"2 (add bundle, drop mempool)"</span>
+            </div>
+        }
+        .into_any(),
+        None => view! { <span></span> }.into_any(),
+    }
+}
+
+fn render_status(state: PromoteState) -> AnyView {
+    match state {
+        PromoteState::Running { .. } => view! {
+            <div class=css::status>"committing… two commits, sequential"</div>
+        }
+        .into_any(),
+        PromoteState::PartialFailure { error, .. } => view! {
+            <div class=css::partial role="alert">
+                {format!("bundle commit OK, mempool delete failed: {error}")}
+            </div>
+        }
+        .into_any(),
+        PromoteState::Failed { error, .. } => view! {
+            <div class=css::error role="alert">{error}</div>
+        }
+        .into_any(),
+        _ => view! { <span></span> }.into_any(),
+    }
+}
+
+fn render_footer(
+    state: PromoteState,
+    close: impl Fn() + 'static + Clone,
+    on_confirm: impl Fn(leptos::ev::MouseEvent) + 'static + Clone,
+    on_retry: impl Fn(leptos::ev::MouseEvent) + 'static + Clone,
+) -> AnyView {
+    match state {
+        PromoteState::Confirming { .. } => {
+            let close_cancel = close.clone();
+            view! {
+                <button class=css::cancel type="button" on:click=move |_| close_cancel()>"Cancel"</button>
+                <button class=css::confirm type="button" on:click=on_confirm>"Confirm promote"</button>
+            }
+            .into_any()
+        }
+        PromoteState::Running { .. } => view! {
+            <button class=css::cancel type="button" prop:disabled=true>"Cancel"</button>
+            <button class=css::confirm type="button" prop:disabled=true>"Promoting…"</button>
+        }
+        .into_any(),
+        PromoteState::PartialFailure { .. } => {
+            let close_dismiss = close.clone();
+            view! {
+                <button class=css::cancel type="button" on:click=move |_| close_dismiss()>"Dismiss"</button>
+                <button class=css::confirm type="button" on:click=on_retry>"Retry mempool delete"</button>
+            }
+            .into_any()
+        }
+        PromoteState::Failed { .. } => {
+            let close_close = close.clone();
+            view! {
+                <button class=css::cancel type="button" on:click=move |_| close_close()>"Close"</button>
+            }
+            .into_any()
+        }
+        _ => view! { <span></span> }.into_any(),
     }
 }
 
