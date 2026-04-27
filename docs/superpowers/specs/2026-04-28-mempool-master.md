@@ -58,8 +58,8 @@ Three phases, executed sequentially. Each is its own PR.
 | Phase | Title | Outcome | Status |
 |---|---|---|---|
 | 1 | Read-only Mempool | Mempool section renders pending entries from `/mempool` mount; click opens modal preview; filter integration | **Complete** |
-| 2 | Authoring (Compose & Edit) | Author-mode toggle, compose modal, edit existing draft, GitHub commit to mempool repo | **In Design** |
-| 3 | Promotion | Promote button on mempool item, two-commit transaction, deploy hint banner | Pending |
+| 2 | Authoring (Compose & Edit) | Author-mode toggle, compose modal, edit existing draft, GitHub commit to mempool repo | **Complete** |
+| 3 | Promotion | Promote button on mempool item, two-commit transaction, deploy hint banner | **In Design** |
 
 After Phase 3, V1 is complete. V2 items (§7) are queued separately.
 
@@ -109,8 +109,8 @@ Generated as phases progress. Update the table when a new artifact lands.
 | Master | This file | `docs/superpowers/specs/2026-04-28-mempool-master.md` | Active |
 | 1 | Design | `docs/superpowers/specs/2026-04-28-mempool-phase1-design.md` | Approved |
 | 1 | Plan | `docs/superpowers/plans/2026-04-28-mempool-phase1-plan.md` | Complete |
-| 2 | Design | `docs/superpowers/specs/2026-04-28-mempool-phase2-design.md` | In progress |
-| 2 | Plan | _(to be added after Phase 2 design approval)_ | — |
+| 2 | Design | `docs/superpowers/specs/2026-04-28-mempool-phase2-design.md` | Approved |
+| 2 | Plan | `docs/superpowers/plans/2026-04-28-mempool-phase2-plan.md` | Complete |
 | 3 | Design | _(to be added)_ | — |
 | 3 | Plan | _(to be added)_ | — |
 
@@ -161,3 +161,4 @@ Captured chronologically. Append-only.
 | 2026-04-28 | Phases 1+2+3 = V1 (vs V1 = Phase 1 only) | §1 |
 | 2026-04-28 | Per-phase design + plan + reviewer workflow adopted | §5 |
 | 2026-04-28 | Phase 1 (read-only) complete: 12 tasks shipped, reviewer findings (1 Critical, 2 Important) addressed in 2 fix commits | §4 |
+| 2026-04-28 | Phase 2 (authoring) complete: ComposeModal + save flow + author-mode wiring shipped across 4 feat commits + 1 test commit; reviewer findings (1 Critical slug-collision, 2 High YAML/edit-fetch) closed in `9bd0d06` along with priority/tags validators and Esc/Cmd-S shortcuts | §4 |
