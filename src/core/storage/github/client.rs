@@ -124,7 +124,14 @@ impl GitHubBackend {
     }
 
     async fn load_manifest_snapshot(&self) -> StorageResult<ScannedSubtree> {
+        // raw.githubusercontent.com sets Cache-Control: max-age=300; without
+        // an explicit cache override, the browser fetch cache happily serves
+        // a 5-minute-stale manifest after a fresh commit, leaving the UI
+        // showing the old tree on the next sync refresh. NoCache forces
+        // revalidation on every scan; raw still sends an ETag so unchanged
+        // manifests come back as 304 without re-transferring the body.
         let resp = gloo_net::http::Request::get(&self.manifest_url())
+            .cache(web_sys::RequestCache::NoCache)
             .send()
             .await
             .map_err(|e| StorageError::NetworkError(e.to_string()))?;
