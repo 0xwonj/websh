@@ -13,10 +13,6 @@ pub fn Mempool(
     author_mode: Memo<bool>,
     #[prop(into)] on_promote: Callback<MempoolEntry>,
 ) -> impl IntoView {
-    if model.total_count == 0 {
-        return view! {}.into_any();
-    }
-
     let header = render_header(&model);
     let rows = render_rows(&model, on_select, author_mode, on_promote);
 
