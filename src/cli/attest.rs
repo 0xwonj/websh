@@ -32,7 +32,6 @@ const DEFAULT_HOMEPAGE_CONTENT: &[&str] = &[
 ];
 const DEFAULT_SIGNATURE_DIR: &str = ".websh/local/crypto/attestations";
 const DEFAULT_GPG_SIGNER: &str = "Wonjae Choi <wonjae@snu.ac.kr>";
-const DEFAULT_GPG_BINARY: &str = "gpg";
 
 #[derive(Args)]
 pub(crate) struct AttestCommand {
@@ -47,12 +46,6 @@ pub(crate) struct AttestCommand {
     /// GPG key id/user id passed to `gpg --local-user`.
     #[arg(long, default_value = DEFAULT_GPG_SIGNER)]
     gpg_key: Option<String>,
-    /// Path to the gpg binary to invoke. Override when the system `gpg`
-    /// emits packets the verifier cannot parse (e.g., the `manu` notation
-    /// added by gnupg 2.5.x is unsupported by `pgp` 0.19; pointing at a
-    /// stable 2.4.x build sidesteps it).
-    #[arg(long, default_value = DEFAULT_GPG_BINARY)]
-    gpg_binary: PathBuf,
     /// Local directory for generated subject messages and detached signatures.
     #[arg(long, default_value = DEFAULT_SIGNATURE_DIR)]
     signature_dir: PathBuf,
@@ -121,7 +114,6 @@ struct AttestAllOptions {
     content_dir: PathBuf,
     key: PathBuf,
     gpg_key: Option<String>,
-    gpg_binary: PathBuf,
     signature_dir: PathBuf,
     no_sign: bool,
     issued_at: Option<String>,
@@ -140,7 +132,6 @@ pub(crate) fn run(root: &Path, command: AttestCommand) -> CliResult {
         content_dir,
         key,
         gpg_key,
-        gpg_binary,
         signature_dir,
         no_sign,
         issued_at,
@@ -155,7 +146,6 @@ pub(crate) fn run(root: &Path, command: AttestCommand) -> CliResult {
                 content_dir,
                 key,
                 gpg_key,
-                gpg_binary,
                 signature_dir,
                 no_sign,
                 issued_at,
@@ -171,7 +161,6 @@ pub(crate) fn run_default(root: &Path, no_sign: bool) -> CliResult {
             content_dir: PathBuf::from(DEFAULT_CONTENT_DIR),
             key: PathBuf::from(PUBLIC_KEY_PATH),
             gpg_key: Some(DEFAULT_GPG_SIGNER.to_string()),
-            gpg_binary: PathBuf::from(DEFAULT_GPG_BINARY),
             signature_dir: PathBuf::from(DEFAULT_SIGNATURE_DIR),
             no_sign,
             issued_at: None,
@@ -268,7 +257,6 @@ fn attest_all(root: &Path, options: AttestAllOptions) -> CliResult {
                 root,
                 &options.key,
                 options.gpg_key.as_deref(),
-                &options.gpg_binary,
                 &options.signature_dir,
             )?;
         } else {
@@ -477,7 +465,6 @@ fn sign_missing_pgp_attestations(
     root: &Path,
     key: &Path,
     gpg_key: Option<&str>,
-    gpg_binary: &Path,
     signature_dir: &Path,
 ) -> CliResult<usize> {
     let mut artifact = read_artifact(root)?;
@@ -499,8 +486,7 @@ fn sign_missing_pgp_attestations(
             continue;
         }
 
-        let attestation =
-            sign_subject_with_gpg(root, &subject, key, gpg_key, gpg_binary, signature_dir)?;
+        let attestation = sign_subject_with_gpg(root, &subject, key, gpg_key, signature_dir)?;
         let subject = artifact
             .subject_for_route_mut(&route)
             .expect("subject exists after immutable lookup");
@@ -546,7 +532,6 @@ fn sign_subject_with_gpg(
     subject: &AttestationSubject,
     key: &Path,
     gpg_key: Option<&str>,
-    gpg_binary: &Path,
     signature_dir: &Path,
 ) -> CliResult<SubjectAttestation> {
     let signature_dir = resolve_path(root, signature_dir);
@@ -556,7 +541,7 @@ fn sign_subject_with_gpg(
     let signature_path = signature_dir.join(format!("{slug}.sig.asc"));
     fs::write(&message_path, &subject.message)?;
 
-    let mut command = Command::new(gpg_binary);
+    let mut command = Command::new("gpg");
     command
         .arg("--yes")
         .arg("--armor")

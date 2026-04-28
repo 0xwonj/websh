@@ -96,7 +96,7 @@
           "signer": "Wonjae Choi <wonjae@snu.ac.kr>",
           "fingerprint": "6CA8E0E8E0F9B9EE2F92EE49BEE7501AEA7758AD",
           "key_path": "content/keys/wonjae.asc",
-          "signature": "-----BEGIN PGP SIGNATURE-----\n\niIcEABYKAC8WIQRsqODo4Pm57i+S7km+51Aa6ndYrQUCafCFxxEcd29uamFlQHNu\ndS5hYy5rcgAKCRC+51Aa6ndYrV4SAP9JHDHfWhEIf/NtQ+JpVBmmOUvtrOrUmAGu\nUWsEO2zrKAEAlGOkR51NKCRAGF6YezCf48JpRDE75VyKHdgYfXv3sAw=\n=nvzP\n-----END PGP SIGNATURE-----\n",
+          "signature": "-----BEGIN PGP SIGNATURE-----\n\niKMEABYKAEsWIQRsqODo4Pm57i+S7km+51Aa6ndYrQUCafCJQhsUgAAAAAAEAA5t\nYW51MiwyLjUrMS4xMiwwLDMRHHdvbmphZUBzbnUuYWMua3IACgkQvudQGup3WK20\nagEAoN7Ty5rRYazqNyZggqFYARrBKAeTuhxJBjtx4liQazIA/jxDJjPkSNIvguEG\noEpvb561+XF0VihWqjG/v8h1TwkD\n=nZGD\n-----END PGP SIGNATURE-----\n",
           "signature_path": ".websh/local/crypto/attestations/root.sig.asc",
           "message_sha256": "0x51c7e5fc555940e1c3e4b14d5f0fee8f9c09518d2a90b8b22b2fa2e16167c486",
           "verified": true
@@ -127,7 +127,7 @@
           "signer": "Wonjae Choi <wonjae@snu.ac.kr>",
           "fingerprint": "6CA8E0E8E0F9B9EE2F92EE49BEE7501AEA7758AD",
           "key_path": "content/keys/wonjae.asc",
-          "signature": "-----BEGIN PGP SIGNATURE-----\n\niIcEABYKAC8WIQRsqODo4Pm57i+S7km+51Aa6ndYrQUCafCFyBEcd29uamFlQHNu\ndS5hYy5rcgAKCRC+51Aa6ndYraqsAQCAAGMDdt4fOcUrDsgYvgxwzEePMnFtKot7\nWN+f1r1xCgD/YjHoXN97r3N7JNwk4hV+RJ0cj8HNCHJAhdmzaYg5iQc=\n=36Gu\n-----END PGP SIGNATURE-----\n",
+          "signature": "-----BEGIN PGP SIGNATURE-----\n\niKMEABYKAEsWIQRsqODo4Pm57i+S7km+51Aa6ndYrQUCafCJQhsUgAAAAAAEAA5t\nYW51MiwyLjUrMS4xMiwwLDMRHHdvbmphZUBzbnUuYWMua3IACgkQvudQGup3WK2Y\ncwEAiXyedxv8/hh8bddXjJPncGxphGqBzycTQiHhj2N04GEA/2nw/ahEBwqPIWST\nLj2CkKAzoWZR3Op2YIiDoahjizcK\n=Lv8v\n-----END PGP SIGNATURE-----\n",
           "signature_path": ".websh/local/crypto/attestations/keys-wonjae-asc.sig.asc",
           "message_sha256": "0x73820b3e0e352dc3e40ac58d66d61fe34784faae6842313ca77e1548fb907042",
           "verified": true
@@ -158,7 +158,7 @@
           "signer": "Wonjae Choi <wonjae@snu.ac.kr>",
           "fingerprint": "6CA8E0E8E0F9B9EE2F92EE49BEE7501AEA7758AD",
           "key_path": "content/keys/wonjae.asc",
-          "signature": "-----BEGIN PGP SIGNATURE-----\n\niIcEABYKAC8WIQRsqODo4Pm57i+S7km+51Aa6ndYrQUCafCFyBEcd29uamFlQHNu\ndS5hYy5rcgAKCRC+51Aa6ndYrXFeAP9gq7cUwpbxEVpRsKfVd/hy1GXFZIyRKHOj\nyjAexK53KwEArKkFL1JnxuSpxyuUu1dSgazlD9M4/3ThqhkAPFlJKQA=\n=L7RY\n-----END PGP SIGNATURE-----\n",
+          "signature": "-----BEGIN PGP SIGNATURE-----\n\niKMEABYKAEsWIQRsqODo4Pm57i+S7km+51Aa6ndYrQUCafCJQxsUgAAAAAAEAA5t\nYW51MiwyLjUrMS4xMiwwLDMRHHdvbmphZUBzbnUuYWMua3IACgkQvudQGup3WK0+\nBgD/Vm/vKaqnJj0h+6k1u6mvP90vmifw6jhKDndTX8vfNZoBAJBeSn1s2bi90bcl\n6A/opWldJtoDAUejxRyBbIJOpR0C\n=x0Lf\n-----END PGP SIGNATURE-----\n",
           "signature_path": ".websh/local/crypto/attestations/ledger.sig.asc",
           "message_sha256": "0x7b67348b75d84bf292dc508ac30bb09cd834adbe8fed034d4961ab579bfcd9b9",
           "verified": true
@@ -189,7 +189,7 @@
           "signer": "Wonjae Choi <wonjae@snu.ac.kr>",
           "fingerprint": "6CA8E0E8E0F9B9EE2F92EE49BEE7501AEA7758AD",
           "key_path": "content/keys/wonjae.asc",
-          "signature": "-----BEGIN PGP SIGNATURE-----\n\niIcEABYKAC8WIQRsqODo4Pm57i+S7km+51Aa6ndYrQUCafCFyBEcd29uamFlQHNu\ndS5hYy5rcgAKCRC+51Aa6ndYrVYrAQDFTmP/5GytUd+UM5/03NSKhjSjj58H4A36\nORZHaPq/fAEA7ANNnYT69dgIOLUyUQ23go1zZIwZ2prwZKcL9xz9OQA=\n=KFwq\n-----END PGP SIGNATURE-----\n",
+          "signature": "-----BEGIN PGP SIGNATURE-----\n\niKMEABYKAEsWIQRsqODo4Pm57i+S7km+51Aa6ndYrQUCafCJQxsUgAAAAAAEAA5t\nYW51MiwyLjUrMS4xMiwwLDMRHHdvbmphZUBzbnUuYWMua3IACgkQvudQGup3WK1M\nSQD+N/XdN+RVnIseIkQZenbz5fZwoJRLIU5xA/RcKicxA2MBAPVuIPL2nTFp+F+z\nT0vs4KTEu6vxLJ5z7vTdRR0/GRYM\n=sUIQ\n-----END PGP SIGNATURE-----\n",
           "signature_path": ".websh/local/crypto/attestations/now-toml.sig.asc",
           "message_sha256": "0x76c782cb7a31f3278890e907e74e85dcd521ec29a8af446c58c676fdb2057da4",
           "verified": true
@@ -220,7 +220,7 @@
           "signer": "Wonjae Choi <wonjae@snu.ac.kr>",
           "fingerprint": "6CA8E0E8E0F9B9EE2F92EE49BEE7501AEA7758AD",
           "key_path": "content/keys/wonjae.asc",
-          "signature": "-----BEGIN PGP SIGNATURE-----\n\niIcEABYKAC8WIQRsqODo4Pm57i+S7km+51Aa6ndYrQUCafCFyBEcd29uamFlQHNu\ndS5hYy5rcgAKCRC+51Aa6ndYrX6hAP44Tev/FgRUajxw2hFNeGyUZVl1ybFCzOcQ\ncHY4vvprJQEA/3e2kL+QrVSbvqiv1LDRCTT3yhf+nK7j6STv/DafWwg=\n=pj9a\n-----END PGP SIGNATURE-----\n",
+          "signature": "-----BEGIN PGP SIGNATURE-----\n\niKMEABYKAEsWIQRsqODo4Pm57i+S7km+51Aa6ndYrQUCafCJQxsUgAAAAAAEAA5t\nYW51MiwyLjUrMS4xMiwwLDMRHHdvbmphZUBzbnUuYWMua3IACgkQvudQGup3WK0A\nCgD+N+qJvYZ7WZdQW6Jq1K4JVXw9Q6ZJxs82jePJsYJxTe4BAM4eCU1pyv/KcHnS\nTQpqfOrDNND8UlHHl2IYL2B/DUYP\n=d1Y5\n-----END PGP SIGNATURE-----\n",
           "signature_path": ".websh/local/crypto/attestations/papers-tabula.sig.asc",
           "message_sha256": "0x531a495270561ca857dd13138692c757fa327186eb2530279e939f753176a980",
           "verified": true
@@ -251,7 +251,7 @@
           "signer": "Wonjae Choi <wonjae@snu.ac.kr>",
           "fingerprint": "6CA8E0E8E0F9B9EE2F92EE49BEE7501AEA7758AD",
           "key_path": "content/keys/wonjae.asc",
-          "signature": "-----BEGIN PGP SIGNATURE-----\n\niIcEABYKAC8WIQRsqODo4Pm57i+S7km+51Aa6ndYrQUCafCFyBEcd29uamFlQHNu\ndS5hYy5rcgAKCRC+51Aa6ndYrYOWAP0QOW3686xn0vYPVqQPLxED62MUznyOnhQO\nHj03vVaq1gEA8/kR1cJViH9wwDNNCsiWLAeOpbPYki/XpRgk1BzURAw=\n=QFMt\n-----END PGP SIGNATURE-----\n",
+          "signature": "-----BEGIN PGP SIGNATURE-----\n\niKMEABYKAEsWIQRsqODo4Pm57i+S7km+51Aa6ndYrQUCafCJQxsUgAAAAAAEAA5t\nYW51MiwyLjUrMS4xMiwwLDMRHHdvbmphZUBzbnUuYWMua3IACgkQvudQGup3WK3G\nEQD9FtGYdxkllB1PKJd/M9+rOj6KEVh3/otqt1nimNJulwcBAJsVniRvD13WOZx/\niT8mUB/8MypE6C7XL+DJQxMretQJ\n=4+E4\n-----END PGP SIGNATURE-----\n",
           "signature_path": ".websh/local/crypto/attestations/projects-websh.sig.asc",
           "message_sha256": "0x9da7d7fa09e28b58e919683ed67d3906ea5746a8b28cb05907717fbaa88e9f90",
           "verified": true
@@ -287,7 +287,7 @@
           "signer": "Wonjae Choi <wonjae@snu.ac.kr>",
           "fingerprint": "6CA8E0E8E0F9B9EE2F92EE49BEE7501AEA7758AD",
           "key_path": "content/keys/wonjae.asc",
-          "signature": "-----BEGIN PGP SIGNATURE-----\n\niIcEABYKAC8WIQRsqODo4Pm57i+S7km+51Aa6ndYrQUCafCFyBEcd29uamFlQHNu\ndS5hYy5rcgAKCRC+51Aa6ndYrQehAQCP8BjNUuLKvrsJrwWFyTpdywomXcZcoOuQ\n7nbybcqgZAD6AjReNUBYKNMXfpdJYw9NJsNJfQW745s3PBHfVLFUawg=\n=WfwS\n-----END PGP SIGNATURE-----\n",
+          "signature": "-----BEGIN PGP SIGNATURE-----\n\niKMEABYKAEsWIQRsqODo4Pm57i+S7km+51Aa6ndYrQUCafCJQxsUgAAAAAAEAA5t\nYW51MiwyLjUrMS4xMiwwLDMRHHdvbmphZUBzbnUuYWMua3IACgkQvudQGup3WK0m\nhgD+MsePtEPow/vqk98GIpGuSWB6U2zJwhz13I6h6TcpswEA/jRmEm+mYoLdWAGM\n94Te+xb7wDG2WXPOAKPvrEyB880N\n=3dWR\n-----END PGP SIGNATURE-----\n",
           "signature_path": ".websh/local/crypto/attestations/talks-evaluating-compiler-optimization-impacts-on-zkvm-performance-pdf.sig.asc",
           "message_sha256": "0x7f344e83e4494aa67033297e4e6fda7900081e216131fd4b8c2628831a0b9c35",
           "verified": true
@@ -318,7 +318,7 @@
           "signer": "Wonjae Choi <wonjae@snu.ac.kr>",
           "fingerprint": "6CA8E0E8E0F9B9EE2F92EE49BEE7501AEA7758AD",
           "key_path": "content/keys/wonjae.asc",
-          "signature": "-----BEGIN PGP SIGNATURE-----\n\niIcEABYKAC8WIQRsqODo4Pm57i+S7km+51Aa6ndYrQUCafCFyBEcd29uamFlQHNu\ndS5hYy5rcgAKCRC+51Aa6ndYrZFdAQDAYzLaWefc09g2kksfPsKcILhmyBe0tcNb\n+n789DBoqQEA0QQDV0rlGP8ptz2r5V1UMlNEHA90JaBNBlA7LaPS2w0=\n=du65\n-----END PGP SIGNATURE-----\n",
+          "signature": "-----BEGIN PGP SIGNATURE-----\n\niKMEABYKAEsWIQRsqODo4Pm57i+S7km+51Aa6ndYrQUCafCJQxsUgAAAAAAEAA5t\nYW51MiwyLjUrMS4xMiwwLDMRHHdvbmphZUBzbnUuYWMua3IACgkQvudQGup3WK1S\nhQD/eLcZpIAuGncyzCbYjdZPTkg+IDYjXtNScb+G/AtrY7cA/AsssUuB+N3m+roY\ntf04YdNiZkVQM1OFR+O6ZsoNVhcJ\n=GNbU\n-----END PGP SIGNATURE-----\n",
           "signature_path": ".websh/local/crypto/attestations/talks-zk-compilers.sig.asc",
           "message_sha256": "0xeea533d31a94edb0d35c4b7c5a49077b981c8bb9d3b31a60c93b66618bbbedc9",
           "verified": true
@@ -349,7 +349,7 @@
           "signer": "Wonjae Choi <wonjae@snu.ac.kr>",
           "fingerprint": "6CA8E0E8E0F9B9EE2F92EE49BEE7501AEA7758AD",
           "key_path": "content/keys/wonjae.asc",
-          "signature": "-----BEGIN PGP SIGNATURE-----\n\niIcEABYKAC8WIQRsqODo4Pm57i+S7km+51Aa6ndYrQUCafCFyBEcd29uamFlQHNu\ndS5hYy5rcgAKCRC+51Aa6ndYrZVqAQDAPKWcauO2B6gO/4BTaMcuuh0JesR9Miyh\n3nqIMWPDgQEA8y9JvWS2p1mV8svv21TfIwUdPZiBZIgd7OKlQXswtwY=\n=I2dL\n-----END PGP SIGNATURE-----\n",
+          "signature": "-----BEGIN PGP SIGNATURE-----\n\niKMEABYKAEsWIQRsqODo4Pm57i+S7km+51Aa6ndYrQUCafCJQxsUgAAAAAAEAA5t\nYW51MiwyLjUrMS4xMiwwLDMRHHdvbmphZUBzbnUuYWMua3IACgkQvudQGup3WK2B\nUwD/c2SiSoq54bXhP6+rA8BeWDqhWzGW11oa5jIhRESWLAUA/2L5Zi1zbfW9E4Lm\nMA8cjfijdL+QrzmNL1z6LdVRlpoI\n=0+x+\n-----END PGP SIGNATURE-----\n",
           "signature_path": ".websh/local/crypto/attestations/writing-content-backed-homepage.sig.asc",
           "message_sha256": "0xc09b043e11b8c2530c3cc025e25b334feb78dbfb34867d0150c87518a683a345",
           "verified": true
