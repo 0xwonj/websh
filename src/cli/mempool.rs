@@ -3,15 +3,19 @@
 //! the mempool repo. Replaces Phase 3's browser-side promote per the
 //! Phase 5 design (`docs/superpowers/specs/2026-04-28-mempool-phase5-design.md`).
 
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
+use std::process::Command as Process;
 
 use clap::{Args, Subcommand};
 use serde::Deserialize;
 
 use super::CliResult;
-use super::gh::{gh_capture, require_gh};
+use super::gh::{gh_capture, gh_succeeds, require_gh};
 use super::manifest::DEFAULT_CONTENT_DIR;
+use crate::components::ledger_routes::LEDGER_CATEGORIES;
 use crate::components::mempool::{derive_gas, parse_mempool_frontmatter};
+use crate::config::BOOTSTRAP_SITE;
 use crate::models::manifest::ContentManifestDocument;
 
 const MEMPOOL_MOUNT_DECL_PATH: &str = ".websh/mounts/mempool.mount.json";
@@ -224,8 +228,378 @@ fn file_in_repo(root_prefix: &str, file_path: &str) -> String {
     }
 }
 
-fn promote(_root: &Path, _args: PromoteArgs) -> CliResult {
-    Err("mempool promote: implemented in Task 4".into())
+/// Resolved promote target: where the entry comes from in the mempool repo
+/// and where it lands in the bundle source on disk.
+#[derive(Clone, Debug)]
+struct PromoteTarget {
+    /// Path inside the mempool repo, e.g., `writing/foo.md`.
+    repo_path: String,
+    /// Category segment, e.g., `writing`.
+    category: String,
+    /// `<category>/<slug>` (no extension), used in commit messages.
+    slug_relpath: String,
+    /// Filesystem path (relative to repo root) where the body lands:
+    /// `content/<category>/<slug>.md`.
+    bundle_disk_path: PathBuf,
+}
+
+/// Tracks which mutations have happened so the rollback knows what to undo
+/// on partial failure.
+#[derive(Default)]
+struct PromoteCleanup {
+    body_written: bool,
+    ledger_written: bool,
+    manifest_written: bool,
+    attest_written: bool,
+}
+
+fn promote(root: &Path, args: PromoteArgs) -> CliResult {
+    let target = parse_promote_path(&args.path)?;
+    let mount = read_mempool_mount_declaration(root)?;
+    require_gh()?;
+
+    // Step 0 — pre-flight (no mutation).
+    if !args.allow_dirty {
+        ensure_clean_working_tree(root)?;
+    }
+    confirm_on_bundle_branch(root)?;
+    gh_verify_path_exists(&mount, &target)?;
+    ensure_local_target_absent(root, &target)?;
+
+    eprintln!("preflight: ok ({})", target.repo_path);
+
+    // Step 1 — fetch + write + regenerate.
+    let body = fetch_mempool_body(&mount, &target)?;
+    eprintln!("fetch:    {} ({} bytes)", target.repo_path, body.len());
+
+    let mut cleanup = PromoteCleanup::default();
+    if let Err(e) = run_promote_steps(root, &target, &body, &args, &mut cleanup) {
+        rollback(root, &target, &cleanup);
+        return Err(e);
+    }
+
+    // Step 2 — git commit.
+    if let Err(e) = stage_and_commit(root, &target, cleanup.attest_written) {
+        rollback(root, &target, &cleanup);
+        return Err(e);
+    }
+
+    // Step 3 — optional drop-remote.
+    if args.drop_remote {
+        match drop_via_gh(&mount, &target.repo_path) {
+            Ok(_) => println!(
+                "mempool drop: removed {} from {}",
+                target.repo_path, mount.repo
+            ),
+            Err(e) => println!(
+                "mempool drop: {e} — re-run `websh-cli mempool drop --path {}` to retry",
+                args.path
+            ),
+        }
+    }
+
+    println!(
+        "\nready. review the commit, then `git push` and `just pin` to deploy."
+    );
+    Ok(())
+}
+
+/// Parse `--path` into a structured PromoteTarget. Validates `<category>/<slug>.md`
+/// shape with category in `LEDGER_CATEGORIES`.
+fn parse_promote_path(repo_relative: &str) -> CliResult<PromoteTarget> {
+    let trimmed = repo_relative.trim_start_matches('/');
+    if !trimmed.ends_with(".md") {
+        return Err(format!(
+            "promote path must end in `.md` (got `{repo_relative}`)"
+        )
+        .into());
+    }
+    let mut parts = trimmed.splitn(2, '/');
+    let category = parts
+        .next()
+        .filter(|c| !c.is_empty())
+        .ok_or_else(|| format!("promote path missing category segment: `{repo_relative}`"))?
+        .to_string();
+    let rest = parts
+        .next()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| format!("promote path missing slug segment: `{repo_relative}`"))?;
+    if !LEDGER_CATEGORIES.contains(&category.as_str()) {
+        return Err(format!(
+            "category `{category}` is not in LEDGER_CATEGORIES ({:?})",
+            LEDGER_CATEGORIES
+        )
+        .into());
+    }
+    let slug = rest
+        .strip_suffix(".md")
+        .expect("ends_with(.md) checked above")
+        .to_string();
+    if slug.is_empty() || slug.contains('/') {
+        return Err(
+            format!("promote path slug must be a single segment, got `{rest}`").into(),
+        );
+    }
+    let slug_relpath = format!("{category}/{slug}");
+    let bundle_disk_path = PathBuf::from(DEFAULT_CONTENT_DIR)
+        .join(&category)
+        .join(format!("{slug}.md"));
+
+    Ok(PromoteTarget {
+        repo_path: trimmed.to_string(),
+        category,
+        slug_relpath,
+        bundle_disk_path,
+    })
+}
+
+fn ensure_clean_working_tree(root: &Path) -> CliResult {
+    let mut cmd = Process::new("git");
+    cmd.current_dir(root)
+        .args(["status", "--porcelain", "--", "content"]);
+    let out = cmd.output()?;
+    if !out.status.success() {
+        return Err(format!(
+            "git status failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        )
+        .into());
+    }
+    if !out.stdout.is_empty() {
+        return Err(format!(
+            "uncommitted changes in content/. Stage/stash them or pass --allow-dirty:\n{}",
+            String::from_utf8_lossy(&out.stdout).trim()
+        )
+        .into());
+    }
+    Ok(())
+}
+
+fn confirm_on_bundle_branch(root: &Path) -> CliResult {
+    let mut cmd = Process::new("git");
+    cmd.current_dir(root).args(["rev-parse", "--abbrev-ref", "HEAD"]);
+    let out = cmd.output()?;
+    if !out.status.success() {
+        return Err("git rev-parse failed (is this a git checkout?)".into());
+    }
+    let current = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    let expected = BOOTSTRAP_SITE.branch;
+    if current == expected {
+        return Ok(());
+    }
+    eprint!(
+        "warn: HEAD is `{current}`, deploy branch is `{expected}`. Continue? [y/N] "
+    );
+    io::stderr().flush().ok();
+    let mut answer = String::new();
+    io::stdin().read_line(&mut answer)?;
+    let trimmed = answer.trim();
+    if trimmed.eq_ignore_ascii_case("y") || trimmed.eq_ignore_ascii_case("yes") {
+        Ok(())
+    } else {
+        Err(format!("aborted: not on `{expected}`").into())
+    }
+}
+
+fn gh_verify_path_exists(mount: &MempoolMountInfo, target: &PromoteTarget) -> CliResult {
+    let url = format!(
+        "repos/{}/contents/{}?ref={}",
+        mount.repo,
+        file_in_repo(&mount.root_prefix, &target.repo_path),
+        mount.branch,
+    );
+    if !gh_succeeds(["api", "--silent", url.as_str()])? {
+        return Err(format!(
+            "{} not found in {}@{}",
+            target.repo_path, mount.repo, mount.branch
+        )
+        .into());
+    }
+    Ok(())
+}
+
+fn ensure_local_target_absent(root: &Path, target: &PromoteTarget) -> CliResult {
+    let p = root.join(&target.bundle_disk_path);
+    if p.exists() {
+        return Err(format!(
+            "{} already exists locally — pick a different slug or `git rm` the existing file",
+            target.bundle_disk_path.display()
+        )
+        .into());
+    }
+    Ok(())
+}
+
+fn fetch_mempool_body(mount: &MempoolMountInfo, target: &PromoteTarget) -> CliResult<String> {
+    let url = format!(
+        "repos/{}/contents/{}?ref={}",
+        mount.repo,
+        file_in_repo(&mount.root_prefix, &target.repo_path),
+        mount.branch,
+    );
+    gh_capture([
+        "api",
+        "-H",
+        "Accept: application/vnd.github.raw",
+        url.as_str(),
+    ])
+}
+
+fn run_promote_steps(
+    root: &Path,
+    target: &PromoteTarget,
+    body: &str,
+    args: &PromoteArgs,
+    cleanup: &mut PromoteCleanup,
+) -> CliResult {
+    // Ensure the parent directory exists, then write the body.
+    let abs_path = root.join(&target.bundle_disk_path);
+    if let Some(parent) = abs_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    cleanup.body_written = true; // Set before write — partial-write on disk-full counts.
+    std::fs::write(&abs_path, body)?;
+    eprintln!("write:    {}", target.bundle_disk_path.display());
+
+    if args.no_attest {
+        // Direct ledger + manifest regeneration. Set flags BEFORE the calls
+        // so a mid-write failure still lets rollback restore the prior state.
+        cleanup.ledger_written = true;
+        let ledger = super::ledger::generate_content_ledger(root, Path::new(DEFAULT_CONTENT_DIR))?;
+        cleanup.manifest_written = true;
+        let manifest =
+            super::manifest::generate_content_manifest(root, Path::new(DEFAULT_CONTENT_DIR))?;
+        eprintln!(
+            "ledger:   {} entries -> content/.websh/ledger.json",
+            ledger.entry_count
+        );
+        eprintln!(
+            "manifest: {} files / {} directories -> content/manifest.json",
+            manifest.files.len(),
+            manifest.directories.len()
+        );
+    } else {
+        // attest::run_default writes ledger.json + manifest.json + attestations.json
+        // sequentially; flag each as potentially-written before invocation so a
+        // mid-flow signing failure rolls back all three.
+        cleanup.ledger_written = true;
+        cleanup.manifest_written = true;
+        cleanup.attest_written = true;
+        super::attest::run_default(root, /*no_sign*/ false)?;
+    }
+    Ok(())
+}
+
+fn stage_and_commit(root: &Path, target: &PromoteTarget, did_attest: bool) -> CliResult {
+    let mut paths: Vec<PathBuf> = vec![
+        target.bundle_disk_path.clone(),
+        PathBuf::from("content/.websh/ledger.json"),
+        PathBuf::from("content/manifest.json"),
+    ];
+    if did_attest {
+        paths.push(PathBuf::from("assets/crypto/attestations.json"));
+    }
+
+    let mut add = Process::new("git");
+    add.current_dir(root).arg("add").arg("--");
+    for p in &paths {
+        add.arg(p);
+    }
+    let add_status = add.status()?;
+    if !add_status.success() {
+        return Err("git add failed".into());
+    }
+
+    let msg = format!("promote: {}", target.slug_relpath);
+    let mut commit = Process::new("git");
+    commit.current_dir(root).args(["commit", "-m", &msg]);
+    let commit_status = commit.status()?;
+    if !commit_status.success() {
+        return Err("git commit failed".into());
+    }
+    Ok(())
+}
+
+fn rollback(root: &Path, target: &PromoteTarget, c: &PromoteCleanup) {
+    if c.body_written {
+        let _ = std::fs::remove_file(root.join(&target.bundle_disk_path));
+    }
+    if c.ledger_written {
+        let _ = git_quiet(
+            root,
+            ["checkout", "--", "content/.websh/ledger.json"],
+        );
+    }
+    if c.manifest_written {
+        let _ = git_quiet(root, ["checkout", "--", "content/manifest.json"]);
+    }
+    if c.attest_written {
+        let _ = git_quiet(
+            root,
+            ["checkout", "--", "assets/crypto/attestations.json"],
+        );
+        // .websh/local/crypto/attestations is gitignored; not restored.
+    }
+    let _ = git_quiet(
+        root,
+        [
+            "reset",
+            "HEAD",
+            "--",
+            "content/",
+            "assets/crypto/attestations.json",
+        ],
+    );
+}
+
+fn git_quiet<I, S>(root: &Path, args: I) -> CliResult
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
+    let mut cmd = Process::new("git");
+    cmd.current_dir(root).args(args);
+    let _ = cmd.output();
+    Ok(())
+}
+
+/// DELETE a path from the mempool repo via the GitHub Contents API.
+/// Two-step: GET the file's current sha, then DELETE with that sha.
+fn drop_via_gh(mount: &MempoolMountInfo, path_in_repo: &str) -> CliResult {
+    let absolute_path = file_in_repo(&mount.root_prefix, path_in_repo);
+    let get_url = format!(
+        "repos/{}/contents/{}?ref={}",
+        mount.repo, absolute_path, mount.branch,
+    );
+    let sha_raw = gh_capture(["api", "--jq", ".sha", get_url.as_str()])?;
+    let sha = sha_raw.trim().trim_matches('"').to_string();
+    if sha.is_empty() {
+        return Err(format!("could not extract sha for {path_in_repo}").into());
+    }
+
+    let delete_url = format!("repos/{}/contents/{}", mount.repo, absolute_path);
+    let mut cmd = Process::new("gh");
+    cmd.args([
+        "api",
+        delete_url.as_str(),
+        "-X",
+        "DELETE",
+        "-f",
+        &format!("message=mempool: drop {path_in_repo}"),
+        "-f",
+        &format!("sha={sha}"),
+        "-f",
+        &format!("branch={}", mount.branch),
+    ]);
+    let status = cmd.status()?;
+    if !status.success() {
+        return Err(format!(
+            "gh api DELETE failed for {} on {}@{}",
+            path_in_repo, mount.repo, mount.branch
+        )
+        .into());
+    }
+    Ok(())
 }
 
 fn drop_entry(_root: &Path, _args: DropArgs) -> CliResult {
@@ -299,6 +673,64 @@ mod tests {
         let root = tempdir();
         let err = read_mempool_mount_declaration(&root).unwrap_err();
         assert!(err.to_string().contains("not found"));
+    }
+
+    #[test]
+    fn parse_promote_path_extracts_category_slug_and_disk_path() {
+        let t = parse_promote_path("writing/foo.md").unwrap();
+        assert_eq!(t.repo_path, "writing/foo.md");
+        assert_eq!(t.category, "writing");
+        assert_eq!(t.slug_relpath, "writing/foo");
+        assert_eq!(t.bundle_disk_path, PathBuf::from("content/writing/foo.md"));
+    }
+
+    #[test]
+    fn parse_promote_path_strips_leading_slash() {
+        let t = parse_promote_path("/papers/bar.md").unwrap();
+        assert_eq!(t.repo_path, "papers/bar.md");
+        assert_eq!(t.bundle_disk_path, PathBuf::from("content/papers/bar.md"));
+    }
+
+    #[test]
+    fn parse_promote_path_rejects_non_md_extension() {
+        let err = parse_promote_path("writing/foo.txt").unwrap_err();
+        assert!(err.to_string().contains("must end in `.md`"));
+    }
+
+    #[test]
+    fn parse_promote_path_rejects_unknown_category() {
+        let err = parse_promote_path("fiction/foo.md").unwrap_err();
+        assert!(err.to_string().contains("not in LEDGER_CATEGORIES"));
+    }
+
+    #[test]
+    fn parse_promote_path_rejects_nested_slug() {
+        let err = parse_promote_path("writing/series/foo.md").unwrap_err();
+        assert!(err.to_string().contains("single segment"));
+    }
+
+    #[test]
+    fn parse_promote_path_rejects_missing_slug() {
+        let err = parse_promote_path("writing/.md").unwrap_err();
+        assert!(err.to_string().contains("single segment") || err.to_string().contains("slug"));
+    }
+
+    #[test]
+    fn file_in_repo_handles_empty_prefix() {
+        assert_eq!(file_in_repo("", "writing/foo.md"), "writing/foo.md");
+        assert_eq!(file_in_repo("/", "writing/foo.md"), "writing/foo.md");
+    }
+
+    #[test]
+    fn file_in_repo_prepends_prefix() {
+        assert_eq!(
+            file_in_repo("content", "writing/foo.md"),
+            "content/writing/foo.md"
+        );
+        assert_eq!(
+            file_in_repo("/content/", "writing/foo.md"),
+            "content/writing/foo.md"
+        );
     }
 
     fn tempdir() -> PathBuf {
