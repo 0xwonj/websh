@@ -271,7 +271,9 @@ pub async fn save_compose(
 
     if matches!(mode, ComposeMode::New { .. }) {
         let target = target_path(&form);
-        let collides = ctx.view_global_fs.with(|fs| fs.exists(&target));
+        let collides = ctx
+            .view_global_fs
+            .with_untracked(|fs| fs.exists(&target));
         if collides {
             return Err(format!(
                 "draft already exists at {} — pick a different slug",

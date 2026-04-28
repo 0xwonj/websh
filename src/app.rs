@@ -387,9 +387,10 @@ impl AppContext {
     }
 
     /// Best-effort lookup for the last known remote HEAD responsible for a
-    /// canonical path.
+    /// canonical path. Reads untracked: callers (commit flows in
+    /// `spawn_local`) want a one-shot snapshot, not a subscription.
     pub fn remote_head_for_path(&self, path: &VirtualPath) -> Option<String> {
-        self.remote_heads.with(|map| {
+        self.remote_heads.with_untracked(|map| {
             map.iter()
                 .filter(|(root, _)| path.starts_with(root))
                 .max_by_key(|(root, _)| root.as_str().len())

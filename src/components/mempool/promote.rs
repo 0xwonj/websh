@@ -200,7 +200,9 @@ pub async fn promote_entry(ctx: AppContext, source: VirtualPath) -> PromoteState
     let bundle_root = VirtualPath::root();
     let mempool = mempool_root();
 
-    let source_exists = ctx.view_global_fs.with(|fs| fs.exists(&source));
+    let source_exists = ctx
+        .view_global_fs
+        .with_untracked(|fs| fs.exists(&source));
     let target_exists_path = match promote_target_path(&source) {
         Ok(t) => t,
         Err(err) => {
@@ -212,7 +214,7 @@ pub async fn promote_entry(ctx: AppContext, source: VirtualPath) -> PromoteState
     };
     let target_exists = ctx
         .view_global_fs
-        .with(|fs| fs.exists(&target_exists_path));
+        .with_untracked(|fs| fs.exists(&target_exists_path));
     let bundle_backend = ctx.backend_for_path(&bundle_root);
     let mempool_backend = ctx.backend_for_path(&mempool);
     let token = github_token_for_commit();
