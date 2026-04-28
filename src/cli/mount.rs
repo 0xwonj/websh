@@ -7,7 +7,6 @@
 //! regenerating the bundle source manifest so the runtime sees the new
 //! mount.
 
-use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command as Process;
 
@@ -17,6 +16,7 @@ use clap::{Args, Subcommand};
 use serde::Serialize;
 
 use super::CliResult;
+use super::gh::{gh_succeeds, require_gh};
 use super::manifest::{DEFAULT_CONTENT_DIR, generate_content_manifest};
 
 const EMPTY_MANIFEST_BODY: &str = "{\"files\":[],\"directories\":[]}\n";
@@ -156,27 +156,6 @@ fn mount_declaration_path(root: &Path, name: &str) -> PathBuf {
         .join(".websh")
         .join("mounts")
         .join(format!("{name}.mount.json"))
-}
-
-fn require_gh() -> CliResult {
-    let probe = Process::new("gh").arg("--version").output();
-    match probe {
-        Ok(out) if out.status.success() => Ok(()),
-        _ => Err(
-            "the `gh` CLI is required for `mount init` (https://cli.github.com); \
-             ensure `gh auth status` reports an authenticated account before re-running"
-                .into(),
-        ),
-    }
-}
-
-fn gh_succeeds<I, S>(args: I) -> CliResult<bool>
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<OsStr>,
-{
-    let out = Process::new("gh").args(args).output()?;
-    Ok(out.status.success())
 }
 
 fn push_empty_manifest(repo: &str, branch: &str, path_in_repo: &str) -> CliResult {

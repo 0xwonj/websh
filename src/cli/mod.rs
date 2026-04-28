@@ -5,6 +5,7 @@ mod attest;
 mod content;
 mod crypto;
 mod deploy;
+mod gh;
 mod io;
 mod ledger;
 mod manifest;
