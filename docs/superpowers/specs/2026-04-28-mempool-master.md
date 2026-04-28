@@ -17,10 +17,10 @@ When V1 is complete, I can:
 1. **See** pending drafts and reviews above the chain head, filtered by category alongside published blocks.
 2. **Compose** a new draft from a button on the website, which is committed to the mempool repo and appears immediately for me (and any viewer) on next page load.
 3. **Edit** an existing draft from the same site, with changes committed back to the mempool repo.
-4. **Promote** a draft from the mempool to the canonical chain, which translates to a two-commit transaction (delete from mempool repo, add to bundle source repo).
+4. **Promote** a draft from the mempool to the canonical chain via the local CLI (`websh-cli mempool promote`), which atomically writes to `content/`, regenerates ledger + manifest, and produces a single bundle-source commit. Mempool repo cleanup is a follow-up best-effort call.
 5. **Deploy** is still a manual step (existing `just pin` / trunk build flow); after deploy, the promoted entry becomes a confirmed block on the IPFS-anchored ledger.
 
-V1 closes the loop "draft → mempool → promote → deploy → confirmed block" entirely from the static-site UX, with no local daemon and no server.
+V1 closes the loop "draft → mempool → promote → deploy → confirmed block". Compose / edit happen entirely from the static-site UX (browser-only, no terminal). Promote and deploy happen at the local terminal as part of the same publish ritual.
 
 ## 2. Constraints
 
@@ -41,9 +41,9 @@ These are the load-bearing decisions for V1 as a whole. Per-phase design docs MU
 | A3 | Bundle (`/site` via `BOOTSTRAP_SITE`) and mempool are separate trees, not merged | Preserves bundle integrity; live updates without rebuild; conflict-resolution logic avoided |
 | A4 | Authoring uses the existing Phase 3a GitHub commit infrastructure | No daemon required; works from any browser with a write token in session |
 | A5 | Mempool item click → modal preview, not URL navigation | Avoids exposing `/mempool/...` paths in the URL bar; matches the `ledger.html` interaction model |
-| A6 | Promotion is a two-commit transaction (delete from mempool repo, add to bundle source repo) | Existing infra; explicit deploy step preserved; failure modes are bounded |
+| A6 | Promotion is a CLI-only operation, not a browser flow | **Revised after Phase 4 live-QA** (was: two-commit browser transaction). Bundle source is the local-deploy source-of-truth; promote is a local atomic commit there. Browser keeps compose/edit; promote moves to CLI. Removes cross-repo race, drops bundle-write PAT from browser, lets ledger/manifest/attestation regenerate before deploy. |
 | A7 | Local daemon is V2, not V1 | GitHub commit covers V1 needs; daemon adds value only for offline / automated-deploy use cases |
-| A8 | No CLI work in V1 | Mempool is purely runtime-fetched. Single small touch is lifting `iso_date_prefix` from `cli/ledger.rs` to `utils::format` so wasm and host can share it. |
+| A8 | CLI in V1: mount-init (Phase 4) + promote/drop (Phase 5) | **Revised**. Original anchor said "no CLI work in V1"; live-QA forced two CLI surfaces. (1) `mount init` for repo bootstrap (Phase 4). (2) `mempool promote` / `mempool drop` for atomic publishing (Phase 5). Both are deploy-time host operations — they do not run in wasm. |
 
 ### 3.1 Explicitly rejected alternatives
 
@@ -61,6 +61,7 @@ Three phases, executed sequentially. Each is its own PR.
 | 2 | Authoring (Compose & Edit) | Author-mode toggle, compose modal, edit existing draft, GitHub commit to mempool repo | **Complete** |
 | 3 | Promotion | Promote button on mempool item, two-commit transaction, deploy hint banner | **Complete** |
 | 4 | Hardening | Strict mount-root match for writes, 404-tolerant scan, compose runtime reload, manifest pre_build hook, CLI `mount init` | **Complete** (pending live QA) |
+| 5 | CLI Promote (browser → host) | Replace browser promote modal with `websh-cli mempool promote/drop`. Atomic single-commit on bundle source; ledger/manifest/attestations regenerated locally; mempool drop as follow-up | **In Design** |
 
 After Phase 3, V1 is complete. V2 items (§7) are queued separately.
 
@@ -115,6 +116,7 @@ Generated as phases progress. Update the table when a new artifact lands.
 | 3 | Design | `docs/superpowers/specs/2026-04-28-mempool-phase3-design.md` | Approved |
 | 3 | Plan | `docs/superpowers/plans/2026-04-28-mempool-phase3-plan.md` | Complete |
 | 4 | Design | `docs/superpowers/specs/2026-04-28-mempool-phase4-design.md` | Approved |
+| 5 | Design | `docs/superpowers/specs/2026-04-28-mempool-phase5-design.md` | In Design |
 
 ## 7. Out of Scope (V2 and Beyond)
 
