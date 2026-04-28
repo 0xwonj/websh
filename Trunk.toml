@@ -20,3 +20,14 @@ port = 8080
 stage = "pre_build"
 command = "stylance"
 command_arguments = ["--output-file", "assets/bundle.css", "."]
+
+# Regenerate content/manifest.json so the runtime's mount-declaration
+# scan picks up any newly-added content/.websh/mounts/*.mount.json. The
+# manifest is the source of truth for the runtime's view of the bundle
+# source tree; without this, a freshly-added mount declaration on disk
+# is invisible to the runtime until a manual `websh-cli content manifest`
+# run.
+[[hooks]]
+stage = "pre_build"
+command = "cargo"
+command_arguments = ["run", "--quiet", "--bin", "websh-cli", "--", "content", "manifest"]

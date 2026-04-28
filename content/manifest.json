@@ -4,7 +4,16 @@
       "path": ".websh/ledger.json",
       "title": "ledger",
       "size": 9952,
-      "modified": 1777317433,
+      "modified": 1777354640,
+      "date": null,
+      "tags": [],
+      "access": null
+    },
+    {
+      "path": ".websh/mounts/mempool.mount.json",
+      "title": "mempool.mount",
+      "size": 161,
+      "modified": 1777354640,
       "date": null,
       "tags": [],
       "access": null
@@ -13,7 +22,7 @@
       "path": "keys/wonjae.asc",
       "title": "wonjae",
       "size": 191,
-      "modified": 1777317062,
+      "modified": 1777354640,
       "date": null,
       "tags": [],
       "access": null
@@ -22,7 +31,7 @@
       "path": "now.toml",
       "title": "now",
       "size": 146,
-      "modified": 1777317066,
+      "modified": 1777354640,
       "date": null,
       "tags": [],
       "access": null
@@ -31,7 +40,7 @@
       "path": "papers/algo.md",
       "title": "Algorithm paper",
       "size": 129,
-      "modified": 1777317036,
+      "modified": 1777354640,
       "date": "2026-04-18",
       "tags": [
         "stub",
@@ -43,7 +52,7 @@
       "path": "papers/beta-prime.md",
       "title": "Beta-prime paper",
       "size": 131,
-      "modified": 1777317423,
+      "modified": 1777354640,
       "date": "2026-03-26",
       "tags": [
         "stub",
@@ -52,10 +61,24 @@
       "access": null
     },
     {
+      "path": "papers/tabula.md",
+      "title": "tabula",
+      "size": 130,
+      "modified": 1777157914,
+      "date": "2026-04-26",
+      "tags": [
+        "EuroSys 2027",
+        "systems",
+        "zk",
+        "paper"
+      ],
+      "access": null
+    },
+    {
       "path": "papers/theorem.md",
       "title": "Theorem paper",
       "size": 125,
-      "modified": 1777317043,
+      "modified": 1777354640,
       "date": "2026-03-25",
       "tags": [
         "stub",
@@ -67,7 +90,7 @@
       "path": "projects/four.md",
       "title": "Project four",
       "size": 127,
-      "modified": 1777317033,
+      "modified": 1777354640,
       "date": "2026-02-15",
       "tags": [
         "stub",
@@ -79,7 +102,7 @@
       "path": "projects/one.md",
       "title": "Project one",
       "size": 125,
-      "modified": 1777317023,
+      "modified": 1777354640,
       "date": "2026-04-22",
       "tags": [
         "stub",
@@ -91,7 +114,7 @@
       "path": "projects/three.md",
       "title": "Project three",
       "size": 129,
-      "modified": 1777317422,
+      "modified": 1777354640,
       "date": "2026-04-09",
       "tags": [
         "stub",
@@ -103,7 +126,7 @@
       "path": "projects/two.md",
       "title": "Project two",
       "size": 125,
-      "modified": 1777317026,
+      "modified": 1777354640,
       "date": "2026-04-08",
       "tags": [
         "stub",
@@ -112,10 +135,35 @@
       "access": null
     },
     {
+      "path": "projects/websh.md",
+      "title": "websh",
+      "size": 148,
+      "modified": 1777157914,
+      "date": "2026-04-22",
+      "tags": [
+        "local app",
+        "rust",
+        "wasm",
+        "filesystem"
+      ],
+      "access": null
+    },
+    {
+      "path": "talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.pdf",
+      "title": "Evaluating Compiler Optimization Impacts on zkVM Performance",
+      "size": 3565336,
+      "modified": 1777157238,
+      "date": "2026-04-24",
+      "tags": [
+        "labseminar"
+      ],
+      "access": null
+    },
+    {
       "path": "talks/konference.md",
       "title": "Konference talk",
       "size": 128,
-      "modified": 1777317050,
+      "modified": 1777354640,
       "date": "2026-04-20",
       "tags": [
         "stub",
@@ -127,7 +175,7 @@
       "path": "talks/retreat.md",
       "title": "Retreat talk",
       "size": 122,
-      "modified": 1777317056,
+      "modified": 1777354640,
       "date": "2026-03-15",
       "tags": [
         "stub",
@@ -139,7 +187,7 @@
       "path": "talks/workshop.md",
       "title": "Workshop talk",
       "size": 124,
-      "modified": 1777317423,
+      "modified": 1777354640,
       "date": "2026-04-19",
       "tags": [
         "stub",
@@ -148,10 +196,23 @@
       "access": null
     },
     {
+      "path": "talks/zk-compilers.md",
+      "title": "zk compilers, and why they're hard",
+      "size": 173,
+      "modified": 1777157914,
+      "date": "2026-03-10",
+      "tags": [
+        "talk",
+        "zk",
+        "compilers"
+      ],
+      "access": null
+    },
+    {
       "path": "writing/alpha.md",
       "title": "Alpha note",
       "size": 132,
-      "modified": 1777317005,
+      "modified": 1777354640,
       "date": "2026-04-26",
       "tags": [
         "stub",
@@ -163,7 +224,7 @@
       "path": "writing/beta.md",
       "title": "Beta note",
       "size": 130,
-      "modified": 1777317422,
+      "modified": 1777354640,
       "date": "2026-04-25",
       "tags": [
         "stub",
@@ -172,10 +233,24 @@
       "access": null
     },
     {
+      "path": "writing/content-backed-homepage.md",
+      "title": "content-backed homepage",
+      "size": 913,
+      "modified": 1777166212,
+      "date": "2026-04-20",
+      "tags": [
+        "notes",
+        "websh",
+        "homepage",
+        "renderer-test"
+      ],
+      "access": null
+    },
+    {
       "path": "writing/delta.md",
       "title": "Delta note",
       "size": 132,
-      "modified": 1777317016,
+      "modified": 1777354640,
       "date": "2026-03-12",
       "tags": [
         "stub",
@@ -187,7 +262,7 @@
       "path": "writing/epsilon.md",
       "title": "Epsilon note",
       "size": 136,
-      "modified": 1777317019,
+      "modified": 1777354640,
       "date": "2026-01-20",
       "tags": [
         "stub",
@@ -199,7 +274,7 @@
       "path": "writing/gamma.md",
       "title": "Gamma note",
       "size": 132,
-      "modified": 1777317012,
+      "modified": 1777354640,
       "date": "2026-04-02",
       "tags": [
         "stub",
@@ -220,6 +295,14 @@
     {
       "path": ".websh",
       "title": ".websh",
+      "tags": [],
+      "description": null,
+      "icon": null,
+      "thumbnail": null
+    },
+    {
+      "path": ".websh/mounts",
+      "title": "mounts",
       "tags": [],
       "description": null,
       "icon": null,
