@@ -7,6 +7,8 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command as Process;
 
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use clap::{Args, Subcommand};
 use serde::Deserialize;
 
@@ -17,6 +19,12 @@ use crate::components::ledger_routes::LEDGER_CATEGORIES;
 use crate::components::mempool::{derive_gas, parse_mempool_frontmatter};
 use crate::config::BOOTSTRAP_SITE;
 use crate::models::manifest::ContentManifestDocument;
+
+#[derive(Deserialize)]
+struct ContentsApiResponse {
+    content: String,
+    sha: String,
+}
 
 const MEMPOOL_MOUNT_DECL_PATH: &str = ".websh/mounts/mempool.mount.json";
 
@@ -287,8 +295,12 @@ fn promote(root: &Path, args: PromoteArgs) -> CliResult {
     // Step 3 — optional drop-remote.
     if args.drop_remote {
         match drop_via_gh(&mount, &target.repo_path) {
-            Ok(_) => println!(
-                "mempool drop: removed {} from {}",
+            Ok(DropOutcome::Removed { manifest, blob }) => println!(
+                "mempool drop: removed {} from {} (manifest={}, blob={})",
+                target.repo_path, mount.repo, manifest, blob
+            ),
+            Ok(DropOutcome::Absent) => println!(
+                "mempool drop: {} already absent from {}",
                 target.repo_path, mount.repo
             ),
             Err(e) => println!(
@@ -563,47 +575,153 @@ where
     Ok(())
 }
 
-/// DELETE a path from the mempool repo via the GitHub Contents API.
-/// Two-step: GET the file's current sha, then DELETE with that sha.
-fn drop_via_gh(mount: &MempoolMountInfo, path_in_repo: &str) -> CliResult {
-    let absolute_path = file_in_repo(&mount.root_prefix, path_in_repo);
-    let get_url = format!(
+/// Drop a mempool entry via two sequential GitHub Contents API calls:
+///
+/// 1. Fetch + parse the mempool repo's `manifest.json`, remove the entry,
+///    PUT the rewritten manifest (atomically replaces it on the branch).
+/// 2. DELETE the file blob.
+///
+/// Manifest-first order means a step-2 failure leaves the repo in a
+/// "dangling blob" state — the manifest no longer references the file but
+/// the file still lives in the git tree. The runtime scan reads the
+/// manifest, so the user-facing mempool view is correct. The orphan blob
+/// is harmless and will be cleaned up the next time the file is committed
+/// to (or by `git gc`).
+fn drop_via_gh(
+    mount: &MempoolMountInfo,
+    path_in_repo: &str,
+) -> CliResult<DropOutcome> {
+    let absolute_file_path = file_in_repo(&mount.root_prefix, path_in_repo);
+    let absolute_manifest_path = file_in_repo(&mount.root_prefix, "manifest.json");
+
+    // Step 1: rewrite manifest (skip if entry isn't present).
+    let manifest_url = format!(
         "repos/{}/contents/{}?ref={}",
-        mount.repo, absolute_path, mount.branch,
+        mount.repo, absolute_manifest_path, mount.branch,
     );
-    let sha_raw = gh_capture(["api", "--jq", ".sha", get_url.as_str()])?;
-    let sha = sha_raw.trim().trim_matches('"').to_string();
-    if sha.is_empty() {
-        return Err(format!("could not extract sha for {path_in_repo}").into());
+    let manifest_resp_json = gh_capture(["api", manifest_url.as_str()])?;
+    let manifest_resp: ContentsApiResponse = serde_json::from_str(&manifest_resp_json)
+        .map_err(|e| format!("failed to parse manifest GET response: {e}"))?;
+    let manifest_bytes = BASE64_STANDARD
+        .decode(manifest_resp.content.replace('\n', ""))
+        .map_err(|e| format!("failed to base64-decode manifest: {e}"))?;
+    let mut manifest: ContentManifestDocument = serde_json::from_slice(&manifest_bytes)
+        .map_err(|e| format!("failed to parse mempool manifest: {e}"))?;
+
+    let before = manifest.files.len();
+    manifest.files.retain(|f| f.path != path_in_repo);
+    let manifest_changed = manifest.files.len() != before;
+
+    if manifest_changed {
+        let new_body = serde_json::to_string_pretty(&manifest)
+            .map_err(|e| format!("failed to re-serialize manifest: {e}"))?
+            + "\n";
+        let new_body_b64 = BASE64_STANDARD.encode(new_body.as_bytes());
+        let put_url = format!("repos/{}/contents/{}", mount.repo, absolute_manifest_path);
+        let mut put_cmd = Process::new("gh");
+        put_cmd.args([
+            "api",
+            put_url.as_str(),
+            "-X",
+            "PUT",
+            "-f",
+            &format!("message=mempool: drop {path_in_repo}"),
+            "-f",
+            &format!("content={new_body_b64}"),
+            "-f",
+            &format!("sha={}", manifest_resp.sha),
+            "-f",
+            &format!("branch={}", mount.branch),
+        ]);
+        let status = put_cmd.status()?;
+        if !status.success() {
+            return Err(format!(
+                "manifest update failed when dropping {path_in_repo}; nothing else changed"
+            )
+            .into());
+        }
     }
 
-    let delete_url = format!("repos/{}/contents/{}", mount.repo, absolute_path);
-    let mut cmd = Process::new("gh");
-    cmd.args([
-        "api",
-        delete_url.as_str(),
-        "-X",
-        "DELETE",
-        "-f",
-        &format!("message=mempool: drop {path_in_repo}"),
-        "-f",
-        &format!("sha={sha}"),
-        "-f",
-        &format!("branch={}", mount.branch),
-    ]);
-    let status = cmd.status()?;
-    if !status.success() {
-        return Err(format!(
-            "gh api DELETE failed for {} on {}@{}",
-            path_in_repo, mount.repo, mount.branch
-        )
-        .into());
+    // Step 2: delete the file blob (skip cleanly if already absent).
+    let file_url = format!(
+        "repos/{}/contents/{}?ref={}",
+        mount.repo, absolute_file_path, mount.branch,
+    );
+    let blob_deleted = match gh_capture(["api", "--jq", ".sha", file_url.as_str()]) {
+        Ok(file_sha_raw) => {
+            let file_sha = file_sha_raw.trim().trim_matches('"').to_string();
+            if file_sha.is_empty() {
+                return Err(format!("could not extract sha for {path_in_repo}").into());
+            }
+            let delete_url = format!("repos/{}/contents/{}", mount.repo, absolute_file_path);
+            let mut del_cmd = Process::new("gh");
+            del_cmd.args([
+                "api",
+                delete_url.as_str(),
+                "-X",
+                "DELETE",
+                "-f",
+                &format!("message=mempool: drop {path_in_repo} (blob)"),
+                "-f",
+                &format!("sha={file_sha}"),
+                "-f",
+                &format!("branch={}", mount.branch),
+            ]);
+            let status = del_cmd.status()?;
+            if !status.success() {
+                return Err(format!(
+                    "blob delete failed for {} (manifest already updated; orphan blob remains)",
+                    path_in_repo
+                )
+                .into());
+            }
+            true
+        }
+        Err(_) => false, // File already absent; manifest cleanup may still have happened.
+    };
+
+    if !manifest_changed && !blob_deleted {
+        Ok(DropOutcome::Absent)
+    } else {
+        Ok(DropOutcome::Removed {
+            manifest: manifest_changed,
+            blob: blob_deleted,
+        })
     }
-    Ok(())
 }
 
-fn drop_entry(_root: &Path, _args: DropArgs) -> CliResult {
-    Err("mempool drop: implemented in Task 5".into())
+fn drop_entry(root: &Path, args: DropArgs) -> CliResult {
+    let mount = read_mempool_mount_declaration(root)?;
+    require_gh()?;
+
+    let outcome = drop_via_gh(&mount, &args.path)?;
+    match outcome {
+        DropOutcome::Removed { manifest, blob } => {
+            println!(
+                "mempool drop: removed {} from {} (manifest={}, blob={})",
+                args.path, mount.repo, manifest, blob,
+            );
+            Ok(())
+        }
+        DropOutcome::Absent => {
+            if args.if_exists {
+                println!(
+                    "mempool drop: {} not present, nothing to do",
+                    args.path
+                );
+                Ok(())
+            } else {
+                Err(format!("entry not found at {}", args.path).into())
+            }
+        }
+    }
+}
+
+enum DropOutcome {
+    /// At least one of (manifest entry, file blob) was removed.
+    Removed { manifest: bool, blob: bool },
+    /// Neither manifest nor blob existed.
+    Absent,
 }
 
 #[cfg(test)]
