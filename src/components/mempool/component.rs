@@ -12,8 +12,9 @@ pub fn Mempool(
     #[prop(into)] on_select: Callback<MempoolEntry>,
     author_mode: Memo<bool>,
     #[prop(into)] on_promote: Callback<MempoolEntry>,
+    #[prop(into)] on_compose: Callback<()>,
 ) -> impl IntoView {
-    let header = render_header(&model);
+    let header = render_header(&model, author_mode, on_compose);
     let rows = render_rows(&model, on_select, author_mode, on_promote);
 
     view! {
@@ -27,7 +28,11 @@ pub fn Mempool(
     .into_any()
 }
 
-fn render_header(model: &MempoolModel) -> AnyView {
+fn render_header(
+    model: &MempoolModel,
+    author_mode: Memo<bool>,
+    on_compose: Callback<()>,
+) -> AnyView {
     let count_text = match &model.filter {
         LedgerFilterShape::All => format!("· {} pending", model.total_count),
         LedgerFilterShape::Category(_) => format!(
@@ -40,6 +45,18 @@ fn render_header(model: &MempoolModel) -> AnyView {
         <div class=css::mpHead>
             <span class=css::mpLabel>"mempool"</span>
             <span class=css::mpCount>{count_text}</span>
+            <span class=css::mpHeadRight>
+                <Show when=move || author_mode.get()>
+                    <button
+                        class=css::mpCompose
+                        type="button"
+                        aria-label="Compose new mempool entry"
+                        on:click=move |_| on_compose.run(())
+                    >
+                        "+ compose"
+                    </button>
+                </Show>
+            </span>
         </div>
     }
     .into_any()

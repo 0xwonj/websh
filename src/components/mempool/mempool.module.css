@@ -34,6 +34,36 @@
   color: var(--ledger-dim);
 }
 
+.mpHeadRight {
+  margin-left: auto;
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.mpCompose {
+  border: 1px solid var(--ledger-rule);
+  color: var(--ledger-dim);
+  background: transparent;
+  padding: 0 7px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.mpCompose:hover {
+  color: var(--ledger-accent);
+  border-color: var(--ledger-accent-dim);
+}
+
+.mpCompose:focus-visible {
+  outline: 1px solid var(--ledger-accent);
+  outline-offset: 1px;
+}
+
 .mpList {
   display: flex;
   flex-direction: column;

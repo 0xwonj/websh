@@ -188,6 +188,7 @@ pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
                                                     on_select=on_select
                                                     author_mode=author_mode
                                                     on_promote=on_promote
+                                                    on_compose=on_compose_new
                                                 />
                                             }
                                         })
@@ -195,11 +196,7 @@ pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
                                     view! {
                                         <LedgerIdentifier model=model.clone() />
                                         <LedgerHeader model=model.clone() />
-                                        <LedgerFilterBar
-                                            model=model.clone()
-                                            author_mode=author_mode
-                                            on_compose=on_compose_new
-                                        />
+                                        <LedgerFilterBar model=model.clone() />
                                         <PromoteStatusBanner
                                             deploy_hint=deploy_hint
                                             set_deploy_hint=set_deploy_hint
@@ -342,11 +339,7 @@ fn LedgerPending(message: impl Into<String>) -> impl IntoView {
 }
 
 #[component]
-fn LedgerFilterBar(
-    model: LedgerModel,
-    author_mode: Memo<bool>,
-    #[prop(into)] on_compose: Callback<()>,
-) -> impl IntoView {
+fn LedgerFilterBar(model: LedgerModel) -> impl IntoView {
     view! {
         <nav class=css::filterBar aria-label="Ledger filters">
             <span class=css::dash aria-hidden="true"></span>
@@ -360,18 +353,6 @@ fn LedgerFilterBar(
                 }
             }).collect_view()}
             <span class=css::dash aria-hidden="true"></span>
-            <span class=css::filterBarSlot>
-                <Show when=move || author_mode.get()>
-                    <button
-                        class=css::composeButton
-                        type="button"
-                        aria-label="Compose new mempool entry"
-                        on:click=move |_| on_compose.run(())
-                    >
-                        "+ compose"
-                    </button>
-                </Show>
-            </span>
         </nav>
     }
 }
