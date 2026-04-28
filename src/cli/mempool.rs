@@ -9,7 +9,10 @@ use clap::{Args, Subcommand};
 use serde::Deserialize;
 
 use super::CliResult;
+use super::gh::{gh_capture, require_gh};
 use super::manifest::DEFAULT_CONTENT_DIR;
+use crate::components::mempool::{derive_gas, parse_mempool_frontmatter};
+use crate::models::manifest::ContentManifestDocument;
 
 const MEMPOOL_MOUNT_DECL_PATH: &str = ".websh/mounts/mempool.mount.json";
 
@@ -130,8 +133,95 @@ pub(crate) fn run(root: &Path, command: MempoolCommand) -> CliResult {
     }
 }
 
-fn list(_root: &Path) -> CliResult {
-    Err("mempool list: implemented in Task 3".into())
+fn list(root: &Path) -> CliResult {
+    let mount = read_mempool_mount_declaration(root)?;
+    require_gh()?;
+
+    let manifest_repo_path = if mount.root_prefix.trim_matches('/').is_empty() {
+        "manifest.json".to_string()
+    } else {
+        format!("{}/manifest.json", mount.root_prefix.trim_matches('/'))
+    };
+    let manifest_url = format!(
+        "repos/{}/contents/{}?ref={}",
+        mount.repo, manifest_repo_path, mount.branch,
+    );
+
+    // Fetch the raw manifest. 404 → empty mempool (matches Phase 4 backend
+    // semantics), so the user sees `0 pending entries` instead of an error.
+    let manifest_body = match gh_capture([
+        "api",
+        "-H",
+        "Accept: application/vnd.github.raw",
+        manifest_url.as_str(),
+    ]) {
+        Ok(body) => body,
+        Err(e) if e.to_string().contains("HTTP 404") || e.to_string().contains("Not Found") => {
+            println!("{} @ {}:", mount.repo, mount.branch);
+            println!("0 pending entries");
+            return Ok(());
+        }
+        Err(e) => return Err(e),
+    };
+
+    let manifest: ContentManifestDocument = serde_json::from_str(&manifest_body)
+        .map_err(|e| format!("failed to parse mempool manifest: {e}"))?;
+
+    println!("{} @ {}:", mount.repo, mount.branch);
+    if manifest.files.is_empty() {
+        println!("0 pending entries");
+        return Ok(());
+    }
+
+    for file in &manifest.files {
+        let body_url = format!(
+            "repos/{}/contents/{}?ref={}",
+            mount.repo,
+            file_in_repo(&mount.root_prefix, &file.path),
+            mount.branch,
+        );
+        let body = match gh_capture([
+            "api",
+            "-H",
+            "Accept: application/vnd.github.raw",
+            body_url.as_str(),
+        ]) {
+            Ok(body) => body,
+            Err(e) => {
+                eprintln!("warn: failed to fetch {}: {e}", file.path);
+                continue;
+            }
+        };
+        let meta = parse_mempool_frontmatter(&body);
+        let status = meta
+            .as_ref()
+            .and_then(|m| m.status.clone())
+            .unwrap_or_else(|| "?".to_string());
+        let modified = meta
+            .as_ref()
+            .and_then(|m| m.modified.clone())
+            .unwrap_or_else(|| "—".to_string());
+        let is_markdown = file.path.ends_with(".md");
+        let gas = derive_gas(&body, body.len(), is_markdown);
+        println!(
+            "  {:6} {:32} {:14} {}",
+            status, file.path, gas, modified,
+        );
+    }
+    println!("{} pending entries", manifest.files.len());
+
+    Ok(())
+}
+
+/// Compose `<prefix>/<path>` for the GitHub Contents API URL, handling the
+/// empty-prefix case so we don't emit a leading slash.
+fn file_in_repo(root_prefix: &str, file_path: &str) -> String {
+    let prefix = root_prefix.trim_matches('/');
+    if prefix.is_empty() {
+        file_path.to_string()
+    } else {
+        format!("{prefix}/{file_path}")
+    }
 }
 
 fn promote(_root: &Path, _args: PromoteArgs) -> CliResult {

@@ -20,7 +20,7 @@ pub use model::{
     LedgerFilterShape, LoadedMempoolFile, MempoolEntry, MempoolModel, MempoolStatus, Priority,
     build_mempool_model,
 };
-pub use parse::{RawMempoolMeta, parse_mempool_frontmatter};
+pub use parse::{RawMempoolMeta, derive_gas, parse_mempool_frontmatter};
 pub use preview::MempoolPreviewModal;
 pub use promote::{
     PromoteCommitMessages, PromoteConfirmModal, PromoteError, PromoteState, apply_commit_outcome,
