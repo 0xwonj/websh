@@ -187,6 +187,7 @@ mod tests {
     fn meta(status: &str, modified: &str, priority: Option<&str>) -> RawMempoolMeta {
         RawMempoolMeta {
             title: Some("untitled".to_string()),
+            category: None,
             status: Some(status.to_string()),
             priority: priority.map(str::to_string),
             modified: Some(modified.to_string()),

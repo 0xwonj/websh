@@ -117,6 +117,7 @@ fn format_with_thousands(n: usize) -> String {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RawMempoolMeta {
     pub title: Option<String>,
+    pub category: Option<String>,
     pub status: Option<String>,
     pub priority: Option<String>,
     pub modified: Option<String>,
@@ -144,6 +145,7 @@ pub fn parse_mempool_frontmatter(body: &str) -> Option<RawMempoolMeta> {
         let value = value.trim().trim_matches('"').trim_matches('\'');
         match key {
             "title" => meta.title = Some(value.to_string()),
+            "category" => meta.category = Some(value.to_string()),
             "status" => meta.status = Some(value.to_string()),
             "priority" => meta.priority = Some(value.to_string()),
             "modified" => meta.modified = Some(value.to_string()),
@@ -186,6 +188,7 @@ mod tests {
         let raw = body(
             "---\n\
              title: \"On writing slow\"\n\
+             category: writing\n\
              status: draft\n\
              priority: med\n\
              modified: \"2026-04-25\"\n\
@@ -195,10 +198,25 @@ mod tests {
         );
         let meta = parse_mempool_frontmatter(&raw).expect("parses");
         assert_eq!(meta.title.as_deref(), Some("On writing slow"));
+        assert_eq!(meta.category.as_deref(), Some("writing"));
         assert_eq!(meta.status.as_deref(), Some("draft"));
         assert_eq!(meta.priority.as_deref(), Some("med"));
         assert_eq!(meta.modified.as_deref(), Some("2026-04-25"));
         assert_eq!(meta.tags, vec!["essay".to_string(), "writing-process".to_string()]);
+    }
+
+    #[test]
+    fn parses_category_when_present() {
+        let raw = body("---\ntitle: t\ncategory: papers\n---\n");
+        let meta = parse_mempool_frontmatter(&raw).expect("parses");
+        assert_eq!(meta.category.as_deref(), Some("papers"));
+    }
+
+    #[test]
+    fn category_absent_returns_none() {
+        let raw = body("---\ntitle: t\nstatus: draft\n---\n");
+        let meta = parse_mempool_frontmatter(&raw).expect("parses");
+        assert!(meta.category.is_none());
     }
 
     #[test]
