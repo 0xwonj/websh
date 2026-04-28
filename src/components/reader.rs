@@ -1,11 +1,14 @@
-//! Standalone content renderer page.
+//! Reader page — view and edit modes for content under `/`.
 //!
-//! Phase 7 added a view/edit toggle: when the path is under `/mempool/`
-//! and author-mode is on, the chrome surfaces an `edit` button that
-//! flips the page into a raw-markdown textarea. Save commits via
-//! `save_raw`; the URL never changes during the toggle.
-
-use std::sync::Arc;
+//! For mempool paths in author mode, a small toolbar at the top of the
+//! article frame surfaces an `edit` button (View) or `preview / cancel /
+//! save` (Edit). The URL never changes across the toggle. `/new` mounts
+//! the same component in Edit with a frontmatter placeholder.
+//!
+//! Toolbar lives inside the reader (document-scoped); site chrome stays
+//! site-scoped. Draft state survives the Edit ↔ Preview round-trip via a
+//! `draft_dirty` flag — the user's typed content is never silently
+//! clobbered by re-seeding from `raw_source`.
 
 use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
@@ -25,7 +28,7 @@ use crate::utils::{
     render_markdown, rendered_from_html, sanitize_html, validate_redirect_url,
 };
 
-stylance::import_crate_style!(css, "src/components/renderer_page.module.css");
+stylance::import_crate_style!(css, "src/components/reader.module.css");
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ReaderMode {
@@ -43,7 +46,7 @@ enum RendererContent {
 }
 
 #[component]
-pub fn RendererPage(route: Memo<RouteFrame>) -> impl IntoView {
+pub fn Reader(route: Memo<RouteFrame>) -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
     let canonical_path = Memo::new(move |_| route.get().resolution.node_path.clone());
     let filename = Memo::new(move |_| {
@@ -66,10 +69,13 @@ pub fn RendererPage(route: Memo<RouteFrame>) -> impl IntoView {
             && (canonical_path.get().as_str().starts_with("/mempool/") || is_new_route.get())
     });
 
-    // Construction-time seed: on /new, the textarea starts in Edit mode with
-    // a frontmatter placeholder; otherwise the page mounts in View with an
-    // empty draft (filled lazily when the user toggles to Edit on an
-    // existing entry).
+    // Construction-time seed.
+    //
+    // /new starts in Edit with the placeholder; existing entries start in
+    // View with an empty draft (filled lazily when the user clicks edit).
+    // `draft_dirty` is true on /new from the outset because the placeholder
+    // is the user's responsibility, not an on-disk source we should
+    // overwrite on a re-toggle.
     let initial_draft = if is_new_route.get_untracked() {
         placeholder_frontmatter(&iso_today())
     } else {
@@ -80,39 +86,39 @@ pub fn RendererPage(route: Memo<RouteFrame>) -> impl IntoView {
     } else {
         ReaderMode::View
     };
+    let initial_dirty = is_new_route.get_untracked();
 
     let mode = RwSignal::new(initial_mode);
     let draft_body = RwSignal::new(initial_draft);
+    let draft_dirty = RwSignal::new(initial_dirty);
     let save_error = RwSignal::new(None::<String>);
     let saving = RwSignal::new(false);
     let refetch_epoch = RwSignal::new(0u32);
 
     // Author-mode redirect for /new — non-author lands on /ledger.
-    // The replace_request_path helper dispatches a synthetic hashchange so
-    // the router actually re-routes (Phase 6 §7.1).
     Effect::new(move |_| {
         if is_new_route.get() && !author_mode.get() {
             replace_request_path("/ledger");
         }
     });
 
-    // Defensive: if the page is *not* re-mounted across content-path
-    // navigation (Leptos's into_any() boundary may keep component identity),
-    // reset transient editing state so an in-flight draft from entry A
-    // doesn't bleed into entry B. The prev-guard skips the reset on the
-    // initial mount so the construction-time seed (Edit + placeholder for
-    // /new) survives — same pattern as router.rs:90.
+    // Defensive: if Leptos's into_any() boundary keeps the component identity
+    // across content-path navigation, reset transient editing state. The
+    // prev-guard skips the reset on the initial mount so /new's Edit seed
+    // survives. `draft_body` is intentionally NOT reset — if a stale draft
+    // somehow leaks across, the next toggle to Edit re-seeds from
+    // raw_source because draft_dirty is now false.
     Effect::new(move |prev: Option<()>| {
         let _ = canonical_path.get();
         if prev.is_some() {
             mode.set(ReaderMode::View);
             save_error.set(None);
+            draft_dirty.set(false);
         }
     });
 
     // Raw markdown source — used to seed `draft_body` when the user toggles
-    // to Edit. Existing `content` LocalResource discards the raw source after
-    // rendering, so we re-fetch it here on demand.
+    // to Edit on an existing entry.
     let raw_source = LocalResource::new({
         let ctx_clone = ctx.clone();
         move || {
@@ -141,39 +147,45 @@ pub fn RendererPage(route: Memo<RouteFrame>) -> impl IntoView {
         }
     });
 
-    let on_toggle_edit = move |_| {
-        // On /new the textarea is already seeded with the placeholder;
-        // on existing entries we copy the current source.
-        if !is_new_route.get_untracked() {
+    let on_toggle_edit = move |()| {
+        // Skip the re-seed if the user already has an in-flight draft
+        // (Edit → preview → edit round-trip preserves work).
+        if !draft_dirty.get_untracked() {
             let seed = raw_source.get().map(|s| s.to_string()).unwrap_or_default();
             draft_body.set(seed);
+            draft_dirty.set(true);
         }
         save_error.set(None);
         mode.set(ReaderMode::Edit);
     };
 
-    let on_cancel = {
-        let saving = saving;
-        move |_| {
-            if saving.get_untracked() {
-                return;
-            }
-            if is_new_route.get_untracked() {
-                // Cancelling /new: replace, not push, so the abandoned draft
-                // URL doesn't pollute history.
-                replace_request_path("/ledger");
-                return;
-            }
-            let seed = raw_source.get().map(|s| s.to_string()).unwrap_or_default();
-            draft_body.set(seed);
-            save_error.set(None);
-            mode.set(ReaderMode::View);
+    let on_preview = move |()| {
+        // Flip to View without touching draft_body or draft_dirty so the
+        // round-trip back to Edit preserves the user's work.
+        save_error.set(None);
+        mode.set(ReaderMode::View);
+    };
+
+    let on_cancel = move |()| {
+        if saving.get_untracked() {
+            return;
         }
+        if is_new_route.get_untracked() {
+            // Cancelling /new: replace, not push, so the abandoned draft URL
+            // doesn't pollute history.
+            replace_request_path("/ledger");
+            return;
+        }
+        let seed = raw_source.get().map(|s| s.to_string()).unwrap_or_default();
+        draft_body.set(seed);
+        draft_dirty.set(false);
+        save_error.set(None);
+        mode.set(ReaderMode::View);
     };
 
     let on_save = {
         let ctx = ctx.clone();
-        move |_| {
+        move |()| {
             if saving.get_untracked() {
                 return;
             }
@@ -197,15 +209,12 @@ pub fn RendererPage(route: Memo<RouteFrame>) -> impl IntoView {
                 let ctx_clone = ctx.clone();
                 let target_for_nav = target.clone();
                 spawn_local(async move {
-                    let result =
-                        save_raw(ctx_clone, target, body, message, true).await;
+                    let result = save_raw(ctx_clone, target, body, message, true).await;
                     saving.set(false);
                     match result {
                         Ok(()) => {
                             save_error.set(None);
-                            push_request_path(&content_route_for_path(
-                                target_for_nav.as_str(),
-                            ));
+                            push_request_path(&content_route_for_path(target_for_nav.as_str()));
                         }
                         Err(message) => save_error.set(Some(message)),
                     }
@@ -234,6 +243,7 @@ pub fn RendererPage(route: Memo<RouteFrame>) -> impl IntoView {
                 match result {
                     Ok(()) => {
                         save_error.set(None);
+                        draft_dirty.set(false);
                         mode.set(ReaderMode::View);
                         refetch_epoch.update(|n| *n += 1);
                         content.refetch();
@@ -244,33 +254,25 @@ pub fn RendererPage(route: Memo<RouteFrame>) -> impl IntoView {
         }
     };
 
-    let extra_actions: ChildrenFn = Arc::new(move || {
-        view! {
-            <Show when=move || mode.get() == ReaderMode::View && edit_visible.get()>
-                <button class=css::editButton on:click=on_toggle_edit>"edit"</button>
-            </Show>
-            <Show when=move || mode.get() == ReaderMode::Edit>
-                <button
-                    class=css::cancelButton
-                    on:click=on_cancel
-                    prop:disabled=move || saving.get()
-                >"cancel"</button>
-                <button
-                    class=css::saveButton
-                    on:click=on_save
-                    prop:disabled=move || saving.get()
-                >
-                    {move || if saving.get() { "Saving…" } else { "Save" }}
-                </button>
-            </Show>
-        }
-        .into_any()
-    });
+    let on_edit_cb = Callback::new(on_toggle_edit);
+    let on_preview_cb = Callback::new(on_preview);
+    let on_cancel_cb = Callback::new(on_cancel);
+    let on_save_cb = Callback::new(on_save);
 
     view! {
         <div class=css::surface>
-            <SiteChrome route=route extra_actions=extra_actions />
+            <SiteChrome route=route />
             <main class=css::page>
+                <ReaderToolbar
+                    mode=mode
+                    is_new=is_new_route
+                    can_edit=edit_visible
+                    saving=saving.read_only()
+                    on_edit=on_edit_cb
+                    on_preview=on_preview_cb
+                    on_save=on_save_cb
+                    on_cancel=on_cancel_cb
+                />
                 {move || save_error.get().map(|message| view! {
                     <div class=css::errorBanner role="alert">{message}</div>
                 })}
@@ -328,7 +330,10 @@ pub fn RendererPage(route: Memo<RouteFrame>) -> impl IntoView {
                     <textarea
                         class=css::editorTextarea
                         prop:value=move || draft_body.get()
-                        on:input=move |ev| draft_body.set(event_target_value(&ev))
+                        on:input=move |ev| {
+                            draft_body.set(event_target_value(&ev));
+                            draft_dirty.set(true);
+                        }
                     />
                 </Show>
                 <Show when=move || !is_new_route.get()>
@@ -336,6 +341,65 @@ pub fn RendererPage(route: Memo<RouteFrame>) -> impl IntoView {
                 </Show>
             </main>
         </div>
+    }
+}
+
+#[component]
+fn ReaderToolbar(
+    mode: RwSignal<ReaderMode>,
+    is_new: Memo<bool>,
+    can_edit: Memo<bool>,
+    saving: ReadSignal<bool>,
+    on_edit: Callback<()>,
+    on_preview: Callback<()>,
+    on_save: Callback<()>,
+    on_cancel: Callback<()>,
+) -> impl IntoView {
+    // Render only when there are actions or a label to show.
+    let visible = Memo::new(move |_| {
+        mode.get() == ReaderMode::Edit || (mode.get() == ReaderMode::View && can_edit.get())
+    });
+
+    let label = Memo::new(move |_| match (mode.get(), is_new.get()) {
+        (ReaderMode::Edit, true) => "new draft",
+        (ReaderMode::Edit, false) => "editing",
+        (ReaderMode::View, true) => "new draft · preview",
+        (ReaderMode::View, false) => "",
+    });
+
+    view! {
+        <Show when=move || visible.get()>
+            <header class=css::toolbar>
+                <span class=css::toolbarLabel>{move || label.get()}</span>
+                <div class=css::toolbarActions>
+                    <Show when=move || mode.get() == ReaderMode::View>
+                        <button
+                            class=css::actionButton
+                            on:click=move |_| on_edit.run(())
+                        >"edit"</button>
+                    </Show>
+                    <Show when=move || mode.get() == ReaderMode::Edit>
+                        <button
+                            class=css::actionButton
+                            on:click=move |_| on_preview.run(())
+                            prop:disabled=move || saving.get()
+                        >"preview"</button>
+                        <button
+                            class=css::actionButton
+                            on:click=move |_| on_cancel.run(())
+                            prop:disabled=move || saving.get()
+                        >"cancel"</button>
+                        <button
+                            class=css::actionButtonPrimary
+                            on:click=move |_| on_save.run(())
+                            prop:disabled=move || saving.get()
+                        >
+                            {move || if saving.get() { "saving…" } else { "save" }}
+                        </button>
+                    </Show>
+                </div>
+            </header>
+        </Show>
     }
 }
 

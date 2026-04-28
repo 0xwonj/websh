@@ -200,46 +200,66 @@
   border-radius: var(--radius-lg);
 }
 
-.editButton,
-.saveButton,
-.cancelButton {
-  border: 1px solid var(--border-muted);
-  color: var(--text-dim);
-  background: transparent;
-  padding: 0 var(--space-2);
+.toolbar {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3_5);
+  padding: var(--space-1_5) 0;
+  margin-bottom: var(--space-4);
+  border-bottom: 1px dashed var(--border-subtle);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   letter-spacing: 0.04em;
-  display: inline-block;
-  line-height: 1.55;
-  cursor: pointer;
+  color: var(--text-dim);
+  text-transform: uppercase;
 }
 
-.saveButton {
+.toolbarLabel {
+  color: var(--terminal-yellow);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.toolbarActions {
+  margin-left: auto;
+  display: flex;
+  gap: var(--space-2);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.actionButton,
+.actionButtonPrimary {
+  border: 1px solid var(--border-muted);
+  background: transparent;
+  color: var(--text-dim);
+  padding: 0 var(--space-2);
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  line-height: 1.6;
+}
+
+.actionButtonPrimary {
   color: var(--accent);
   border-color: var(--accent);
 }
 
-.editButton:hover,
-.cancelButton:hover {
+.actionButton:hover,
+.actionButtonPrimary:hover {
   color: var(--text-primary);
   border-color: var(--accent);
 }
 
-.saveButton:hover {
-  color: var(--text-primary);
-}
-
-.editButton:focus-visible,
-.saveButton:focus-visible,
-.cancelButton:focus-visible {
+.actionButton:focus-visible,
+.actionButtonPrimary:focus-visible {
   outline: 1px solid var(--accent);
   outline-offset: 1px;
 }
 
-.editButton:disabled,
-.saveButton:disabled,
-.cancelButton:disabled {
+.actionButton:disabled,
+.actionButtonPrimary:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }

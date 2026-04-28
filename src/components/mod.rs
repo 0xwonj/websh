@@ -9,7 +9,7 @@
 //! - [`icons`] - Centralized icon definitions (change theme here)
 //! - [`ledger_page`] - Ledger-style content index pages
 //! - [`markdown`] - Shared Markdown rendering components
-//! - [`renderer_page`] - View/edit reader page (also handles `/new` compose)
+//! - [`reader`] - View/edit reader page (also handles `/new` compose)
 //! - [`terminal`] - Terminal emulator interface
 
 pub mod breadcrumb;
@@ -22,7 +22,7 @@ pub mod ledger_page;
 pub mod ledger_routes;
 pub mod markdown;
 pub mod mempool;
-pub mod renderer_page;
+pub mod reader;
 pub mod router;
 pub mod shared;
 pub mod terminal;

@@ -7,7 +7,7 @@
 //!
 //! - **URL hash is the source of truth**: Navigation state is derived from `#/path`
 //! - **Shell never re-renders on navigation**: AppLayout is always mounted
-//! - **RendererPage handles content files**: File routes use a stable page shell
+//! - **Reader handles content files**: File routes use a stable page shell
 //! - **hashchange events**: Browser back/forward buttons work automatically
 
 use std::collections::BTreeMap;
@@ -21,7 +21,7 @@ use crate::app::AppContext;
 use crate::components::home::HomePage;
 use crate::components::ledger_page::LedgerPage;
 use crate::components::ledger_routes::{LEDGER_ROUTE, is_ledger_filter_route_segment};
-use crate::components::renderer_page::RendererPage;
+use crate::components::reader::Reader;
 use crate::components::terminal::Shell;
 #[cfg(target_arch = "wasm32")]
 use crate::core::engine::FsEngine;
@@ -124,7 +124,7 @@ pub fn RouterView() -> impl IntoView {
             }
             if _raw_request.with(is_new_request_path) {
                 return view! {
-                    <RendererPage route=Memo::new(move |_| new_compose_frame()) />
+                    <Reader route=Memo::new(move |_| new_compose_frame()) />
                 }
                 .into_any();
             }
@@ -142,7 +142,7 @@ pub fn RouterView() -> impl IntoView {
                         view! { <LedgerPage route=Memo::new(move |_| route.get().expect("frame available")) /> }.into_any()
                     }
                     _ => {
-                        view! { <RendererPage route=Memo::new(move |_| route.get().expect("frame available")) /> }.into_any()
+                        view! { <Reader route=Memo::new(move |_| route.get().expect("frame available")) /> }.into_any()
                     }
                 },
                 None => view! { <NotFound /> }.into_any(),
