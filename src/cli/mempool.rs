@@ -5,7 +5,7 @@
 
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command as Process;
+use std::process::{Command as Process, Stdio};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
@@ -242,7 +242,9 @@ fn file_in_repo(root_prefix: &str, file_path: &str) -> String {
 struct PromoteTarget {
     /// Path inside the mempool repo, e.g., `writing/foo.md`.
     repo_path: String,
-    /// Category segment, e.g., `writing`.
+    /// Category segment, e.g., `writing`. Captured for diagnostics; not
+    /// directly read because `bundle_disk_path` already encodes it.
+    #[allow(dead_code)]
     category: String,
     /// `<category>/<slug>` (no extension), used in commit messages.
     slug_relpath: String,
@@ -633,6 +635,9 @@ fn drop_via_gh(
             "-f",
             &format!("branch={}", mount.branch),
         ]);
+        // Suppress the JSON response gh prints by default; we only want
+        // pass/fail.
+        put_cmd.stdout(Stdio::null());
         let status = put_cmd.status()?;
         if !status.success() {
             return Err(format!(
@@ -667,6 +672,7 @@ fn drop_via_gh(
                 "-f",
                 &format!("branch={}", mount.branch),
             ]);
+            del_cmd.stdout(Stdio::null());
             let status = del_cmd.status()?;
             if !status.success() {
                 return Err(format!(
