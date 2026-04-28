@@ -132,6 +132,9 @@ pub fn MempoolEditor(
         if (event.meta_key() || event.ctrl_key()) && (key == "s" || key == "S") {
             event.prevent_default();
             try_save.run(());
+        } else if key == "Escape" {
+            event.prevent_default();
+            on_cancel.run(());
         }
     };
 

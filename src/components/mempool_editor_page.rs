@@ -39,24 +39,29 @@ pub enum MempoolEditorPageMode {
 
 /// Result of validating an `/edit/<request_path>` URL against the current FS.
 ///
-/// Pure helper for unit testing — see [`check_edit_path`].
+/// Pure helper for unit testing — see [`check_edit_path`]. Variants that
+/// carry a canonical path surface it so the error frame's "back" link can
+/// point to the resolved view URL (per design §8).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum EditPathCheck {
     Ok { canonical: VirtualPath },
     NotMempool,
     NotFound,
-    NotEditable, // wrong kind (Directory / App / Asset / Redirect)
-    NotMarkdown,
+    NotEditable { canonical: VirtualPath },
+    NotMarkdown { canonical: VirtualPath },
 }
 
 impl EditPathCheck {
     pub(crate) fn message(&self) -> &'static str {
         match self {
             EditPathCheck::Ok { .. } => "",
-            EditPathCheck::NotMempool => "this URL is not editable — only /mempool/... paths can be edited.",
+            EditPathCheck::NotMempool => {
+                "this URL is not editable — only /mempool/... paths can be edited."
+            }
             EditPathCheck::NotFound => "no such mempool entry.",
-            EditPathCheck::NotEditable => "this is not a markdown entry.",
-            EditPathCheck::NotMarkdown => "this is not a markdown entry.",
+            EditPathCheck::NotEditable { .. } | EditPathCheck::NotMarkdown { .. } => {
+                "this is not a markdown entry."
+            }
         }
     }
 }
@@ -74,10 +79,16 @@ pub(crate) fn check_edit_path(fs: &GlobalFs, request_path: &str) -> EditPathChec
     };
     match resolution.kind {
         ResolvedKind::Page | ResolvedKind::Document => {}
-        _ => return EditPathCheck::NotEditable,
+        _ => {
+            return EditPathCheck::NotEditable {
+                canonical: resolution.node_path.clone(),
+            };
+        }
     }
     if !resolution.node_path.as_str().ends_with(".md") {
-        return EditPathCheck::NotMarkdown;
+        return EditPathCheck::NotMarkdown {
+            canonical: resolution.node_path.clone(),
+        };
     }
     EditPathCheck::Ok {
         canonical: resolution.node_path.clone(),
@@ -111,15 +122,19 @@ pub fn MempoolEditorPage(mode: MempoolEditorPageMode) -> impl IntoView {
     });
 
     // Synthesize a RouteFrame for SiteChrome breadcrumb / nav highlighting.
-    // Editor pages are not part of the canonical content tree, so we craft
-    // a minimal frame anchored at the relevant root.
+    // Editor pages are not part of the canonical content tree; anchoring the
+    // chrome at `/ledger` (new) or the resolved canonical path (edit) keeps
+    // breadcrumb crumbs pointing at *real* destinations rather than the
+    // synthetic `/edit/...` URL segments (each of which would re-mount the
+    // editor or 404).
     let route_for_chrome = match &mode {
-        MempoolEditorPageMode::New => synthesized_frame("/new", VirtualPath::root()),
+        MempoolEditorPageMode::New => synthesized_frame("/ledger", VirtualPath::root()),
         MempoolEditorPageMode::Edit { request_path } => {
             let absolute = format!("/{request_path}");
             let node_path =
                 VirtualPath::from_absolute(&absolute).unwrap_or_else(|_| VirtualPath::root());
-            synthesized_frame(&format!("/edit/{request_path}"), node_path)
+            let chrome_url = content_route_for_path(&absolute);
+            synthesized_frame(&chrome_url, node_path)
         }
     };
     let route_for_chrome = Memo::new(move |_| route_for_chrome.clone());
@@ -241,7 +256,11 @@ fn render_edit_mode(ctx: AppContext, request_path: String) -> impl IntoView {
             other => {
                 let back = match &other {
                     EditPathCheck::NotMempool | EditPathCheck::NotFound => "/ledger".to_string(),
-                    _ => "/ledger".to_string(),
+                    EditPathCheck::NotEditable { canonical }
+                    | EditPathCheck::NotMarkdown { canonical } => {
+                        content_route_for_path(canonical.as_str())
+                    }
+                    EditPathCheck::Ok { .. } => unreachable!(),
                 };
                 view! {
                     <ErrorFrame
@@ -339,10 +358,26 @@ mod tests {
     #[test]
     fn check_edit_path_rejects_directory() {
         let fs = fs_with(&["mempool/writing/foo.md"]);
-        assert_eq!(
-            check_edit_path(&fs, "mempool/writing"),
-            EditPathCheck::NotEditable
-        );
+        match check_edit_path(&fs, "mempool/writing") {
+            EditPathCheck::NotEditable { canonical } => {
+                assert_eq!(canonical.as_str(), "/mempool/writing");
+            }
+            other => panic!("expected NotEditable, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn check_edit_path_rejects_non_markdown() {
+        let fs = fs_with(&["mempool/keys/foo.asc"]);
+        match check_edit_path(&fs, "mempool/keys/foo.asc") {
+            EditPathCheck::NotEditable { canonical } => {
+                assert_eq!(canonical.as_str(), "/mempool/keys/foo.asc");
+            }
+            EditPathCheck::NotMarkdown { canonical } => {
+                assert_eq!(canonical.as_str(), "/mempool/keys/foo.asc");
+            }
+            other => panic!("expected NotEditable or NotMarkdown, got {:?}", other),
+        }
     }
 
     #[test]
