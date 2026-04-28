@@ -76,6 +76,53 @@ impl GitHubBackend {
         }
     }
 
+    /// Fetch the current HEAD OID of the configured branch via the GitHub
+    /// GraphQL API. Returns `None` if the branch exists but has no commits
+    /// (very rare — typically only just-initialized branches), and an error
+    /// for network / auth / not-found conditions.
+    async fn fetch_branch_head_oid(&self, token: &str) -> StorageResult<Option<String>> {
+        let (owner, name) = self
+            .repo_with_owner
+            .split_once('/')
+            .ok_or_else(|| StorageError::BadRequest("invalid repo_with_owner".into()))?;
+        let body = HeadQueryRequest {
+            query: HEAD_QUERY,
+            variables: HeadQueryVariables {
+                owner,
+                name,
+                qualified_name: format!("refs/heads/{}", self.branch),
+            },
+        };
+        let body_json = serde_json::to_string(&body)
+            .map_err(|e| StorageError::BadRequest(e.to_string()))?;
+        let resp = gloo_net::http::Request::post(GRAPHQL_ENDPOINT)
+            .header("Authorization", &format!("bearer {}", token))
+            .header("Content-Type", "application/json")
+            .header("User-Agent", "websh/0.1")
+            .body(body_json)
+            .map_err(|e| StorageError::BadRequest(e.to_string()))?
+            .send()
+            .await
+            .map_err(|e| StorageError::NetworkError(e.to_string()))?;
+        let status = resp.status();
+        if !(200..300).contains(&status) {
+            return Err(map_http_status(status, None));
+        }
+        let parsed: HeadQueryResponse = resp
+            .json()
+            .await
+            .map_err(|e| StorageError::NetworkError(e.to_string()))?;
+        if !parsed.errors.is_empty() {
+            return Err(map_graphql_error(&parsed.errors));
+        }
+        Ok(parsed
+            .data
+            .and_then(|d| d.repository)
+            .and_then(|r| r.ref_)
+            .and_then(|r| r.target)
+            .map(|t| t.oid))
+    }
+
     async fn load_manifest_snapshot(&self) -> StorageResult<ScannedSubtree> {
         let resp = gloo_net::http::Request::get(&self.manifest_url())
             .send()
@@ -141,6 +188,58 @@ mutation ($input: CreateCommitOnBranchInput!) {
   }
 }
 ";
+
+const HEAD_QUERY: &str = "\
+query ($owner: String!, $name: String!, $qualifiedName: String!) {
+  repository(owner: $owner, name: $name) {
+    ref(qualifiedName: $qualifiedName) {
+      target { oid }
+    }
+  }
+}
+";
+
+#[derive(Serialize)]
+struct HeadQueryVariables<'a> {
+    owner: &'a str,
+    name: &'a str,
+    #[serde(rename = "qualifiedName")]
+    qualified_name: String,
+}
+
+#[derive(Serialize)]
+struct HeadQueryRequest<'a> {
+    query: &'static str,
+    variables: HeadQueryVariables<'a>,
+}
+
+#[derive(Deserialize)]
+struct HeadQueryResponse {
+    data: Option<HeadQueryData>,
+    #[serde(default)]
+    errors: Vec<GraphQLErrorItem>,
+}
+
+#[derive(Deserialize)]
+struct HeadQueryData {
+    repository: Option<HeadQueryRepository>,
+}
+
+#[derive(Deserialize)]
+struct HeadQueryRepository {
+    #[serde(rename = "ref")]
+    ref_: Option<HeadQueryRef>,
+}
+
+#[derive(Deserialize)]
+struct HeadQueryRef {
+    target: Option<HeadQueryTarget>,
+}
+
+#[derive(Deserialize)]
+struct HeadQueryTarget {
+    oid: String,
+}
 
 const GRAPHQL_ENDPOINT: &str = "https://api.github.com/graphql";
 
@@ -251,6 +350,17 @@ impl StorageBackend for GitHubBackend {
             )
             .map_err(StorageError::BadRequest)?;
 
+            // GitHub's `createCommitOnBranch` mutation requires
+            // `expectedHeadOid`. On the first UI-driven commit to a mount
+            // there is nothing in IndexedDB to seed `remote_heads`, so the
+            // runtime passes `None` here. Fetch the current branch HEAD
+            // before committing to avoid the chicken-and-egg "remote
+            // changed (now ). run 'sync refresh'" failure.
+            let expected_head_oid = match request.expected_head.clone() {
+                Some(head) => Some(head),
+                None => self.fetch_branch_head_oid(token).await?,
+            };
+
             let input = CreateCommitInput {
                 branch: BranchRef {
                     repo_with_owner: self.repo_with_owner.clone(),
@@ -259,7 +369,7 @@ impl StorageBackend for GitHubBackend {
                 message: CommitMessage {
                     headline: request.message.clone(),
                 },
-                expected_head_oid: request.expected_head.clone(),
+                expected_head_oid,
                 file_changes,
             };
 
