@@ -16,7 +16,6 @@ pub use global_fs::{FsEngine, GlobalFs, MountError};
 pub use intent::{RenderIntent, build_render_intent};
 pub use routing::{
     ResolvedKind, RouteFrame, RouteRequest, RouteResolution, RouteSurface, canonicalize_user_path,
-    display_path_for, edit_request_path_inner, is_new_request_path, parent_request_path,
-    push_request_path, replace_request_path, request_path_for_canonical_path, resolve_route,
-    route_cwd,
+    display_path_for, is_new_request_path, parent_request_path, push_request_path,
+    replace_request_path, request_path_for_canonical_path, resolve_route, route_cwd,
 };

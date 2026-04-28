@@ -136,14 +136,6 @@ pub fn is_new_request_path(req: &RouteRequest) -> bool {
     req.url_path.trim_matches('/') == "new"
 }
 
-/// Returns the URL suffix after `/edit/` for a mempool edit request, or
-/// `None` if the request is not an edit route. The suffix is *not*
-/// canonicalized — the page resolves it via `fs.resolve_route` and applies
-/// path-shape acceptance checks (see Phase 6 design §8).
-pub fn edit_request_path_inner(req: &RouteRequest) -> Option<&str> {
-    req.url_path.strip_prefix("/edit/")
-}
-
 pub fn request_path_for_canonical_path(path: &VirtualPath, surface: RouteSurface) -> String {
     match surface {
         RouteSurface::Content => {
@@ -669,23 +661,4 @@ mod tests {
         assert!(!is_new_request_path(&RouteRequest::new("/ledger")));
     }
 
-    #[test]
-    fn edit_request_path_inner_extracts_suffix() {
-        assert_eq!(
-            edit_request_path_inner(&RouteRequest::new("/edit/mempool/writing/foo")),
-            Some("mempool/writing/foo")
-        );
-        assert_eq!(
-            edit_request_path_inner(&RouteRequest::new("/edit/papers/zks")),
-            Some("papers/zks")
-        );
-    }
-
-    #[test]
-    fn edit_request_path_inner_rejects_non_matches() {
-        assert_eq!(edit_request_path_inner(&RouteRequest::new("/edit")), None);
-        assert_eq!(edit_request_path_inner(&RouteRequest::new("/new")), None);
-        assert_eq!(edit_request_path_inner(&RouteRequest::new("/foo")), None);
-        assert_eq!(edit_request_path_inner(&RouteRequest::new("/")), None);
-    }
 }
