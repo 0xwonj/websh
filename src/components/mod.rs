@@ -23,6 +23,7 @@ pub mod ledger_page;
 pub mod ledger_routes;
 pub mod markdown;
 pub mod mempool;
+pub mod mempool_editor_page;
 pub mod reader;
 pub mod renderer_page;
 pub mod router;

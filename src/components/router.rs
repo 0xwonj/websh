@@ -21,12 +21,14 @@ use crate::app::AppContext;
 use crate::components::home::HomePage;
 use crate::components::ledger_page::LedgerPage;
 use crate::components::ledger_routes::{LEDGER_ROUTE, is_ledger_filter_route_segment};
+use crate::components::mempool_editor_page::{MempoolEditorPage, MempoolEditorPageMode};
 use crate::components::renderer_page::RendererPage;
 use crate::components::terminal::Shell;
 #[cfg(target_arch = "wasm32")]
 use crate::core::engine::FsEngine;
 use crate::core::engine::{
     RenderIntent, ResolvedKind, RouteFrame, RouteRequest, RouteResolution, RouteSurface,
+    edit_request_path_inner, is_new_request_path,
 };
 use crate::models::VirtualPath;
 use crate::utils::dom::focus_terminal_input;
@@ -118,6 +120,19 @@ pub fn RouterView() -> impl IntoView {
             if _raw_request.with(is_ledger_filter_route) {
                 return view! {
                     <LedgerPage route=Memo::new(move |_| ledger_filter_frame(_raw_request.get())) />
+                }
+                .into_any();
+            }
+            if _raw_request.with(is_new_request_path) {
+                return view! {
+                    <MempoolEditorPage mode=MempoolEditorPageMode::New />
+                }
+                .into_any();
+            }
+            if let Some(rest) = _raw_request.with(|r| edit_request_path_inner(r).map(str::to_string))
+            {
+                return view! {
+                    <MempoolEditorPage mode=MempoolEditorPageMode::Edit { request_path: rest } />
                 }
                 .into_any();
             }
