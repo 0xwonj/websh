@@ -100,3 +100,16 @@ pub fn replace_hash(hash: &str) {
         let _ = history.replace_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some(hash));
     }
 }
+
+/// Dispatch a synthetic `hashchange` event on the window.
+///
+/// `history.replaceState` does not fire `hashchange` per the HTML spec, so a
+/// route-changing redirect that uses `replace_hash` must dispatch this manually
+/// to wake up `hashchange` listeners (notably the router).
+pub fn dispatch_hashchange() {
+    if let Some(window) = window()
+        && let Ok(event) = web_sys::Event::new("hashchange")
+    {
+        let _ = window.dispatch_event(&event);
+    }
+}

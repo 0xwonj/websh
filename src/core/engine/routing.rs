@@ -124,6 +124,24 @@ pub fn push_request_path(path: &str) {
 
 pub fn replace_request_path(path: &str) {
     dom::replace_hash(&format!("#{}", normalize_request_path(path)));
+    dom::dispatch_hashchange();
+}
+
+/// Returns true if `req` is the synthetic `/new` mempool authoring route.
+///
+/// `RouteRequest::new` always normalizes to a leading `/`, so the practical
+/// inputs are `/new`, `/new/`, and `/new/<rest>`. The trim defends against
+/// the `new`-no-slash shape too, but that path doesn't currently arise.
+pub fn is_new_request_path(req: &RouteRequest) -> bool {
+    req.url_path.trim_matches('/') == "new"
+}
+
+/// Returns the URL suffix after `/edit/` for a mempool edit request, or
+/// `None` if the request is not an edit route. The suffix is *not*
+/// canonicalized — the page resolves it via `fs.resolve_route` and applies
+/// path-shape acceptance checks (see Phase 6 design §8).
+pub fn edit_request_path_inner(req: &RouteRequest) -> Option<&str> {
+    req.url_path.strip_prefix("/edit/")
 }
 
 pub fn request_path_for_canonical_path(path: &VirtualPath, surface: RouteSurface) -> String {
@@ -633,5 +651,41 @@ mod tests {
             request_path_for_canonical_path(&path, RouteSurface::Explorer),
             "/explorer/blog/hello.md"
         );
+    }
+
+    #[test]
+    fn is_new_request_path_matches_canonical_new_route() {
+        assert!(is_new_request_path(&RouteRequest::new("/new")));
+        assert!(is_new_request_path(&RouteRequest::new("/new/")));
+        assert!(is_new_request_path(&RouteRequest::new("new")));
+    }
+
+    #[test]
+    fn is_new_request_path_rejects_non_matches() {
+        assert!(!is_new_request_path(&RouteRequest::new("/news")));
+        assert!(!is_new_request_path(&RouteRequest::new("/new/foo")));
+        assert!(!is_new_request_path(&RouteRequest::new("/")));
+        assert!(!is_new_request_path(&RouteRequest::new("/edit")));
+        assert!(!is_new_request_path(&RouteRequest::new("/ledger")));
+    }
+
+    #[test]
+    fn edit_request_path_inner_extracts_suffix() {
+        assert_eq!(
+            edit_request_path_inner(&RouteRequest::new("/edit/mempool/writing/foo")),
+            Some("mempool/writing/foo")
+        );
+        assert_eq!(
+            edit_request_path_inner(&RouteRequest::new("/edit/papers/zks")),
+            Some("papers/zks")
+        );
+    }
+
+    #[test]
+    fn edit_request_path_inner_rejects_non_matches() {
+        assert_eq!(edit_request_path_inner(&RouteRequest::new("/edit")), None);
+        assert_eq!(edit_request_path_inner(&RouteRequest::new("/new")), None);
+        assert_eq!(edit_request_path_inner(&RouteRequest::new("/foo")), None);
+        assert_eq!(edit_request_path_inner(&RouteRequest::new("/")), None);
     }
 }
