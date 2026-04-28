@@ -38,23 +38,6 @@
       "entry_sha256": "0x13666dde00e7d0fc1cb8b8dada817a767b1d3bcf6473308afe304bed14515e2b"
     },
     {
-      "id": "route:/talks/test-3",
-      "route": "/talks/test-3",
-      "path": "talks/test-3.md",
-      "content": {
-        "hash": "sha256",
-        "files": [
-          {
-            "path": "content/talks/test-3.md",
-            "sha256": "0xfc8cd81a29823e9eef29200c602c1f0aa49e4a3d208b090c0d50592a270ebded",
-            "bytes": 98
-          }
-        ]
-      },
-      "content_sha256": "0x07910793e4a35d47313e5085356320baf10079840275cca90dcbcbbe8d55e60b",
-      "entry_sha256": "0x5d9e31c19cce6ae95f614cbe7d20ce036b98e0e8bcbf34a8b589e72f3602e30e"
-    },
-    {
       "id": "route:/talks/zk-compilers",
       "route": "/talks/zk-compilers",
       "path": "talks/zk-compilers.md",
@@ -145,6 +128,6 @@
       "entry_sha256": "0x661b6f6edb53f147e569cf44d6def065e8e2c8ed44b0783a965554807ce54ffb"
     }
   ],
-  "entry_count": 8,
-  "ledger_sha256": "0xd2a21226294021e59b671544ee69b1e88f5764d95054b1a7f4ed10eeeffbc879"
+  "entry_count": 7,
+  "ledger_sha256": "0xe5d44643f91fb41fb32859362fa82827a1e1bb3d72e865f67c7da27033e1889e"
 }
