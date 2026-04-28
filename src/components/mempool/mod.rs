@@ -3,7 +3,6 @@
 mod component;
 mod compose;
 mod draft;
-mod editor;
 mod loader;
 mod model;
 mod parse;
@@ -16,7 +15,6 @@ pub use compose::{
     validate_form,
 };
 pub use draft::{derive_new_path, placeholder_frontmatter};
-pub use editor::MempoolEditor;
 pub use loader::{load_mempool_files, mempool_root};
 pub use model::{
     LedgerFilterShape, LoadedMempoolFile, MempoolEntry, MempoolModel, MempoolStatus, Priority,
