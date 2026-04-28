@@ -3,8 +3,8 @@
     {
       "path": ".websh/ledger.json",
       "title": "ledger",
-      "size": 4765,
-      "modified": 1777371457,
+      "size": 5333,
+      "modified": 1777383561,
       "date": null,
       "tags": [],
       "access": null
@@ -72,6 +72,17 @@
       "date": "2026-04-24",
       "tags": [
         "labseminar"
+      ],
+      "access": null
+    },
+    {
+      "path": "talks/test-3.md",
+      "title": "test-3",
+      "size": 98,
+      "modified": 1777383561,
+      "date": null,
+      "tags": [
+        "test-3"
       ],
       "access": null
     },
