@@ -60,6 +60,7 @@ Three phases, executed sequentially. Each is its own PR.
 | 1 | Read-only Mempool | Mempool section renders pending entries from `/mempool` mount; click opens modal preview; filter integration | **Complete** |
 | 2 | Authoring (Compose & Edit) | Author-mode toggle, compose modal, edit existing draft, GitHub commit to mempool repo | **Complete** |
 | 3 | Promotion | Promote button on mempool item, two-commit transaction, deploy hint banner | **Complete** |
+| 4 | Hardening | Strict mount-root match for writes, 404-tolerant scan, compose runtime reload, manifest pre_build hook, CLI `mount init` | **Complete** (pending live QA) |
 
 After Phase 3, V1 is complete. V2 items (§7) are queued separately.
 
@@ -113,6 +114,7 @@ Generated as phases progress. Update the table when a new artifact lands.
 | 2 | Plan | `docs/superpowers/plans/2026-04-28-mempool-phase2-plan.md` | Complete |
 | 3 | Design | `docs/superpowers/specs/2026-04-28-mempool-phase3-design.md` | Approved |
 | 3 | Plan | `docs/superpowers/plans/2026-04-28-mempool-phase3-plan.md` | Complete |
+| 4 | Design | `docs/superpowers/specs/2026-04-28-mempool-phase4-design.md` | Approved |
 
 ## 7. Out of Scope (V2 and Beyond)
 
@@ -164,3 +166,4 @@ Captured chronologically. Append-only.
 | 2026-04-28 | Phase 2 (authoring) complete: ComposeModal + save flow + author-mode wiring shipped across 4 feat commits + 1 test commit; reviewer findings (1 Critical slug-collision, 2 High YAML/edit-fetch) closed in `9bd0d06` along with priority/tags validators and Esc/Cmd-S shortcuts | §4 |
 | 2026-04-28 | Phase 2 visual QA (design §8.3) **skipped** — `0xwonj/websh-mempool` repo not yet provisioned (HTTP 404 from api.github.com). Mempool section renders empty state when mount scan returns zero entries, so the live UX cannot be exercised until the repo exists. Automated coverage (478 tests + wasm/host typechecks) stands; manual QA deferred to first natural opportunity (Phase 3 promote flow needs the repo too) | §4 |
 | 2026-04-28 | Phase 3 (promotion) complete: pure helpers + apply_commit_outcome bookkeeping (closes Phase 2's stale `remote_heads` bug) + two-commit promote orchestration with partial-failure recovery + PromoteConfirmModal + per-item Promote button + LedgerPage banners + 12-test integration suite, shipped across 6 feat/test/fix commits + 1 docs commit. Reviewer findings (Esc handler, backdrop-while-running guard, page banner timing, dead variants) closed in `69de9c0`. Visual QA skipped per user direction; deferred to first natural opportunity together with Phase 2 once `0xwonj/websh-mempool` is provisioned. V1 `draft → mempool → promote → deploy → block` loop is now closed end-to-end pending live validation. | §4 |
+| 2026-04-28 | Phase 4 (hardening) implemented after live-QA exposed five gaps: (1) `backend_for_path` silently fell back from `/mempool` to `/` when mempool wasn't registered, sending two compose drafts to the bundle source repo by accident; (2) freshly-provisioned GitHub mounts had no `manifest.json`, blocking the runtime's first scan; (3) `save_compose` skipped runtime reload, leaving the new entry invisible until manual page reload; (4) bundle source manifest could be stale in committed history (root cause of #1); (5) no CLI surface existed for setting up new mounts. Six commits land: 404-tolerant scan, strict `backend_for_mount_root` for writes, `save_compose` runtime reload, Trunk `pre_build` manifest hook, `cargo run --bin websh-cli -- mount init`, plus this design doc. Live QA pending — user will run `mount init` against the existing empty `0xwonj/websh-mempool` repo and exercise the full compose → promote loop. | §4 |
