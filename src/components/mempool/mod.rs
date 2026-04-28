@@ -6,7 +6,6 @@ mod loader;
 mod model;
 mod parse;
 mod preview;
-mod promote;
 mod serialize;
 
 pub use component::Mempool;
@@ -22,10 +21,4 @@ pub use model::{
 };
 pub use parse::{RawMempoolMeta, derive_gas, parse_mempool_frontmatter};
 pub use preview::MempoolPreviewModal;
-pub use promote::{
-    PromoteCommitMessages, PromoteConfirmModal, PromoteError, PromoteState, apply_commit_outcome,
-    build_bundle_add_change_set, build_mempool_drop_change_set, humanize_promote_error,
-    preflight_promote_paths, promote_commit_messages, promote_entry, promote_target_path,
-    retry_mempool_drop,
-};
 pub use serialize::{ComposePayload, serialize_mempool_file, slug_from_title};

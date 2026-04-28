@@ -10,8 +10,7 @@ use crate::components::chrome::SiteChrome;
 use crate::components::ledger_routes::LEDGER_CATEGORIES;
 use crate::components::mempool::{
     ComposeModal, ComposeMode, LedgerFilterShape, Mempool, MempoolEntry, MempoolPreviewModal,
-    PromoteConfirmModal, PromoteState, build_mempool_model, load_mempool_files, mempool_root,
-    promote_target_path,
+    build_mempool_model, load_mempool_files, mempool_root,
 };
 use crate::components::shared::{
     AttestationSigFooter, MetaRow, MetaTable, SiteContentFrame, SiteSurface,
@@ -81,9 +80,6 @@ pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
 
     let (preview_open, set_preview_open) = signal(None::<VirtualPath>);
     let (compose_open, set_compose_open) = signal(None::<ComposeMode>);
-    let (promote_state, set_promote_state) = signal(PromoteState::Idle);
-    let (deploy_hint, set_deploy_hint) = signal(None::<DeployHint>);
-    let (partial_warning, set_partial_warning) = signal(None::<PartialWarning>);
 
     let author_mode = Memo::new({
         let ctx = ctx.clone();
@@ -118,35 +114,6 @@ pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
         mempool_refresh.update(|n| *n += 1);
     });
 
-    let on_mempool_promote = Callback::new(move |entry: MempoolEntry| {
-        match promote_target_path(&entry.path) {
-            Ok(target) => set_promote_state.set(PromoteState::Confirming {
-                source: entry.path,
-                target,
-            }),
-            Err(err) => leptos::logging::warn!(
-                "promote: invalid source {}: {err:?}",
-                entry.path.as_str()
-            ),
-        }
-    });
-
-    let on_promote_done = Callback::new(move |(_source, target): (VirtualPath, VirtualPath)| {
-        set_partial_warning.set(None);
-        set_deploy_hint.set(Some(DeployHint { target }));
-        mempool_refresh.update(|n| *n += 1);
-    });
-
-    let on_promote_partial = Callback::new(
-        move |(source, target, error): (VirtualPath, VirtualPath, String)| {
-            set_partial_warning.set(Some(PartialWarning {
-                source,
-                target,
-                error,
-            }));
-        },
-    );
-
     let attestation_route = Signal::derive(|| CONTENT_LEDGER_ROUTE.to_string());
 
     view! {
@@ -173,7 +140,6 @@ pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
                                     };
                                     let mempool_root_path = mempool_root();
                                     let on_select = on_mempool_select;
-                                    let on_promote = on_mempool_promote;
                                     let mempool_files_signal = mempool_files;
                                     let mempool_section = move || {
                                         mempool_files_signal.get().map(|files| {
@@ -187,7 +153,6 @@ pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
                                                     model=mempool_model
                                                     on_select=on_select
                                                     author_mode=author_mode
-                                                    on_promote=on_promote
                                                     on_compose=on_compose_new
                                                 />
                                             }
@@ -197,12 +162,6 @@ pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
                                         <LedgerIdentifier model=model.clone() />
                                         <LedgerHeader model=model.clone() />
                                         <LedgerFilterBar model=model.clone() />
-                                        <PromoteStatusBanner
-                                            deploy_hint=deploy_hint
-                                            set_deploy_hint=set_deploy_hint
-                                            partial_warning=partial_warning
-                                            set_partial_warning=set_partial_warning
-                                        />
                                         <Suspense fallback=|| view! { <span></span> }>
                                             {mempool_section}
                                         </Suspense>
@@ -224,69 +183,13 @@ pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
                 set_open=set_compose_open
                 on_saved=on_compose_saved
             />
-            <PromoteConfirmModal
-                state=promote_state
-                set_state=set_promote_state
-                on_done=on_promote_done
-                on_partial=on_promote_partial
-            />
         </SiteSurface>
     }
 }
 
-#[derive(Clone, Debug)]
-struct DeployHint {
-    target: VirtualPath,
-}
-
-#[derive(Clone, Debug)]
-struct PartialWarning {
-    source: VirtualPath,
-    target: VirtualPath,
-    error: String,
-}
-
-#[component]
-fn PromoteStatusBanner(
-    deploy_hint: ReadSignal<Option<DeployHint>>,
-    set_deploy_hint: WriteSignal<Option<DeployHint>>,
-    partial_warning: ReadSignal<Option<PartialWarning>>,
-    set_partial_warning: WriteSignal<Option<PartialWarning>>,
-) -> impl IntoView {
-    view! {
-        {move || partial_warning.get().map(|w| view! {
-            <div class=css::partialBanner role="alert">
-                <span>
-                    {format!(
-                        "{} promoted to bundle but mempool delete failed: {} (still listed at {})",
-                        w.target.as_str(),
-                        w.error,
-                        w.source.as_str(),
-                    )}
-                </span>
-                <button
-                    class=css::dismiss
-                    type="button"
-                    on:click=move |_| set_partial_warning.set(None)
-                >
-                    "dismiss"
-                </button>
-            </div>
-        })}
-        {move || deploy_hint.get().map(|h| view! {
-            <div class=css::deployHint>
-                <span>{format!("✓ promoted {}. run `just pin` to publish.", h.target.as_str())}</span>
-                <button
-                    class=css::dismiss
-                    type="button"
-                    on:click=move |_| set_deploy_hint.set(None)
-                >
-                    "dismiss"
-                </button>
-            </div>
-        })}
-    }
-}
+// Phase 5 removed the browser-side promote flow in favor of
+// `websh-cli mempool promote`. DeployHint / PartialWarning / PromoteStatusBanner
+// have been deleted along with PromoteConfirmModal.
 
 #[component]
 fn LedgerIdentifier(model: LedgerModel) -> impl IntoView {

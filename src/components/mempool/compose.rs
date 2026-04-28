@@ -18,7 +18,8 @@ use crate::components::ledger_routes::LEDGER_CATEGORIES;
 use crate::core::changes::{ChangeSet, ChangeType};
 use crate::core::runtime::commit_backend;
 use crate::core::runtime::state::github_token_for_commit;
-use crate::models::{FileMetadata, VirtualPath};
+use crate::core::storage::CommitOutcome;
+use crate::models::{FileMetadata, RuntimeMount, VirtualPath};
 use crate::utils::current_timestamp;
 use crate::utils::format::{format_date_iso, iso_date_prefix};
 
@@ -308,7 +309,7 @@ pub async fn save_compose(
     )
     .await
     .map_err(|err| err.to_string())?;
-    super::promote::apply_commit_outcome(&ctx, &root, &outcome).await;
+    apply_commit_outcome(&ctx, &root, &outcome).await;
 
     // Refresh the runtime so view_global_fs reflects the new GitHub state
     // — without this, the LocalResource refetch sees the same in-memory
@@ -322,6 +323,58 @@ pub async fn save_compose(
         ),
     }
     Ok(())
+}
+
+/// Apply the post-commit bookkeeping after a successful UI-driven commit:
+/// update `ctx.remote_heads` so subsequent `expected_head` lookups reflect
+/// the just-committed OID, and persist the new HEAD to IDB so the next
+/// session boots with it. Best-effort — an IDB write failure is logged but
+/// does not poison the in-memory signal.
+///
+/// Originally lived in `mempool::promote` for Phase 3's two-commit
+/// orchestration; Phase 5 moves promote out of the wasm runtime, leaving
+/// compose as the sole consumer.
+pub(super) async fn apply_commit_outcome(
+    ctx: &AppContext,
+    mount_root: &VirtualPath,
+    outcome: &CommitOutcome,
+) {
+    ctx.remote_heads.update(|map| {
+        map.insert(mount_root.clone(), outcome.new_head.clone());
+    });
+
+    let storage_id = ctx
+        .runtime_mounts
+        .with_untracked(|mounts| {
+            mounts
+                .iter()
+                .find(|m| &m.root == mount_root)
+                .map(RuntimeMount::storage_id)
+        })
+        .unwrap_or_else(|| mount_id_fallback(mount_root));
+
+    if let Ok(db) = crate::core::storage::idb::open_db().await {
+        if let Err(error) = crate::core::storage::idb::save_metadata(
+            &db,
+            &format!("remote_head.{storage_id}"),
+            &outcome.new_head,
+        )
+        .await
+        {
+            leptos::logging::warn!(
+                "compose: persist remote_head for {} failed: {error}",
+                mount_root.as_str()
+            );
+        }
+    }
+}
+
+fn mount_id_fallback(root: &VirtualPath) -> String {
+    if root.is_root() {
+        "~".to_string()
+    } else {
+        root.as_str().trim_start_matches('/').replace('/', ":")
+    }
 }
 
 #[component]

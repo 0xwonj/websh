@@ -11,11 +11,10 @@ pub fn Mempool(
     model: MempoolModel,
     #[prop(into)] on_select: Callback<MempoolEntry>,
     author_mode: Memo<bool>,
-    #[prop(into)] on_promote: Callback<MempoolEntry>,
     #[prop(into)] on_compose: Callback<()>,
 ) -> impl IntoView {
     let header = render_header(&model, author_mode, on_compose);
-    let rows = render_rows(&model, on_select, author_mode, on_promote);
+    let rows = render_rows(&model, on_select);
 
     view! {
         <section class=css::mempool aria-label="Mempool — pending entries">
@@ -62,12 +61,7 @@ fn render_header(
     .into_any()
 }
 
-fn render_rows(
-    model: &MempoolModel,
-    on_select: Callback<MempoolEntry>,
-    author_mode: Memo<bool>,
-    on_promote: Callback<MempoolEntry>,
-) -> AnyView {
+fn render_rows(model: &MempoolModel, on_select: Callback<MempoolEntry>) -> AnyView {
     if model.entries.is_empty() {
         return view! {
             <div class=css::mpEmpty>
@@ -83,18 +77,12 @@ fn render_rows(
         .cloned()
         .map(|entry| {
             let entry_for_click = entry.clone();
-            let entry_for_promote = entry.clone();
             let on_select = on_select;
-            let on_promote = on_promote;
             view! {
                 <MempoolItem
                     entry=entry
-                    author_mode=author_mode
                     on_click=Callback::new(move |_| {
                         on_select.run(entry_for_click.clone());
-                    })
-                    on_promote=Callback::new(move |_| {
-                        on_promote.run(entry_for_promote.clone());
                     })
                 />
             }
@@ -104,12 +92,7 @@ fn render_rows(
 }
 
 #[component]
-fn MempoolItem(
-    entry: MempoolEntry,
-    author_mode: Memo<bool>,
-    on_click: Callback<()>,
-    on_promote: Callback<()>,
-) -> impl IntoView {
+fn MempoolItem(entry: MempoolEntry, on_click: Callback<()>) -> impl IntoView {
     let item_class = match entry.status {
         MempoolStatus::Draft => format!("{} {}", css::mpItem, css::mpItemDraft),
         MempoolStatus::Review => format!("{} {}", css::mpItem, css::mpItemReview),
@@ -170,25 +153,6 @@ fn MempoolItem(
                 </div>
             </div>
             <div class=css::mpModified>{entry.modified.clone()}</div>
-            <Show when=move || author_mode.get()>
-                <button
-                    class=css::mpPromote
-                    type="button"
-                    aria-label="Promote to canonical chain"
-                    on:click=move |ev: leptos::ev::MouseEvent| {
-                        ev.stop_propagation();
-                        on_promote.run(());
-                    }
-                    on:keydown=move |ev: leptos::ev::KeyboardEvent| {
-                        // Stop space/enter from bubbling to the row's keydown.
-                        if ev.key() == "Enter" || ev.key() == " " {
-                            ev.stop_propagation();
-                        }
-                    }
-                >
-                    "promote ↗"
-                </button>
-            </Show>
         </div>
     }
 }
