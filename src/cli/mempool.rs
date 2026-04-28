@@ -16,9 +16,14 @@ use super::CliResult;
 use super::gh::{gh_capture, gh_succeeds, require_gh};
 use super::manifest::DEFAULT_CONTENT_DIR;
 use crate::components::ledger_routes::LEDGER_CATEGORIES;
-use crate::components::mempool::{derive_gas, parse_mempool_frontmatter};
+use crate::components::mempool::{
+    ComposeError, ComposeForm, ComposePayload, derive_gas, form_to_payload,
+    parse_mempool_frontmatter, serialize_mempool_file, slug_from_title, validate_form,
+};
 use crate::config::BOOTSTRAP_SITE;
-use crate::models::manifest::ContentManifestDocument;
+use crate::models::manifest::{ContentManifestDocument, ContentManifestFile};
+use crate::utils::current_timestamp;
+use crate::utils::format::format_date_iso;
 
 #[derive(Deserialize)]
 struct ContentsApiResponse {
@@ -103,12 +108,45 @@ pub(crate) struct MempoolCommand {
 enum MempoolSubcommand {
     /// List pending entries in the mempool repo.
     List,
+    /// Create a new mempool entry by committing it to the mempool repo.
+    /// CRUD-symmetry counterpart to promote/drop; lets terminal-only or
+    /// scripted workflows author drafts without opening the browser.
+    Add(AddArgs),
     /// Promote a mempool entry to the canonical chain via a single local
     /// git commit on the bundle source. Optionally also drops the entry
     /// from the mempool repo (`--drop-remote`).
     Promote(PromoteArgs),
     /// Delete an entry from the mempool repo.
     Drop(DropArgs),
+}
+
+#[derive(Args)]
+struct AddArgs {
+    /// Category segment (e.g., `writing`, `papers`). Must be one of
+    /// LEDGER_CATEGORIES.
+    #[arg(long)]
+    category: String,
+    /// Slug. Defaults to a kebab-case derivation of `--title` if omitted.
+    #[arg(long)]
+    slug: Option<String>,
+    /// Frontmatter title.
+    #[arg(long)]
+    title: String,
+    /// Frontmatter status. `draft` or `review`.
+    #[arg(long, default_value = "draft")]
+    status: String,
+    /// Frontmatter priority (`low`, `med`, `high`). Omitted if absent.
+    #[arg(long)]
+    priority: Option<String>,
+    /// Frontmatter tags, comma-separated. Empty / absent → no tags.
+    #[arg(long, default_value = "")]
+    tags: String,
+    /// Modified date, `YYYY-MM-DD`. Defaults to today.
+    #[arg(long)]
+    modified: Option<String>,
+    /// Path to a file containing the markdown body, or `-` to read from stdin.
+    #[arg(long)]
+    body: String,
 }
 
 #[derive(Args)]
@@ -140,6 +178,7 @@ struct DropArgs {
 pub(crate) fn run(root: &Path, command: MempoolCommand) -> CliResult {
     match command.command {
         MempoolSubcommand::List => list(root),
+        MempoolSubcommand::Add(args) => add(root, args),
         MempoolSubcommand::Promote(args) => promote(root, args),
         MempoolSubcommand::Drop(args) => drop_entry(root, args),
     }
@@ -261,6 +300,216 @@ struct PromoteCleanup {
     ledger_written: bool,
     manifest_written: bool,
     attest_written: bool,
+}
+
+fn add(root: &Path, args: AddArgs) -> CliResult {
+    let mount = read_mempool_mount_declaration(root)?;
+    require_gh()?;
+
+    let body = read_body_source(&args.body)?;
+    let form = build_form(&args, &body)?;
+
+    let errors = validate_form(&form);
+    if !errors.is_empty() {
+        let messages: Vec<String> = errors.iter().map(humanize_compose_error).collect();
+        return Err(format!("invalid input:\n  - {}", messages.join("\n  - ")).into());
+    }
+
+    let repo_path = format!("{}/{}.md", form.category, form.slug);
+    if gh_path_exists(&mount, &repo_path)? {
+        return Err(format!(
+            "{} already exists in {}@{} — pass a different --slug or edit via the browser",
+            repo_path, mount.repo, mount.branch
+        )
+        .into());
+    }
+
+    let payload = form_to_payload(&form);
+    let file_body = serialize_mempool_file(&payload);
+
+    eprintln!("preflight: ok ({}/{})", form.category, form.slug);
+    eprintln!("write:     {} ({} bytes)", repo_path, file_body.len());
+
+    add_to_mempool_via_gh(&mount, &repo_path, &file_body, &payload)?;
+
+    println!(
+        "mempool add: {} → {}@{}",
+        repo_path, mount.repo, mount.branch
+    );
+    Ok(())
+}
+
+/// Read the markdown body from `--body` argument: `-` means stdin, anything
+/// else is a filesystem path.
+fn read_body_source(spec: &str) -> CliResult<String> {
+    if spec == "-" {
+        let mut buf = String::new();
+        io::Read::read_to_string(&mut io::stdin(), &mut buf)?;
+        Ok(buf)
+    } else {
+        Ok(std::fs::read_to_string(spec)?)
+    }
+}
+
+/// Build a `ComposeForm` from the parsed CLI args. Auto-derives slug from
+/// title when `--slug` is omitted, defaults `modified` to today.
+fn build_form(args: &AddArgs, body: &str) -> CliResult<ComposeForm> {
+    let slug = args
+        .slug
+        .clone()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| slug_from_title(&args.title));
+
+    let modified = args
+        .modified
+        .clone()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| format_date_iso(current_timestamp() / 1000));
+
+    let tags: Vec<String> = args
+        .tags
+        .split(',')
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .collect();
+
+    let priority = args.priority.clone().filter(|s| !s.is_empty());
+
+    Ok(ComposeForm {
+        title: args.title.trim().to_string(),
+        category: args.category.clone(),
+        slug,
+        status: args.status.clone(),
+        modified,
+        priority,
+        tags,
+        body: body.to_string(),
+    })
+}
+
+/// Two-step add: PUT the file blob, then PUT the rewritten manifest with
+/// the new entry inserted. File-first so a step-2 failure leaves the runtime
+/// view consistent (manifest is the truth; the orphan file is invisible).
+fn add_to_mempool_via_gh(
+    mount: &MempoolMountInfo,
+    repo_path: &str,
+    file_body: &str,
+    payload: &ComposePayload,
+) -> CliResult {
+    let absolute_file_path = file_in_repo(&mount.root_prefix, repo_path);
+    let absolute_manifest_path = file_in_repo(&mount.root_prefix, "manifest.json");
+
+    // Step 1: PUT the new file (no sha — it's a create, not an update).
+    let file_b64 = BASE64_STANDARD.encode(file_body.as_bytes());
+    let put_file_url = format!("repos/{}/contents/{}", mount.repo, absolute_file_path);
+    let mut put_file = Process::new("gh");
+    put_file.args([
+        "api",
+        put_file_url.as_str(),
+        "-X",
+        "PUT",
+        "-f",
+        &format!("message=mempool: add {repo_path}"),
+        "-f",
+        &format!("content={file_b64}"),
+        "-f",
+        &format!("branch={}", mount.branch),
+    ]);
+    put_file.stdout(Stdio::null());
+    let status = put_file.status()?;
+    if !status.success() {
+        return Err(format!(
+            "file PUT failed for {repo_path} on {}@{}; nothing changed",
+            mount.repo, mount.branch
+        )
+        .into());
+    }
+
+    // Step 2: read manifest, insert entry, PUT.
+    let manifest_url = format!(
+        "repos/{}/contents/{}?ref={}",
+        mount.repo, absolute_manifest_path, mount.branch,
+    );
+    let manifest_resp_json = gh_capture(["api", manifest_url.as_str()])?;
+    let manifest_resp: ContentsApiResponse = serde_json::from_str(&manifest_resp_json)
+        .map_err(|e| format!("failed to parse manifest GET response: {e}"))?;
+    let manifest_bytes = BASE64_STANDARD
+        .decode(manifest_resp.content.replace('\n', ""))
+        .map_err(|e| format!("failed to base64-decode manifest: {e}"))?;
+    let mut manifest: ContentManifestDocument = serde_json::from_slice(&manifest_bytes)
+        .map_err(|e| format!("failed to parse mempool manifest: {e}"))?;
+
+    let modified_secs = current_timestamp() / 1000;
+    let new_entry = ContentManifestFile {
+        path: repo_path.to_string(),
+        title: payload.title.clone(),
+        size: Some(file_body.as_bytes().len() as u64),
+        modified: Some(modified_secs),
+        date: None,
+        tags: payload.tags.clone(),
+        access: None,
+    };
+    manifest.files.retain(|f| f.path != repo_path);
+    manifest.files.push(new_entry);
+    manifest.files.sort_by(|a, b| a.path.cmp(&b.path));
+
+    let new_body = serde_json::to_string_pretty(&manifest)
+        .map_err(|e| format!("failed to re-serialize manifest: {e}"))?
+        + "\n";
+    let new_body_b64 = BASE64_STANDARD.encode(new_body.as_bytes());
+    let put_manifest_url = format!("repos/{}/contents/{}", mount.repo, absolute_manifest_path);
+    let mut put_manifest = Process::new("gh");
+    put_manifest.args([
+        "api",
+        put_manifest_url.as_str(),
+        "-X",
+        "PUT",
+        "-f",
+        &format!("message=mempool: add {repo_path} (manifest)"),
+        "-f",
+        &format!("content={new_body_b64}"),
+        "-f",
+        &format!("sha={}", manifest_resp.sha),
+        "-f",
+        &format!("branch={}", mount.branch),
+    ]);
+    put_manifest.stdout(Stdio::null());
+    let status = put_manifest.status()?;
+    if !status.success() {
+        return Err(format!(
+            "manifest PUT failed; the file {} is on {}@{} but the manifest doesn't reference \
+             it (runtime won't see it). Re-run `websh-cli mempool add` after deleting the file \
+             via the GitHub web UI, or manually edit manifest.json.",
+            repo_path, mount.repo, mount.branch
+        )
+        .into());
+    }
+
+    Ok(())
+}
+
+/// Translate a single `ComposeError` into a CLI-friendly message. Mirrors the
+/// browser's compose modal field-error text where relevant.
+fn humanize_compose_error(err: &ComposeError) -> String {
+    match err {
+        ComposeError::TitleEmpty => "title is required".to_string(),
+        ComposeError::TitleHasReservedChars => {
+            "title cannot contain \" \\ : or newlines".to_string()
+        }
+        ComposeError::SlugInvalid => {
+            "slug must be kebab-case ASCII (a-z, 0-9, hyphens)".to_string()
+        }
+        ComposeError::StatusUnknown => "status must be `draft` or `review`".to_string(),
+        ComposeError::ModifiedNotIso => "modified must be YYYY-MM-DD".to_string(),
+        ComposeError::CategoryUnknown => format!(
+            "category must be one of {}",
+            LEDGER_CATEGORIES.join(", ")
+        ),
+        ComposeError::PriorityUnknown => "priority must be `low`, `med`, or `high`".to_string(),
+        ComposeError::TagHasReservedChars => {
+            "tags cannot contain `[ ] \" ,` or newlines".to_string()
+        }
+    }
 }
 
 fn promote(root: &Path, args: PromoteArgs) -> CliResult {
@@ -416,13 +665,7 @@ fn confirm_on_bundle_branch(root: &Path) -> CliResult {
 }
 
 fn gh_verify_path_exists(mount: &MempoolMountInfo, target: &PromoteTarget) -> CliResult {
-    let url = format!(
-        "repos/{}/contents/{}?ref={}",
-        mount.repo,
-        file_in_repo(&mount.root_prefix, &target.repo_path),
-        mount.branch,
-    );
-    if !gh_succeeds(["api", "--silent", url.as_str()])? {
+    if !gh_path_exists(mount, &target.repo_path)? {
         return Err(format!(
             "{} not found in {}@{}",
             target.repo_path, mount.repo, mount.branch
@@ -430,6 +673,19 @@ fn gh_verify_path_exists(mount: &MempoolMountInfo, target: &PromoteTarget) -> Cl
         .into());
     }
     Ok(())
+}
+
+/// Generic existence check for any path inside the mempool repo. Returns
+/// `Ok(true)` when `gh api` reports 200 (file is present), `Ok(false)` on
+/// non-zero exit (covers 404 and the like).
+fn gh_path_exists(mount: &MempoolMountInfo, repo_path: &str) -> CliResult<bool> {
+    let url = format!(
+        "repos/{}/contents/{}?ref={}",
+        mount.repo,
+        file_in_repo(&mount.root_prefix, repo_path),
+        mount.branch,
+    );
+    gh_succeeds(["api", "--silent", url.as_str()])
 }
 
 fn ensure_local_target_absent(root: &Path, target: &PromoteTarget) -> CliResult {
@@ -863,6 +1119,117 @@ mod tests {
             file_in_repo("/content/", "writing/foo.md"),
             "content/writing/foo.md"
         );
+    }
+
+    fn sample_add_args() -> AddArgs {
+        AddArgs {
+            category: "writing".into(),
+            slug: None,
+            title: "On writing slow".into(),
+            status: "draft".into(),
+            priority: None,
+            tags: String::new(),
+            modified: Some("2026-04-28".into()),
+            body: "/dev/null".into(),
+        }
+    }
+
+    #[test]
+    fn build_form_auto_derives_slug_from_title() {
+        let args = sample_add_args();
+        let form = build_form(&args, "body").unwrap();
+        assert_eq!(form.slug, "on-writing-slow");
+        assert_eq!(form.category, "writing");
+        assert_eq!(form.title, "On writing slow");
+        assert_eq!(form.modified, "2026-04-28");
+        assert_eq!(form.status, "draft");
+        assert!(form.priority.is_none());
+        assert!(form.tags.is_empty());
+        assert_eq!(form.body, "body");
+    }
+
+    #[test]
+    fn build_form_uses_explicit_slug_when_set() {
+        let mut args = sample_add_args();
+        args.slug = Some("custom-slug".into());
+        let form = build_form(&args, "").unwrap();
+        assert_eq!(form.slug, "custom-slug");
+    }
+
+    #[test]
+    fn build_form_parses_comma_separated_tags() {
+        let mut args = sample_add_args();
+        args.tags = "essay, slow ,zk".into();
+        let form = build_form(&args, "").unwrap();
+        assert_eq!(form.tags, vec!["essay", "slow", "zk"]);
+    }
+
+    #[test]
+    fn build_form_drops_empty_tags() {
+        let mut args = sample_add_args();
+        args.tags = ", , ".into();
+        let form = build_form(&args, "").unwrap();
+        assert!(form.tags.is_empty());
+    }
+
+    #[test]
+    fn build_form_normalizes_priority() {
+        let mut args = sample_add_args();
+        args.priority = Some("med".into());
+        let form = build_form(&args, "").unwrap();
+        assert_eq!(form.priority.as_deref(), Some("med"));
+
+        args.priority = Some(String::new());
+        let form = build_form(&args, "").unwrap();
+        assert!(form.priority.is_none());
+    }
+
+    #[test]
+    fn validate_form_rejects_form_built_from_bad_args() {
+        // Empty title → form has empty title → validate_form flags it.
+        let mut args = sample_add_args();
+        args.title = String::new();
+        let form = build_form(&args, "").unwrap();
+        let errs = validate_form(&form);
+        assert!(errs.iter().any(|e| matches!(e, ComposeError::TitleEmpty)));
+    }
+
+    #[test]
+    fn validate_form_rejects_unknown_category() {
+        let mut args = sample_add_args();
+        args.category = "fiction".into();
+        // slug is auto-derived (form will pass slug validation), so the
+        // only failure should be category.
+        let form = build_form(&args, "").unwrap();
+        let errs = validate_form(&form);
+        assert!(errs.iter().any(|e| matches!(e, ComposeError::CategoryUnknown)));
+    }
+
+    #[test]
+    fn validate_form_rejects_invalid_modified() {
+        let mut args = sample_add_args();
+        args.modified = Some("April 28".into());
+        let form = build_form(&args, "").unwrap();
+        let errs = validate_form(&form);
+        assert!(errs.iter().any(|e| matches!(e, ComposeError::ModifiedNotIso)));
+    }
+
+    #[test]
+    fn humanize_compose_error_covers_every_variant() {
+        let variants = [
+            ComposeError::TitleEmpty,
+            ComposeError::TitleHasReservedChars,
+            ComposeError::SlugInvalid,
+            ComposeError::StatusUnknown,
+            ComposeError::ModifiedNotIso,
+            ComposeError::CategoryUnknown,
+            ComposeError::PriorityUnknown,
+            ComposeError::TagHasReservedChars,
+        ];
+        for v in variants {
+            let msg = humanize_compose_error(&v);
+            assert!(!msg.is_empty(), "variant {:?} produced empty message", v);
+        }
     }
 
     fn tempdir() -> PathBuf {
