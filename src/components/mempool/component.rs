@@ -3,18 +3,14 @@
 use leptos::prelude::*;
 
 use super::model::{LedgerFilterShape, MempoolEntry, MempoolModel, MempoolStatus, Priority};
+use crate::utils::content_routes::content_href_for_path;
 
 stylance::import_crate_style!(css, "src/components/mempool/mempool.module.css");
 
 #[component]
-pub fn Mempool(
-    model: MempoolModel,
-    #[prop(into)] on_select: Callback<MempoolEntry>,
-    author_mode: Memo<bool>,
-    #[prop(into)] on_compose: Callback<()>,
-) -> impl IntoView {
-    let header = render_header(&model, author_mode, on_compose);
-    let rows = render_rows(&model, on_select);
+pub fn Mempool(model: MempoolModel, author_mode: Memo<bool>) -> impl IntoView {
+    let header = render_header(&model, author_mode);
+    let rows = render_rows(&model);
 
     view! {
         <section class=css::mempool aria-label="Mempool — pending entries">
@@ -27,11 +23,7 @@ pub fn Mempool(
     .into_any()
 }
 
-fn render_header(
-    model: &MempoolModel,
-    author_mode: Memo<bool>,
-    on_compose: Callback<()>,
-) -> AnyView {
+fn render_header(model: &MempoolModel, author_mode: Memo<bool>) -> AnyView {
     let count_text = match &model.filter {
         LedgerFilterShape::All => format!("· {} pending", model.total_count),
         LedgerFilterShape::Category(_) => format!(
@@ -46,14 +38,13 @@ fn render_header(
             <span class=css::mpCount>{count_text}</span>
             <span class=css::mpHeadRight>
                 <Show when=move || author_mode.get()>
-                    <button
+                    <a
                         class=css::mpCompose
-                        type="button"
+                        href="/#/new"
                         aria-label="Compose new mempool entry"
-                        on:click=move |_| on_compose.run(())
                     >
                         "+ compose"
-                    </button>
+                    </a>
                 </Show>
             </span>
         </div>
@@ -61,7 +52,7 @@ fn render_header(
     .into_any()
 }
 
-fn render_rows(model: &MempoolModel, on_select: Callback<MempoolEntry>) -> AnyView {
+fn render_rows(model: &MempoolModel) -> AnyView {
     if model.entries.is_empty() {
         return view! {
             <div class=css::mpEmpty>
@@ -76,23 +67,14 @@ fn render_rows(model: &MempoolModel, on_select: Callback<MempoolEntry>) -> AnyVi
         .iter()
         .cloned()
         .map(|entry| {
-            let entry_for_click = entry.clone();
-            let on_select = on_select;
-            view! {
-                <MempoolItem
-                    entry=entry
-                    on_click=Callback::new(move |_| {
-                        on_select.run(entry_for_click.clone());
-                    })
-                />
-            }
+            view! { <MempoolItem entry=entry /> }
         })
         .collect_view()
         .into_any()
 }
 
 #[component]
-fn MempoolItem(entry: MempoolEntry, on_click: Callback<()>) -> impl IntoView {
+fn MempoolItem(entry: MempoolEntry) -> impl IntoView {
     let item_class = match entry.status {
         MempoolStatus::Draft => format!("{} {}", css::mpItem, css::mpItemDraft),
         MempoolStatus::Review => format!("{} {}", css::mpItem, css::mpItemReview),
@@ -122,21 +104,10 @@ fn MempoolItem(entry: MempoolEntry, on_click: Callback<()>) -> impl IntoView {
         }
     });
 
-    let on_click_kbd = on_click;
+    let href = content_href_for_path(entry.path.as_str());
 
     view! {
-        <div
-            class=item_class
-            tabindex="0"
-            role="button"
-            on:click=move |_| on_click.run(())
-            on:keydown=move |event| {
-                if event.key() == "Enter" || event.key() == " " {
-                    event.prevent_default();
-                    on_click_kbd.run(());
-                }
-            }
-        >
+        <a class=item_class href=href>
             <div class=css::mpStatus>{status_label}</div>
             <div>
                 <div class=css::mpTitle>
@@ -153,6 +124,6 @@ fn MempoolItem(entry: MempoolEntry, on_click: Callback<()>) -> impl IntoView {
                 </div>
             </div>
             <div class=css::mpModified>{entry.modified.clone()}</div>
-        </div>
+        </a>
     }
 }

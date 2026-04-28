@@ -3,14 +3,12 @@
 use std::collections::BTreeMap;
 
 use leptos::prelude::*;
-use wasm_bindgen_futures::spawn_local;
 
 use crate::app::AppContext;
 use crate::components::chrome::SiteChrome;
 use crate::components::ledger_routes::LEDGER_CATEGORIES;
 use crate::components::mempool::{
-    ComposeModal, ComposeMode, LedgerFilterShape, Mempool, MempoolEntry, MempoolPreviewModal,
-    build_mempool_model, load_mempool_files, mempool_root,
+    LedgerFilterShape, Mempool, build_mempool_model, load_mempool_files, mempool_root,
 };
 use crate::components::shared::{
     AttestationSigFooter, MetaRow, MetaTable, SiteContentFrame, SiteSurface,
@@ -71,47 +69,14 @@ pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
     });
 
     let mempool_ctx = ctx.clone();
-    let mempool_refresh = RwSignal::new(0u32);
     let mempool_files = LocalResource::new(move || {
         let ctx = mempool_ctx.clone();
-        let _ = mempool_refresh.get();
         async move { load_mempool_files(ctx).await }
     });
-
-    let (preview_open, set_preview_open) = signal(None::<VirtualPath>);
-    let (compose_open, set_compose_open) = signal(None::<ComposeMode>);
 
     let author_mode = Memo::new({
         let ctx = ctx.clone();
         move |_| ctx.runtime_state.with(|rs| rs.github_token_present)
-    });
-
-    let select_ctx = ctx.clone();
-    let on_mempool_select = Callback::new(move |entry: MempoolEntry| {
-        if author_mode.get() {
-            let ctx = select_ctx.clone();
-            let path = entry.path.clone();
-            spawn_local(async move {
-                match ctx.read_text(&path).await {
-                    Ok(body) => set_compose_open.set(Some(ComposeMode::Edit { path, body })),
-                    Err(error) => leptos::logging::warn!(
-                        "mempool: failed to read {} for edit: {error}",
-                        path.as_str()
-                    ),
-                }
-            });
-        } else {
-            set_preview_open.set(Some(entry.path));
-        }
-    });
-
-    let on_compose_new = Callback::new(move |_| {
-        let default_category = filter_category_from_route(&route.get());
-        set_compose_open.set(Some(ComposeMode::New { default_category }));
-    });
-
-    let on_compose_saved = Callback::new(move |_| {
-        mempool_refresh.update(|n| *n += 1);
     });
 
     let attestation_route = Signal::derive(|| CONTENT_LEDGER_ROUTE.to_string());
@@ -139,7 +104,6 @@ pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
                                         }
                                     };
                                     let mempool_root_path = mempool_root();
-                                    let on_select = on_mempool_select;
                                     let mempool_files_signal = mempool_files;
                                     let mempool_section = move || {
                                         mempool_files_signal.get().map(|files| {
@@ -151,9 +115,7 @@ pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
                                             view! {
                                                 <Mempool
                                                     model=mempool_model
-                                                    on_select=on_select
                                                     author_mode=author_mode
-                                                    on_compose=on_compose_new
                                                 />
                                             }
                                         })
@@ -177,12 +139,6 @@ pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
                 </Suspense>
                 <AttestationSigFooter route=attestation_route show_pending=true />
             </SiteContentFrame>
-            <MempoolPreviewModal open_path=preview_open set_open_path=set_preview_open />
-            <ComposeModal
-                open=compose_open
-                set_open=set_compose_open
-                on_saved=on_compose_saved
-            />
         </SiteSurface>
     }
 }
@@ -389,13 +345,6 @@ fn LedgerBlock(entry: LedgerEntry, block_number: String, previous_hash: String) 
                 </span>
             </div>
         </article>
-    }
-}
-
-fn filter_category_from_route(route: &RouteFrame) -> Option<String> {
-    match ledger_filter_for_route(&route.request.url_path, &route.resolution.node_path) {
-        LedgerFilter::Category(c) if LEDGER_CATEGORIES.contains(&c.as_str()) => Some(c),
-        _ => None,
     }
 }
 

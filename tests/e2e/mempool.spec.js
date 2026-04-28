@@ -1,4 +1,4 @@
-// Mempool — Phase 1 visual QA
+// Mempool — Phase 1 visual QA, updated in Phase 6 for URL-driven flows.
 //
 // Requires: trunk release build at WEBSH_E2E_BASE_URL, and at least 4 entries
 // in 0xwonj/websh-mempool covering writing, projects, papers, talks
@@ -14,7 +14,7 @@ test.describe('mempool', () => {
     await page.goto(`${baseUrl}/#/ledger`);
     const mempool = page.locator('section[aria-label="Mempool — pending entries"]');
     await expect(mempool).toBeVisible();
-    const items = await mempool.locator('[role="button"]').count();
+    const items = await mempool.locator('a').count();
     expect(items).toBeGreaterThan(0);
   });
 
@@ -22,7 +22,7 @@ test.describe('mempool', () => {
     await page.goto(`${baseUrl}/#/writing`);
     const mempool = page.locator('section[aria-label="Mempool — pending entries"]');
     await expect(mempool).toBeVisible();
-    const itemKinds = await mempool.locator('[role="button"] [data-kind]').allTextContents();
+    const itemKinds = await mempool.locator('a [data-kind]').allTextContents();
     for (const kind of itemKinds) {
       expect(['writing']).toContain(kind);
     }
@@ -31,17 +31,19 @@ test.describe('mempool', () => {
     expect(headerText).toMatch(/\d+ \/ \d+ pending/);
   });
 
-  test('clicking a row opens the modal preview without URL change', async ({ page }) => {
+  test('clicking a row navigates to the entry view URL', async ({ page }) => {
     await page.goto(`${baseUrl}/#/ledger`);
     const initialHash = await page.evaluate(() => window.location.hash);
     const firstRow = page
-      .locator('section[aria-label="Mempool — pending entries"] [role="button"]')
+      .locator('section[aria-label="Mempool — pending entries"] a')
       .first();
+    const href = await firstRow.getAttribute('href');
+    expect(href).toMatch(/^\/#\/mempool\//);
     await firstRow.click();
-    await expect(page.locator('[aria-label="Close preview"]')).toBeVisible();
     const afterClickHash = await page.evaluate(() => window.location.hash);
-    expect(afterClickHash).toBe(initialHash);
-    await page.locator('[aria-label="Close preview"]').click();
+    expect(afterClickHash).not.toBe(initialHash);
+    expect(afterClickHash).toMatch(/^#\/mempool\//);
+    // Phase 6 dropped the modal preview entirely.
     await expect(page.locator('[aria-label="Close preview"]')).toHaveCount(0);
   });
 });
