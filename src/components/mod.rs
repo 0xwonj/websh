@@ -9,7 +9,7 @@
 //! - [`icons`] - Centralized icon definitions (change theme here)
 //! - [`ledger_page`] - Ledger-style content index pages
 //! - [`markdown`] - Shared Markdown rendering components
-//! - [`reader`] - Content reader for markdown, PDF, images
+//! - [`mempool_editor_page`] - URL-driven mempool authoring page
 //! - [`renderer_page`] - Standalone content renderer pages
 //! - [`terminal`] - Terminal emulator interface
 
@@ -24,7 +24,6 @@ pub mod ledger_routes;
 pub mod markdown;
 pub mod mempool;
 pub mod mempool_editor_page;
-pub mod reader;
 pub mod renderer_page;
 pub mod router;
 pub mod shared;

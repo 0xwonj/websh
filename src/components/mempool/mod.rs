@@ -6,12 +6,11 @@ mod editor;
 mod loader;
 mod model;
 mod parse;
-mod preview;
 mod serialize;
 
 pub use component::Mempool;
 pub use compose::{
-    ComposeError, ComposeForm, ComposeModal, ComposeMode, build_change_set, commit_message,
+    ComposeError, ComposeForm, ComposeMode, build_change_set, commit_message,
     derive_form_from_mode, form_to_payload, save_compose, save_path_for, target_path,
     validate_form,
 };
@@ -22,5 +21,4 @@ pub use model::{
     build_mempool_model,
 };
 pub use parse::{RawMempoolMeta, derive_gas, parse_mempool_frontmatter};
-pub use preview::MempoolPreviewModal;
 pub use serialize::{ComposePayload, serialize_mempool_file, slug_from_title};
