@@ -142,7 +142,13 @@ impl GitHubBackend {
             "https://api.github.com/repos/{}/contents/{}?ref={}",
             self.repo_with_owner, encoded_path, self.branch,
         );
+        // api.github.com sets `cache-control: public, max-age=60, s-maxage=60`,
+        // so the browser fetch cache will serve a 60-second-stale manifest
+        // after a fresh commit. NoCache forces revalidation on every scan;
+        // GitHub still returns ETag-based 304s, so unchanged manifests don't
+        // pay the body-transfer cost — only the round-trip to verify.
         let mut request = gloo_net::http::Request::get(&url)
+            .cache(web_sys::RequestCache::NoCache)
             .header("Accept", "application/vnd.github.raw")
             .header("User-Agent", "websh/0.1");
         if let Some(token) = auth_token {
