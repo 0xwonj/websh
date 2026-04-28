@@ -170,7 +170,7 @@ pub fn run() -> CliResult {
 
 - [ ] **2.3: Add `read_mempool_mount_declaration(root) -> CliResult<MempoolMountInfo>`** in `src/cli/mempool.rs` that reads `content/.websh/mounts/mempool.mount.json`, deserializes as `MountDeclaration`, and returns `MempoolMountInfo { repo: String, branch: String, root_prefix: String }`.
 
-  Use the existing `MountDeclaration` model in `src/models/site.rs:78`. Validate `backend == "github"`; reject otherwise.
+  Use the existing `MountDeclaration` model in `src/models/site.rs:78`. Note: `repo`, `branch`, `root` are `Option<String>` on the model — extract them with explicit error messages. Required: `repo` (non-None, non-empty). Defaults: `branch` defaults to `"main"` when None, `root` defaults to empty string. Validate `backend == "github"`; reject otherwise with a clear "expected github backend, got {backend}" error.
 
 - [ ] **2.4: Unit tests for `read_mempool_mount_declaration`.** Tempdir, write a stub mount JSON, parse, assert fields. Reject bad backend, missing required fields.
 
@@ -198,7 +198,7 @@ pub fn run() -> CliResult {
          repos/{repo}/contents/{root_prefix}/manifest.json?ref={branch}
        ```
        The `gh api` command honors the `Accept` header and returns body to stdout. Use `gh_capture`.
-    4. Parse JSON as `ScannedSubtree` (already a `Deserialize` type per `src/core/storage/backend.rs`).
+    4. Parse JSON as `crate::models::manifest::ContentManifestDocument` (the `Deserialize`-derived shape at `src/models/manifest.rs:7`). `ScannedSubtree` does NOT derive `Deserialize` — go through the manifest model. From the parsed document, only `manifest.files` is needed (directories are irrelevant for `mempool list`).
     5. For each file path in `manifest.files`:
        - Fetch the file body via `gh api -H "Accept: application/vnd.github.raw" repos/{repo}/contents/{path}?ref={branch}`.
        - Parse frontmatter using `crate::components::mempool::parse_mempool_frontmatter`. (Cross-import OK — `cli` already uses `crate::crypto::*` and `crate::utils::*`.)
@@ -263,17 +263,13 @@ pub fn run() -> CliResult {
 
 - [ ] **4.4: Implement the Step 1 + 2 + 3 algorithm** per design §3.2.
 
-    Use the existing CLI helpers:
-    - `crate::cli::ledger::generate_content_ledger(root, content_dir)` — already exists.
-    - `crate::cli::manifest::generate_content_manifest(root, content_dir)` — already exists; idempotent thanks to Phase 4's `write_json` skip.
-    - `crate::cli::attest::run_default(root, no_sign: bool)` — runs the full attest flow (regenerate subjects, sign with GPG). Phase 5 reuses it; pass `no_sign = false` (false because Phase 5 wants real signatures) unless we add an explicit `--no-attest` skip.
+    Two branches based on `--no-attest`:
 
-  Wait — `run_default` always runs full attest. For `--no-attest`, we should NOT call it at all. Refactor: in promote, conditionally:
-    ```rust
-    if !args.no_attest {
-        crate::cli::attest::run_default(root, /*no_sign*/ false)?;
-    }
-    ```
+    **Default path (attest on):** call `crate::cli::attest::run_default(root, /*no_sign*/ false)?` — exactly **once**. Per `src/cli/attest.rs:198-199`, `attest_all` already calls `generate_content_ledger` and `generate_content_manifest` internally, so calling them separately would duplicate work and emit doubled `manifest:` / `ledger:` summary lines. The `attest::run_default` invocation prints its own per-subject `route:/...: pgp ok ...` lines plus a final `attest: N subjects, M manifest files, K ledger entries, S new pgp signatures` summary — promote's output should expect and accept this interleave (the user sees full audit of what changed).
+
+    **`--no-attest` path:** call `crate::cli::ledger::generate_content_ledger(root, content_dir)` and `crate::cli::manifest::generate_content_manifest(root, content_dir)` directly. No attest invocation, no GPG, no `assets/crypto/attestations.json` change. The user will need to run `cargo run --bin websh-cli -- attest` separately before deploy if they want the attestations refreshed.
+
+    Both helpers and `attest::run_default` are idempotent on disk (Phase 4's `write_json` skip).
 
 - [ ] **4.5: Implement `rollback_partial`/`rollback_full` helpers.**
 
@@ -307,9 +303,17 @@ pub fn run() -> CliResult {
     }
     ```
 
-    Each step in the main flow updates `cleanup.<flag> = true` immediately after the corresponding mutation succeeds. On any error, call `rollback(&cleanup)` then propagate the error.
+    **Critical: flag-flip ordering** — set the flag **immediately before** the mutation that may fail mid-write, NOT after. Specifically:
+
+    - `cleanup.body_written = true` BEFORE `fs::write` (the file may exist after partial write on disk-full).
+    - `cleanup.ledger_written = cleanup.manifest_written = cleanup.attest_written = true` BEFORE calling `attest::run_default` (it writes ledger.json + manifest.json + attestations.json sequentially per `src/cli/attest.rs:198-251`; if signing fails on the 4th of 9 subjects, all three files are already on disk).
+    - For the `--no-attest` branch: flip `ledger_written = true` before `generate_content_ledger`, `manifest_written = true` before `generate_content_manifest`. `attest_written` stays false.
+
+    On any error, call `rollback(&cleanup)` then propagate the error. The rollback must be idempotent — `git checkout --` of an already-clean file is a no-op, `fs::remove_file` of a missing file is silenced.
 
 - [ ] **4.6: Implement git commit step.**
+
+    Note: `std::process::Command::current_dir`/`arg` take `&mut self` and return `&mut Self`. Chaining off `Process::new("git")` and binding to a `let mut` would borrow a temporary that drops at the semicolon. Bind the `Command` first, then mutate:
 
     ```rust
     let mut paths = vec![
@@ -320,16 +324,24 @@ pub fn run() -> CliResult {
     if did_attest {
         paths.push(PathBuf::from("assets/crypto/attestations.json"));
     }
-    let mut add = Process::new("git").current_dir(root).arg("add").arg("--");
+
+    let mut add = Process::new("git");
+    add.current_dir(root).arg("add").arg("--");
     for p in &paths { add.arg(p); }
-    if !add.status()?.success() { rollback(...); bail!("git add failed"); }
+    let add_status = add.status()?;
+    if !add_status.success() {
+        rollback(root, &cleanup);
+        return Err("git add failed".into());
+    }
 
     let msg = format!("promote: {}", target.slug_relpath);
-    let commit = Process::new("git")
-        .current_dir(root)
-        .args(["commit", "-m", &msg])
-        .status()?;
-    if !commit.success() { rollback(...); bail!("git commit failed"); }
+    let mut commit = Process::new("git");
+    commit.current_dir(root).args(["commit", "-m", &msg]);
+    let commit_status = commit.status()?;
+    if !commit_status.success() {
+        rollback(root, &cleanup);
+        return Err("git commit failed".into());
+    }
     ```
 
 - [ ] **4.7: Implement optional `--drop-remote`.**
@@ -475,7 +487,7 @@ pub fn run() -> CliResult {
 
 - [ ] **6.5: Update `mod.rs`.** Remove all `pub use promote::*` — every remaining public symbol from promote.rs is gone.
 
-- [ ] **6.6: Trim the test file** `tests/mempool_promote.rs`. Helpers that survive (path-mapping, commit-message construction) should already be CLI-tested in Task 4; consider deleting the file entirely or repurposing as `tests/mempool_cli.rs`. Pick whichever produces the cleaner diff.
+- [ ] **6.6: Delete `tests/mempool_promote.rs`.** Definitive — every symbol it imports (`PromoteError`, `build_bundle_add_change_set`, `build_mempool_drop_change_set`, `preflight_promote_paths`, `promote_commit_messages`, `promote_target_path`) is removed by Task 6.4. The file would fail to compile. Path-mapping and commit-message helpers reincarnate as CLI-side tests under `tests/mempool_cli.rs` (Task 7).
 
 - [ ] **6.7: Verify wasm builds clean.**
     ```bash
@@ -528,6 +540,12 @@ pub fn run() -> CliResult {
 ## Task 8: Live QA
 
 (Manual — not committed.)
+
+- [ ] **8.0: Pre-flight environment checks.** Before any CLI invocation:
+    1. `gh auth status` — confirm the right account is selected with `repo` (or fine-grained `contents:write` on both `0xwonj/websh-mempool` and `0xwonj/websh`) scope. Phase 4 hit a broken `~/.config/gh/config.yml` symlink — verify reality.
+    2. `git status` — working tree clean. Specifically `content/` must be clean unless using `--allow-dirty`.
+    3. `gpg --list-secret-keys` — confirm the configured signing key (default: `Wonjae Choi <wonjae@snu.ac.kr>`) is present, so `attest::run_default`'s gpg subprocess doesn't fail mid-promote.
+    4. `git rev-parse --abbrev-ref HEAD` — should match `BOOTSTRAP_SITE.branch` (typically `main`). Promote will warn and prompt otherwise.
 
 - [ ] **8.1: Bootstrap a fresh mempool entry from the browser.** `trunk serve`, `sync auth set <PAT>`, compose a new draft, save. Verify the entry shows in `mempool list`.
 
