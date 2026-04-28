@@ -13,11 +13,13 @@ use wasm_bindgen_futures::spawn_local;
 use crate::app::AppContext;
 use crate::components::chrome::SiteChrome;
 use crate::components::markdown::MarkdownView;
-use crate::components::mempool::save_raw;
+use crate::components::mempool::{derive_new_path, placeholder_frontmatter, save_raw};
 use crate::components::shared::AttestationSigFooter;
-use crate::core::engine::{RenderIntent, RouteFrame};
+use crate::core::engine::{RenderIntent, RouteFrame, push_request_path, replace_request_path};
 use crate::models::{FileType, VirtualPath};
-use crate::utils::content_routes::attestation_route_for_node_path;
+use crate::utils::content_routes::{attestation_route_for_node_path, content_route_for_path};
+use crate::utils::current_timestamp;
+use crate::utils::format::format_date_iso;
 use crate::utils::{
     RenderedMarkdown, UrlValidation, data_url_for_bytes, media_type_for_path, object_url_for_bytes,
     render_markdown, rendered_from_html, sanitize_html, validate_redirect_url,
@@ -58,15 +60,41 @@ pub fn RendererPage(route: Memo<RouteFrame>) -> impl IntoView {
         let ctx = ctx.clone();
         move |_| ctx.runtime_state.with(|rs| rs.github_token_present)
     });
+    let is_new_route = Memo::new(move |_| route.get().request.url_path == "/new");
     let edit_visible = Memo::new(move |_| {
-        author_mode.get() && canonical_path.get().as_str().starts_with("/mempool/")
+        author_mode.get()
+            && (canonical_path.get().as_str().starts_with("/mempool/") || is_new_route.get())
     });
 
-    let mode = RwSignal::new(ReaderMode::View);
-    let draft_body = RwSignal::new(String::new());
+    // Construction-time seed: on /new, the textarea starts in Edit mode with
+    // a frontmatter placeholder; otherwise the page mounts in View with an
+    // empty draft (filled lazily when the user toggles to Edit on an
+    // existing entry).
+    let initial_draft = if is_new_route.get_untracked() {
+        placeholder_frontmatter(&iso_today())
+    } else {
+        String::new()
+    };
+    let initial_mode = if is_new_route.get_untracked() {
+        ReaderMode::Edit
+    } else {
+        ReaderMode::View
+    };
+
+    let mode = RwSignal::new(initial_mode);
+    let draft_body = RwSignal::new(initial_draft);
     let save_error = RwSignal::new(None::<String>);
     let saving = RwSignal::new(false);
     let refetch_epoch = RwSignal::new(0u32);
+
+    // Author-mode redirect for /new — non-author lands on /ledger.
+    // The replace_request_path helper dispatches a synthetic hashchange so
+    // the router actually re-routes (Phase 6 §7.1).
+    Effect::new(move |_| {
+        if is_new_route.get() && !author_mode.get() {
+            replace_request_path("/ledger");
+        }
+    });
 
     // Defensive: if the page is *not* re-mounted across content-path
     // navigation (Leptos's into_any() boundary may keep component identity),
@@ -110,8 +138,12 @@ pub fn RendererPage(route: Memo<RouteFrame>) -> impl IntoView {
     });
 
     let on_toggle_edit = move |_| {
-        let seed = raw_source.get().map(|s| s.to_string()).unwrap_or_default();
-        draft_body.set(seed);
+        // On /new the textarea is already seeded with the placeholder;
+        // on existing entries we copy the current source.
+        if !is_new_route.get_untracked() {
+            let seed = raw_source.get().map(|s| s.to_string()).unwrap_or_default();
+            draft_body.set(seed);
+        }
         save_error.set(None);
         mode.set(ReaderMode::Edit);
     };
@@ -120,6 +152,12 @@ pub fn RendererPage(route: Memo<RouteFrame>) -> impl IntoView {
         let saving = saving;
         move |_| {
             if saving.get_untracked() {
+                return;
+            }
+            if is_new_route.get_untracked() {
+                // Cancelling /new: replace, not push, so the abandoned draft
+                // URL doesn't pollute history.
+                replace_request_path("/ledger");
                 return;
             }
             let seed = raw_source.get().map(|s| s.to_string()).unwrap_or_default();
@@ -136,6 +174,42 @@ pub fn RendererPage(route: Memo<RouteFrame>) -> impl IntoView {
                 return;
             }
             let body = draft_body.get_untracked();
+
+            // /new: derive the target path from the typed frontmatter.
+            if is_new_route.get_untracked() {
+                let target = match derive_new_path(&body) {
+                    Ok(target) => target,
+                    Err(message) => {
+                        save_error.set(Some(message));
+                        return;
+                    }
+                };
+                let rel = target
+                    .as_str()
+                    .trim_start_matches("/mempool/")
+                    .trim_end_matches(".md");
+                let message = format!("mempool: add {rel}");
+                saving.set(true);
+                let ctx_clone = ctx.clone();
+                let target_for_nav = target.clone();
+                spawn_local(async move {
+                    let result =
+                        save_raw(ctx_clone, target, body, message, true).await;
+                    saving.set(false);
+                    match result {
+                        Ok(()) => {
+                            save_error.set(None);
+                            push_request_path(&content_route_for_path(
+                                target_for_nav.as_str(),
+                            ));
+                        }
+                        Err(message) => save_error.set(Some(message)),
+                    }
+                });
+                return;
+            }
+
+            // Existing entry edit.
             let path = canonical_path.get_untracked();
             if !path.as_str().starts_with("/mempool/") {
                 save_error.set(Some(
@@ -157,9 +231,6 @@ pub fn RendererPage(route: Memo<RouteFrame>) -> impl IntoView {
                     Ok(()) => {
                         save_error.set(None);
                         mode.set(ReaderMode::View);
-                        // Belt-and-suspenders: bump epoch so source closures
-                        // re-run, AND call refetch directly in case epoch
-                        // tracking ever falters under future Leptos changes.
                         refetch_epoch.update(|n| *n += 1);
                         content.refetch();
                     }
@@ -256,10 +327,16 @@ pub fn RendererPage(route: Memo<RouteFrame>) -> impl IntoView {
                         on:input=move |ev| draft_body.set(event_target_value(&ev))
                     />
                 </Show>
-                <AttestationSigFooter route=attestation_route />
+                <Show when=move || !is_new_route.get()>
+                    <AttestationSigFooter route=attestation_route />
+                </Show>
             </main>
         </div>
     }
+}
+
+fn iso_today() -> String {
+    format_date_iso(current_timestamp() / 1000)
 }
 
 async fn load_renderer_content(

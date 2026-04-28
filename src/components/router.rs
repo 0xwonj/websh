@@ -125,7 +125,7 @@ pub fn RouterView() -> impl IntoView {
             }
             if _raw_request.with(is_new_request_path) {
                 return view! {
-                    <MempoolEditorPage mode=MempoolEditorPageMode::New />
+                    <RendererPage route=Memo::new(move |_| new_compose_frame()) />
                 }
                 .into_any();
             }
@@ -165,6 +165,22 @@ fn is_builtin_home_route(request: &RouteRequest) -> bool {
 
 fn is_ledger_filter_route(request: &RouteRequest) -> bool {
     is_ledger_filter_route_segment(request.url_path.trim_matches('/'))
+}
+
+fn new_compose_frame() -> RouteFrame {
+    let request = RouteRequest::new("/new");
+    let node_path = VirtualPath::root();
+    RouteFrame {
+        request: request.clone(),
+        resolution: RouteResolution {
+            request_path: request.url_path,
+            surface: RouteSurface::Content,
+            node_path: node_path.clone(),
+            kind: ResolvedKind::Document,
+            params: BTreeMap::new(),
+        },
+        intent: RenderIntent::DocumentReader { node_path },
+    }
 }
 
 fn ledger_filter_frame(request: RouteRequest) -> RouteFrame {
