@@ -309,6 +309,18 @@ pub async fn save_compose(
     .await
     .map_err(|err| err.to_string())?;
     super::promote::apply_commit_outcome(&ctx, &root, &outcome).await;
+
+    // Refresh the runtime so view_global_fs reflects the new GitHub state
+    // — without this, the LocalResource refetch sees the same in-memory
+    // tree it had before the commit and the new entry never appears.
+    // Best-effort: a reload failure logs but does not poison the
+    // already-successful commit.
+    match crate::core::runtime::reload_runtime().await {
+        Ok(load) => ctx.apply_runtime_load(load),
+        Err(error) => leptos::logging::warn!(
+            "compose: runtime reload after commit failed: {error}"
+        ),
+    }
     Ok(())
 }
 
