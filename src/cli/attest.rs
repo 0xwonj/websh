@@ -27,11 +27,12 @@ use super::manifest::{
 const DEFAULT_HOMEPAGE_CONTENT: &[&str] = &[
     "src/components/home/mod.rs",
     "src/components/home/home.module.css",
-    "assets/theme.css",
+    "assets/themes",
     "assets/crypto/ack.commitment.json",
 ];
 const DEFAULT_SIGNATURE_DIR: &str = ".websh/local/crypto/attestations";
 const DEFAULT_GPG_SIGNER: &str = "Wonjae Choi <wonjae@snu.ac.kr>";
+const DEFAULT_GPG_BINARY: &str = "gpg";
 
 #[derive(Args)]
 pub(crate) struct AttestCommand {
@@ -46,6 +47,12 @@ pub(crate) struct AttestCommand {
     /// GPG key id/user id passed to `gpg --local-user`.
     #[arg(long, default_value = DEFAULT_GPG_SIGNER)]
     gpg_key: Option<String>,
+    /// Path to the gpg binary to invoke. Override when the system `gpg`
+    /// emits packets the verifier cannot parse (e.g., the `manu` notation
+    /// added by gnupg 2.5.x is unsupported by `pgp` 0.19; pointing at a
+    /// stable 2.4.x build sidesteps it).
+    #[arg(long, default_value = DEFAULT_GPG_BINARY)]
+    gpg_binary: PathBuf,
     /// Local directory for generated subject messages and detached signatures.
     #[arg(long, default_value = DEFAULT_SIGNATURE_DIR)]
     signature_dir: PathBuf,
@@ -114,6 +121,7 @@ struct AttestAllOptions {
     content_dir: PathBuf,
     key: PathBuf,
     gpg_key: Option<String>,
+    gpg_binary: PathBuf,
     signature_dir: PathBuf,
     no_sign: bool,
     issued_at: Option<String>,
@@ -132,6 +140,7 @@ pub(crate) fn run(root: &Path, command: AttestCommand) -> CliResult {
         content_dir,
         key,
         gpg_key,
+        gpg_binary,
         signature_dir,
         no_sign,
         issued_at,
@@ -146,6 +155,7 @@ pub(crate) fn run(root: &Path, command: AttestCommand) -> CliResult {
                 content_dir,
                 key,
                 gpg_key,
+                gpg_binary,
                 signature_dir,
                 no_sign,
                 issued_at,
@@ -161,6 +171,7 @@ pub(crate) fn run_default(root: &Path, no_sign: bool) -> CliResult {
             content_dir: PathBuf::from(DEFAULT_CONTENT_DIR),
             key: PathBuf::from(PUBLIC_KEY_PATH),
             gpg_key: Some(DEFAULT_GPG_SIGNER.to_string()),
+            gpg_binary: PathBuf::from(DEFAULT_GPG_BINARY),
             signature_dir: PathBuf::from(DEFAULT_SIGNATURE_DIR),
             no_sign,
             issued_at: None,
@@ -257,6 +268,7 @@ fn attest_all(root: &Path, options: AttestAllOptions) -> CliResult {
                 root,
                 &options.key,
                 options.gpg_key.as_deref(),
+                &options.gpg_binary,
                 &options.signature_dir,
             )?;
         } else {
@@ -465,6 +477,7 @@ fn sign_missing_pgp_attestations(
     root: &Path,
     key: &Path,
     gpg_key: Option<&str>,
+    gpg_binary: &Path,
     signature_dir: &Path,
 ) -> CliResult<usize> {
     let mut artifact = read_artifact(root)?;
@@ -486,7 +499,8 @@ fn sign_missing_pgp_attestations(
             continue;
         }
 
-        let attestation = sign_subject_with_gpg(root, &subject, key, gpg_key, signature_dir)?;
+        let attestation =
+            sign_subject_with_gpg(root, &subject, key, gpg_key, gpg_binary, signature_dir)?;
         let subject = artifact
             .subject_for_route_mut(&route)
             .expect("subject exists after immutable lookup");
@@ -532,6 +546,7 @@ fn sign_subject_with_gpg(
     subject: &AttestationSubject,
     key: &Path,
     gpg_key: Option<&str>,
+    gpg_binary: &Path,
     signature_dir: &Path,
 ) -> CliResult<SubjectAttestation> {
     let signature_dir = resolve_path(root, signature_dir);
@@ -541,7 +556,7 @@ fn sign_subject_with_gpg(
     let signature_path = signature_dir.join(format!("{slug}.sig.asc"));
     fs::write(&message_path, &subject.message)?;
 
-    let mut command = Command::new("gpg");
+    let mut command = Command::new(gpg_binary);
     command
         .arg("--yes")
         .arg("--armor")
@@ -739,21 +754,64 @@ fn content_paths_or_default(
     kind: &str,
     paths: Vec<PathBuf>,
 ) -> CliResult<Vec<PathBuf>> {
-    if !paths.is_empty() {
-        return Ok(paths);
-    }
-    if route != "/" || kind != "homepage" {
-        return Err("non-homepage subjects require at least one --content path".into());
-    }
+    let raw = if paths.is_empty() {
+        if route != "/" || kind != "homepage" {
+            return Err("non-homepage subjects require at least one --content path".into());
+        }
+        let mut defaults = DEFAULT_HOMEPAGE_CONTENT
+            .iter()
+            .map(PathBuf::from)
+            .collect::<Vec<_>>();
+        if root.join(PUBLIC_KEY_PATH).exists() {
+            defaults.push(PathBuf::from(PUBLIC_KEY_PATH));
+        }
+        defaults
+    } else {
+        paths
+    };
+    expand_content_paths(root, raw)
+}
 
-    let mut paths = DEFAULT_HOMEPAGE_CONTENT
-        .iter()
-        .map(PathBuf::from)
-        .collect::<Vec<_>>();
-    if root.join(PUBLIC_KEY_PATH).exists() {
-        paths.push(PathBuf::from(PUBLIC_KEY_PATH));
+/// Expand `paths` so each directory entry is replaced by the recursive list
+/// of files it contains. File entries pass through unchanged. Order is
+/// preserved across the input list, with files inside an expanded directory
+/// emitted in the canonical sort order produced by
+/// `manifest::collect_files_recursive`. Duplicates (same canonical
+/// filesystem location reached via multiple input paths) are dropped — the
+/// downstream `build_subject_content` rejects dupes outright, so dropping
+/// here is the user-friendly path.
+fn expand_content_paths(root: &Path, raw_paths: Vec<PathBuf>) -> CliResult<Vec<PathBuf>> {
+    let mut seen = BTreeSet::new();
+    let mut expanded = Vec::new();
+    for path in raw_paths {
+        let abs = if path.is_absolute() {
+            path.clone()
+        } else {
+            root.join(&path)
+        };
+        if abs.is_dir() {
+            let mut files = Vec::new();
+            collect_files_recursive(&abs, &mut files)?;
+            for file in files {
+                let key = file.canonicalize().unwrap_or_else(|_| file.clone());
+                if seen.insert(key) {
+                    expanded.push(file);
+                }
+            }
+        } else if abs.is_file() {
+            let key = abs.canonicalize().unwrap_or_else(|_| abs.clone());
+            if seen.insert(key) {
+                expanded.push(path);
+            }
+        } else {
+            return Err(format!(
+                "attestation content path not found: {}",
+                path.display()
+            )
+            .into());
+        }
     }
-    Ok(paths)
+    Ok(expanded)
 }
 
 fn discover_subject_specs(root: &Path, content_dir: &Path) -> CliResult<Vec<SubjectSpec>> {
