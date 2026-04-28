@@ -4,7 +4,7 @@
       "path": ".websh/ledger.json",
       "title": "ledger",
       "size": 4765,
-      "modified": 1777366232,
+      "modified": 1777370567,
       "date": null,
       "tags": [],
       "access": null
@@ -13,7 +13,7 @@
       "path": ".websh/mounts/mempool.mount.json",
       "title": "mempool.mount",
       "size": 161,
-      "modified": 1777354640,
+      "modified": 1777366773,
       "date": null,
       "tags": [],
       "access": null
@@ -21,8 +21,8 @@
     {
       "path": "keys/wonjae.asc",
       "title": "wonjae",
-      "size": 191,
-      "modified": 1777354640,
+      "size": 640,
+      "modified": 1777370539,
       "date": null,
       "tags": [],
       "access": null
@@ -31,7 +31,7 @@
       "path": "now.toml",
       "title": "now",
       "size": 146,
-      "modified": 1777354640,
+      "modified": 1777366393,
       "date": null,
       "tags": [],
       "access": null
@@ -40,7 +40,7 @@
       "path": "papers/tabula.md",
       "title": "tabula",
       "size": 130,
-      "modified": 1777157914,
+      "modified": 1777366405,
       "date": "2026-04-26",
       "tags": [
         "EuroSys 2027",
@@ -54,7 +54,7 @@
       "path": "projects/websh.md",
       "title": "websh",
       "size": 148,
-      "modified": 1777157914,
+      "modified": 1777366405,
       "date": "2026-04-22",
       "tags": [
         "local app",
@@ -68,7 +68,7 @@
       "path": "talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.pdf",
       "title": "Evaluating Compiler Optimization Impacts on zkVM Performance",
       "size": 3565336,
-      "modified": 1777157238,
+      "modified": 1777366405,
       "date": "2026-04-24",
       "tags": [
         "labseminar"
@@ -79,7 +79,7 @@
       "path": "talks/zk-compilers.md",
       "title": "zk compilers, and why they're hard",
       "size": 173,
-      "modified": 1777157914,
+      "modified": 1777366405,
       "date": "2026-03-10",
       "tags": [
         "talk",
@@ -92,7 +92,7 @@
       "path": "writing/content-backed-homepage.md",
       "title": "content-backed homepage",
       "size": 913,
-      "modified": 1777166212,
+      "modified": 1777366405,
       "date": "2026-04-20",
       "tags": [
         "notes",
