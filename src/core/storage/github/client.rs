@@ -128,6 +128,13 @@ impl GitHubBackend {
             .send()
             .await
             .map_err(|e| StorageError::NetworkError(e.to_string()))?;
+        // A missing manifest is the canonical signal of a fresh / empty
+        // mount: the first commit will atomically create both the file and
+        // the manifest. Treat 404 as "no entries yet" rather than a hard
+        // error so newly-provisioned GitHub mounts can self-bootstrap.
+        if resp.status() == 404 {
+            return Ok(ScannedSubtree::default());
+        }
         if !(200..300).contains(&resp.status()) {
             return Err(map_http_status(resp.status(), None));
         }
