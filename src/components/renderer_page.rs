@@ -1,12 +1,19 @@
 //! Standalone content renderer page.
+//!
+//! Phase 7 added a view/edit toggle: when the path is under `/mempool/`
+//! and author-mode is on, the chrome surfaces an `edit` button that
+//! flips the page into a raw-markdown textarea. Save commits via
+//! `save_raw`; the URL never changes during the toggle.
 
 use std::sync::Arc;
 
 use leptos::prelude::*;
+use wasm_bindgen_futures::spawn_local;
 
 use crate::app::AppContext;
 use crate::components::chrome::SiteChrome;
 use crate::components::markdown::MarkdownView;
+use crate::components::mempool::save_raw;
 use crate::components::shared::AttestationSigFooter;
 use crate::core::engine::{RenderIntent, RouteFrame};
 use crate::models::{FileType, VirtualPath};
@@ -17,6 +24,12 @@ use crate::utils::{
 };
 
 stylance::import_crate_style!(css, "src/components/renderer_page.module.css");
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ReaderMode {
+    View,
+    Edit,
+}
 
 #[derive(Clone)]
 enum RendererContent {
@@ -48,80 +61,201 @@ pub fn RendererPage(route: Memo<RouteFrame>) -> impl IntoView {
     let edit_visible = Memo::new(move |_| {
         author_mode.get() && canonical_path.get().as_str().starts_with("/mempool/")
     });
-    let edit_href = Memo::new(move |_| {
-        format!("/#/edit{}", canonical_path.get().as_str())
+
+    let mode = RwSignal::new(ReaderMode::View);
+    let draft_body = RwSignal::new(String::new());
+    let save_error = RwSignal::new(None::<String>);
+    let saving = RwSignal::new(false);
+    let refetch_epoch = RwSignal::new(0u32);
+
+    // Defensive: if the page is *not* re-mounted across content-path
+    // navigation (Leptos's into_any() boundary may keep component identity),
+    // reset transient editing state so an in-flight draft from entry A
+    // doesn't bleed into entry B.
+    Effect::new(move |_| {
+        let _ = canonical_path.get();
+        mode.set(ReaderMode::View);
+        save_error.set(None);
     });
+
+    // Raw markdown source — used to seed `draft_body` when the user toggles
+    // to Edit. Existing `content` LocalResource discards the raw source after
+    // rendering, so we re-fetch it here on demand.
+    let raw_source = LocalResource::new({
+        let ctx_clone = ctx.clone();
+        move || {
+            let ctx = ctx_clone.clone();
+            let path = canonical_path.get();
+            let _ = refetch_epoch.get();
+            async move {
+                if FileType::from_path(path.as_str()) == FileType::Markdown {
+                    ctx.read_text(&path).await.unwrap_or_default()
+                } else {
+                    String::new()
+                }
+            }
+        }
+    });
+
+    let content = LocalResource::new({
+        let ctx_clone = ctx.clone();
+        move || {
+            let ctx = ctx_clone.clone();
+            let frame = route.get();
+            let path = frame.resolution.node_path.clone();
+            let intent = frame.intent.clone();
+            let _ = refetch_epoch.get();
+            async move { load_renderer_content(ctx, path, intent).await }
+        }
+    });
+
+    let on_toggle_edit = move |_| {
+        let seed = raw_source.get().map(|s| s.to_string()).unwrap_or_default();
+        draft_body.set(seed);
+        save_error.set(None);
+        mode.set(ReaderMode::Edit);
+    };
+
+    let on_cancel = {
+        let saving = saving;
+        move |_| {
+            if saving.get_untracked() {
+                return;
+            }
+            let seed = raw_source.get().map(|s| s.to_string()).unwrap_or_default();
+            draft_body.set(seed);
+            save_error.set(None);
+            mode.set(ReaderMode::View);
+        }
+    };
+
+    let on_save = {
+        let ctx = ctx.clone();
+        move |_| {
+            if saving.get_untracked() {
+                return;
+            }
+            let body = draft_body.get_untracked();
+            let path = canonical_path.get_untracked();
+            if !path.as_str().starts_with("/mempool/") {
+                save_error.set(Some(
+                    "save is only allowed for /mempool/... paths".to_string(),
+                ));
+                return;
+            }
+            let rel = path
+                .as_str()
+                .trim_start_matches("/mempool/")
+                .trim_end_matches(".md");
+            let message = format!("mempool: edit {rel}");
+            saving.set(true);
+            let ctx_clone = ctx.clone();
+            spawn_local(async move {
+                let result = save_raw(ctx_clone, path, body, message, false).await;
+                saving.set(false);
+                match result {
+                    Ok(()) => {
+                        save_error.set(None);
+                        mode.set(ReaderMode::View);
+                        // Belt-and-suspenders: bump epoch so source closures
+                        // re-run, AND call refetch directly in case epoch
+                        // tracking ever falters under future Leptos changes.
+                        refetch_epoch.update(|n| *n += 1);
+                        content.refetch();
+                    }
+                    Err(message) => save_error.set(Some(message)),
+                }
+            });
+        }
+    };
 
     let extra_actions: ChildrenFn = Arc::new(move || {
         view! {
-            <Show when=move || edit_visible.get()>
-                <a
-                    href=move || edit_href.get()
-                    class=css::editLink
-                    aria-label="Edit this mempool entry"
-                >"edit"</a>
+            <Show when=move || mode.get() == ReaderMode::View && edit_visible.get()>
+                <button class=css::editButton on:click=on_toggle_edit>"edit"</button>
+            </Show>
+            <Show when=move || mode.get() == ReaderMode::Edit>
+                <button
+                    class=css::cancelButton
+                    on:click=on_cancel
+                    prop:disabled=move || saving.get()
+                >"cancel"</button>
+                <button
+                    class=css::saveButton
+                    on:click=on_save
+                    prop:disabled=move || saving.get()
+                >
+                    {move || if saving.get() { "Saving…" } else { "Save" }}
+                </button>
             </Show>
         }
         .into_any()
-    });
-
-    let content = LocalResource::new(move || {
-        let frame = route.get();
-        let path = frame.resolution.node_path.clone();
-        let intent = frame.intent.clone();
-        async move { load_renderer_content(ctx, path, intent).await }
     });
 
     view! {
         <div class=css::surface>
             <SiteChrome route=route extra_actions=extra_actions />
             <main class=css::page>
-                <Suspense fallback=move || view! {
-                    <div class=css::loading>"Loading..."</div>
-                }>
-                    {move || {
-                        content.get().map(|result| {
-                            match result {
-                                Ok(RendererContent::Html(rendered)) => {
-                                    let rendered = Signal::derive(move || rendered.clone());
-                                    view! {
-                                        <MarkdownView rendered=rendered class=css::markdown />
-                                    }.into_any()
-                                }
-                                Ok(RendererContent::Text(text)) => view! {
-                                    <pre class=css::rawText>{text}</pre>
-                                }.into_any(),
-                                Ok(RendererContent::Asset { url, media_type }) => {
-                                    let name = filename.get();
-                                    if media_type == "application/pdf" {
-                                        view! {
-                                            <iframe
-                                                src=url
-                                                class=css::pdfViewer
-                                                title=name
-                                            />
-                                        }.into_any()
-                                    } else {
-                                        view! {
-                                            <figure class=css::imageFrame>
-                                                <img src=url alt=name class=css::image />
-                                            </figure>
-                                        }.into_any()
+                {move || save_error.get().map(|message| view! {
+                    <div class=css::errorBanner role="alert">{message}</div>
+                })}
+                <Show
+                    when=move || mode.get() == ReaderMode::Edit
+                    fallback=move || view! {
+                        <Suspense fallback=move || view! {
+                            <div class=css::loading>"Loading..."</div>
+                        }>
+                            {move || {
+                                content.get().map(|result| {
+                                    match result {
+                                        Ok(RendererContent::Html(rendered)) => {
+                                            let rendered = Signal::derive(move || rendered.clone());
+                                            view! {
+                                                <MarkdownView rendered=rendered class=css::markdown />
+                                            }.into_any()
+                                        }
+                                        Ok(RendererContent::Text(text)) => view! {
+                                            <pre class=css::rawText>{text}</pre>
+                                        }.into_any(),
+                                        Ok(RendererContent::Asset { url, media_type }) => {
+                                            let name = filename.get();
+                                            if media_type == "application/pdf" {
+                                                view! {
+                                                    <iframe
+                                                        src=url
+                                                        class=css::pdfViewer
+                                                        title=name
+                                                    />
+                                                }.into_any()
+                                            } else {
+                                                view! {
+                                                    <figure class=css::imageFrame>
+                                                        <img src=url alt=name class=css::image />
+                                                    </figure>
+                                                }.into_any()
+                                            }
+                                        }
+                                        Ok(RendererContent::Redirecting) => view! {
+                                            <div class=css::loading>"Redirecting..."</div>
+                                        }.into_any(),
+                                        Ok(RendererContent::Unsupported(message)) => view! {
+                                            <div class=css::error>{message}</div>
+                                        }.into_any(),
+                                        Err(error) => view! {
+                                            <div class=css::error>{error}</div>
+                                        }.into_any(),
                                     }
-                                }
-                                Ok(RendererContent::Redirecting) => view! {
-                                    <div class=css::loading>"Redirecting..."</div>
-                                }.into_any(),
-                                Ok(RendererContent::Unsupported(message)) => view! {
-                                    <div class=css::error>{message}</div>
-                                }.into_any(),
-                                Err(error) => view! {
-                                    <div class=css::error>{error}</div>
-                                }.into_any(),
-                            }
-                        })
-                    }}
-                </Suspense>
+                                })
+                            }}
+                        </Suspense>
+                    }
+                >
+                    <textarea
+                        class=css::editorTextarea
+                        prop:value=move || draft_body.get()
+                        on:input=move |ev| draft_body.set(event_target_value(&ev))
+                    />
+                </Show>
                 <AttestationSigFooter route=attestation_route />
             </main>
         </div>

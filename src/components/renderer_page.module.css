@@ -200,26 +200,75 @@
   border-radius: var(--radius-lg);
 }
 
-.editLink {
+.editButton,
+.saveButton,
+.cancelButton {
   border: 1px solid var(--border-muted);
-  color: var(--accent);
+  color: var(--text-dim);
+  background: transparent;
   padding: 0 var(--space-2);
   font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.04em;
-  text-decoration: none;
   display: inline-block;
   line-height: 1.55;
+  cursor: pointer;
 }
 
-.editLink:hover {
+.saveButton {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.editButton:hover,
+.cancelButton:hover {
   color: var(--text-primary);
   border-color: var(--accent);
 }
 
-.editLink:focus-visible {
+.saveButton:hover {
+  color: var(--text-primary);
+}
+
+.editButton:focus-visible,
+.saveButton:focus-visible,
+.cancelButton:focus-visible {
   outline: 1px solid var(--accent);
   outline-offset: 1px;
+}
+
+.editButton:disabled,
+.saveButton:disabled,
+.cancelButton:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.editorTextarea {
+  width: 100%;
+  min-height: 60vh;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-muted);
+  padding: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-md);
+  line-height: var(--leading-relaxed);
+  resize: vertical;
+}
+
+.editorTextarea:focus {
+  outline: 1px solid var(--accent);
+  border-color: var(--accent);
+}
+
+.errorBanner {
+  background: rgba(201, 56, 56, 0.12);
+  border: 1px solid var(--terminal-red);
+  color: var(--terminal-red);
+  padding: var(--space-2) var(--space-3);
+  font-size: 0.9em;
+  margin-bottom: var(--space-4);
 }
 
 @media (max-width: 768px) {
