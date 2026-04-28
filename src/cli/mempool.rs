@@ -305,7 +305,7 @@ fn promote(root: &Path, args: PromoteArgs) -> CliResult {
                 "mempool drop: {} already absent from {}",
                 target.repo_path, mount.repo
             ),
-            Err(e) => println!(
+            Err(e) => eprintln!(
                 "mempool drop: {e} — re-run `websh-cli mempool drop --path {}` to retry",
                 args.path
             ),
@@ -535,25 +535,10 @@ fn stage_and_commit(root: &Path, target: &PromoteTarget, did_attest: bool) -> Cl
 }
 
 fn rollback(root: &Path, target: &PromoteTarget, c: &PromoteCleanup) {
-    if c.body_written {
-        let _ = std::fs::remove_file(root.join(&target.bundle_disk_path));
-    }
-    if c.ledger_written {
-        let _ = git_quiet(
-            root,
-            ["checkout", "--", "content/.websh/ledger.json"],
-        );
-    }
-    if c.manifest_written {
-        let _ = git_quiet(root, ["checkout", "--", "content/manifest.json"]);
-    }
-    if c.attest_written {
-        let _ = git_quiet(
-            root,
-            ["checkout", "--", "assets/crypto/attestations.json"],
-        );
-        // .websh/local/crypto/attestations is gitignored; not restored.
-    }
+    // Reset the index FIRST so subsequent `git checkout HEAD --` actually
+    // restores from HEAD instead of from the (potentially-staged-with-new-
+    // content) index. This ordering is correct whether or not `git add`
+    // has run before the failure point.
     let _ = git_quiet(
         root,
         [
@@ -564,6 +549,28 @@ fn rollback(root: &Path, target: &PromoteTarget, c: &PromoteCleanup) {
             "assets/crypto/attestations.json",
         ],
     );
+    if c.body_written {
+        let _ = std::fs::remove_file(root.join(&target.bundle_disk_path));
+    }
+    // `git checkout HEAD -- <path>` (vs the bare `git checkout -- <path>`)
+    // explicitly sources from HEAD, ignoring whatever's in the index. Safe
+    // even if the index already matches HEAD (no-op).
+    if c.ledger_written {
+        let _ = git_quiet(
+            root,
+            ["checkout", "HEAD", "--", "content/.websh/ledger.json"],
+        );
+    }
+    if c.manifest_written {
+        let _ = git_quiet(root, ["checkout", "HEAD", "--", "content/manifest.json"]);
+    }
+    if c.attest_written {
+        let _ = git_quiet(
+            root,
+            ["checkout", "HEAD", "--", "assets/crypto/attestations.json"],
+        );
+        // .websh/local/crypto/attestations is gitignored; not restored.
+    }
 }
 
 fn git_quiet<I, S>(root: &Path, args: I) -> CliResult
@@ -676,8 +683,9 @@ fn drop_via_gh(
             let status = del_cmd.status()?;
             if !status.success() {
                 return Err(format!(
-                    "blob delete failed for {} (manifest already updated; orphan blob remains)",
-                    path_in_repo
+                    "blob delete failed for {} (manifest already updated; orphan blob remains — \
+                     re-run `websh-cli mempool drop --path {}` later to retry the blob delete)",
+                    path_in_repo, path_in_repo
                 )
                 .into());
             }
