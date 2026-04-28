@@ -59,11 +59,11 @@ Three phases, executed sequentially. Each is its own PR.
 |---|---|---|---|
 | 1 | Read-only Mempool | Mempool section renders pending entries from `/mempool` mount; click opens modal preview; filter integration | **Complete** |
 | 2 | Authoring (Compose & Edit) | Author-mode toggle, compose modal, edit existing draft, GitHub commit to mempool repo | **Complete** |
-| 3 | Promotion | Promote button on mempool item, two-commit transaction, deploy hint banner | **Complete** |
+| 3 | Promotion (browser) | Promote button on mempool item, two-commit transaction, deploy hint banner | **Complete (superseded by Phase 5)** |
 | 4 | Hardening | Strict mount-root match for writes, 404-tolerant scan, compose runtime reload, manifest pre_build hook, CLI `mount init` | **Complete** (pending live QA) |
 | 5 | CLI Promote (browser → host) | Replace browser promote modal with `websh-cli mempool promote/drop`. Atomic single-commit on bundle source; ledger/manifest/attestations regenerated locally; mempool drop as follow-up | **In Design** |
 
-After Phase 3, V1 is complete. V2 items (§7) are queued separately.
+After Phase 5, V1 is complete (Phases 4 and 5 are post-Phase-3 hardening + architectural pivot — see Decision Log). V2 items (§7) are queued separately.
 
 ## 5. Per-Phase Workflow
 
@@ -134,11 +134,11 @@ Adding any V2 item to V1 requires updating §3 anchors, §4 phase plan, and the 
 
 ## 8. Acceptance — V1 as a Whole
 
-V1 is complete when *all three* phase acceptance criteria are met *and*:
+V1 is complete when each phase's acceptance criteria are met *and*:
 
-1. I can compose a draft entirely in the deployed site, see it in the mempool, edit it, and promote it — without any terminal interaction beyond `just pin` for the final IPFS deploy.
+1. I can compose a draft entirely in the deployed site, see it in the mempool, and edit it without leaving the browser. Promotion happens at the local terminal via `websh-cli mempool promote` followed by `git push` + `just pin` — the same publish ritual the deploy step already requires.
 2. The deployed `/ledger` page renders mempool above chain, both filtering correctly by category.
-3. The two-commit promotion is documented with a partial-failure recovery path.
+3. Promotion is a single git commit on the bundle source plus an optional best-effort mempool drop. Both surfaces have explicit failure recovery documented in Phase 5 §3.2 / §3.3.
 4. Reviewer agent has cleared each phase with no outstanding CRITICAL or HIGH findings.
 
 ## 9. Open Questions
