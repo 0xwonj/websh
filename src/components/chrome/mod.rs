@@ -63,14 +63,7 @@ pub fn SiteChromeRoot(surface: SiteChromeSurface, children: Children) -> impl In
 }
 
 #[component]
-pub fn SiteChrome(
-    route: Memo<RouteFrame>,
-    /// Additional reactive children appended to the actions slot
-    /// (after the nav, divider, and palette picker).
-    /// Used by `RendererPage` to surface a per-page edit affordance.
-    #[prop(optional, into)]
-    extra_actions: Option<ChildrenFn>,
-) -> impl IntoView {
+pub fn SiteChrome(route: Memo<RouteFrame>) -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
     let theme = ctx.theme;
     let identity_href = Signal::derive(|| "/".to_string());
@@ -129,7 +122,6 @@ pub fn SiteChrome(
                 </SiteChromeNav>
                 <SiteChromeDivider />
                 <SiteChromePalettePicker theme=theme />
-                {extra_actions.map(|c| c())}
             </SiteChromeActions>
         </SiteChromeRoot>
     }
