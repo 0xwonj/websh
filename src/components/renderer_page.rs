@@ -99,11 +99,15 @@ pub fn RendererPage(route: Memo<RouteFrame>) -> impl IntoView {
     // Defensive: if the page is *not* re-mounted across content-path
     // navigation (Leptos's into_any() boundary may keep component identity),
     // reset transient editing state so an in-flight draft from entry A
-    // doesn't bleed into entry B.
-    Effect::new(move |_| {
+    // doesn't bleed into entry B. The prev-guard skips the reset on the
+    // initial mount so the construction-time seed (Edit + placeholder for
+    // /new) survives — same pattern as router.rs:90.
+    Effect::new(move |prev: Option<()>| {
         let _ = canonical_path.get();
-        mode.set(ReaderMode::View);
-        save_error.set(None);
+        if prev.is_some() {
+            mode.set(ReaderMode::View);
+            save_error.set(None);
+        }
     });
 
     // Raw markdown source — used to seed `draft_body` when the user toggles
