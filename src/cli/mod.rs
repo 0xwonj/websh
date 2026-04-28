@@ -8,6 +8,7 @@ mod deploy;
 mod io;
 mod ledger;
 mod manifest;
+mod mempool;
 mod mount;
 mod pgp;
 
@@ -34,6 +35,7 @@ enum Command {
     Crypto(crypto::CryptoCommand),
     Content(content::ContentCommand),
     Deploy(deploy::DeployCommand),
+    Mempool(mempool::MempoolCommand),
     Mount(mount::MountCommand),
 }
 
@@ -45,6 +47,7 @@ pub fn run() -> CliResult {
         Command::Crypto(command) => crypto::run(&root, command),
         Command::Content(command) => content::run(&root, command),
         Command::Deploy(command) => deploy::run(&root, command),
+        Command::Mempool(command) => mempool::run(&root, command),
         Command::Mount(command) => mount::run(&root, command),
     }
 }
