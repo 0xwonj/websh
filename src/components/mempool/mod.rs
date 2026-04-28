@@ -2,6 +2,7 @@
 
 mod component;
 mod compose;
+mod editor;
 mod loader;
 mod model;
 mod parse;
@@ -14,6 +15,7 @@ pub use compose::{
     derive_form_from_mode, form_to_payload, save_compose, save_path_for, target_path,
     validate_form,
 };
+pub use editor::MempoolEditor;
 pub use loader::{load_mempool_files, mempool_root};
 pub use model::{
     LedgerFilterShape, LoadedMempoolFile, MempoolEntry, MempoolModel, MempoolStatus, Priority,
