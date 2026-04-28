@@ -3,8 +3,8 @@
     {
       "path": ".websh/ledger.json",
       "title": "ledger",
-      "size": 9952,
-      "modified": 1777354640,
+      "size": 4765,
+      "modified": 1777366232,
       "date": null,
       "tags": [],
       "access": null
@@ -37,30 +37,6 @@
       "access": null
     },
     {
-      "path": "papers/algo.md",
-      "title": "Algorithm paper",
-      "size": 129,
-      "modified": 1777354640,
-      "date": "2026-04-18",
-      "tags": [
-        "stub",
-        "papers"
-      ],
-      "access": null
-    },
-    {
-      "path": "papers/beta-prime.md",
-      "title": "Beta-prime paper",
-      "size": 131,
-      "modified": 1777354640,
-      "date": "2026-03-26",
-      "tags": [
-        "stub",
-        "papers"
-      ],
-      "access": null
-    },
-    {
       "path": "papers/tabula.md",
       "title": "tabula",
       "size": 130,
@@ -71,66 +47,6 @@
         "systems",
         "zk",
         "paper"
-      ],
-      "access": null
-    },
-    {
-      "path": "papers/theorem.md",
-      "title": "Theorem paper",
-      "size": 125,
-      "modified": 1777354640,
-      "date": "2026-03-25",
-      "tags": [
-        "stub",
-        "papers"
-      ],
-      "access": null
-    },
-    {
-      "path": "projects/four.md",
-      "title": "Project four",
-      "size": 127,
-      "modified": 1777354640,
-      "date": "2026-02-15",
-      "tags": [
-        "stub",
-        "projects"
-      ],
-      "access": null
-    },
-    {
-      "path": "projects/one.md",
-      "title": "Project one",
-      "size": 125,
-      "modified": 1777354640,
-      "date": "2026-04-22",
-      "tags": [
-        "stub",
-        "projects"
-      ],
-      "access": null
-    },
-    {
-      "path": "projects/three.md",
-      "title": "Project three",
-      "size": 129,
-      "modified": 1777354640,
-      "date": "2026-04-09",
-      "tags": [
-        "stub",
-        "projects"
-      ],
-      "access": null
-    },
-    {
-      "path": "projects/two.md",
-      "title": "Project two",
-      "size": 125,
-      "modified": 1777354640,
-      "date": "2026-04-08",
-      "tags": [
-        "stub",
-        "projects"
       ],
       "access": null
     },
@@ -160,42 +76,6 @@
       "access": null
     },
     {
-      "path": "talks/konference.md",
-      "title": "Konference talk",
-      "size": 128,
-      "modified": 1777354640,
-      "date": "2026-04-20",
-      "tags": [
-        "stub",
-        "talks"
-      ],
-      "access": null
-    },
-    {
-      "path": "talks/retreat.md",
-      "title": "Retreat talk",
-      "size": 122,
-      "modified": 1777354640,
-      "date": "2026-03-15",
-      "tags": [
-        "stub",
-        "talks"
-      ],
-      "access": null
-    },
-    {
-      "path": "talks/workshop.md",
-      "title": "Workshop talk",
-      "size": 124,
-      "modified": 1777354640,
-      "date": "2026-04-19",
-      "tags": [
-        "stub",
-        "talks"
-      ],
-      "access": null
-    },
-    {
       "path": "talks/zk-compilers.md",
       "title": "zk compilers, and why they're hard",
       "size": 173,
@@ -205,30 +85,6 @@
         "talk",
         "zk",
         "compilers"
-      ],
-      "access": null
-    },
-    {
-      "path": "writing/alpha.md",
-      "title": "Alpha note",
-      "size": 132,
-      "modified": 1777354640,
-      "date": "2026-04-26",
-      "tags": [
-        "stub",
-        "writing"
-      ],
-      "access": null
-    },
-    {
-      "path": "writing/beta.md",
-      "title": "Beta note",
-      "size": 130,
-      "modified": 1777354640,
-      "date": "2026-04-25",
-      "tags": [
-        "stub",
-        "writing"
       ],
       "access": null
     },
@@ -243,42 +99,6 @@
         "websh",
         "homepage",
         "renderer-test"
-      ],
-      "access": null
-    },
-    {
-      "path": "writing/delta.md",
-      "title": "Delta note",
-      "size": 132,
-      "modified": 1777354640,
-      "date": "2026-03-12",
-      "tags": [
-        "stub",
-        "writing"
-      ],
-      "access": null
-    },
-    {
-      "path": "writing/epsilon.md",
-      "title": "Epsilon note",
-      "size": 136,
-      "modified": 1777354640,
-      "date": "2026-01-20",
-      "tags": [
-        "stub",
-        "writing"
-      ],
-      "access": null
-    },
-    {
-      "path": "writing/gamma.md",
-      "title": "Gamma note",
-      "size": 132,
-      "modified": 1777354640,
-      "date": "2026-04-02",
-      "tags": [
-        "stub",
-        "writing"
       ],
       "access": null
     }
