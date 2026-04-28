@@ -8,6 +8,7 @@ mod deploy;
 mod io;
 mod ledger;
 mod manifest;
+mod mount;
 mod pgp;
 
 use std::error::Error;
@@ -33,6 +34,7 @@ enum Command {
     Crypto(crypto::CryptoCommand),
     Content(content::ContentCommand),
     Deploy(deploy::DeployCommand),
+    Mount(mount::MountCommand),
 }
 
 pub fn run() -> CliResult {
@@ -43,5 +45,6 @@ pub fn run() -> CliResult {
         Command::Crypto(command) => crypto::run(&root, command),
         Command::Content(command) => content::run(&root, command),
         Command::Deploy(command) => deploy::run(&root, command),
+        Command::Mount(command) => mount::run(&root, command),
     }
 }
