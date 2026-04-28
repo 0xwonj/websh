@@ -62,7 +62,16 @@ pub struct CommitRequest {
 pub trait StorageBackend {
     fn backend_type(&self) -> &'static str;
 
-    fn scan(&self) -> BoxFuture<'_, StorageResult<ScannedSubtree>>;
+    /// Scan the mount and return its current tree.
+    ///
+    /// `auth_token` is the optional bearer token used for backends whose
+    /// fresh-read path requires authentication. The github backend uses it
+    /// to bypass `raw.githubusercontent.com` (which lags behind git storage
+    /// by minutes through its CDN) and read directly from the authoritative
+    /// Contents API. Backends that are CDN-free (mock, ipfs read paths) can
+    /// ignore the token.
+    fn scan<'a>(&'a self, auth_token: Option<&'a str>)
+        -> BoxFuture<'a, StorageResult<ScannedSubtree>>;
 
     fn read_text<'a>(&'a self, rel_path: &'a str) -> BoxFuture<'a, StorageResult<String>>;
 

@@ -5,6 +5,7 @@ use serde_json::Value;
 
 use crate::config::BOOTSTRAP_SITE;
 use crate::core::engine::{BackendRegistry, GlobalFs};
+use crate::core::runtime::state::github_token_for_commit;
 use crate::core::storage::{ScannedSubtree, StorageBackend, boot as storage_boot};
 use crate::models::{
     DerivedIndex, DirectorySidecarMetadata, FileSidecarMetadata, MountDeclaration, RuntimeMount,
@@ -51,13 +52,17 @@ pub async fn load_runtime() -> Result<RuntimeLoad, String> {
     let mut runtime_mounts = bootstrap_runtime_mounts();
     let roots: Vec<_> = backends.keys().cloned().collect();
     let mut scans = Vec::new();
+    // Pass the session GitHub token to every scan so backends can hit the
+    // authoritative Contents API (avoiding raw.githubusercontent.com's
+    // CDN cache lag) when one is available.
+    let auth_token = github_token_for_commit();
 
     for root in roots {
         let Some(backend) = backends.get(&root).cloned() else {
             continue;
         };
         let scan = backend
-            .scan()
+            .scan(auth_token.as_deref())
             .await
             .map_err(|error| format!("mount {}: {error}", mount_label_for_root(&root)))?;
         scans.push((root, scan));
@@ -122,6 +127,7 @@ async fn apply_runtime_conventions(
 
     runtime_mounts.retain(|mount| bootstrap_roots.iter().any(|root| root == &mount.root));
 
+    let auth_token = github_token_for_commit();
     for declaration in load_mount_declarations(global, backends).await? {
         let mount_root = VirtualPath::from_absolute(declaration.mount_at.clone())
             .map_err(|_| format!("invalid mount_at: {}", declaration.mount_at))?;
@@ -135,7 +141,7 @@ async fn apply_runtime_conventions(
             continue;
         };
         let scan = backend
-            .scan()
+            .scan(auth_token.as_deref())
             .await
             .map_err(|error| format!("mount {}: {error}", runtime_mount.label))?;
         global

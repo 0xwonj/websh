@@ -106,10 +106,11 @@ mod tests {
             "stub"
         }
 
-        fn scan(
-            &self,
+        fn scan<'a>(
+            &'a self,
+            _auth_token: Option<&'a str>,
         ) -> crate::core::storage::BoxFuture<
-            '_,
+            'a,
             crate::core::storage::StorageResult<crate::core::storage::ScannedSubtree>,
         > {
             Box::pin(async { Ok(crate::core::storage::ScannedSubtree::default()) })

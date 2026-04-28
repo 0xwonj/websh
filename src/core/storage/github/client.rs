@@ -123,22 +123,39 @@ impl GitHubBackend {
             .map(|t| t.oid))
     }
 
-    async fn load_manifest_snapshot(&self) -> StorageResult<ScannedSubtree> {
-        // raw.githubusercontent.com sets Cache-Control: max-age=300; without
-        // an explicit cache override, the browser fetch cache happily serves
-        // a 5-minute-stale manifest after a fresh commit, leaving the UI
-        // showing the old tree on the next sync refresh. NoCache forces
-        // revalidation on every scan; raw still sends an ETag so unchanged
-        // manifests come back as 304 without re-transferring the body.
-        let resp = gloo_net::http::Request::get(&self.manifest_url())
-            .cache(web_sys::RequestCache::NoCache)
+    async fn load_manifest_snapshot(
+        &self,
+        auth_token: Option<&str>,
+    ) -> StorageResult<ScannedSubtree> {
+        // Read the manifest through the authoritative GitHub Contents API
+        // instead of `raw.githubusercontent.com`. raw is fronted by a CDN
+        // that lags behind git storage by minutes after a fresh commit, so
+        // a post-commit reload would otherwise see a stale tree until the
+        // edge expired. The Contents API hits git directly. With
+        // `Accept: application/vnd.github.raw` GitHub returns the file body
+        // directly (no base64 envelope).
+        let manifest_repo_path = prefixed_repo_path(&self.content_prefix, "manifest.json")
+            .map_err(StorageError::BadRequest)?;
+        let encoded_path = encoded_repo_relative_path(&manifest_repo_path, true)
+            .map_err(StorageError::BadRequest)?;
+        let url = format!(
+            "https://api.github.com/repos/{}/contents/{}?ref={}",
+            self.repo_with_owner, encoded_path, self.branch,
+        );
+        let mut request = gloo_net::http::Request::get(&url)
+            .header("Accept", "application/vnd.github.raw")
+            .header("User-Agent", "websh/0.1");
+        if let Some(token) = auth_token {
+            request = request.header("Authorization", &format!("bearer {token}"));
+        }
+        let resp = request
             .send()
             .await
             .map_err(|e| StorageError::NetworkError(e.to_string()))?;
         // A missing manifest is the canonical signal of a fresh / empty
-        // mount: the first commit will atomically create both the file and
-        // the manifest. Treat 404 as "no entries yet" rather than a hard
-        // error so newly-provisioned GitHub mounts can self-bootstrap.
+        // mount: the first commit atomically creates both the file and the
+        // manifest. Treat 404 as "no entries yet" so newly-provisioned
+        // GitHub mounts can self-bootstrap without a manual seed.
         if resp.status() == 404 {
             return Ok(ScannedSubtree::default());
         }
@@ -307,8 +324,11 @@ impl StorageBackend for GitHubBackend {
         "github"
     }
 
-    fn scan(&self) -> BoxFuture<'_, StorageResult<ScannedSubtree>> {
-        Box::pin(async move { self.load_manifest_snapshot().await })
+    fn scan<'a>(
+        &'a self,
+        auth_token: Option<&'a str>,
+    ) -> BoxFuture<'a, StorageResult<ScannedSubtree>> {
+        Box::pin(async move { self.load_manifest_snapshot(auth_token).await })
     }
 
     fn read_text<'a>(&'a self, rel_path: &'a str) -> BoxFuture<'a, StorageResult<String>> {

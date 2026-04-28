@@ -38,7 +38,7 @@ async fn prepare_commit(
     expected_head: Option<String>,
     auth_token: Option<String>,
 ) -> StorageResult<CommitRequest> {
-    let base_snapshot = backend.scan().await?;
+    let base_snapshot = backend.scan(auth_token.as_deref()).await?;
     let mut merged = GlobalFs::empty();
     merged
         .mount_scanned_subtree(mount_root.clone(), &base_snapshot)
@@ -208,7 +208,10 @@ mod tests {
             "prepare"
         }
 
-        fn scan(&self) -> BoxFuture<'_, StorageResult<ScannedSubtree>> {
+        fn scan<'a>(
+            &'a self,
+            _auth_token: Option<&'a str>,
+        ) -> BoxFuture<'a, StorageResult<ScannedSubtree>> {
             let scan = self.scan.lock().unwrap().take().unwrap_or_default();
             Box::pin(async move { Ok(scan) })
         }

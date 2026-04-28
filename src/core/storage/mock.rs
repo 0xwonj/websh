@@ -65,7 +65,10 @@ impl StorageBackend for MockBackend {
         "mock"
     }
 
-    fn scan(&self) -> BoxFuture<'_, StorageResult<ScannedSubtree>> {
+    fn scan<'a>(
+        &'a self,
+        _auth_token: Option<&'a str>,
+    ) -> BoxFuture<'a, StorageResult<ScannedSubtree>> {
         let m = self
             .next_scan
             .lock()
