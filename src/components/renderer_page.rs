@@ -1,5 +1,7 @@
 //! Standalone content renderer page.
 
+use std::sync::Arc;
+
 use leptos::prelude::*;
 
 use crate::app::AppContext;
@@ -39,6 +41,30 @@ pub fn RendererPage(route: Memo<RouteFrame>) -> impl IntoView {
     let attestation_route =
         Signal::derive(move || attestation_route_for_node_path(&canonical_path.get()));
 
+    let author_mode = Memo::new({
+        let ctx = ctx.clone();
+        move |_| ctx.runtime_state.with(|rs| rs.github_token_present)
+    });
+    let edit_visible = Memo::new(move |_| {
+        author_mode.get() && canonical_path.get().as_str().starts_with("/mempool/")
+    });
+    let edit_href = Memo::new(move |_| {
+        format!("/#/edit{}", canonical_path.get().as_str())
+    });
+
+    let extra_actions: ChildrenFn = Arc::new(move || {
+        view! {
+            <Show when=move || edit_visible.get()>
+                <a
+                    href=move || edit_href.get()
+                    class=css::editLink
+                    aria-label="Edit this mempool entry"
+                >"edit"</a>
+            </Show>
+        }
+        .into_any()
+    });
+
     let content = LocalResource::new(move || {
         let frame = route.get();
         let path = frame.resolution.node_path.clone();
@@ -48,7 +74,7 @@ pub fn RendererPage(route: Memo<RouteFrame>) -> impl IntoView {
 
     view! {
         <div class=css::surface>
-            <SiteChrome route=route />
+            <SiteChrome route=route extra_actions=extra_actions />
             <main class=css::page>
                 <Suspense fallback=move || view! {
                     <div class=css::loading>"Loading..."</div>

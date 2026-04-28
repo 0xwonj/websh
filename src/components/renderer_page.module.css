@@ -200,6 +200,28 @@
   border-radius: var(--radius-lg);
 }
 
+.editLink {
+  border: 1px solid var(--border-muted);
+  color: var(--accent);
+  padding: 0 var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+  display: inline-block;
+  line-height: 1.55;
+}
+
+.editLink:hover {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.editLink:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
 @media (max-width: 768px) {
   .page {
     padding: var(--space-8) var(--space-4);
