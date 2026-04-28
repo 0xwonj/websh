@@ -284,8 +284,13 @@ pub async fn save_compose(
 
     let root = mempool_root();
     let backend = ctx
-        .backend_for_path(&root)
-        .ok_or_else(|| "mempool mount is not configured".to_string())?;
+        .backend_for_mount_root(&root)
+        .ok_or_else(|| {
+            "mempool mount is not registered — check that \
+             content/.websh/mounts/mempool.mount.json exists and \
+             content/manifest.json is up to date"
+                .to_string()
+        })?;
     let token = github_token_for_commit()
         .ok_or_else(|| "missing GitHub token for mempool commit".to_string())?;
     let expected_head = ctx.remote_head_for_path(&root);

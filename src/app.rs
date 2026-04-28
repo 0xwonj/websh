@@ -355,6 +355,10 @@ impl AppContext {
     }
 
     /// Best-effort lookup for the backend responsible for a canonical path.
+    /// Falls back to a parent mount via longest-prefix match — appropriate
+    /// for *read* paths where missing a deeper mount means falling back to
+    /// the parent's view is acceptable. **Do not use this for writes**: see
+    /// `backend_for_mount_root` for the strict variant required by commits.
     pub fn backend_for_path(&self, path: &VirtualPath) -> Option<Arc<dyn StorageBackend>> {
         self.backends.with_value(|map| {
             map.iter()
@@ -362,6 +366,18 @@ impl AppContext {
                 .max_by_key(|(root, _)| root.as_str().len())
                 .map(|(_, backend)| backend.clone())
         })
+    }
+
+    /// Strict lookup for the backend whose mount root *exactly* matches the
+    /// supplied root. Used by commit / write flows so that a write to
+    /// `/mempool/...` cannot silently fall back to the parent `/` mount when
+    /// `/mempool` itself is unregistered. Returns `None` when no backend is
+    /// registered at exactly `root`.
+    pub fn backend_for_mount_root(
+        &self,
+        root: &VirtualPath,
+    ) -> Option<Arc<dyn StorageBackend>> {
+        self.backends.with_value(|map| map.get(root).cloned())
     }
 
     pub async fn read_text(&self, path: &VirtualPath) -> Result<String, FetchError> {

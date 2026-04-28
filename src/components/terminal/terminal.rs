@@ -254,10 +254,11 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
             message,
             mount_root,
         } => {
-            let Some(backend) = ctx.backend_for_path(&mount_root) else {
-                ctx.terminal.push_output(crate::models::OutputLine::error(
-                    "sync: no backend for path".to_string(),
-                ));
+            let Some(backend) = ctx.backend_for_mount_root(&mount_root) else {
+                ctx.terminal.push_output(crate::models::OutputLine::error(format!(
+                    "sync: no backend registered at mount root {}",
+                    mount_root.as_str()
+                )));
                 return;
             };
             let changes_signal = ctx.changes;

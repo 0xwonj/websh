@@ -215,8 +215,8 @@ pub async fn promote_entry(ctx: AppContext, source: VirtualPath) -> PromoteState
     let target_exists = ctx
         .view_global_fs
         .with_untracked(|fs| fs.exists(&target_exists_path));
-    let bundle_backend = ctx.backend_for_path(&bundle_root);
-    let mempool_backend = ctx.backend_for_path(&mempool);
+    let bundle_backend = ctx.backend_for_mount_root(&bundle_root);
+    let mempool_backend = ctx.backend_for_mount_root(&mempool);
     let token = github_token_for_commit();
 
     let target = match preflight_promote_paths(
@@ -311,13 +311,15 @@ pub async fn retry_mempool_drop(
     target: VirtualPath,
 ) -> PromoteState {
     let mempool = mempool_root();
-    let backend = match ctx.backend_for_path(&mempool) {
+    let backend = match ctx.backend_for_mount_root(&mempool) {
         Some(b) => b,
         None => {
             return PromoteState::PartialFailure {
                 source,
                 target,
-                error: "mempool backend not configured".to_string(),
+                error: "mempool mount is not registered — \
+                       cannot retry"
+                    .to_string(),
             };
         }
     };
