@@ -317,6 +317,78 @@ pub async fn save_compose(
     Ok(())
 }
 
+/// Save raw markdown bytes (frontmatter included) to the mempool repo.
+///
+/// Used by the Phase 7 single-component reader's Edit/View toggle. Unlike
+/// `save_compose`, this helper does not parse or serialize a structured
+/// `ComposeForm` — the user is editing raw text in a textarea, so the
+/// bytes pass through unchanged. Validation and frontmatter parsing is
+/// the caller's responsibility (the page calls `derive_new_path` for new
+/// drafts; existing edits skip validation since the runtime parser is
+/// forgiving).
+///
+/// Mirrors `save_compose`'s backend resolution, commit, post-commit
+/// bookkeeping (`apply_commit_outcome`), and runtime reload pattern.
+/// Reload errors are logged via `leptos::logging::warn!` but do not
+/// poison a successful commit.
+pub async fn save_raw(
+    ctx: AppContext,
+    path: VirtualPath,
+    body: String,
+    message: String,
+    is_new: bool,
+) -> Result<(), String> {
+    if is_new {
+        let collides = ctx
+            .view_global_fs
+            .with_untracked(|fs| fs.exists(&path));
+        if collides {
+            return Err(format!(
+                "draft already exists at {} — pick a different slug",
+                path.as_str()
+            ));
+        }
+    }
+
+    let root = mempool_root();
+    let backend = ctx.backend_for_mount_root(&root).ok_or_else(|| {
+        "mempool mount is not registered — check that \
+         content/.websh/mounts/mempool.mount.json exists and \
+         content/manifest.json is up to date"
+            .to_string()
+    })?;
+    let token = github_token_for_commit()
+        .ok_or_else(|| "missing GitHub token for mempool commit".to_string())?;
+    let expected_head = ctx.remote_head_for_path(&root);
+
+    let mut changes = ChangeSet::new();
+    let change = if is_new {
+        ChangeType::CreateFile {
+            content: body,
+            meta: FileMetadata::default(),
+        }
+    } else {
+        ChangeType::UpdateFile {
+            content: body,
+            description: None,
+        }
+    };
+    changes.upsert(path, change);
+
+    let outcome = commit_backend(backend, root.clone(), changes, message, expected_head, Some(token))
+        .await
+        .map_err(|err| err.to_string())?;
+    apply_commit_outcome(&ctx, &root, &outcome).await;
+
+    match crate::core::runtime::reload_runtime().await {
+        Ok(load) => ctx.apply_runtime_load(load),
+        Err(error) => {
+            leptos::logging::warn!("compose: runtime reload after raw save failed: {error}")
+        }
+    }
+    Ok(())
+}
+
 /// Apply the post-commit bookkeeping after a successful UI-driven commit:
 /// update `ctx.remote_heads` so subsequent `expected_head` lookups reflect
 /// the just-committed OID, and persist the new HEAD to IDB so the next

@@ -2,6 +2,7 @@
 
 mod component;
 mod compose;
+mod draft;
 mod editor;
 mod loader;
 mod model;
@@ -11,9 +12,10 @@ mod serialize;
 pub use component::Mempool;
 pub use compose::{
     ComposeError, ComposeForm, ComposeMode, build_change_set, commit_message,
-    derive_form_from_mode, form_to_payload, save_compose, save_path_for, target_path,
+    derive_form_from_mode, form_to_payload, save_compose, save_path_for, save_raw, target_path,
     validate_form,
 };
+pub use draft::{derive_new_path, placeholder_frontmatter};
 pub use editor::MempoolEditor;
 pub use loader::{load_mempool_files, mempool_root};
 pub use model::{
