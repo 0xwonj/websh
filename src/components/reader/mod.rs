@@ -35,7 +35,7 @@ use crate::utils::{
 };
 
 use meta::{ReaderMeta, reader_meta};
-use shell::ReaderShell;
+use shell::{ReaderEditBindings, ReaderShell, ReaderShellState};
 use views::{
     AssetReaderView, HtmlReaderView, MarkdownEditorView, MarkdownReaderView, PdfReaderView,
     PlainReaderView, RedirectingView,
@@ -293,23 +293,28 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
         canonical_path.get().as_str().starts_with("/mempool/") && !is_new_route.get()
     });
 
+    let shell_state = ReaderShellState {
+        intent: intent_memo,
+        meta: reader_meta_memo,
+        chrome_route,
+        attestation_route,
+        show_pending,
+        save_error: save_error.read_only(),
+    };
+
+    let edit_bindings = ReaderEditBindings {
+        mode,
+        can_edit: edit_visible,
+        saving: saving.read_only(),
+        dirty: draft_dirty.read_only(),
+        on_edit: on_edit_cb,
+        on_preview: on_preview_cb,
+        on_save: on_save_cb,
+        on_cancel: on_cancel_cb,
+    };
+
     view! {
-        <ReaderShell
-            intent=intent_memo
-            meta=reader_meta_memo
-            chrome_route=chrome_route
-            attestation_route=attestation_route
-            show_pending=show_pending
-            save_error=save_error.read_only()
-            mode=mode
-            can_edit=edit_visible
-            saving=saving.read_only()
-            dirty=draft_dirty.read_only()
-            on_edit=on_edit_cb
-            on_preview=on_preview_cb
-            on_save=on_save_cb
-            on_cancel=on_cancel_cb
-        >
+        <ReaderShell state=shell_state edit=edit_bindings>
             <Show
                 when=move || mode.get() == ReaderMode::Edit
                 fallback=move || view! {

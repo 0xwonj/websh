@@ -5,8 +5,10 @@
 //! identifier strip, a title block + meta table, the body slot, the
 //! attestation footer, and the toolbar after the footer.
 //!
-//! The shell takes the body as `children` and bundles every other piece
-//! so `Reader` can stay focused on state and dispatch.
+//! The shell takes the body as `children`. Reader's state reaches it
+//! through two `Copy` bundles, mirroring the project's `AppContext`
+//! pattern — every field is a signal / memo / callback (themselves
+//! `Copy`), so the bundles travel as cheap value types.
 
 use leptos::prelude::*;
 
@@ -21,51 +23,56 @@ use super::meta::ReaderMeta;
 use super::title_block::{Ident, TitleBlock};
 use super::toolbar::ReaderToolbar;
 
+/// Document-side reactive inputs to the shell — what the chrome, title
+/// block, and footer need.
+#[derive(Clone, Copy)]
+pub struct ReaderShellState {
+    pub intent: Memo<ReaderIntent>,
+    pub meta: Memo<ReaderMeta>,
+    pub chrome_route: Memo<RouteFrame>,
+    pub attestation_route: Signal<String>,
+    pub show_pending: Signal<bool>,
+    pub save_error: ReadSignal<Option<String>>,
+}
+
+/// Edit-mode reactive state and action callbacks — what the toolbar
+/// reads and dispatches. Used by both the shell (to forward to the
+/// toolbar) and the toolbar itself.
+#[derive(Clone, Copy)]
+pub struct ReaderEditBindings {
+    pub mode: RwSignal<ReaderMode>,
+    pub can_edit: Memo<bool>,
+    pub saving: ReadSignal<bool>,
+    pub dirty: ReadSignal<bool>,
+    pub on_edit: Callback<()>,
+    pub on_preview: Callback<()>,
+    pub on_save: Callback<()>,
+    pub on_cancel: Callback<()>,
+}
+
 #[component]
-#[allow(clippy::too_many_arguments)]
 pub fn ReaderShell(
-    intent: Memo<ReaderIntent>,
-    meta: Memo<ReaderMeta>,
-    chrome_route: Memo<RouteFrame>,
-    #[prop(into)] attestation_route: Signal<String>,
-    #[prop(into)] show_pending: Signal<bool>,
-    save_error: ReadSignal<Option<String>>,
-    mode: RwSignal<ReaderMode>,
-    can_edit: Memo<bool>,
-    saving: ReadSignal<bool>,
-    dirty: ReadSignal<bool>,
-    on_edit: Callback<()>,
-    on_preview: Callback<()>,
-    on_save: Callback<()>,
-    on_cancel: Callback<()>,
+    state: ReaderShellState,
+    edit: ReaderEditBindings,
     children: Children,
 ) -> impl IntoView {
     view! {
         <div class=css::surface>
-            <SiteChrome route=chrome_route />
+            <SiteChrome route=state.chrome_route />
             <main class=css::page>
-                <Show when=move || !matches!(intent.get(), ReaderIntent::Redirect { .. })>
-                    <Ident meta=meta />
-                    <TitleBlock intent=intent meta=meta />
+                <Show when=move || !matches!(state.intent.get(), ReaderIntent::Redirect { .. })>
+                    <Ident meta=state.meta />
+                    <TitleBlock intent=state.intent meta=state.meta />
                 </Show>
-                {move || save_error.get().map(|message| view! {
+                {move || state.save_error.get().map(|message| view! {
                     <div class=css::errorBanner role="alert">{message}</div>
                 })}
                 {children()}
                 <AttestationSigFooter
-                    route=attestation_route
-                    show_pending=show_pending
+                    route=state.attestation_route
+                    show_pending=state.show_pending
                 />
-                <ReaderToolbar
-                    mode=mode
-                    can_edit=can_edit
-                    saving=saving
-                    dirty=dirty
-                    on_edit=on_edit
-                    on_preview=on_preview
-                    on_save=on_save
-                    on_cancel=on_cancel
-                />
+                <ReaderToolbar edit=edit />
             </main>
         </div>
     }

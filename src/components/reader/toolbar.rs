@@ -9,39 +9,32 @@ use leptos::prelude::*;
 
 use super::ReaderMode;
 use super::css;
+use super::shell::ReaderEditBindings;
 
 #[component]
-pub fn ReaderToolbar(
-    mode: RwSignal<ReaderMode>,
-    can_edit: Memo<bool>,
-    saving: ReadSignal<bool>,
-    dirty: ReadSignal<bool>,
-    on_edit: Callback<()>,
-    on_preview: Callback<()>,
-    on_save: Callback<()>,
-    on_cancel: Callback<()>,
-) -> impl IntoView {
+pub fn ReaderToolbar(edit: ReaderEditBindings) -> impl IntoView {
     let visible = Memo::new(move |_| {
-        mode.get() == ReaderMode::Edit || (mode.get() == ReaderMode::View && can_edit.get())
+        edit.mode.get() == ReaderMode::Edit
+            || (edit.mode.get() == ReaderMode::View && edit.can_edit.get())
     });
 
     let view_class = Memo::new(move |_| {
-        if mode.get() == ReaderMode::View {
+        if edit.mode.get() == ReaderMode::View {
             format!("{} {}", css::modefnOpt, css::modefnOptOn)
         } else {
             css::modefnOpt.to_string()
         }
     });
     let edit_class = Memo::new(move |_| {
-        if mode.get() == ReaderMode::Edit {
+        if edit.mode.get() == ReaderMode::Edit {
             format!("{} {}", css::modefnOpt, css::modefnOptOn)
         } else {
             css::modefnOpt.to_string()
         }
     });
-    let state_text = Memo::new(move |_| state_label(saving.get(), dirty.get()));
+    let state_text = Memo::new(move |_| state_label(edit.saving.get(), edit.dirty.get()));
     let state_class_name = Memo::new(move |_| {
-        let modifier = state_class(saving.get(), dirty.get());
+        let modifier = state_class(edit.saving.get(), edit.dirty.get());
         if modifier.is_empty() {
             css::modefnState.to_string()
         } else {
@@ -58,10 +51,10 @@ pub fn ReaderToolbar(
                     <span
                         class=move || view_class.get()
                         on:click=move |_| {
-                            if mode.get_untracked() == ReaderMode::Edit
-                                && !saving.get_untracked()
+                            if edit.mode.get_untracked() == ReaderMode::Edit
+                                && !edit.saving.get_untracked()
                             {
-                                on_preview.run(());
+                                edit.on_preview.run(());
                             }
                         }
                     >
@@ -72,22 +65,23 @@ pub fn ReaderToolbar(
                     <span
                         class=move || edit_class.get()
                         on:click=move |_| {
-                            if mode.get_untracked() == ReaderMode::View && can_edit.get_untracked()
+                            if edit.mode.get_untracked() == ReaderMode::View
+                                && edit.can_edit.get_untracked()
                             {
-                                on_edit.run(());
+                                edit.on_edit.run(());
                             }
                         }
                     >
                         "edit"
                         <span class=css::modefnKbd>"e"</span>
                     </span>
-                    <Show when=move || mode.get() == ReaderMode::Edit>
+                    <Show when=move || edit.mode.get() == ReaderMode::Edit>
                         <span class=css::modefnSep>"·"</span>
                         <span
                             class=css::modefnOpt
                             on:click=move |_| {
-                                if !saving.get_untracked() {
-                                    on_cancel.run(());
+                                if !edit.saving.get_untracked() {
+                                    edit.on_cancel.run(());
                                 }
                             }
                         >"cancel"</span>
@@ -95,8 +89,8 @@ pub fn ReaderToolbar(
                         <span
                             class=css::modefnOpt
                             on:click=move |_| {
-                                if !saving.get_untracked() {
-                                    on_save.run(());
+                                if !edit.saving.get_untracked() {
+                                    edit.on_save.run(());
                                 }
                             }
                         >
