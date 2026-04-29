@@ -381,31 +381,12 @@
   transform: translateX(-0.5px);
 }
 
-/* Marker class — actual visual change is on the ::before override
- * below. Declared here so stylance reliably emits a class const for
- * Rust (`css::genesisDisconnected`). */
 .genesisDisconnected {
-  /* no-op */
+  margin-top: var(--space-1_5);
 }
 
-/* When a trailing chain gap visually separates the lowest-shown block
- * from genesis (filtered chain), replace the solid upward connector
- * with a dashed line that matches `.gap::before`. The dashed style
- * unambiguously reads as "missing range" instead of "still connected,
- * just decorative spacer".
- *
- * Height shrunk by 7px (the LedgerGap's `margin: -7px 0` overlap):
- * adjacent-margin collapsing leaves only `var(--space-6) - 7px` of
- * actual space between LedgerGap and the genesis box, so the original
- * `height: var(--space-6)` was poking 7px up *into* the LedgerGap
- * area. Capping the height keeps the dashed line cleanly inside the
- * margin gap. */
 .genesisDisconnected::before {
-  background: transparent;
-  border-left: 1px dashed var(--ledger-rule-bright);
-  width: 0;
-  opacity: 0.7;
-  height: calc(var(--space-6) - 7px);
+  display: none;
 }
 
 .genesisLabel {
