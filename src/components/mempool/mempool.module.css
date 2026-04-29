@@ -92,7 +92,17 @@
   flex-direction: column;
 }
 
-.mpItem {
+/* Specificity bump so the prop:hidden toggle actually hides the list:
+ * UA `[hidden]` selector is 0,1,0; .mpList is also 0,1,0 — UA loses to
+ * later author rule. Combine them to win. */
+.mpList[hidden] {
+  display: none;
+}
+
+/* Selectors qualified with `.mpList` (specificity 0,2,0) so they win
+ * over `.page a` and `.page a:hover` (0,1,1) which would otherwise
+ * paint a dotted border and accent-color on hover. */
+.mpList .mpItem {
   display: grid;
   grid-template-columns: 92px 1fr auto;
   gap: var(--space-3_5);
@@ -106,13 +116,19 @@
   text-decoration: none;
 }
 
-.mpItem:focus-visible {
+.mpList .mpItem:focus-visible {
   outline: 1px solid var(--ledger-accent);
   outline-offset: -1px;
 }
 
-.mpItem:last-child {
+.mpList .mpItem:last-child {
   border-bottom: 0;
+}
+
+.mpList .mpItem:hover {
+  /* explicit no-op overrides for `.page a:hover` so the row stays plain */
+  color: var(--ledger-dim);
+  border-bottom-color: var(--ledger-rule);
 }
 
 .mpStatus {
