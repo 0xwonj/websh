@@ -27,7 +27,7 @@ pub fn Mempool(
             <div
                 class=css::mpList
                 id="mempool-rows"
-                hidden=move || collapsed.get()
+                prop:hidden=move || collapsed.get()
             >
                 {rows}
             </div>

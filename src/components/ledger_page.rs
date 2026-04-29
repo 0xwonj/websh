@@ -81,7 +81,9 @@ pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
 
     // Mempool collapse state lives at the LedgerPage level so it survives
     // filter-route changes (which re-render but don't re-mount this page).
-    let mempool_collapsed = RwSignal::new(false);
+    // Default collapsed: the chain is the primary content; pending entries
+    // are opt-in.
+    let mempool_collapsed = RwSignal::new(true);
 
     let attestation_route = Signal::derive(|| CONTENT_LEDGER_ROUTE.to_string());
 

@@ -115,10 +115,6 @@
   border-bottom: 0;
 }
 
-.mpItem:hover {
-  background: rgba(255, 255, 255, 0.025);
-}
-
 .mpStatus {
   font-size: 10.5px;
   letter-spacing: 0.04em;
