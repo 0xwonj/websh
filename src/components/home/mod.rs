@@ -1079,7 +1079,7 @@ fn PageFooter() -> impl IntoView {
     view! {
         <AttestationSigFooter
             route=Signal::derive(|| "/".to_string())
-            show_pending=true
+            show_pending=Signal::derive(|| true)
             colophon=true
         />
     }

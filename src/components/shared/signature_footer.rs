@@ -36,41 +36,42 @@ enum FooterSigValueKind {
 #[component]
 pub fn AttestationSigFooter(
     #[prop(into)] route: Signal<String>,
-    #[prop(default = false)] show_pending: bool,
+    #[prop(into, default = Signal::derive(|| false))] show_pending: Signal<bool>,
     #[prop(default = false)] colophon: bool,
 ) -> impl IntoView {
     let (sig_open, set_sig_open) = signal(false);
-    let summary = Memo::new(move |_| footer_sig_summary_for_route(&route.get(), show_pending));
+    let summary =
+        Memo::new(move |_| footer_sig_summary_for_route(&route.get(), show_pending.get()));
 
     view! {
-        {move || summary.get().map(|summary| {
-            let (chip_head, chip_tail) = split_sig_chip(&summary.chip_value);
-            let verified = summary.verified;
-            let rows = summary.rows.clone();
-            let sig_keydown = move |ev: ev::KeyboardEvent| match ev.key().as_str() {
-                "Enter" | " " => {
-                    ev.prevent_default();
-                    set_sig_open.update(|open| *open = !*open);
-                }
-                "Escape" => set_sig_open.set(false),
-                _ => {}
-            };
+        <div class=css::pagefoot data-sigstyle="chip" data-sigpos="center">
+            {colophon.then(|| view! {
+                <div class=css::colophon>
+                    <div>"Typeset in IBM Plex Mono. Math by KaTeX. No cookies, no trackers, probably no bugs."</div>
+                    <div>"© Wonjae Choi — CC BY-SA 4.0, except the jokes, which are on the house."</div>
+                </div>
+            })}
+            <Show when=move || sig_open.get() && summary.get().is_some()>
+                <span
+                    class=css::sigDismissLayer
+                    aria-hidden="true"
+                    on:click=move |_| set_sig_open.set(false)
+                ></span>
+            </Show>
+            {move || summary.get().map(|summary| {
+                let (chip_head, chip_tail) = split_sig_chip(&summary.chip_value);
+                let verified = summary.verified;
+                let rows = summary.rows.clone();
+                let sig_keydown = move |ev: ev::KeyboardEvent| match ev.key().as_str() {
+                    "Enter" | " " => {
+                        ev.prevent_default();
+                        set_sig_open.update(|open| *open = !*open);
+                    }
+                    "Escape" => set_sig_open.set(false),
+                    _ => {}
+                };
 
-            view! {
-                <div class=css::pagefoot data-sigstyle="chip" data-sigpos="center">
-                    {colophon.then(|| view! {
-                        <div class=css::colophon>
-                            <div>"Typeset in IBM Plex Mono. Math by KaTeX. No cookies, no trackers, probably no bugs."</div>
-                            <div>"© Wonjae Choi — CC BY-SA 4.0, except the jokes, which are on the house."</div>
-                        </div>
-                    })}
-                    <Show when=move || sig_open.get()>
-                        <span
-                            class=css::sigDismissLayer
-                            aria-hidden="true"
-                            on:click=move |_| set_sig_open.set(false)
-                        ></span>
-                    </Show>
+                view! {
                     <span
                         class=css::sigChip
                         tabindex="0"
@@ -105,9 +106,9 @@ pub fn AttestationSigFooter(
                             {rows.into_iter().map(render_sig_row).collect_view()}
                         </span>
                     </span>
-                </div>
-            }.into_any()
-        })}
+                }.into_any()
+            })}
+        </div>
     }
 }
 

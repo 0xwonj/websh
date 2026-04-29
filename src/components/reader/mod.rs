@@ -12,6 +12,7 @@
 
 mod intent;
 mod meta;
+mod shell;
 mod title_block;
 mod toolbar;
 mod views;
@@ -22,9 +23,7 @@ use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
 use crate::app::AppContext;
-use crate::components::chrome::SiteChrome;
 use crate::components::mempool::{derive_new_path, placeholder_frontmatter, save_raw};
-use crate::components::shared::AttestationSigFooter;
 use crate::core::engine::{RouteFrame, push_request_path, replace_request_path};
 use crate::models::VirtualPath;
 use crate::utils::content_routes::{attestation_route_for_node_path, content_route_for_path};
@@ -36,8 +35,7 @@ use crate::utils::{
 };
 
 use meta::{ReaderMeta, reader_meta};
-use title_block::{Ident, TitleBlock};
-use toolbar::ReaderToolbar;
+use shell::ReaderShell;
 use views::{
     AssetReaderView, HtmlReaderView, MarkdownEditorView, MarkdownReaderView, PdfReaderView,
     PlainReaderView, RedirectingView,
@@ -287,53 +285,51 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
 
     let chrome_route = Memo::new(move |_| RouteFrame::from(frame.get()));
 
+    // Mempool drafts are pre-signature; surface a "pending" chip there.
+    // Other content paths show a chip only when an attestation exists
+    // (the default behaviour). `/new` has no canonical path yet, so the
+    // footer renders the border/colophon line without a chip.
+    let show_pending = Signal::derive(move || {
+        canonical_path.get().as_str().starts_with("/mempool/") && !is_new_route.get()
+    });
+
     view! {
-        <div class=css::surface>
-            <SiteChrome route=chrome_route />
-            <main class=css::page>
-                <Show
-                    when=move || !matches!(intent_memo.get(), ReaderIntent::Redirect { .. })
-                >
-                    <Ident meta=reader_meta_memo />
-                    <TitleBlock intent=intent_memo meta=reader_meta_memo />
-                </Show>
-                <ReaderToolbar
-                    mode=mode
-                    can_edit=edit_visible
-                    saving=saving.read_only()
-                    dirty=draft_dirty.read_only()
-                    on_edit=on_edit_cb
-                    on_preview=on_preview_cb
-                    on_save=on_save_cb
-                    on_cancel=on_cancel_cb
+        <ReaderShell
+            intent=intent_memo
+            meta=reader_meta_memo
+            chrome_route=chrome_route
+            attestation_route=attestation_route
+            show_pending=show_pending
+            save_error=save_error.read_only()
+            mode=mode
+            can_edit=edit_visible
+            saving=saving.read_only()
+            dirty=draft_dirty.read_only()
+            on_edit=on_edit_cb
+            on_preview=on_preview_cb
+            on_save=on_save_cb
+            on_cancel=on_cancel_cb
+        >
+            <Show
+                when=move || mode.get() == ReaderMode::Edit
+                fallback=move || view! {
+                    <Suspense fallback=move || view! {
+                        <div class=css::loading>"Loading..."</div>
+                    }>
+                        {move || {
+                            content.get().map(|result| {
+                                render_view_body(result, reader_meta_memo)
+                            })
+                        }}
+                    </Suspense>
+                }
+            >
+                <MarkdownEditorView
+                    draft_body=draft_body
+                    on_input_dirty=on_input_dirty_cb
                 />
-                {move || save_error.get().map(|message| view! {
-                    <div class=css::errorBanner role="alert">{message}</div>
-                })}
-                <Show
-                    when=move || mode.get() == ReaderMode::Edit
-                    fallback=move || view! {
-                        <Suspense fallback=move || view! {
-                            <div class=css::loading>"Loading..."</div>
-                        }>
-                            {move || {
-                                content.get().map(|result| {
-                                    render_view_body(result, reader_meta_memo)
-                                })
-                            }}
-                        </Suspense>
-                    }
-                >
-                    <MarkdownEditorView
-                        draft_body=draft_body
-                        on_input_dirty=on_input_dirty_cb
-                    />
-                </Show>
-                <Show when=move || !is_new_route.get()>
-                    <AttestationSigFooter route=attestation_route />
-                </Show>
-            </main>
-        </div>
+            </Show>
+        </ReaderShell>
     }
 }
 

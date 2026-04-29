@@ -141,7 +141,7 @@ pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
                         })
                     }}
                 </Suspense>
-                <AttestationSigFooter route=attestation_route show_pending=true />
+                <AttestationSigFooter route=attestation_route show_pending=Signal::derive(|| true) />
             </SiteContentFrame>
         </SiteSurface>
     }
