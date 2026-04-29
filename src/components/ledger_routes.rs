@@ -4,5 +4,5 @@ pub const LEDGER_FILTER_ROUTES: &[&str] =
     &["ledger", "writing", "projects", "papers", "talks", "misc"];
 
 pub fn is_ledger_filter_route_segment(segment: &str) -> bool {
-    LEDGER_FILTER_ROUTES.iter().any(|route| *route == segment)
+    LEDGER_FILTER_ROUTES.contains(&segment)
 }

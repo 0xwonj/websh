@@ -440,7 +440,7 @@ fn add_to_mempool_via_gh(
     let new_entry = ContentManifestFile {
         path: repo_path.to_string(),
         title: payload.title.clone(),
-        size: Some(file_body.as_bytes().len() as u64),
+        size: Some(file_body.len() as u64),
         modified: Some(modified_secs),
         date: None,
         tags: payload.tags.clone(),

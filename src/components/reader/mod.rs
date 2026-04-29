@@ -61,10 +61,7 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
     let attestation_route =
         Signal::derive(move || attestation_route_for_node_path(&canonical_path.get()));
 
-    let author_mode = Memo::new({
-        let ctx = ctx.clone();
-        move |_| ctx.runtime_state.with(|rs| rs.github_token_present)
-    });
+    let author_mode = Memo::new(move |_| ctx.runtime_state.with(|rs| rs.github_token_present));
     let is_new_route = Memo::new(move |_| frame.get().request.url_path == "/new");
     let edit_visible = Memo::new(move |_| {
         author_mode.get()
@@ -122,9 +119,9 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
     // Raw markdown source — used to seed `draft_body` when the user toggles
     // to Edit on an existing entry.
     let raw_source = LocalResource::new({
-        let ctx_clone = ctx.clone();
+        let ctx_clone = ctx;
         move || {
-            let ctx = ctx_clone.clone();
+            let ctx = ctx_clone;
             let path = canonical_path.get();
             let is_markdown = matches!(frame.get().intent, ReaderIntent::Markdown { .. });
             let _ = refetch_epoch.get();
@@ -139,9 +136,9 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
     });
 
     let content = LocalResource::new({
-        let ctx_clone = ctx.clone();
+        let ctx_clone = ctx;
         move || {
-            let ctx = ctx_clone.clone();
+            let ctx = ctx_clone;
             let snapshot = frame.get();
             let path = snapshot.resolution.node_path.clone();
             let intent = snapshot.intent.clone();
@@ -186,75 +183,72 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
         mode.set(ReaderMode::View);
     };
 
-    let on_save = {
-        let ctx = ctx.clone();
-        move |()| {
-            if saving.get_untracked() {
-                return;
-            }
-            let body = draft_body.get_untracked();
+    let on_save = move |()| {
+        if saving.get_untracked() {
+            return;
+        }
+        let body = draft_body.get_untracked();
 
-            // /new: derive the target path from the typed frontmatter.
-            if is_new_route.get_untracked() {
-                let target = match derive_new_path(&body) {
-                    Ok(target) => target,
-                    Err(message) => {
-                        save_error.set(Some(message));
-                        return;
-                    }
-                };
-                let rel = target
-                    .as_str()
-                    .trim_start_matches("/mempool/")
-                    .trim_end_matches(".md");
-                let message = format!("mempool: add {rel}");
-                saving.set(true);
-                let ctx_clone = ctx.clone();
-                let target_for_nav = target.clone();
-                spawn_local(async move {
-                    let result = save_raw(ctx_clone, target, body, message, true).await;
-                    saving.set(false);
-                    match result {
-                        Ok(()) => {
-                            save_error.set(None);
-                            push_request_path(&content_route_for_path(target_for_nav.as_str()));
-                        }
-                        Err(message) => save_error.set(Some(message)),
-                    }
-                });
-                return;
-            }
-
-            // Existing entry edit.
-            let path = canonical_path.get_untracked();
-            if !path.as_str().starts_with("/mempool/") {
-                save_error.set(Some(
-                    "save is only allowed for /mempool/... paths".to_string(),
-                ));
-                return;
-            }
-            let rel = path
+        // /new: derive the target path from the typed frontmatter.
+        if is_new_route.get_untracked() {
+            let target = match derive_new_path(&body) {
+                Ok(target) => target,
+                Err(message) => {
+                    save_error.set(Some(message));
+                    return;
+                }
+            };
+            let rel = target
                 .as_str()
                 .trim_start_matches("/mempool/")
                 .trim_end_matches(".md");
-            let message = format!("mempool: edit {rel}");
+            let message = format!("mempool: add {rel}");
             saving.set(true);
-            let ctx_clone = ctx.clone();
+            let ctx_clone = ctx;
+            let target_for_nav = target.clone();
             spawn_local(async move {
-                let result = save_raw(ctx_clone, path, body, message, false).await;
+                let result = save_raw(ctx_clone, target, body, message, true).await;
                 saving.set(false);
                 match result {
                     Ok(()) => {
                         save_error.set(None);
-                        draft_dirty.set(false);
-                        mode.set(ReaderMode::View);
-                        refetch_epoch.update(|n| *n += 1);
-                        content.refetch();
+                        push_request_path(&content_route_for_path(target_for_nav.as_str()));
                     }
                     Err(message) => save_error.set(Some(message)),
                 }
             });
+            return;
         }
+
+        // Existing entry edit.
+        let path = canonical_path.get_untracked();
+        if !path.as_str().starts_with("/mempool/") {
+            save_error.set(Some(
+                "save is only allowed for /mempool/... paths".to_string(),
+            ));
+            return;
+        }
+        let rel = path
+            .as_str()
+            .trim_start_matches("/mempool/")
+            .trim_end_matches(".md");
+        let message = format!("mempool: edit {rel}");
+        saving.set(true);
+        let ctx_clone = ctx;
+        spawn_local(async move {
+            let result = save_raw(ctx_clone, path, body, message, false).await;
+            saving.set(false);
+            match result {
+                Ok(()) => {
+                    save_error.set(None);
+                    draft_dirty.set(false);
+                    mode.set(ReaderMode::View);
+                    refetch_epoch.update(|n| *n += 1);
+                    content.refetch();
+                }
+                Err(message) => save_error.set(Some(message)),
+            }
+        });
     };
 
     let on_edit_cb = Callback::new(on_toggle_edit);

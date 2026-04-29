@@ -95,7 +95,7 @@ pub fn derive_gas(body: &str, byte_len: usize, is_markdown: bool) -> String {
 fn strip_frontmatter(body: &str) -> &str {
     let mut iter = body.splitn(3, "---\n");
     match (iter.next(), iter.next(), iter.next()) {
-        (Some(empty), Some(_meta), Some(rest)) if empty.is_empty() => rest,
+        (Some(""), Some(_meta), Some(rest)) => rest,
         _ => body,
     }
 }
@@ -106,7 +106,7 @@ fn format_with_thousands(n: usize) -> String {
     let mut out = String::new();
     for (i, byte) in bytes.iter().enumerate() {
         let from_end = bytes.len() - i;
-        if i > 0 && from_end % 3 == 0 {
+        if i > 0 && from_end.is_multiple_of(3) {
             out.push(',');
         }
         out.push(*byte as char);

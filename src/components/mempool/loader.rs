@@ -35,7 +35,7 @@ pub async fn load_mempool_files(ctx: AppContext) -> Vec<LoadedMempoolFile> {
                     );
                     continue;
                 };
-                let byte_len = body.as_bytes().len();
+                let byte_len = body.len();
                 let is_markdown = path.as_str().ends_with(".md");
                 out.push(LoadedMempoolFile {
                     path,

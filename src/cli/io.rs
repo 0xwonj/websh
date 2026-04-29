@@ -17,10 +17,10 @@ pub(crate) fn write_json<T: serde::Serialize>(path: &Path, value: &T) -> CliResu
     // This keeps `cargo run -- content manifest` truly idempotent so it can
     // be invoked from a Trunk pre_build hook without the resulting mtime
     // bump triggering another rebuild and looping forever.
-    if let Ok(existing) = fs::read(path) {
-        if existing == body.as_bytes() {
-            return Ok(());
-        }
+    if let Ok(existing) = fs::read(path)
+        && existing == body.as_bytes()
+    {
+        return Ok(());
     }
     fs::write(path, body)?;
     Ok(())

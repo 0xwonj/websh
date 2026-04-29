@@ -171,7 +171,7 @@ fn kind_for_category(category: &str) -> String {
     .to_string()
 }
 
-fn sort_entries(entries: &mut Vec<MempoolEntry>) {
+fn sort_entries(entries: &mut [MempoolEntry]) {
     entries.sort_by(|left, right| match (&left.sort_key, &right.sort_key) {
         (Some(left_key), Some(right_key)) => right_key
             .cmp(left_key)

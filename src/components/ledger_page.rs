@@ -62,22 +62,19 @@ struct LedgerEntry {
 #[component]
 pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
-    let ledger_ctx = ctx.clone();
+    let ledger_ctx = ctx;
     let ledger = LocalResource::new(move || {
-        let ctx = ledger_ctx.clone();
+        let ctx = ledger_ctx;
         async move { load_content_ledger(ctx).await }
     });
 
-    let mempool_ctx = ctx.clone();
+    let mempool_ctx = ctx;
     let mempool_files = LocalResource::new(move || {
-        let ctx = mempool_ctx.clone();
+        let ctx = mempool_ctx;
         async move { load_mempool_files(ctx).await }
     });
 
-    let author_mode = Memo::new({
-        let ctx = ctx.clone();
-        move |_| ctx.runtime_state.with(|rs| rs.github_token_present)
-    });
+    let author_mode = Memo::new(move |_| ctx.runtime_state.with(|rs| rs.github_token_present));
 
     // Mempool collapse state lives at the LedgerPage level so it survives
     // filter-route changes (which re-render but don't re-mount this page).

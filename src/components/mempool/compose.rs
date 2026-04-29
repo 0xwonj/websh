@@ -88,10 +88,10 @@ pub fn validate_form(form: &ComposeForm) -> Vec<ComposeError> {
     if !LEDGER_CATEGORIES.contains(&form.category.as_str()) {
         errors.push(ComposeError::CategoryUnknown);
     }
-    if let Some(priority) = &form.priority {
-        if !ALLOWED_PRIORITIES.contains(&priority.as_str()) {
-            errors.push(ComposeError::PriorityUnknown);
-        }
+    if let Some(priority) = &form.priority
+        && !ALLOWED_PRIORITIES.contains(&priority.as_str())
+    {
+        errors.push(ComposeError::PriorityUnknown);
     }
     if form
         .tags
@@ -139,9 +139,7 @@ pub fn target_path(form: &ComposeForm) -> VirtualPath {
 fn body_after_frontmatter(body: &str) -> String {
     let mut iter = body.splitn(3, "---\n");
     match (iter.next(), iter.next(), iter.next()) {
-        (Some(empty), Some(_meta), Some(rest)) if empty.is_empty() => {
-            rest.trim_start_matches('\n').to_string()
-        }
+        (Some(""), Some(_meta), Some(rest)) => rest.trim_start_matches('\n').to_string(),
         _ => body.to_string(),
     }
 }
@@ -419,19 +417,18 @@ pub(super) async fn apply_commit_outcome(
         })
         .unwrap_or_else(|| mount_id_fallback(mount_root));
 
-    if let Ok(db) = crate::core::storage::idb::open_db().await {
-        if let Err(error) = crate::core::storage::idb::save_metadata(
+    if let Ok(db) = crate::core::storage::idb::open_db().await
+        && let Err(error) = crate::core::storage::idb::save_metadata(
             &db,
             &format!("remote_head.{storage_id}"),
             &outcome.new_head,
         )
         .await
-        {
-            leptos::logging::warn!(
-                "compose: persist remote_head for {} failed: {error}",
-                mount_root.as_str()
-            );
-        }
+    {
+        leptos::logging::warn!(
+            "compose: persist remote_head for {} failed: {error}",
+            mount_root.as_str()
+        );
     }
 }
 
