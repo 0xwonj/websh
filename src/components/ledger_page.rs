@@ -297,7 +297,7 @@ fn LedgerChain(model: LedgerModel) -> impl IntoView {
         <section class=css::chain aria-label="Ledger entries">
             {rows}
         </section>
-        {trailing_gap.map(|hidden| view! { <LedgerGap hidden=hidden /> })}
+        {trailing_gap.map(|hidden| view! { <LedgerGap hidden=hidden trailing=true /> })}
         <div class=genesis_class>
             <span class=css::genesisLabel>"genesis"</span>
             <span class=css::hashCell>
@@ -312,10 +312,15 @@ fn LedgerChain(model: LedgerModel) -> impl IntoView {
 }
 
 #[component]
-fn LedgerGap(hidden: usize) -> impl IntoView {
+fn LedgerGap(hidden: usize, #[prop(optional)] trailing: bool) -> impl IntoView {
     let label = format!("{hidden} hidden");
+    let class = if trailing {
+        format!("{} {}", css::gap, css::gapTrailing)
+    } else {
+        css::gap.to_string()
+    };
     view! {
-        <div class=css::gap aria-label=label.clone() title=label></div>
+        <div class=class aria-label=label.clone() title=label></div>
     }
 }
 
