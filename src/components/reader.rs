@@ -18,7 +18,10 @@ use crate::components::chrome::SiteChrome;
 use crate::components::markdown::MarkdownView;
 use crate::components::mempool::{derive_new_path, placeholder_frontmatter, save_raw};
 use crate::components::shared::AttestationSigFooter;
-use crate::core::engine::{RenderIntent, RouteFrame, push_request_path, replace_request_path};
+use crate::core::engine::{
+    RenderIntent, RouteFrame, RouteRequest, RouteResolution, push_request_path,
+    replace_request_path,
+};
 use crate::models::{FileType, VirtualPath};
 use crate::utils::content_routes::{attestation_route_for_node_path, content_route_for_path};
 use crate::utils::current_timestamp;
@@ -29,6 +32,93 @@ use crate::utils::{
 };
 
 stylance::import_crate_style!(css, "src/components/reader.module.css");
+
+/// Reader-bound subset of [`RenderIntent`]. Constructed by the router; carries
+/// only the variants `Reader` can render.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ReaderIntent {
+    Html { node_path: VirtualPath },
+    Markdown { node_path: VirtualPath },
+    Plain { node_path: VirtualPath },
+    Asset {
+        node_path: VirtualPath,
+        media_type: String,
+    },
+    Redirect { node_path: VirtualPath },
+}
+
+/// Reader's narrowed equivalent of [`RouteFrame`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReaderFrame {
+    pub request: RouteRequest,
+    pub resolution: RouteResolution,
+    pub intent: ReaderIntent,
+}
+
+impl From<ReaderIntent> for RenderIntent {
+    fn from(intent: ReaderIntent) -> Self {
+        match intent {
+            ReaderIntent::Html { node_path } => RenderIntent::HtmlContent { node_path },
+            ReaderIntent::Markdown { node_path } => RenderIntent::MarkdownContent { node_path },
+            ReaderIntent::Plain { node_path } => RenderIntent::PlainContent { node_path },
+            ReaderIntent::Asset {
+                node_path,
+                media_type,
+            } => RenderIntent::Asset {
+                node_path,
+                media_type,
+            },
+            ReaderIntent::Redirect { node_path } => RenderIntent::Redirect { node_path },
+        }
+    }
+}
+
+impl From<ReaderFrame> for RouteFrame {
+    fn from(frame: ReaderFrame) -> Self {
+        RouteFrame {
+            request: frame.request,
+            resolution: frame.resolution,
+            intent: frame.intent.into(),
+        }
+    }
+}
+
+impl TryFrom<RouteFrame> for ReaderFrame {
+    /// On failure the original frame is returned so the caller can reroute it.
+    type Error = RouteFrame;
+
+    fn try_from(frame: RouteFrame) -> Result<Self, Self::Error> {
+        let intent = match frame.intent {
+            RenderIntent::HtmlContent { ref node_path } => ReaderIntent::Html {
+                node_path: node_path.clone(),
+            },
+            RenderIntent::MarkdownContent { ref node_path } => ReaderIntent::Markdown {
+                node_path: node_path.clone(),
+            },
+            RenderIntent::PlainContent { ref node_path } => ReaderIntent::Plain {
+                node_path: node_path.clone(),
+            },
+            RenderIntent::Asset {
+                ref node_path,
+                ref media_type,
+            } => ReaderIntent::Asset {
+                node_path: node_path.clone(),
+                media_type: media_type.clone(),
+            },
+            RenderIntent::Redirect { ref node_path } => ReaderIntent::Redirect {
+                node_path: node_path.clone(),
+            },
+            RenderIntent::DirectoryListing { .. } | RenderIntent::TerminalApp { .. } => {
+                return Err(frame);
+            }
+        };
+        Ok(ReaderFrame {
+            request: frame.request,
+            resolution: frame.resolution,
+            intent,
+        })
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ReaderMode {
@@ -42,13 +132,12 @@ enum RendererContent {
     Text(String),
     Asset { url: String, media_type: String },
     Redirecting,
-    Unsupported(String),
 }
 
 #[component]
-pub fn Reader(route: Memo<RouteFrame>) -> impl IntoView {
+pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
-    let canonical_path = Memo::new(move |_| route.get().resolution.node_path.clone());
+    let canonical_path = Memo::new(move |_| frame.get().resolution.node_path.clone());
     let filename = Memo::new(move |_| {
         canonical_path
             .get()
@@ -63,7 +152,7 @@ pub fn Reader(route: Memo<RouteFrame>) -> impl IntoView {
         let ctx = ctx.clone();
         move |_| ctx.runtime_state.with(|rs| rs.github_token_present)
     });
-    let is_new_route = Memo::new(move |_| route.get().request.url_path == "/new");
+    let is_new_route = Memo::new(move |_| frame.get().request.url_path == "/new");
     let edit_visible = Memo::new(move |_| {
         author_mode.get()
             && (canonical_path.get().as_str().starts_with("/mempool/") || is_new_route.get())
@@ -139,9 +228,9 @@ pub fn Reader(route: Memo<RouteFrame>) -> impl IntoView {
         let ctx_clone = ctx.clone();
         move || {
             let ctx = ctx_clone.clone();
-            let frame = route.get();
-            let path = frame.resolution.node_path.clone();
-            let intent = frame.intent.clone();
+            let snapshot = frame.get();
+            let path = snapshot.resolution.node_path.clone();
+            let intent = snapshot.intent.clone();
             let _ = refetch_epoch.get();
             async move { load_renderer_content(ctx, path, intent).await }
         }
@@ -259,9 +348,11 @@ pub fn Reader(route: Memo<RouteFrame>) -> impl IntoView {
     let on_cancel_cb = Callback::new(on_cancel);
     let on_save_cb = Callback::new(on_save);
 
+    let chrome_route = Memo::new(move |_| RouteFrame::from(frame.get()));
+
     view! {
         <div class=css::surface>
-            <SiteChrome route=route />
+            <SiteChrome route=chrome_route />
             <main class=css::page>
                 <ReaderToolbar
                     mode=mode
@@ -314,9 +405,6 @@ pub fn Reader(route: Memo<RouteFrame>) -> impl IntoView {
                                         }
                                         Ok(RendererContent::Redirecting) => view! {
                                             <div class=css::loading>"Redirecting..."</div>
-                                        }.into_any(),
-                                        Ok(RendererContent::Unsupported(message)) => view! {
-                                            <div class=css::error>{message}</div>
                                         }.into_any(),
                                         Err(error) => view! {
                                             <div class=css::error>{error}</div>
@@ -410,46 +498,26 @@ fn iso_today() -> String {
 async fn load_renderer_content(
     ctx: AppContext,
     path: VirtualPath,
-    intent: RenderIntent,
+    intent: ReaderIntent,
 ) -> Result<RendererContent, String> {
     match intent {
-        RenderIntent::MarkdownPage { .. } => ctx
+        ReaderIntent::Markdown { .. } => ctx
             .read_text(&path)
             .await
             .map(|markdown| RendererContent::Html(render_markdown(&markdown)))
             .map_err(|error| error.to_string()),
-        RenderIntent::HtmlPage { .. } => ctx
+        ReaderIntent::Html { .. } => ctx
             .read_text(&path)
             .await
             .map(|html| RendererContent::Html(rendered_from_html(sanitize_html(&html))))
             .map_err(|error| error.to_string()),
-        RenderIntent::DocumentReader { .. } => match FileType::from_path(path.as_str()) {
-            FileType::Pdf | FileType::Image => load_asset(ctx, &path).await,
-            FileType::Html => ctx
-                .read_text(&path)
-                .await
-                .map(|html| RendererContent::Html(rendered_from_html(sanitize_html(&html))))
-                .map_err(|error| error.to_string()),
-            FileType::Markdown => ctx
-                .read_text(&path)
-                .await
-                .map(|markdown| RendererContent::Html(render_markdown(&markdown)))
-                .map_err(|error| error.to_string()),
-            FileType::Link => load_redirect(ctx, &path).await,
-            FileType::Unknown => ctx
-                .read_text(&path)
-                .await
-                .map(RendererContent::Text)
-                .map_err(|error| error.to_string()),
-        },
-        RenderIntent::Asset { .. } => load_asset(ctx, &path).await,
-        RenderIntent::Redirect { .. } => load_redirect(ctx, &path).await,
-        RenderIntent::DirectoryListing { .. } => Ok(RendererContent::Unsupported(
-            "Directory listings are handled by the explorer.".to_string(),
-        )),
-        RenderIntent::TerminalApp { .. } => Ok(RendererContent::Unsupported(
-            "Applications are handled by websh.".to_string(),
-        )),
+        ReaderIntent::Plain { .. } => ctx
+            .read_text(&path)
+            .await
+            .map(RendererContent::Text)
+            .map_err(|error| error.to_string()),
+        ReaderIntent::Asset { .. } => load_asset(ctx, &path).await,
+        ReaderIntent::Redirect { .. } => load_redirect(ctx, &path).await,
     }
 }
 
@@ -482,5 +550,169 @@ async fn load_redirect(ctx: AppContext, path: &VirtualPath) -> Result<RendererCo
             Ok(RendererContent::Redirecting)
         }
         UrlValidation::Invalid(error) => Err(format!("Redirect blocked: {error}")),
+    }
+}
+
+#[cfg(test)]
+mod reader_intent_tests {
+    use super::*;
+
+    #[test]
+    fn reader_intent_round_trip_html() {
+        let intent = ReaderIntent::Html {
+            node_path: VirtualPath::from_absolute("/index.html").unwrap(),
+        };
+        match intent {
+            ReaderIntent::Html { node_path } => assert_eq!(node_path.as_str(), "/index.html"),
+            other => panic!("unexpected variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn reader_intent_round_trip_asset() {
+        let intent = ReaderIntent::Asset {
+            node_path: VirtualPath::from_absolute("/cover.png").unwrap(),
+            media_type: "image/png".to_string(),
+        };
+        if let ReaderIntent::Asset { media_type, .. } = intent {
+            assert_eq!(media_type, "image/png");
+        } else {
+            panic!("unexpected variant");
+        }
+    }
+
+    #[test]
+    fn reader_intent_round_trip_redirect() {
+        let intent = ReaderIntent::Redirect {
+            node_path: VirtualPath::from_absolute("/x.link").unwrap(),
+        };
+        if let ReaderIntent::Redirect { node_path } = intent {
+            assert_eq!(node_path.as_str(), "/x.link");
+        } else {
+            panic!("unexpected variant");
+        }
+    }
+
+    fn make_reader_frame(intent: ReaderIntent, request_path: &str) -> ReaderFrame {
+        ReaderFrame {
+            request: RouteRequest::new(request_path),
+            resolution: RouteResolution {
+                request_path: request_path.to_string(),
+                surface: crate::core::engine::RouteSurface::Content,
+                node_path: VirtualPath::from_absolute(request_path).unwrap(),
+                kind: crate::core::engine::ResolvedKind::Document,
+                params: std::collections::BTreeMap::new(),
+            },
+            intent,
+        }
+    }
+
+    fn round_trip(intent: ReaderIntent, request_path: &str) {
+        let frame = make_reader_frame(intent.clone(), request_path);
+        let route_frame = RouteFrame::from(frame.clone());
+        let reconverted =
+            ReaderFrame::try_from(route_frame).expect("reader-bound intent round trips");
+        assert_eq!(reconverted.intent, intent);
+        assert_eq!(reconverted.request, frame.request);
+        assert_eq!(reconverted.resolution, frame.resolution);
+    }
+
+    #[test]
+    fn reader_frame_round_trips_markdown() {
+        round_trip(
+            ReaderIntent::Markdown {
+                node_path: VirtualPath::from_absolute("/blog/hello.md").unwrap(),
+            },
+            "/blog/hello.md",
+        );
+    }
+
+    #[test]
+    fn reader_frame_round_trips_html() {
+        round_trip(
+            ReaderIntent::Html {
+                node_path: VirtualPath::from_absolute("/index.html").unwrap(),
+            },
+            "/index.html",
+        );
+    }
+
+    #[test]
+    fn reader_frame_round_trips_plain() {
+        round_trip(
+            ReaderIntent::Plain {
+                node_path: VirtualPath::from_absolute("/notes/x.txt").unwrap(),
+            },
+            "/notes/x.txt",
+        );
+    }
+
+    #[test]
+    fn reader_frame_round_trips_asset() {
+        round_trip(
+            ReaderIntent::Asset {
+                node_path: VirtualPath::from_absolute("/cover.png").unwrap(),
+                media_type: "image/png".to_string(),
+            },
+            "/cover.png",
+        );
+    }
+
+    #[test]
+    fn reader_frame_round_trips_redirect() {
+        round_trip(
+            ReaderIntent::Redirect {
+                node_path: VirtualPath::from_absolute("/x.link").unwrap(),
+            },
+            "/x.link",
+        );
+    }
+
+    #[test]
+    fn reader_intent_to_render_intent_preserves_fields() {
+        let asset = ReaderIntent::Asset {
+            node_path: VirtualPath::from_absolute("/cover.png").unwrap(),
+            media_type: "image/png".to_string(),
+        };
+        let render: RenderIntent = asset.into();
+        match render {
+            RenderIntent::Asset {
+                node_path,
+                media_type,
+            } => {
+                assert_eq!(node_path.as_str(), "/cover.png");
+                assert_eq!(media_type, "image/png");
+            }
+            other => panic!("expected Asset, got {other:?}"),
+        }
+
+        let html = ReaderIntent::Html {
+            node_path: VirtualPath::from_absolute("/index.html").unwrap(),
+        };
+        let render: RenderIntent = html.into();
+        match render {
+            RenderIntent::HtmlContent { node_path } => {
+                assert_eq!(node_path.as_str(), "/index.html");
+            }
+            other => panic!("expected HtmlContent, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn try_from_route_frame_rejects_directory_listing() {
+        let frame = RouteFrame {
+            request: RouteRequest::new("/blog"),
+            resolution: RouteResolution {
+                request_path: "/blog".to_string(),
+                surface: crate::core::engine::RouteSurface::Content,
+                node_path: VirtualPath::from_absolute("/blog").unwrap(),
+                kind: crate::core::engine::ResolvedKind::Directory,
+                params: std::collections::BTreeMap::new(),
+            },
+            intent: RenderIntent::DirectoryListing {
+                node_path: VirtualPath::from_absolute("/blog").unwrap(),
+            },
+        };
+        assert!(ReaderFrame::try_from(frame).is_err());
     }
 }

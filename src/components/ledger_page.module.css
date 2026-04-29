@@ -184,7 +184,6 @@
   font-family: var(--font-mono);
   display: flex;
   flex-direction: column;
-  gap: var(--space-3_5);
 }
 
 .block {
@@ -338,29 +337,41 @@
   white-space: nowrap;
 }
 
-.block::after {
+.connector {
+  position: relative;
+  height: 14px;
+  color: var(--ledger-rule-bright);
+}
+
+.connector::before {
   content: "";
   position: absolute;
   left: 50%;
-  top: 100%;
+  top: 0;
+  bottom: 0;
   width: 1px;
-  height: 14px;
-  background: var(--ledger-rule-bright);
+  background: currentColor;
   transform: translateX(-0.5px);
 }
 
-.block:last-of-type::after {
-  display: none;
+.connectorBroken {
+  height: 22px;
+  opacity: 0.7;
 }
 
-.block:hover::after {
-  background: var(--ledger-accent-dim);
+.connectorBroken::before {
+  background:
+    repeating-linear-gradient(to bottom, currentColor 0 2px, transparent 2px 4px) top center / 100% 8px no-repeat,
+    repeating-linear-gradient(to bottom, currentColor 0 2px, transparent 2px 4px) bottom center / 100% 8px no-repeat;
+}
+
+.block:hover + .connector {
+  color: var(--ledger-accent-dim);
 }
 
 .genesis {
   border: 1px dashed var(--ledger-rule);
   padding: var(--space-2) var(--space-3);
-  margin-top: var(--space-6);
   font-size: var(--font-size-xs);
   color: var(--ledger-faint);
   display: grid;
@@ -368,25 +379,6 @@
   gap: var(--space-3_5);
   align-items: baseline;
   position: relative;
-}
-
-.genesis::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  bottom: 100%;
-  width: 1px;
-  height: var(--space-6);
-  background: var(--ledger-rule-bright);
-  transform: translateX(-0.5px);
-}
-
-.genesisDisconnected::before {
-  background: transparent;
-  border-left: 1px dashed var(--ledger-rule-bright);
-  width: 0;
-  height: calc(var(--space-6) - 7px);
-  opacity: 0.7;
 }
 
 .genesisLabel {
@@ -419,28 +411,6 @@
   50% {
     opacity: 0.25;
   }
-}
-
-.gap {
-  position: relative;
-  height: 14px;
-  margin: -7px 0;
-}
-
-.gap::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 2px;
-  bottom: 2px;
-  width: 0;
-  border-left: 1px dashed var(--ledger-rule-bright);
-  transform: translateX(-0.5px);
-  opacity: 0.7;
-}
-
-.gapTrailing {
-  margin-top: 0;
 }
 
 @media (max-width: 640px) {

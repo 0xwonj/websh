@@ -21,8 +21,40 @@ use crate::app::AppContext;
 use crate::components::home::HomePage;
 use crate::components::ledger_page::LedgerPage;
 use crate::components::ledger_routes::{LEDGER_ROUTE, is_ledger_filter_route_segment};
-use crate::components::reader::Reader;
+use crate::components::reader::{Reader, ReaderFrame};
 use crate::components::terminal::Shell;
+
+/// URL patterns that bypass the engine and produce a synthetic [`RouteFrame`].
+///
+/// Each variant corresponds to a reserved URL prefix (or full path) the
+/// router handles directly. The engine never resolves these — it does not
+/// know about UI-level concerns like compose mode or ledger filter views.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BuiltinRoute {
+    /// `/` — homepage.
+    Home,
+    /// `/ledger` and `/<category>` — ledger filter views.
+    LedgerFilter,
+    /// `/new` — mempool compose flow.
+    NewCompose,
+}
+
+impl BuiltinRoute {
+    /// Classify a request against the reserved URL list. Returns `None`
+    /// when the request is to be routed through the engine.
+    pub fn detect(request: &RouteRequest) -> Option<Self> {
+        if request.url_path == "/" {
+            return Some(Self::Home);
+        }
+        if is_ledger_filter_route_segment(request.url_path.trim_matches('/')) {
+            return Some(Self::LedgerFilter);
+        }
+        if is_new_request_path(request) {
+            return Some(Self::NewCompose);
+        }
+        None
+    }
+}
 #[cfg(target_arch = "wasm32")]
 use crate::core::engine::FsEngine;
 use crate::core::engine::{
@@ -86,77 +118,62 @@ pub fn RouterView() -> impl IntoView {
     #[cfg(not(target_arch = "wasm32"))]
     let route = Memo::new(move |_| None::<RouteFrame>);
 
-    // Focus terminal input when returning to a shell/explorer surface.
-    Effect::new(move |prev_was_reader: Option<bool>| {
-        if _raw_request.with(is_builtin_home_route) {
-            return false;
-        }
-
-        let is_reader = route.get().is_some_and(|frame| {
-            !matches!(
-                frame.intent,
-                RenderIntent::TerminalApp { .. } | RenderIntent::DirectoryListing { .. }
-            )
-        });
-        if prev_was_reader == Some(true) && !is_reader {
-            focus_terminal_input();
-        }
-        is_reader
-    });
+    install_terminal_focus_effect(_raw_request, route);
 
     view! {
         {move || {
-            if _raw_request.with(is_builtin_home_route) {
-                return view! {
+            let request = _raw_request.get();
+            match BuiltinRoute::detect(&request) {
+                Some(BuiltinRoute::Home) => view! {
                     <HomePage route=Memo::new(move |_| {
                         route
                             .get()
-                            .unwrap_or_else(|| builtin_home_frame(_raw_request.get()))
+                            .unwrap_or_else(|| home_frame(_raw_request.get()))
                     }) />
                 }
-                .into_any();
-            }
-            if _raw_request.with(is_ledger_filter_route) {
-                return view! {
+                .into_any(),
+                Some(BuiltinRoute::LedgerFilter) => view! {
                     <LedgerPage route=Memo::new(move |_| ledger_filter_frame(_raw_request.get())) />
                 }
-                .into_any();
-            }
-            if _raw_request.with(is_new_request_path) {
-                return view! {
-                    <Reader route=Memo::new(move |_| new_compose_frame()) />
+                .into_any(),
+                Some(BuiltinRoute::NewCompose) => {
+                    let reader_frame = ReaderFrame::try_from(new_compose_frame())
+                        .expect("compose route always produces a Reader-bound intent");
+                    view! {
+                        <Reader frame=Memo::new(move |_| reader_frame.clone()) />
+                    }
+                    .into_any()
                 }
-                .into_any();
-            }
-
-            match route.get() {
-                Some(frame) => match frame.intent {
-                    RenderIntent::TerminalApp { .. } => {
-                        view! { <Shell route=Memo::new(move |_| route.get().expect("frame available")) /> }.into_any()
-                    }
-                    RenderIntent::DirectoryListing { .. }
-                        if frame.surface() == RouteSurface::Explorer => {
-                            view! { <Shell route=Memo::new(move |_| route.get().expect("frame available")) /> }.into_any()
+                None => match route.get() {
+                    Some(frame) => match frame.intent {
+                        RenderIntent::TerminalApp { .. } => {
+                            view! { <Shell route=static_route_memo(frame.clone()) /> }.into_any()
                         }
-                    RenderIntent::DirectoryListing { .. } => {
-                        view! { <LedgerPage route=Memo::new(move |_| route.get().expect("frame available")) /> }.into_any()
-                    }
-                    _ => {
-                        view! { <Reader route=Memo::new(move |_| route.get().expect("frame available")) /> }.into_any()
-                    }
-                },
-                None => view! { <NotFound /> }.into_any(),
+                        RenderIntent::DirectoryListing { .. }
+                            if frame.surface() == RouteSurface::Explorer => {
+                                view! { <Shell route=static_route_memo(frame.clone()) /> }.into_any()
+                            }
+                        RenderIntent::DirectoryListing { .. } => {
+                            view! { <LedgerPage route=static_route_memo(frame.clone()) /> }.into_any()
+                        }
+                        RenderIntent::HtmlContent { .. }
+                        | RenderIntent::MarkdownContent { .. }
+                        | RenderIntent::PlainContent { .. }
+                        | RenderIntent::Asset { .. }
+                        | RenderIntent::Redirect { .. } => {
+                            let reader_frame = ReaderFrame::try_from(frame)
+                                .expect("non-surface RenderIntent variants convert to ReaderFrame");
+                            view! {
+                                <Reader frame=Memo::new(move |_| reader_frame.clone()) />
+                            }
+                            .into_any()
+                        }
+                    },
+                    None => view! { <NotFound /> }.into_any(),
+                }
             }
         }}
     }
-}
-
-fn is_builtin_home_route(request: &RouteRequest) -> bool {
-    request.url_path == "/"
-}
-
-fn is_ledger_filter_route(request: &RouteRequest) -> bool {
-    is_ledger_filter_route_segment(request.url_path.trim_matches('/'))
 }
 
 fn new_compose_frame() -> RouteFrame {
@@ -171,7 +188,9 @@ fn new_compose_frame() -> RouteFrame {
             kind: ResolvedKind::Document,
             params: BTreeMap::new(),
         },
-        intent: RenderIntent::DocumentReader { node_path },
+        intent: RenderIntent::MarkdownContent {
+            node_path,
+        },
     }
 }
 
@@ -193,12 +212,11 @@ fn ledger_filter_frame(request: RouteRequest) -> RouteFrame {
         },
         intent: RenderIntent::DirectoryListing {
             node_path,
-            layout: None,
         },
     }
 }
 
-fn builtin_home_frame(request: RouteRequest) -> RouteFrame {
+fn home_frame(request: RouteRequest) -> RouteFrame {
     let request = RouteRequest::new(request.url_path);
     RouteFrame {
         request: request.clone(),
@@ -211,9 +229,43 @@ fn builtin_home_frame(request: RouteRequest) -> RouteFrame {
         },
         intent: RenderIntent::DirectoryListing {
             node_path: VirtualPath::root(),
-            layout: None,
         },
     }
+}
+
+/// Wraps a concrete [`RouteFrame`] in a [`Memo`] so it can be passed to a
+/// component that expects a reactive prop, without each call site repeating
+/// the `Option`-unwrap-and-`expect` dance against the outer route Memo.
+fn static_route_memo(frame: RouteFrame) -> Memo<RouteFrame> {
+    Memo::new(move |_| frame.clone())
+}
+
+/// Refocuses the terminal input when the user returns to a shell/explorer
+/// surface from a Reader-bound surface. Lives in its own helper so the
+/// router body doesn't carry the cross-cutting concern inline.
+fn install_terminal_focus_effect(
+    raw_request: RwSignal<RouteRequest>,
+    route: Memo<Option<RouteFrame>>,
+) {
+    Effect::new(move |prev_was_reader: Option<bool>| {
+        if matches!(
+            BuiltinRoute::detect(&raw_request.get()),
+            Some(BuiltinRoute::Home)
+        ) {
+            return false;
+        }
+
+        let is_reader = route.get().is_some_and(|frame| {
+            !matches!(
+                frame.intent,
+                RenderIntent::TerminalApp { .. } | RenderIntent::DirectoryListing { .. }
+            )
+        });
+        if prev_was_reader == Some(true) && !is_reader {
+            focus_terminal_input();
+        }
+        is_reader
+    });
 }
 
 #[component]
@@ -223,5 +275,66 @@ fn NotFound() -> impl IntoView {
             <h1>"404"</h1>
             <p>"No route matched the current path."</p>
         </div>
+    }
+}
+
+#[cfg(test)]
+mod builtin_route_tests {
+    use super::*;
+
+    #[test]
+    fn detects_home() {
+        assert_eq!(
+            BuiltinRoute::detect(&RouteRequest::new("/")),
+            Some(BuiltinRoute::Home)
+        );
+    }
+
+    #[test]
+    fn detects_ledger_root() {
+        assert_eq!(
+            BuiltinRoute::detect(&RouteRequest::new("/ledger")),
+            Some(BuiltinRoute::LedgerFilter)
+        );
+    }
+
+    #[test]
+    fn detects_ledger_category() {
+        for category in ["writing", "projects", "papers", "talks", "misc"] {
+            let path = format!("/{category}");
+            assert_eq!(
+                BuiltinRoute::detect(&RouteRequest::new(path.clone())),
+                Some(BuiltinRoute::LedgerFilter),
+                "expected LedgerFilter for {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn detects_compose() {
+        assert_eq!(
+            BuiltinRoute::detect(&RouteRequest::new("/new")),
+            Some(BuiltinRoute::NewCompose)
+        );
+    }
+
+    #[test]
+    fn rejects_engine_routes() {
+        // `/ledger/foo` and `/papers/x.pdf` lock in that ledger detection is
+        // an exact-match on the trimmed path, not a prefix match — sub-paths
+        // under reserved categories must reach the engine.
+        for path in [
+            "/blog/hello.md",
+            "/websh",
+            "/explorer/foo",
+            "/papers/x.pdf",
+            "/ledger/foo",
+        ] {
+            assert_eq!(
+                BuiltinRoute::detect(&RouteRequest::new(path)),
+                None,
+                "expected engine route for {path}"
+            );
+        }
     }
 }

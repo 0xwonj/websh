@@ -1,90 +1,63 @@
-use crate::models::VirtualPath;
+use crate::models::{FileType, VirtualPath};
+use crate::utils::media_type_for_path;
 
-use super::global_fs::GlobalFs;
 use super::routing::{ResolvedKind, RouteResolution};
 
 /// Renderer-neutral output produced by the engine and consumed by the UI.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RenderIntent {
-    HtmlPage {
-        node_path: VirtualPath,
-        layout: Option<String>,
-    },
-    MarkdownPage {
-        node_path: VirtualPath,
-        layout: Option<String>,
-    },
-    DirectoryListing {
-        node_path: VirtualPath,
-        layout: Option<String>,
-    },
-    TerminalApp {
-        node_path: VirtualPath,
-        layout: Option<String>,
-    },
-    DocumentReader {
-        node_path: VirtualPath,
-    },
-    Redirect {
-        node_path: VirtualPath,
-    },
+    DirectoryListing { node_path: VirtualPath },
+    TerminalApp { node_path: VirtualPath },
+    HtmlContent { node_path: VirtualPath },
+    MarkdownContent { node_path: VirtualPath },
+    PlainContent { node_path: VirtualPath },
     Asset {
         node_path: VirtualPath,
         media_type: String,
     },
+    Redirect { node_path: VirtualPath },
 }
 
-pub fn build_render_intent(_fs: &GlobalFs, resolution: &RouteResolution) -> Option<RenderIntent> {
-    let layout = _fs
-        .node_metadata(&resolution.node_path)
-        .and_then(|meta| meta.layout.clone());
-    let file_name = resolution.node_path.file_name().unwrap_or_default();
-    let ext = file_name
-        .rsplit_once('.')
-        .map(|(_, ext)| ext)
-        .unwrap_or_default();
+pub fn build_render_intent(resolution: &RouteResolution) -> Option<RenderIntent> {
+    let path = &resolution.node_path;
 
     Some(match resolution.kind {
         ResolvedKind::Directory => RenderIntent::DirectoryListing {
-            node_path: resolution.node_path.clone(),
-            layout: layout.clone(),
+            node_path: path.clone(),
         },
         ResolvedKind::App => RenderIntent::TerminalApp {
-            node_path: resolution.node_path.clone(),
-            layout,
+            node_path: path.clone(),
         },
         ResolvedKind::Redirect => RenderIntent::Redirect {
-            node_path: resolution.node_path.clone(),
+            node_path: path.clone(),
         },
         ResolvedKind::Asset => RenderIntent::Asset {
-            node_path: resolution.node_path.clone(),
-            media_type: match ext {
-                "png" => "image/png",
-                "jpg" | "jpeg" => "image/jpeg",
-                "gif" => "image/gif",
-                "webp" => "image/webp",
-                "svg" => "image/svg+xml",
-                _ => "application/octet-stream",
-            }
-            .to_string(),
+            node_path: path.clone(),
+            media_type: media_type_for_path(path.as_str()).to_string(),
         },
-        ResolvedKind::Page => match ext {
-            "html" => RenderIntent::HtmlPage {
-                node_path: resolution.node_path.clone(),
-                layout: layout.clone(),
-            },
-            "md" => RenderIntent::MarkdownPage {
-                node_path: resolution.node_path.clone(),
-                layout: layout.clone(),
-            },
-            _ => RenderIntent::DocumentReader {
-                node_path: resolution.node_path.clone(),
-            },
-        },
-        ResolvedKind::Document => RenderIntent::DocumentReader {
-            node_path: resolution.node_path.clone(),
-        },
+        ResolvedKind::Page | ResolvedKind::Document => content_intent_for_node(path),
     })
+}
+
+fn content_intent_for_node(path: &VirtualPath) -> RenderIntent {
+    match FileType::from_path(path.as_str()) {
+        FileType::Html => RenderIntent::HtmlContent {
+            node_path: path.clone(),
+        },
+        FileType::Markdown => RenderIntent::MarkdownContent {
+            node_path: path.clone(),
+        },
+        FileType::Pdf | FileType::Image => RenderIntent::Asset {
+            node_path: path.clone(),
+            media_type: media_type_for_path(path.as_str()).to_string(),
+        },
+        FileType::Link => RenderIntent::Redirect {
+            node_path: path.clone(),
+        },
+        FileType::Unknown => RenderIntent::PlainContent {
+            node_path: path.clone(),
+        },
+    }
 }
 
 #[cfg(test)]
@@ -125,31 +98,29 @@ mod tests {
     }
 
     #[test]
-    fn builds_html_page_intent() {
+    fn builds_html_content_intent_for_root_index() {
         let fs = site(&["index.html"], &[]);
         let resolution = resolve_route(&fs, &RouteRequest::new("/")).unwrap();
-        let intent = build_render_intent(&fs, &resolution).unwrap();
+        let intent = build_render_intent(&resolution).unwrap();
 
         assert_eq!(
             intent,
-            RenderIntent::HtmlPage {
+            RenderIntent::HtmlContent {
                 node_path: VirtualPath::from_absolute("/index.html").unwrap(),
-                layout: None,
             }
         );
     }
 
     #[test]
-    fn builds_markdown_page_intent() {
+    fn builds_markdown_content_intent_for_top_level_page() {
         let fs = site(&["about.md"], &[]);
         let resolution = resolve_route(&fs, &RouteRequest::new("/about")).unwrap();
-        let intent = build_render_intent(&fs, &resolution).unwrap();
+        let intent = build_render_intent(&resolution).unwrap();
 
         assert_eq!(
             intent,
-            RenderIntent::MarkdownPage {
+            RenderIntent::MarkdownContent {
                 node_path: VirtualPath::from_absolute("/about.md").unwrap(),
-                layout: None,
             }
         );
     }
@@ -158,13 +129,12 @@ mod tests {
     fn builds_terminal_app_intent() {
         let fs = site(&[], &[]);
         let resolution = resolve_route(&fs, &RouteRequest::new("/websh")).unwrap();
-        let intent = build_render_intent(&fs, &resolution).unwrap();
+        let intent = build_render_intent(&resolution).unwrap();
 
         assert_eq!(
             intent,
             RenderIntent::TerminalApp {
                 node_path: VirtualPath::root(),
-                layout: None,
             }
         );
     }
@@ -173,13 +143,12 @@ mod tests {
     fn builds_directory_listing_intent() {
         let fs = site(&["blog/hello.md"], &["blog"]);
         let resolution = resolve_route(&fs, &RouteRequest::new("/blog")).unwrap();
-        let intent = build_render_intent(&fs, &resolution).unwrap();
+        let intent = build_render_intent(&resolution).unwrap();
 
         assert_eq!(
             intent,
             RenderIntent::DirectoryListing {
                 node_path: VirtualPath::from_absolute("/blog").unwrap(),
-                layout: None,
             }
         );
     }
@@ -188,12 +157,98 @@ mod tests {
     fn builds_redirect_intent_with_source_node_path() {
         let fs = site(&["jump.link"], &[]);
         let resolution = resolve_route(&fs, &RouteRequest::new("/jump")).unwrap();
-        let intent = build_render_intent(&fs, &resolution).unwrap();
+        let intent = build_render_intent(&resolution).unwrap();
 
         assert_eq!(
             intent,
             RenderIntent::Redirect {
                 node_path: VirtualPath::from_absolute("/jump.link").unwrap(),
+            }
+        );
+    }
+
+    #[test]
+    fn builds_html_content_intent_for_html_document() {
+        let fs = site(&["blog/hello.html"], &["blog"]);
+        let resolution = resolve_route(&fs, &RouteRequest::new("/blog/hello.html")).unwrap();
+        let intent = build_render_intent(&resolution).unwrap();
+
+        assert_eq!(
+            intent,
+            RenderIntent::HtmlContent {
+                node_path: VirtualPath::from_absolute("/blog/hello.html").unwrap(),
+            }
+        );
+    }
+
+    #[test]
+    fn builds_markdown_content_intent_for_md_document() {
+        let fs = site(&["blog/hello.md"], &["blog"]);
+        let resolution = resolve_route(&fs, &RouteRequest::new("/blog/hello.md")).unwrap();
+        let intent = build_render_intent(&resolution).unwrap();
+
+        assert_eq!(
+            intent,
+            RenderIntent::MarkdownContent {
+                node_path: VirtualPath::from_absolute("/blog/hello.md").unwrap(),
+            }
+        );
+    }
+
+    #[test]
+    fn builds_asset_intent_for_pdf_document() {
+        let fs = site(&["papers/draft.pdf"], &["papers"]);
+        let resolution = resolve_route(&fs, &RouteRequest::new("/papers/draft.pdf")).unwrap();
+        let intent = build_render_intent(&resolution).unwrap();
+
+        assert_eq!(
+            intent,
+            RenderIntent::Asset {
+                node_path: VirtualPath::from_absolute("/papers/draft.pdf").unwrap(),
+                media_type: "application/pdf".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn builds_asset_intent_for_image_document() {
+        let fs = site(&["photos/cover.png"], &["photos"]);
+        let resolution = resolve_route(&fs, &RouteRequest::new("/photos/cover.png")).unwrap();
+        let intent = build_render_intent(&resolution).unwrap();
+
+        assert_eq!(
+            intent,
+            RenderIntent::Asset {
+                node_path: VirtualPath::from_absolute("/photos/cover.png").unwrap(),
+                media_type: "image/png".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn builds_redirect_intent_for_link_document() {
+        let fs = site(&["links/x.link"], &["links"]);
+        let resolution = resolve_route(&fs, &RouteRequest::new("/links/x.link")).unwrap();
+        let intent = build_render_intent(&resolution).unwrap();
+
+        assert_eq!(
+            intent,
+            RenderIntent::Redirect {
+                node_path: VirtualPath::from_absolute("/links/x.link").unwrap(),
+            }
+        );
+    }
+
+    #[test]
+    fn builds_plain_content_intent_for_unknown_document() {
+        let fs = site(&["notes/x.txt"], &["notes"]);
+        let resolution = resolve_route(&fs, &RouteRequest::new("/notes/x.txt")).unwrap();
+        let intent = build_render_intent(&resolution).unwrap();
+
+        assert_eq!(
+            intent,
+            RenderIntent::PlainContent {
+                node_path: VirtualPath::from_absolute("/notes/x.txt").unwrap(),
             }
         );
     }

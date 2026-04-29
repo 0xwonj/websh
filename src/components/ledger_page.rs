@@ -249,76 +249,68 @@ fn LedgerChain(model: LedgerModel) -> impl IntoView {
     if model.entries.is_empty() {
         return view! {
             <section class=css::empty>
-                "no entries match this ledger filter"
+                "no blocks match this ledger filter"
             </section>
         }
         .into_any();
     }
 
+    let last_index = model.entries.len() - 1;
     let rows = model
         .entries
         .iter()
         .enumerate()
         .map(|(index, entry)| {
-            let gap = model
-                .entries
-                .get(index + 1)
-                .map(|next| entry.block_height.saturating_sub(next.block_height))
-                .filter(|delta| *delta > 1)
-                .map(|delta| delta - 1);
+            let hidden = if index < last_index {
+                model
+                    .entries
+                    .get(index + 1)
+                    .map(|next| entry.block_height.saturating_sub(next.block_height))
+                    .map(|delta| delta.saturating_sub(1))
+                    .unwrap_or(0)
+            } else {
+                entry.block_height.saturating_sub(1)
+            };
+            let broken = hidden > 0;
             view! {
                 <LedgerBlock
                     entry=entry.clone()
                     block_number=entry.block_number.clone()
                     previous_hash=entry.previous_hash.clone()
                 />
-                {gap.map(|hidden| view! { <LedgerGap hidden=hidden /> })}
+                <LedgerConnector broken=broken hidden=hidden />
             }
         })
         .collect_view();
 
-    let trailing_gap = model
-        .entries
-        .last()
-        .map(|last| last.block_height.saturating_sub(1))
-        .filter(|hidden| *hidden > 0);
-
-    // When there's a trailing gap between the lowest-shown block and
-    // genesis, drop genesis's solid upward connector line — the dashed
-    // gap line above it conveys the missing range, and a solid line into
-    // the genesis box would visually contradict the "broken" indicator.
-    let genesis_class = if trailing_gap.is_some() {
-        format!("{} {}", css::genesis, css::genesisDisconnected)
-    } else {
-        css::genesis.to_string()
-    };
-
     view! {
-        <section class=css::chain aria-label="Ledger entries">
+        <section class=css::chain aria-label="Ledger chain">
             {rows}
+            <div class=css::genesis>
+                <span class=css::genesisLabel>"genesis"</span>
+                <span class=css::hashCell>
+                    <span class=css::footKey>"hash"</span>
+                    <span class=css::hash>"0x0000…0000"</span>
+                </span>
+                <span class=css::sig aria-hidden="true">"✓"</span>
+                <span class=css::genesisQuote>{model.genesis_date.clone()}</span>
+            </div>
         </section>
-        {trailing_gap.map(|hidden| view! { <LedgerGap hidden=hidden trailing=true /> })}
-        <div class=genesis_class>
-            <span class=css::genesisLabel>"genesis"</span>
-            <span class=css::hashCell>
-                <span class=css::footKey>"hash"</span>
-                <span class=css::hash>"0x0000…0000"</span>
-            </span>
-            <span class=css::sig aria-hidden="true">"✓"</span>
-            <span class=css::genesisQuote>{model.genesis_date.clone()}</span>
-        </div>
     }
     .into_any()
 }
 
 #[component]
-fn LedgerGap(hidden: usize, #[prop(optional)] trailing: bool) -> impl IntoView {
-    let label = format!("{hidden} hidden");
-    let class = if trailing {
-        format!("{} {}", css::gap, css::gapTrailing)
+fn LedgerConnector(
+    #[prop(optional)] broken: bool,
+    #[prop(optional)] hidden: usize,
+) -> impl IntoView {
+    let class = if broken {
+        format!("{} {}", css::connector, css::connectorBroken)
     } else {
-        css::gap.to_string()
+        css::connector.to_string()
     };
+    let label = (broken && hidden > 0).then(|| format!("{hidden} hidden"));
     view! {
         <div class=class aria-label=label.clone() title=label></div>
     }

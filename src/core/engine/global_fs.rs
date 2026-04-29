@@ -340,7 +340,7 @@ impl FsEngine for GlobalFs {
     }
 
     fn build_render_intent(&self, resolution: &RouteResolution) -> Option<RenderIntent> {
-        build_render_intent(self, resolution)
+        build_render_intent(resolution)
     }
 }
 
