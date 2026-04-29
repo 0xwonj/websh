@@ -17,6 +17,25 @@
   letter-spacing: 0.04em;
   color: var(--ledger-faint);
   text-transform: uppercase;
+  cursor: pointer;
+  user-select: none;
+}
+
+.mpHead:hover .mpLabel {
+  color: var(--ledger-ink);
+}
+
+.mpHead:focus-visible {
+  outline: 1px solid var(--ledger-accent);
+  outline-offset: -1px;
+}
+
+.mpToggle {
+  display: inline-block;
+  width: 1em;
+  text-align: center;
+  color: var(--ledger-faint);
+  font-size: 0.85em;
 }
 
 .mpLabel {

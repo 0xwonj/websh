@@ -79,6 +79,10 @@ pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
         move |_| ctx.runtime_state.with(|rs| rs.github_token_present)
     });
 
+    // Mempool collapse state lives at the LedgerPage level so it survives
+    // filter-route changes (which re-render but don't re-mount this page).
+    let mempool_collapsed = RwSignal::new(false);
+
     let attestation_route = Signal::derive(|| CONTENT_LEDGER_ROUTE.to_string());
 
     view! {
@@ -116,6 +120,7 @@ pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
                                                 <Mempool
                                                     model=mempool_model
                                                     author_mode=author_mode
+                                                    collapsed=mempool_collapsed
                                                 />
                                             }
                                         })

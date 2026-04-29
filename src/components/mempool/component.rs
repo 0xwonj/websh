@@ -8,22 +8,32 @@ use crate::utils::content_routes::content_href_for_path;
 stylance::import_crate_style!(css, "src/components/mempool/mempool.module.css");
 
 #[component]
-pub fn Mempool(model: MempoolModel, author_mode: Memo<bool>) -> impl IntoView {
-    let header = render_header(&model, author_mode);
-    let rows = render_rows(&model);
+pub fn Mempool(
+    model: MempoolModel,
+    author_mode: Memo<bool>,
+    collapsed: RwSignal<bool>,
+) -> impl IntoView {
+    let header = render_header(&model, author_mode, collapsed);
+    let rows = move || render_rows(&model);
 
     view! {
         <section class=css::mempool aria-label="Mempool — pending entries">
             {header}
-            <div class=css::mpList>
-                {rows}
-            </div>
+            <Show when=move || !collapsed.get()>
+                <div class=css::mpList id="mempool-rows">
+                    {rows()}
+                </div>
+            </Show>
         </section>
     }
     .into_any()
 }
 
-fn render_header(model: &MempoolModel, author_mode: Memo<bool>) -> AnyView {
+fn render_header(
+    model: &MempoolModel,
+    author_mode: Memo<bool>,
+    collapsed: RwSignal<bool>,
+) -> AnyView {
     let count_text = match &model.filter {
         LedgerFilterShape::All => format!("· {} pending", model.total_count),
         LedgerFilterShape::Category(_) => format!(
@@ -32,8 +42,28 @@ fn render_header(model: &MempoolModel, author_mode: Memo<bool>) -> AnyView {
             model.total_count
         ),
     };
+    let toggle = move || collapsed.update(|v| *v = !*v);
+    let on_click = move |_: leptos::ev::MouseEvent| toggle();
+    let on_keydown = move |event: leptos::ev::KeyboardEvent| {
+        let key = event.key();
+        if key == "Enter" || key == " " {
+            event.prevent_default();
+            toggle();
+        }
+    };
     view! {
-        <div class=css::mpHead>
+        <div
+            class=css::mpHead
+            role="button"
+            tabindex="0"
+            aria-expanded=move || (!collapsed.get()).to_string()
+            aria-controls="mempool-rows"
+            on:click=on_click
+            on:keydown=on_keydown
+        >
+            <span class=css::mpToggle aria-hidden="true">
+                {move || if collapsed.get() { "▸" } else { "▾" }}
+            </span>
             <span class=css::mpLabel>"mempool"</span>
             <span class=css::mpCount>{count_text}</span>
             <span class=css::mpHeadRight>
@@ -42,6 +72,7 @@ fn render_header(model: &MempoolModel, author_mode: Memo<bool>) -> AnyView {
                         class=css::mpCompose
                         href="/#/new"
                         aria-label="Compose new mempool entry"
+                        on:click=|ev| ev.stop_propagation()
                     >
                         "+ compose"
                     </a>
