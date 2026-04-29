@@ -27,8 +27,8 @@ use crate::utils::content_routes::{attestation_route_for_node_path, content_rout
 use crate::utils::current_timestamp;
 use crate::utils::format::format_date_iso;
 use crate::utils::{
-    RenderedMarkdown, UrlValidation, data_url_for_bytes, media_type_for_path, object_url_for_bytes,
-    render_markdown, rendered_from_html, sanitize_html, validate_redirect_url,
+    RenderedMarkdown, UrlValidation, data_url_for_bytes, object_url_for_bytes, render_markdown,
+    rendered_from_html, sanitize_html, validate_redirect_url,
 };
 
 stylance::import_crate_style!(css, "src/components/reader.module.css");
@@ -516,13 +516,16 @@ async fn load_renderer_content(
             .await
             .map(RendererContent::Text)
             .map_err(|error| error.to_string()),
-        ReaderIntent::Asset { .. } => load_asset(ctx, &path).await,
+        ReaderIntent::Asset { media_type, .. } => load_asset(ctx, &path, media_type).await,
         ReaderIntent::Redirect { .. } => load_redirect(ctx, &path).await,
     }
 }
 
-async fn load_asset(ctx: AppContext, path: &VirtualPath) -> Result<RendererContent, String> {
-    let media_type = media_type_for_path(path.as_str()).to_string();
+async fn load_asset(
+    ctx: AppContext,
+    path: &VirtualPath,
+    media_type: String,
+) -> Result<RendererContent, String> {
     let bytes = ctx
         .read_bytes(path)
         .await
