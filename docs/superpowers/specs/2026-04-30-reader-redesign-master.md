@@ -165,7 +165,7 @@ Sequential. Each phase is its own self-contained PR; the next phase begins only 
 | 1 | Bedrock — `FileMeta` shared | Move `FileMeta` from `explorer/preview/hook.rs` to `shared/`; add `file_meta_for_path` helper. No behavior change. | **Complete** |
 | 2 | Reader look (View only) | Rewrite `reader.module.css` to archive look on Tier-3 tokens; split `reader/mod.rs` into `views/*` + `title_block.rs` + `meta.rs`; per-intent meta tables; PDF abstract section. | **Complete** |
 | 3 | Footnote toolbar + keybindings | Replace `ReaderToolbar` with footnote-mark variant; add ⌘S / r / e shortcuts; integrate dirty/saving status. | **Complete** |
-| 4 | Archive alias consolidation (optional) | If `--home-*` / `--ledger-*` / reader-side alias usage clearly converges, extract a single `--archive-*` bundle into `shared/archive.module.css` and migrate home / reader / ledger. Skip if Reader's direct Tier-3 usage proved sufficient. | Pending |
+| 4 | Archive alias consolidation (optional) | If `--home-*` / `--ledger-*` / reader-side alias usage clearly converges, extract a single `--archive-*` bundle into `shared/archive.module.css` and migrate home / reader / ledger. Skip if Reader's direct Tier-3 usage proved sufficient. | **Skipped** |
 
 ### Per-phase scope
 
@@ -283,6 +283,7 @@ Chronological, append-only.
 | 2026-04-30 | Split mode, tweaks panel, code renderer, hex fallback, custom sig chip, append banner — all out of scope. PDF stays as iframe; abstract = `FileMeta.description`. | §2 |
 | 2026-04-30 | Toolbar style: footnote-mark only. Other prototype variants (tabs / pill / kbd-only / bracket / colon / prose / minimal) are not ported. | §3, §6 Phase 3 |
 | 2026-04-30 | Per-phase commits (one per phase) at user-style request, in contrast to the prior render-pipeline refactor's accumulate-then-commit policy — each phase delivers a user-visible slice that benefits from being individually bisectable / revertable. | §7 |
+| 2026-04-30 | Phase 4 skipped per master §6 Phase 4's exit clause ("Skip if Reader's direct Tier-3 usage proved sufficient"). Reader shipped through Phase 2/3 referencing Tier-3 tokens directly with no `--reader-*` alias bundle, validating that approach. The remaining duplication is between Home (`--home-*`, ~16 aliases) and Ledger (`--ledger-*`, ~13 aliases — identical to the shared subset of Home's after prefix swap; Home additionally defines `--home-archive-bar`, `--home-chrome-2`, `--home-size`). Consolidating those two into a `shared/archive.module.css` is a worthwhile follow-up but does not serve the reader redesign's stated goal (§1) — it would be a Home + Ledger refactor with no Reader-side change. Recorded as a future cleanup candidate; not in scope for this initiative. | §6 |
 
 ## 11. Acceptance — redesign as a whole
 
@@ -295,5 +296,5 @@ Chronological, append-only.
 
 ## 12. State
 
-- **Active phase:** Phase 4 — pending evaluation (skip vs. proceed).
-- **Last updated:** 2026-04-30 (after Phase 3 commit)
+- **Active phase:** Complete — all four phases resolved (1–3 shipped, 4 skipped per documented exit clause).
+- **Last updated:** 2026-04-30
