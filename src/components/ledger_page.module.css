@@ -381,10 +381,23 @@
   transform: translateX(-0.5px);
 }
 
-/* Hide the upward solid connector when a trailing gap visually
- * separates the lowest-shown block from genesis (filtered chain). */
+/* Marker class — actual visual change is on the ::before override
+ * below. Declared here so stylance reliably emits a class const for
+ * Rust (`css::genesisDisconnected`). */
+.genesisDisconnected {
+  /* no-op */
+}
+
+/* When a trailing chain gap visually separates the lowest-shown block
+ * from genesis (filtered chain), replace the solid upward connector
+ * with a dashed line that matches `.gap::before`. The dashed style
+ * unambiguously reads as "missing range" instead of "still connected,
+ * just decorative spacer". */
 .genesisDisconnected::before {
-  display: none;
+  background: transparent;
+  border-left: 1px dashed var(--ledger-rule-bright);
+  width: 0;
+  opacity: 0.7;
 }
 
 .genesisLabel {
