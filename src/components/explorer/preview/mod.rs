@@ -9,6 +9,6 @@ mod panel;
 mod sheet;
 
 pub use content::{OpenButton, PreviewBody, PreviewStyles};
-pub use hook::{DirMeta, FileMeta, PreviewContent, PreviewData, use_preview};
+pub use hook::{DirMeta, PreviewContent, PreviewData, use_preview};
 pub use panel::PreviewPanel;
 pub use sheet::BottomSheet;

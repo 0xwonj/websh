@@ -6,10 +6,10 @@
 use leptos::prelude::*;
 use leptos_icons::Icon;
 
-use super::{DirMeta, FileMeta, PreviewContent, PreviewData};
+use super::{DirMeta, PreviewContent, PreviewData};
 use crate::components::icons as ic;
 use crate::components::markdown::MarkdownView;
-use crate::components::shared::FileMetaStrip;
+use crate::components::shared::{FileMeta, FileMetaStrip};
 use crate::core::engine::{RouteSurface, push_request_path, request_path_for_canonical_path};
 use crate::models::{FileType, Selection};
 use crate::utils::format::format_size;

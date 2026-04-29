@@ -6,42 +6,9 @@
 use leptos::prelude::*;
 
 use crate::app::AppContext;
-use crate::models::{DirectoryMetadata, FileType, FsEntry, Selection};
+use crate::components::shared::{FileMeta, file_meta_for_path};
+use crate::models::{DirectoryMetadata, FileType, Selection};
 use crate::utils::{RenderedMarkdown, data_url_for_bytes, media_type_for_path, render_markdown};
-
-/// File metadata used by preview surfaces.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct FileMeta {
-    pub description: String,
-    pub size: Option<u64>,
-    pub modified: Option<u64>,
-    pub date: Option<String>,
-    pub tags: Vec<String>,
-}
-
-impl FileMeta {
-    pub fn has_display_meta(&self) -> bool {
-        self.date
-            .as_ref()
-            .is_some_and(|date| !date.trim().is_empty())
-            || self.tags.iter().any(|tag| !tag.trim().is_empty())
-    }
-
-    pub fn clean_date(&self) -> Option<String> {
-        self.date
-            .as_ref()
-            .map(|date| date.trim().to_string())
-            .filter(|date| !date.is_empty())
-    }
-
-    pub fn clean_tags(&self) -> Vec<String> {
-        self.tags
-            .iter()
-            .map(|tag| tag.trim().to_string())
-            .filter(|tag| !tag.is_empty())
-            .collect()
-    }
-}
 
 /// Fetched content for preview.
 #[derive(Clone)]
@@ -167,22 +134,10 @@ pub fn use_preview() -> PreviewData {
 
     // Get file metadata
     let file_meta = Signal::derive(move || {
-        selection.get().filter(|s| !s.is_dir).and_then(|s| {
-            ctx.view_global_fs.with(|fs| {
-                fs.get_entry(&s.path).and_then(|entry| match entry {
-                    FsEntry::File {
-                        meta, description, ..
-                    } => Some(FileMeta {
-                        description: description.clone(),
-                        size: meta.size,
-                        modified: meta.modified,
-                        date: meta.date.clone(),
-                        tags: meta.tags.clone(),
-                    }),
-                    _ => None,
-                })
-            })
-        })
+        selection
+            .get()
+            .filter(|s| !s.is_dir)
+            .and_then(|s| file_meta_for_path(ctx, &s.path))
     });
 
     // Get directory metadata from FsEntry
