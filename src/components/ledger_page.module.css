@@ -381,6 +381,12 @@
   transform: translateX(-0.5px);
 }
 
+/* Hide the upward solid connector when a trailing gap visually
+ * separates the lowest-shown block from genesis (filtered chain). */
+.genesisDisconnected::before {
+  display: none;
+}
+
 .genesisLabel {
   color: var(--ledger-faint);
   letter-spacing: 0.08em;

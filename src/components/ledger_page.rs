@@ -283,12 +283,22 @@ fn LedgerChain(model: LedgerModel) -> impl IntoView {
         .map(|last| last.block_height.saturating_sub(1))
         .filter(|hidden| *hidden > 0);
 
+    // When there's a trailing gap between the lowest-shown block and
+    // genesis, drop genesis's solid upward connector line — the dashed
+    // gap line above it conveys the missing range, and a solid line into
+    // the genesis box would visually contradict the "broken" indicator.
+    let genesis_class = if trailing_gap.is_some() {
+        format!("{} {}", css::genesis, css::genesisDisconnected)
+    } else {
+        css::genesis.to_string()
+    };
+
     view! {
         <section class=css::chain aria-label="Ledger entries">
             {rows}
         </section>
         {trailing_gap.map(|hidden| view! { <LedgerGap hidden=hidden /> })}
-        <div class=css::genesis>
+        <div class=genesis_class>
             <span class=css::genesisLabel>"genesis"</span>
             <span class=css::hashCell>
                 <span class=css::footKey>"hash"</span>
