@@ -374,69 +374,82 @@
   margin-bottom: 14px;
 }
 
-/* ─── Toolbar (Phase 2 keeps current structure; Phase 3 redesigns) */
-.toolbar {
+/* ─── Toolbar — footnote-mark variant ─────────────────────────── */
+.modefn {
+  margin-top: 6px;
+  padding-top: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.modefnRow {
   display: flex;
   align-items: baseline;
-  gap: 14px;
-  padding: 6px 0;
-  margin-bottom: 14px;
-  border-bottom: 1px dashed var(--border-subtle);
-  font-family: inherit;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  color: var(--text-dim);
-  text-transform: uppercase;
-}
-
-.toolbarLabel {
-  color: var(--terminal-yellow);
-  font-weight: 600;
-  letter-spacing: 0.06em;
-}
-
-.toolbarActions {
-  margin-left: auto;
-  display: flex;
-  gap: 8px;
-  text-transform: none;
-  letter-spacing: 0;
-}
-
-.actionButton,
-.actionButtonPrimary {
-  border: 1px solid var(--border-subtle);
-  background: transparent;
-  color: var(--text-dim);
-  padding: 0 8px;
-  font-family: inherit;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  cursor: pointer;
+  gap: 6px;
   line-height: 1.6;
+  flex-wrap: wrap;
 }
 
-.actionButtonPrimary {
+.modefnMark {
   color: var(--accent);
-  border-color: var(--accent);
+  margin-right: 2px;
 }
 
-.actionButton:hover,
-.actionButtonPrimary:hover {
+.modefnLab {
+  color: var(--text-muted);
+  margin-right: 4px;
+}
+
+.modefnOpt {
+  color: var(--text-dim);
+  cursor: pointer;
+  user-select: none;
+  padding: 0 2px;
+}
+
+.modefnOpt:hover {
   color: var(--text-primary);
-  border-color: var(--accent);
 }
 
-.actionButton:focus-visible,
-.actionButtonPrimary:focus-visible {
-  outline: 1px solid var(--accent);
-  outline-offset: 1px;
+.modefnOptOn {
+  color: var(--accent);
+  border-bottom: 1px solid var(--accent);
+  cursor: default;
 }
 
-.actionButton:disabled,
-.actionButtonPrimary:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+.modefnOptOn:hover {
+  color: var(--accent);
+}
+
+.modefnKbd {
+  margin-left: 5px;
+  color: var(--text-muted);
+  font-size: 9.5px;
+  border: 1px solid var(--border-subtle);
+  padding: 0 3px;
+  border-radius: 1px;
+}
+
+.modefnSep {
+  color: var(--text-muted);
+  margin: 0 1px;
+}
+
+.modefnSpacer {
+  flex: 1;
+}
+
+.modefnState {
+  font-size: 10.5px;
+  color: var(--terminal-green);
+}
+
+.modefnState::before {
+  content: "● ";
+}
+
+.modefnStateDirty {
+  color: var(--terminal-yellow);
 }
 
 /* ─── Editor textarea ─────────────────────────────────────────── */

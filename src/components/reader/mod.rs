@@ -13,6 +13,7 @@
 mod intent;
 mod meta;
 mod title_block;
+mod toolbar;
 mod views;
 
 pub use intent::{ReaderFrame, ReaderIntent};
@@ -36,6 +37,7 @@ use crate::utils::{
 
 use meta::{ReaderMeta, reader_meta};
 use title_block::{Ident, TitleBlock};
+use toolbar::ReaderToolbar;
 use views::{
     AssetReaderView, HtmlReaderView, MarkdownEditorView, MarkdownReaderView, PdfReaderView,
     PlainReaderView, RedirectingView,
@@ -53,7 +55,7 @@ stylance::import_crate_style!(
 );
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ReaderMode {
+pub(super) enum ReaderMode {
     View,
     Edit,
 }
@@ -102,10 +104,19 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
     } else {
         ReaderMode::View
     };
+    // /new puts the user on the hook for the placeholder content from the
+    // first paint, so both flags start true. For existing entries both
+    // start false until the user clicks edit (owns) and then types (dirty).
+    let initial_owned = is_new_route.get_untracked();
     let initial_dirty = is_new_route.get_untracked();
 
     let mode = RwSignal::new(initial_mode);
     let draft_body = RwSignal::new(initial_draft);
+    // `draft_owned` guards against re-seeding the textarea from `raw_source`
+    // when the user round-trips Edit ↔ preview ↔ Edit. `draft_dirty` is the
+    // narrower save-state — only flips true on actual keystrokes — and feeds
+    // the toolbar's "● unsaved" indicator.
+    let draft_owned = RwSignal::new(initial_owned);
     let draft_dirty = RwSignal::new(initial_dirty);
     let save_error = RwSignal::new(None::<String>);
     let saving = RwSignal::new(false);
@@ -129,6 +140,7 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
         if prev.is_some() {
             mode.set(ReaderMode::View);
             save_error.set(None);
+            draft_owned.set(false);
             draft_dirty.set(false);
         }
     });
@@ -161,10 +173,12 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
     });
 
     let on_toggle_edit = move |()| {
-        if !draft_dirty.get_untracked() {
+        // Seed the editor only on first entry into Edit; the round-trip
+        // back from preview must keep the in-flight draft intact.
+        if !draft_owned.get_untracked() {
             let seed = raw_source.get().map(|s| s.to_string()).unwrap_or_default();
             draft_body.set(seed);
-            draft_dirty.set(true);
+            draft_owned.set(true);
         }
         save_error.set(None);
         mode.set(ReaderMode::Edit);
@@ -185,6 +199,7 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
         }
         let seed = raw_source.get().map(|s| s.to_string()).unwrap_or_default();
         draft_body.set(seed);
+        draft_owned.set(false);
         draft_dirty.set(false);
         save_error.set(None);
         mode.set(ReaderMode::View);
@@ -244,6 +259,7 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
             match result {
                 Ok(()) => {
                     save_error.set(None);
+                    draft_owned.set(false);
                     draft_dirty.set(false);
                     mode.set(ReaderMode::View);
                     refetch_epoch.update(|n| *n += 1);
@@ -260,6 +276,15 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
     let on_save_cb = Callback::new(on_save);
     let on_input_dirty_cb = Callback::new(move |()| draft_dirty.set(true));
 
+    install_reader_keybindings(KeybindingTargets {
+        mode,
+        edit_visible,
+        saving: saving.read_only(),
+        on_save: on_save_cb,
+        on_preview: on_preview_cb,
+        on_toggle_edit: on_edit_cb,
+    });
+
     let chrome_route = Memo::new(move |_| RouteFrame::from(frame.get()));
 
     view! {
@@ -274,9 +299,9 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
                 </Show>
                 <ReaderToolbar
                     mode=mode
-                    is_new=is_new_route
                     can_edit=edit_visible
                     saving=saving.read_only()
+                    dirty=draft_dirty.read_only()
                     on_edit=on_edit_cb
                     on_preview=on_preview_cb
                     on_save=on_save_cb
@@ -345,64 +370,6 @@ fn render_view_body(result: Result<RendererContent, String>, meta: Memo<ReaderMe
     }
 }
 
-#[component]
-fn ReaderToolbar(
-    mode: RwSignal<ReaderMode>,
-    is_new: Memo<bool>,
-    can_edit: Memo<bool>,
-    saving: ReadSignal<bool>,
-    on_edit: Callback<()>,
-    on_preview: Callback<()>,
-    on_save: Callback<()>,
-    on_cancel: Callback<()>,
-) -> impl IntoView {
-    let visible = Memo::new(move |_| {
-        mode.get() == ReaderMode::Edit || (mode.get() == ReaderMode::View && can_edit.get())
-    });
-
-    let label = Memo::new(move |_| match (mode.get(), is_new.get()) {
-        (ReaderMode::Edit, true) => "new draft",
-        (ReaderMode::Edit, false) => "editing",
-        (ReaderMode::View, true) => "new draft · preview",
-        (ReaderMode::View, false) => "",
-    });
-
-    view! {
-        <Show when=move || visible.get()>
-            <header class=css::toolbar>
-                <span class=css::toolbarLabel>{move || label.get()}</span>
-                <div class=css::toolbarActions>
-                    <Show when=move || mode.get() == ReaderMode::View>
-                        <button
-                            class=css::actionButton
-                            on:click=move |_| on_edit.run(())
-                        >"edit"</button>
-                    </Show>
-                    <Show when=move || mode.get() == ReaderMode::Edit>
-                        <button
-                            class=css::actionButton
-                            on:click=move |_| on_preview.run(())
-                            prop:disabled=move || saving.get()
-                        >"preview"</button>
-                        <button
-                            class=css::actionButton
-                            on:click=move |_| on_cancel.run(())
-                            prop:disabled=move || saving.get()
-                        >"cancel"</button>
-                        <button
-                            class=css::actionButtonPrimary
-                            on:click=move |_| on_save.run(())
-                            prop:disabled=move || saving.get()
-                        >
-                            {move || if saving.get() { "saving…" } else { "save" }}
-                        </button>
-                    </Show>
-                </div>
-            </header>
-        </Show>
-    }
-}
-
 fn iso_today() -> String {
     format_date_iso(current_timestamp() / 1000)
 }
@@ -468,3 +435,97 @@ async fn load_redirect(ctx: AppContext, path: &VirtualPath) -> Result<RendererCo
         UrlValidation::Invalid(error) => Err(format!("Redirect blocked: {error}")),
     }
 }
+
+#[derive(Clone, Copy)]
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+struct KeybindingTargets {
+    mode: RwSignal<ReaderMode>,
+    edit_visible: Memo<bool>,
+    saving: ReadSignal<bool>,
+    on_save: Callback<()>,
+    on_preview: Callback<()>,
+    on_toggle_edit: Callback<()>,
+}
+
+#[cfg(target_arch = "wasm32")]
+fn install_reader_keybindings(targets: KeybindingTargets) {
+    use leptos::prelude::on_cleanup;
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen::closure::Closure;
+
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+
+    let closure = Closure::wrap(Box::new(move |ev: web_sys::KeyboardEvent| {
+        let mode_now = targets.mode.get_untracked();
+        let in_textarea = ev
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::HtmlTextAreaElement>().ok())
+            .is_some();
+
+        if (ev.meta_key() || ev.ctrl_key()) && ev.key() == "s" {
+            ev.prevent_default();
+            if mode_now == ReaderMode::Edit && !targets.saving.get_untracked() {
+                targets.on_save.run(());
+            }
+            return;
+        }
+
+        // Letter shortcuts must not hijack browser modifier combos
+        // (Cmd+R reload, Cmd+E find, Alt+R menus, etc.) and must not
+        // interfere with typing inside the editor.
+        if in_textarea || ev.meta_key() || ev.ctrl_key() || ev.alt_key() {
+            return;
+        }
+
+        match ev.key().as_str() {
+            "r" if mode_now == ReaderMode::Edit && !targets.saving.get_untracked() => {
+                targets.on_preview.run(());
+            }
+            "e" if mode_now == ReaderMode::View && targets.edit_visible.get_untracked() => {
+                targets.on_toggle_edit.run(());
+            }
+            _ => {}
+        }
+    }) as Box<dyn Fn(web_sys::KeyboardEvent)>);
+
+    let _ = window.add_event_listener_with_callback("keydown", closure.as_ref().unchecked_ref());
+
+    let cleanup = WasmCleanup(closure);
+    on_cleanup(move || {
+        if let Some(window) = web_sys::window() {
+            let _ = window.remove_event_listener_with_callback("keydown", cleanup.js_function());
+        }
+        // `cleanup` drops here, freeing the boxed handler.
+    });
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn install_reader_keybindings(_targets: KeybindingTargets) {}
+
+/// Wraps a wasm-bindgen `Closure` so it can travel through Leptos's
+/// `Send + Sync + 'static` cleanup bound. The bound exists because
+/// reactive_graph is platform-generic; on wasm32 there are no threads,
+/// so the closure never crosses threads in practice.
+///
+/// The accessor method (rather than direct field access) is required so
+/// closure disjoint-capture (RFC 2229) sees the whole wrapper as the
+/// captured value, inheriting the unsafe `Send + Sync` impl below.
+#[cfg(target_arch = "wasm32")]
+struct WasmCleanup(wasm_bindgen::closure::Closure<dyn Fn(web_sys::KeyboardEvent)>);
+
+#[cfg(target_arch = "wasm32")]
+impl WasmCleanup {
+    fn js_function(&self) -> &js_sys::Function {
+        use wasm_bindgen::JsCast;
+        self.0.as_ref().unchecked_ref()
+    }
+}
+
+// SAFETY: wasm32 has no threads. The cleanup runs on the same JS thread
+// that installed it; the wrapper is never genuinely sent or shared.
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for WasmCleanup {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for WasmCleanup {}
