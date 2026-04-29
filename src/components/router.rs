@@ -195,7 +195,6 @@ fn new_compose_frame() -> RouteFrame {
 }
 
 fn ledger_filter_frame(request: RouteRequest) -> RouteFrame {
-    let request = RouteRequest::new(request.url_path);
     let node_path = if request.url_path.trim_matches('/') == LEDGER_ROUTE {
         VirtualPath::root()
     } else {
@@ -217,7 +216,6 @@ fn ledger_filter_frame(request: RouteRequest) -> RouteFrame {
 }
 
 fn home_frame(request: RouteRequest) -> RouteFrame {
-    let request = RouteRequest::new(request.url_path);
     RouteFrame {
         request: request.clone(),
         resolution: RouteResolution {
