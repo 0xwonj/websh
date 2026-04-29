@@ -381,10 +381,6 @@
   transform: translateX(-0.5px);
 }
 
-.genesisDisconnected {
-  margin-top: var(--space-1_5);
-}
-
 .genesisDisconnected::before {
   display: none;
 }
