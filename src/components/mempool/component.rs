@@ -14,16 +14,23 @@ pub fn Mempool(
     collapsed: RwSignal<bool>,
 ) -> impl IntoView {
     let header = render_header(&model, author_mode, collapsed);
-    let rows = move || render_rows(&model);
+    let rows = render_rows(&model);
 
+    // Keep the rows container mounted (with `hidden` flipped) rather than
+    // un-mounting it via `<Show>`. This preserves the W3C disclosure pattern
+    // where the header's `aria-controls="mempool-rows"` always points at a
+    // present DOM node, so screen readers can navigate to the controlled
+    // region.
     view! {
         <section class=css::mempool aria-label="Mempool — pending entries">
             {header}
-            <Show when=move || !collapsed.get()>
-                <div class=css::mpList id="mempool-rows">
-                    {rows()}
-                </div>
-            </Show>
+            <div
+                class=css::mpList
+                id="mempool-rows"
+                hidden=move || collapsed.get()
+            >
+                {rows}
+            </div>
         </section>
     }
     .into_any()

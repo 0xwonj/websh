@@ -74,6 +74,7 @@
   text-decoration: none;
   display: inline-block;
   line-height: 1.55;
+  user-select: auto;
 }
 
 .mpCompose:hover {
