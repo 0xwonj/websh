@@ -163,7 +163,7 @@ Sequential. Each phase is its own self-contained PR; the next phase begins only 
 | # | Title | Outcome | Status |
 |---|---|---|---|
 | 1 | Bedrock — `FileMeta` shared | Move `FileMeta` from `explorer/preview/hook.rs` to `shared/`; add `file_meta_for_path` helper. No behavior change. | **Complete** |
-| 2 | Reader look (View only) | Rewrite `reader.module.css` to archive look on `--home-*`; split `reader/mod.rs` into `views/*` + `title_block.rs` + `meta.rs`; per-intent meta tables; PDF abstract section. | Pending |
+| 2 | Reader look (View only) | Rewrite `reader.module.css` to archive look on Tier-3 tokens; split `reader/mod.rs` into `views/*` + `title_block.rs` + `meta.rs`; per-intent meta tables; PDF abstract section. | **Complete** |
 | 3 | Footnote toolbar + keybindings | Replace `ReaderToolbar` with footnote-mark variant; add ⌘S / r / e shortcuts; integrate dirty/saving status. | Pending |
 | 4 | Archive alias consolidation (optional) | If `--home-*` / `--ledger-*` / reader-side alias usage clearly converges, extract a single `--archive-*` bundle into `shared/archive.module.css` and migrate home / reader / ledger. Skip if Reader's direct Tier-3 usage proved sufficient. | Pending |
 
@@ -248,6 +248,8 @@ Accumulates as phases progress. Append a row when a new artifact lands.
 | Master | This file | `docs/superpowers/specs/2026-04-30-reader-redesign-master.md` | Active |
 | 1 | Design | `docs/superpowers/specs/2026-04-30-reader-redesign-phase1-design.md` | Approved |
 | 1 | Plan | `docs/superpowers/plans/2026-04-30-reader-redesign-phase1-plan.md` | Complete |
+| 2 | Design | `docs/superpowers/specs/2026-04-30-reader-redesign-phase2-design.md` | Approved |
+| 2 | Plan | `docs/superpowers/plans/2026-04-30-reader-redesign-phase2-plan.md` | Complete |
 
 ## 9. Reusable primitives — do not re-implement
 
@@ -273,6 +275,7 @@ Chronological, append-only.
 | 2026-04-30 | Design tokens: reference Tier-3 theme tokens (`--bg-primary`, `--text-*`, `--border-*`, `--surface-tint`, `--archive-bar-bg`, `--accent`, `--terminal-green`, `--terminal-yellow`) directly from `reader.module.css`. Reject the prototype's `--ink/--accent/--hex/--amber` palette and reject introducing a `--reader-*` alias bundle. The `--home-*` / `--ledger-*` bundles are local readability sugar over the same Tier-3 tokens; reader does not borrow them. Theming continues to work without per-route overrides. | §3, §5 |
 | 2026-04-30 | Initial draft of this master used the phrasing "reuse `--home-*` tokens", which conflated home's local alias bundle with the actual shared system. Corrected throughout: §1 / §2 / §3 / §5 / §6 Phase 2 / §6 Phase 4 / §9 / §10. The shared system is the Tier-3 theme tokens; the `--home-*` bundle is home-local. | §3, §5 |
 | 2026-04-30 | Phase 1 complete. `FileMeta` (struct + 3-method impl) moved verbatim from `explorer/preview/hook.rs` to `shared/file_meta.rs`; new `file_meta_for_path(ctx, &path) -> Option<FileMeta>` helper extracts the projection body so `use_preview` becomes a one-liner. **Deviation from design §3**: `FileMeta` re-export in `preview/mod.rs` was dropped entirely rather than kept — grep confirmed zero external consumers, so the retain-for-compat clause was cargo-cult. The one internal consumer (`preview/content.rs`) was updated to import from `shared` directly. 525 tests passing; cargo + wasm32 + trunk all green. Reviewer cleared with no CRITICAL/HIGH/MEDIUM; one LOW addressed (`use leptos::prelude::*` aligned with sibling shared modules); one LOW deferred (file-level doc comment mentions Reader as a consumer — becomes accurate at Phase 2). | §6, §8 |
+| 2026-04-30 | Phase 2 complete. Archive look applied to Reader's view paths. New modules: `reader/{meta.rs, title_block.rs, views/*}`. `reader.module.css` rewritten against Tier-3 tokens (no `--ink/-hex/-amber/-paper/-chrome` anywhere); CSS file moved from sibling `src/components/reader.module.css` to colocated `src/components/reader/reader.module.css`. `RendererContent` enum split into `Markdown / Html / Text / Pdf / Image / Redirecting` so the dispatcher can pick the right view component without re-parsing media types. **Deviation from master §4.4**: `Modified` and `Date` collapsed into a single `Date` row (prefers `meta.date`, falls back to `modified_iso`) — two-row arrangement was awkward when they conflict and redundant when they don't. **Deviation from design**: `mod.rs` is 470 lines (target ≤ 250); the bulk is event-handler / save-flow logic that Phase 3's toolbar redesign will partly absorb (toolbar markup will move to its own file). 540 tests passing (525 baseline + 15 new in `meta.rs` and `title_block.rs`); cargo + wasm32 + trunk all green. Reviewer cleared with no CRITICAL/HIGH; three MEDIUMs addressed inline (image-asset Tags row narrowed to PDF-only; dead `media_type` field on `RendererContent::Image` removed; stylance constant warning storm eliminated by consolidating the macro to a single `pub(crate) css` module in `mod.rs` consumed via `crate::components::reader::css` — the `import_crate_style!` macro accepts `#[allow(dead_code)] pub(crate) ident, path` directly, no wrapper module needed); two LOWs addressed (unreachable `path.is_empty()` guard in `Ident` removed; `<Show>` skips `Ident`+`TitleBlock` for `Redirect` intent); one LOW left as-is (`data-n=""` cosmetic forward hook for numbered sections). Plan-vs-implementation note: plan step 1 said `format_date_iso(ts as i64 / 1000)` but implementation correctly calls `format_date_iso(ts)` directly — `meta.modified` is already in seconds (consistent with `ledger_page.rs` and `explorer/file_list.rs`). | §6, §4.4, §8 |
 | 2026-04-30 | Metadata source: `FileMeta` (manifest) + `ReaderIntent` (kind / media type) only. Empty rows are omitted. Sha and signer live exclusively in the footer chip. | §3, §4.4 |
 | 2026-04-30 | Split mode, tweaks panel, code renderer, hex fallback, custom sig chip, append banner — all out of scope. PDF stays as iframe; abstract = `FileMeta.description`. | §2 |
 | 2026-04-30 | Toolbar style: footnote-mark only. Other prototype variants (tabs / pill / kbd-only / bracket / colon / prose / minimal) are not ported. | §3, §6 Phase 3 |
@@ -289,5 +292,5 @@ Chronological, append-only.
 
 ## 12. State
 
-- **Active phase:** Phase 2 — pending design doc.
-- **Last updated:** 2026-04-30 (after Phase 1 commit)
+- **Active phase:** Phase 3 — pending design doc.
+- **Last updated:** 2026-04-30 (after Phase 2 commit)

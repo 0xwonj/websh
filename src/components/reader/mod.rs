@@ -11,6 +11,10 @@
 //! clobbered by re-seeding from `raw_source`.
 
 mod intent;
+mod meta;
+mod title_block;
+mod views;
+
 pub use intent::{ReaderFrame, ReaderIntent};
 
 use leptos::prelude::*;
@@ -18,7 +22,6 @@ use wasm_bindgen_futures::spawn_local;
 
 use crate::app::AppContext;
 use crate::components::chrome::SiteChrome;
-use crate::components::markdown::MarkdownView;
 use crate::components::mempool::{derive_new_path, placeholder_frontmatter, save_raw};
 use crate::components::shared::AttestationSigFooter;
 use crate::core::engine::{RouteFrame, push_request_path, replace_request_path};
@@ -31,7 +34,23 @@ use crate::utils::{
     rendered_from_html, sanitize_html, validate_redirect_url,
 };
 
-stylance::import_crate_style!(css, "src/components/reader.module.css");
+use meta::{ReaderMeta, reader_meta};
+use title_block::{Ident, TitleBlock};
+use views::{
+    AssetReaderView, HtmlReaderView, MarkdownEditorView, MarkdownReaderView, PdfReaderView,
+    PlainReaderView, RedirectingView,
+};
+
+// One stylance import for the whole reader module. `views/*.rs` and
+// `title_block.rs` reach this via `crate::components::reader::css` rather
+// than re-importing the CSS — every additional `import_crate_style!` site
+// duplicates the full constant set and produces dead-code warnings for
+// classes that file doesn't reference.
+stylance::import_crate_style!(
+    #[allow(dead_code)]
+    pub(crate) css,
+    "src/components/reader/reader.module.css"
+);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ReaderMode {
@@ -41,9 +60,11 @@ enum ReaderMode {
 
 #[derive(Clone)]
 enum RendererContent {
+    Markdown(RenderedMarkdown),
     Html(RenderedMarkdown),
     Text(String),
-    Asset { url: String, media_type: String },
+    Pdf { url: String },
+    Image { url: String },
     Redirecting,
 }
 
@@ -51,15 +72,11 @@ enum RendererContent {
 pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
     let canonical_path = Memo::new(move |_| frame.get().resolution.node_path.clone());
-    let filename = Memo::new(move |_| {
-        canonical_path
-            .get()
-            .file_name()
-            .map(str::to_string)
-            .unwrap_or_else(|| canonical_path.get().as_str().trim_matches('/').to_string())
-    });
     let attestation_route =
         Signal::derive(move || attestation_route_for_node_path(&canonical_path.get()));
+
+    let intent_memo = Memo::new(move |_| frame.get().intent.clone());
+    let reader_meta_memo = Memo::new(move |_| reader_meta(ctx, &intent_memo.get()));
 
     let author_mode = Memo::new(move |_| ctx.runtime_state.with(|rs| rs.github_token_present));
     let is_new_route = Memo::new(move |_| frame.get().request.url_path == "/new");
@@ -119,11 +136,9 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
     // Raw markdown source — used to seed `draft_body` when the user toggles
     // to Edit on an existing entry.
     let raw_source = LocalResource::new({
-        let ctx_clone = ctx;
         move || {
-            let ctx = ctx_clone;
             let path = canonical_path.get();
-            let is_markdown = matches!(frame.get().intent, ReaderIntent::Markdown { .. });
+            let is_markdown = matches!(intent_memo.get(), ReaderIntent::Markdown { .. });
             let _ = refetch_epoch.get();
             async move {
                 if is_markdown {
@@ -136,9 +151,7 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
     });
 
     let content = LocalResource::new({
-        let ctx_clone = ctx;
         move || {
-            let ctx = ctx_clone;
             let snapshot = frame.get();
             let path = snapshot.resolution.node_path.clone();
             let intent = snapshot.intent.clone();
@@ -148,8 +161,6 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
     });
 
     let on_toggle_edit = move |()| {
-        // Skip the re-seed if the user already has an in-flight draft
-        // (Edit → preview → edit round-trip preserves work).
         if !draft_dirty.get_untracked() {
             let seed = raw_source.get().map(|s| s.to_string()).unwrap_or_default();
             draft_body.set(seed);
@@ -160,8 +171,6 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
     };
 
     let on_preview = move |()| {
-        // Flip to View without touching draft_body or draft_dirty so the
-        // round-trip back to Edit preserves the user's work.
         save_error.set(None);
         mode.set(ReaderMode::View);
     };
@@ -171,8 +180,6 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
             return;
         }
         if is_new_route.get_untracked() {
-            // Cancelling /new: replace, not push, so the abandoned draft URL
-            // doesn't pollute history.
             replace_request_path("/ledger");
             return;
         }
@@ -189,7 +196,6 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
         }
         let body = draft_body.get_untracked();
 
-        // /new: derive the target path from the typed frontmatter.
         if is_new_route.get_untracked() {
             let target = match derive_new_path(&body) {
                 Ok(target) => target,
@@ -204,10 +210,9 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
                 .trim_end_matches(".md");
             let message = format!("mempool: add {rel}");
             saving.set(true);
-            let ctx_clone = ctx;
             let target_for_nav = target.clone();
             spawn_local(async move {
-                let result = save_raw(ctx_clone, target, body, message, true).await;
+                let result = save_raw(ctx, target, body, message, true).await;
                 saving.set(false);
                 match result {
                     Ok(()) => {
@@ -220,7 +225,6 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
             return;
         }
 
-        // Existing entry edit.
         let path = canonical_path.get_untracked();
         if !path.as_str().starts_with("/mempool/") {
             save_error.set(Some(
@@ -234,9 +238,8 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
             .trim_end_matches(".md");
         let message = format!("mempool: edit {rel}");
         saving.set(true);
-        let ctx_clone = ctx;
         spawn_local(async move {
-            let result = save_raw(ctx_clone, path, body, message, false).await;
+            let result = save_raw(ctx, path, body, message, false).await;
             saving.set(false);
             match result {
                 Ok(()) => {
@@ -255,6 +258,7 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
     let on_preview_cb = Callback::new(on_preview);
     let on_cancel_cb = Callback::new(on_cancel);
     let on_save_cb = Callback::new(on_save);
+    let on_input_dirty_cb = Callback::new(move |()| draft_dirty.set(true));
 
     let chrome_route = Memo::new(move |_| RouteFrame::from(frame.get()));
 
@@ -262,6 +266,12 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
         <div class=css::surface>
             <SiteChrome route=chrome_route />
             <main class=css::page>
+                <Show
+                    when=move || !matches!(intent_memo.get(), ReaderIntent::Redirect { .. })
+                >
+                    <Ident meta=reader_meta_memo />
+                    <TitleBlock intent=intent_memo meta=reader_meta_memo />
+                </Show>
                 <ReaderToolbar
                     mode=mode
                     is_new=is_new_route
@@ -283,53 +293,15 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
                         }>
                             {move || {
                                 content.get().map(|result| {
-                                    match result {
-                                        Ok(RendererContent::Html(rendered)) => {
-                                            let rendered = Signal::derive(move || rendered.clone());
-                                            view! {
-                                                <MarkdownView rendered=rendered class=css::markdown />
-                                            }.into_any()
-                                        }
-                                        Ok(RendererContent::Text(text)) => view! {
-                                            <pre class=css::rawText>{text}</pre>
-                                        }.into_any(),
-                                        Ok(RendererContent::Asset { url, media_type }) => {
-                                            let name = filename.get();
-                                            if media_type == "application/pdf" {
-                                                view! {
-                                                    <iframe
-                                                        src=url
-                                                        class=css::pdfViewer
-                                                        title=name
-                                                    />
-                                                }.into_any()
-                                            } else {
-                                                view! {
-                                                    <figure class=css::imageFrame>
-                                                        <img src=url alt=name class=css::image />
-                                                    </figure>
-                                                }.into_any()
-                                            }
-                                        }
-                                        Ok(RendererContent::Redirecting) => view! {
-                                            <div class=css::loading>"Redirecting..."</div>
-                                        }.into_any(),
-                                        Err(error) => view! {
-                                            <div class=css::error>{error}</div>
-                                        }.into_any(),
-                                    }
+                                    render_view_body(result, reader_meta_memo)
                                 })
                             }}
                         </Suspense>
                     }
                 >
-                    <textarea
-                        class=css::editorTextarea
-                        prop:value=move || draft_body.get()
-                        on:input=move |ev| {
-                            draft_body.set(event_target_value(&ev));
-                            draft_dirty.set(true);
-                        }
+                    <MarkdownEditorView
+                        draft_body=draft_body
+                        on_input_dirty=on_input_dirty_cb
                     />
                 </Show>
                 <Show when=move || !is_new_route.get()>
@@ -337,6 +309,39 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
                 </Show>
             </main>
         </div>
+    }
+}
+
+fn render_view_body(result: Result<RendererContent, String>, meta: Memo<ReaderMeta>) -> AnyView {
+    match result {
+        Ok(RendererContent::Markdown(rendered)) => {
+            let rendered = Signal::derive(move || rendered.clone());
+            view! { <MarkdownReaderView rendered=rendered /> }.into_any()
+        }
+        Ok(RendererContent::Html(rendered)) => {
+            let rendered = Signal::derive(move || rendered.clone());
+            view! { <HtmlReaderView rendered=rendered /> }.into_any()
+        }
+        Ok(RendererContent::Text(text)) => view! { <PlainReaderView text=text /> }.into_any(),
+        Ok(RendererContent::Pdf { url }) => {
+            let title = Signal::derive(move || meta.get().title.clone());
+            let m = meta.get_untracked();
+            view! {
+                <PdfReaderView
+                    title=title
+                    url=url
+                    size_pretty=m.size_pretty
+                    abstract_text=m.description
+                />
+            }
+            .into_any()
+        }
+        Ok(RendererContent::Image { url }) => {
+            let alt = meta.get_untracked().title;
+            view! { <AssetReaderView url=url alt=alt /> }.into_any()
+        }
+        Ok(RendererContent::Redirecting) => view! { <RedirectingView /> }.into_any(),
+        Err(error) => view! { <div class=css::error>{error}</div> }.into_any(),
     }
 }
 
@@ -351,7 +356,6 @@ fn ReaderToolbar(
     on_save: Callback<()>,
     on_cancel: Callback<()>,
 ) -> impl IntoView {
-    // Render only when there are actions or a label to show.
     let visible = Memo::new(move |_| {
         mode.get() == ReaderMode::Edit || (mode.get() == ReaderMode::View && can_edit.get())
     });
@@ -412,7 +416,7 @@ async fn load_renderer_content(
         ReaderIntent::Markdown { .. } => ctx
             .read_text(&path)
             .await
-            .map(|markdown| RendererContent::Html(render_markdown(&markdown)))
+            .map(|markdown| RendererContent::Markdown(render_markdown(&markdown)))
             .map_err(|error| error.to_string()),
         ReaderIntent::Html { .. } => ctx
             .read_text(&path)
@@ -438,12 +442,13 @@ async fn load_asset(
         .read_bytes(path)
         .await
         .map_err(|error| error.to_string())?;
-    let url = if media_type == "application/pdf" {
-        object_url_for_bytes(&bytes, &media_type)?
+    if media_type == "application/pdf" {
+        let url = object_url_for_bytes(&bytes, &media_type)?;
+        Ok(RendererContent::Pdf { url })
     } else {
-        data_url_for_bytes(&bytes, &media_type)
-    };
-    Ok(RendererContent::Asset { url, media_type })
+        let url = data_url_for_bytes(&bytes, &media_type);
+        Ok(RendererContent::Image { url })
+    }
 }
 
 async fn load_redirect(ctx: AppContext, path: &VirtualPath) -> Result<RendererContent, String> {
