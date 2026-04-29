@@ -70,11 +70,11 @@ pub fn ReaderShell(
                     })}
                     {children()}
                 </div>
+                <ReaderToolbar edit=edit />
                 <AttestationSigFooter
                     route=state.attestation_route
                     show_pending=state.show_pending
                 />
-                <ReaderToolbar edit=edit />
             </main>
         </div>
     }
