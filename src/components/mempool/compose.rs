@@ -111,7 +111,9 @@ fn slug_is_valid(slug: &str) -> bool {
     if !bytes[0].is_ascii_alphanumeric() {
         return false;
     }
-    bytes.iter().all(|b| b.is_ascii_alphanumeric() || *b == b'-')
+    bytes
+        .iter()
+        .all(|b| b.is_ascii_alphanumeric() || *b == b'-')
 }
 
 pub fn form_to_payload(form: &ComposeForm) -> ComposePayload {
@@ -175,13 +177,12 @@ pub fn derive_form_from_mode(mode: &ComposeMode, today: &str) -> ComposeForm {
                 .trim_start_matches('/');
             let mut segments = rel.split('/');
             let first = segments.next().unwrap_or("");
-            let category = if segments.clone().next().is_some()
-                && LEDGER_CATEGORIES.contains(&first)
-            {
-                first.to_string()
-            } else {
-                LEDGER_CATEGORIES[0].to_string()
-            };
+            let category =
+                if segments.clone().next().is_some() && LEDGER_CATEGORIES.contains(&first) {
+                    first.to_string()
+                } else {
+                    LEDGER_CATEGORIES[0].to_string()
+                };
             let slug = path
                 .as_str()
                 .rsplit('/')
@@ -264,9 +265,7 @@ pub async fn save_compose(
 
     if matches!(mode, ComposeMode::New { .. }) {
         let target = target_path(&form);
-        let collides = ctx
-            .view_global_fs
-            .with_untracked(|fs| fs.exists(&target));
+        let collides = ctx.view_global_fs.with_untracked(|fs| fs.exists(&target));
         if collides {
             return Err(format!(
                 "draft already exists at {} — pick a different slug",
@@ -276,14 +275,12 @@ pub async fn save_compose(
     }
 
     let root = mempool_root();
-    let backend = ctx
-        .backend_for_mount_root(&root)
-        .ok_or_else(|| {
-            "mempool mount is not registered — check that \
+    let backend = ctx.backend_for_mount_root(&root).ok_or_else(|| {
+        "mempool mount is not registered — check that \
              content/.websh/mounts/mempool.mount.json exists and \
              content/manifest.json is up to date"
-                .to_string()
-        })?;
+            .to_string()
+    })?;
     let token = github_token_for_commit()
         .ok_or_else(|| "missing GitHub token for mempool commit".to_string())?;
     let expected_head = ctx.remote_head_for_path(&root);
@@ -310,9 +307,9 @@ pub async fn save_compose(
     // already-successful commit.
     match crate::core::runtime::reload_runtime().await {
         Ok(load) => ctx.apply_runtime_load(load),
-        Err(error) => leptos::logging::warn!(
-            "compose: runtime reload after commit failed: {error}"
-        ),
+        Err(error) => {
+            leptos::logging::warn!("compose: runtime reload after commit failed: {error}")
+        }
     }
     Ok(())
 }
@@ -339,9 +336,7 @@ pub async fn save_raw(
     is_new: bool,
 ) -> Result<(), String> {
     if is_new {
-        let collides = ctx
-            .view_global_fs
-            .with_untracked(|fs| fs.exists(&path));
+        let collides = ctx.view_global_fs.with_untracked(|fs| fs.exists(&path));
         if collides {
             return Err(format!(
                 "draft already exists at {} — pick a different slug",
@@ -375,9 +370,16 @@ pub async fn save_raw(
     };
     changes.upsert(path, change);
 
-    let outcome = commit_backend(backend, root.clone(), changes, message, expected_head, Some(token))
-        .await
-        .map_err(|err| err.to_string())?;
+    let outcome = commit_backend(
+        backend,
+        root.clone(),
+        changes,
+        message,
+        expected_head,
+        Some(token),
+    )
+    .await
+    .map_err(|err| err.to_string())?;
     apply_commit_outcome(&ctx, &root, &outcome).await;
 
     match crate::core::runtime::reload_runtime().await {
@@ -441,7 +443,6 @@ fn mount_id_fallback(root: &VirtualPath) -> String {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -504,7 +505,12 @@ mod tests {
 
     #[test]
     fn validate_form_accepts_known_priority_or_none() {
-        for value in [None, Some("low".into()), Some("med".into()), Some("high".into())] {
+        for value in [
+            None,
+            Some("low".into()),
+            Some("med".into()),
+            Some("high".into()),
+        ] {
             let payload = sample(|p| p.priority = value.clone());
             assert!(
                 validate_form(&payload).is_empty(),
@@ -578,7 +584,10 @@ mod tests {
             p.category = "papers".into();
             p.slug = "alpha".into();
         });
-        assert_eq!(save_path_for(&mode, &form).as_str(), "/mempool/papers/alpha.md");
+        assert_eq!(
+            save_path_for(&mode, &form).as_str(),
+            "/mempool/papers/alpha.md"
+        );
     }
 
     #[test]

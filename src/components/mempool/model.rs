@@ -132,7 +132,10 @@ fn build_entry(mempool_root: &VirtualPath, file: LoadedMempoolFile) -> Option<Me
         .and_then(parse_mempool_status)
         .unwrap_or(MempoolStatus::Draft);
     let priority = meta.priority.as_deref().and_then(parse_priority);
-    let modified = meta.modified.clone().unwrap_or_else(|| "undated".to_string());
+    let modified = meta
+        .modified
+        .clone()
+        .unwrap_or_else(|| "undated".to_string());
     let sort_key = meta
         .modified
         .as_deref()
@@ -215,9 +218,27 @@ mod tests {
     fn build_model_orders_by_modified_desc() {
         let mempool_root = VirtualPath::from_absolute("/mempool").unwrap();
         let files = vec![
-            loaded("/mempool/writing/old.md", meta("draft", "2026-03-01", None), "old", 3, true),
-            loaded("/mempool/writing/new.md", meta("draft", "2026-04-01", None), "new", 3, true),
-            loaded("/mempool/writing/mid.md", meta("review", "2026-03-15", Some("med")), "mid", 3, true),
+            loaded(
+                "/mempool/writing/old.md",
+                meta("draft", "2026-03-01", None),
+                "old",
+                3,
+                true,
+            ),
+            loaded(
+                "/mempool/writing/new.md",
+                meta("draft", "2026-04-01", None),
+                "new",
+                3,
+                true,
+            ),
+            loaded(
+                "/mempool/writing/mid.md",
+                meta("review", "2026-03-15", Some("med")),
+                "mid",
+                3,
+                true,
+            ),
         ];
         let model = build_mempool_model(&mempool_root, files, &LedgerFilterShape::All);
         assert_eq!(model.entries.len(), 3);
@@ -232,8 +253,20 @@ mod tests {
     fn build_model_filters_by_category() {
         let mempool_root = VirtualPath::from_absolute("/mempool").unwrap();
         let files = vec![
-            loaded("/mempool/writing/a.md", meta("draft", "2026-04-01", None), "a", 1, true),
-            loaded("/mempool/papers/b.md", meta("draft", "2026-04-02", None), "b", 1, true),
+            loaded(
+                "/mempool/writing/a.md",
+                meta("draft", "2026-04-01", None),
+                "a",
+                1,
+                true,
+            ),
+            loaded(
+                "/mempool/papers/b.md",
+                meta("draft", "2026-04-02", None),
+                "b",
+                1,
+                true,
+            ),
         ];
         let model = build_mempool_model(
             &mempool_root,
@@ -274,6 +307,9 @@ mod tests {
         let model = build_mempool_model(&mempool_root, files, &LedgerFilterShape::All);
         assert_eq!(model.entries.len(), 2);
         assert_eq!(model.entries[0].path.as_str(), "/mempool/writing/dated.md");
-        assert_eq!(model.entries[1].path.as_str(), "/mempool/writing/undated.md");
+        assert_eq!(
+            model.entries[1].path.as_str(),
+            "/mempool/writing/undated.md"
+        );
     }
 }

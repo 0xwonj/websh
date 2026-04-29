@@ -6,16 +6,28 @@ use super::routing::{ResolvedKind, RouteResolution};
 /// Renderer-neutral output produced by the engine and consumed by the UI.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RenderIntent {
-    DirectoryListing { node_path: VirtualPath },
-    TerminalApp { node_path: VirtualPath },
-    HtmlContent { node_path: VirtualPath },
-    MarkdownContent { node_path: VirtualPath },
-    PlainContent { node_path: VirtualPath },
+    DirectoryListing {
+        node_path: VirtualPath,
+    },
+    TerminalApp {
+        node_path: VirtualPath,
+    },
+    HtmlContent {
+        node_path: VirtualPath,
+    },
+    MarkdownContent {
+        node_path: VirtualPath,
+    },
+    PlainContent {
+        node_path: VirtualPath,
+    },
     Asset {
         node_path: VirtualPath,
         media_type: String,
     },
-    Redirect { node_path: VirtualPath },
+    Redirect {
+        node_path: VirtualPath,
+    },
 }
 
 pub fn build_render_intent(resolution: &RouteResolution) -> Option<RenderIntent> {

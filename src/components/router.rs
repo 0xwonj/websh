@@ -188,9 +188,7 @@ fn new_compose_frame() -> RouteFrame {
             kind: ResolvedKind::Document,
             params: BTreeMap::new(),
         },
-        intent: RenderIntent::MarkdownContent {
-            node_path,
-        },
+        intent: RenderIntent::MarkdownContent { node_path },
     }
 }
 
@@ -209,9 +207,7 @@ fn ledger_filter_frame(request: RouteRequest) -> RouteFrame {
             kind: ResolvedKind::Directory,
             params: BTreeMap::new(),
         },
-        intent: RenderIntent::DirectoryListing {
-            node_path,
-        },
+        intent: RenderIntent::DirectoryListing { node_path },
     }
 }
 

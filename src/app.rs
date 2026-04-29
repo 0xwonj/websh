@@ -373,10 +373,7 @@ impl AppContext {
     /// `/mempool/...` cannot silently fall back to the parent `/` mount when
     /// `/mempool` itself is unregistered. Returns `None` when no backend is
     /// registered at exactly `root`.
-    pub fn backend_for_mount_root(
-        &self,
-        root: &VirtualPath,
-    ) -> Option<Arc<dyn StorageBackend>> {
+    pub fn backend_for_mount_root(&self, root: &VirtualPath) -> Option<Arc<dyn StorageBackend>> {
         self.backends.with_value(|map| map.get(root).cloned())
     }
 
@@ -451,9 +448,12 @@ pub fn App() -> impl IntoView {
     let ctx = AppContext::new();
     provide_context(ctx);
     let theme_signal = ctx.theme;
+    let runtime_state_signal = ctx.runtime_state;
     Effect::new(move |_| {
         let theme = theme_signal.get();
-        let _ = crate::utils::theme::apply_theme(theme);
+        if crate::utils::theme::apply_theme(theme).is_ok() {
+            runtime_state_signal.set(crate::core::runtime::state::snapshot());
+        }
     });
 
     let changes_signal = ctx.changes;

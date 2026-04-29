@@ -16,14 +16,22 @@ use crate::models::VirtualPath;
 /// only the variants `Reader` can render.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ReaderIntent {
-    Html { node_path: VirtualPath },
-    Markdown { node_path: VirtualPath },
-    Plain { node_path: VirtualPath },
+    Html {
+        node_path: VirtualPath,
+    },
+    Markdown {
+        node_path: VirtualPath,
+    },
+    Plain {
+        node_path: VirtualPath,
+    },
     Asset {
         node_path: VirtualPath,
         media_type: String,
     },
-    Redirect { node_path: VirtualPath },
+    Redirect {
+        node_path: VirtualPath,
+    },
 }
 
 /// Reader's narrowed equivalent of [`RouteFrame`].

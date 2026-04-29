@@ -17,11 +17,9 @@ pub(crate) fn require_gh() -> CliResult {
     let probe = Process::new("gh").arg("--version").output();
     match probe {
         Ok(out) if out.status.success() => Ok(()),
-        _ => Err(
-            "the `gh` CLI is required (https://cli.github.com); \
+        _ => Err("the `gh` CLI is required (https://cli.github.com); \
              ensure `gh auth status` reports an authenticated account before re-running"
-                .into(),
-        ),
+            .into()),
     }
 }
 
@@ -49,7 +47,10 @@ where
     if !out.status.success() {
         return Err(format!(
             "gh failed (exit {}): {}",
-            out.status.code().map(|c| c.to_string()).unwrap_or_else(|| "?".to_string()),
+            out.status
+                .code()
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "?".to_string()),
             String::from_utf8_lossy(&out.stderr).trim()
         )
         .into());

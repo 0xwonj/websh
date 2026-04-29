@@ -62,7 +62,7 @@ pub const ALLOWED_REDIRECT_DOMAINS: &[&str] = &[
 // =============================================================================
 
 /// localStorage key for wallet session persistence.
-pub const WALLET_SESSION_KEY: &str = "wallet_session";
+pub const WALLET_SESSION_KEY: &str = "websh.wallet_session";
 
 /// Wallet connection timeout in milliseconds.
 pub const WALLET_TIMEOUT_MS: i32 = 2000;
@@ -75,8 +75,8 @@ pub const WALLET_TIMEOUT_MS: i32 = 2000;
 pub const USER_VAR_PREFIX: &str = "user.";
 
 /// Default user variables initialized on first visit.
-pub const DEFAULT_USER_VARS: &[(&str, &str)] =
-    &[("THEME", "sepia-dark"), ("LANG", "en"), ("EDITOR", "vim")];
+/// THEME is omitted: the theme system writes `user.THEME` directly via `apply_theme`.
+pub const DEFAULT_USER_VARS: &[(&str, &str)] = &[("LANG", "en"), ("EDITOR", "vim")];
 
 // =============================================================================
 // Terminal Configuration

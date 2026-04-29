@@ -22,7 +22,7 @@ pub fn Mempool(
     // present DOM node, so screen readers can navigate to the controlled
     // region.
     view! {
-        <section class=css::mempool aria-label="Mempool — pending entries">
+        <section class=css::mempool aria-label="Mempool — pending blocks">
             {header}
             <div
                 class=css::mpList
@@ -43,11 +43,9 @@ fn render_header(
 ) -> AnyView {
     let count_text = match &model.filter {
         LedgerFilterShape::All => format!("· {} pending", model.total_count),
-        LedgerFilterShape::Category(_) => format!(
-            "· {} / {} pending",
-            model.entries.len(),
-            model.total_count
-        ),
+        LedgerFilterShape::Category(_) => {
+            format!("· {} / {} pending", model.entries.len(), model.total_count)
+        }
     };
     let toggle = move || collapsed.update(|v| *v = !*v);
     let on_click = move |_: leptos::ev::MouseEvent| toggle();
@@ -78,7 +76,7 @@ fn render_header(
                     <a
                         class=css::mpCompose
                         href="/#/new"
-                        aria-label="Compose new mempool entry"
+                        aria-label="Compose new mempool block"
                         on:click=|ev| ev.stop_propagation()
                     >
                         "+ compose"
@@ -94,7 +92,7 @@ fn render_rows(model: &MempoolModel) -> AnyView {
     if model.entries.is_empty() {
         return view! {
             <div class=css::mpEmpty>
-                "no pending entries match this filter"
+                "no pending blocks match this filter"
             </div>
         }
         .into_any();

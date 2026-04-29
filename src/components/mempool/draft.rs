@@ -112,14 +112,9 @@ mod tests {
         // (`\n`, `\r`) can't reach the title value at all — the line-based
         // frontmatter parser eats them — so they don't need a rejection path.
         for bad in ['"', '\\', ':'] {
-            let raw = format!(
-                "---\ntitle: hello{bad}world\ncategory: writing\n---\n"
-            );
+            let raw = format!("---\ntitle: hello{bad}world\ncategory: writing\n---\n");
             let err = derive_new_path(&raw).unwrap_err();
-            assert!(
-                err.contains("cannot contain"),
-                "char {bad:?}: got {err}"
-            );
+            assert!(err.contains("cannot contain"), "char {bad:?}: got {err}");
         }
     }
 
@@ -148,8 +143,7 @@ mod tests {
     #[test]
     fn placeholder_round_trips_through_parser() {
         let placeholder = placeholder_frontmatter("2026-04-29");
-        let meta = parse_mempool_frontmatter(&placeholder)
-            .expect("placeholder must parse cleanly");
+        let meta = parse_mempool_frontmatter(&placeholder).expect("placeholder must parse cleanly");
         assert_eq!(meta.category.as_deref(), Some(LEDGER_CATEGORIES[0]));
         assert_eq!(meta.modified.as_deref(), Some("2026-04-29"));
         assert_eq!(meta.status.as_deref(), Some("draft"));
@@ -168,9 +162,6 @@ mod tests {
         let placeholder = placeholder_frontmatter("2026-04-29");
         let filled = placeholder.replace("title: \"\"", "title: \"My First Draft\"");
         let path = derive_new_path(&filled).expect("ok");
-        assert_eq!(
-            path.as_str(),
-            "/mempool/writing/my-first-draft.md"
-        );
+        assert_eq!(path.as_str(), "/mempool/writing/my-first-draft.md");
     }
 }

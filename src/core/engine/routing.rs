@@ -660,5 +660,4 @@ mod tests {
         assert!(!is_new_request_path(&RouteRequest::new("/edit")));
         assert!(!is_new_request_path(&RouteRequest::new("/ledger")));
     }
-
 }

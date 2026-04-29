@@ -208,7 +208,11 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
             ctx.view_mode.set(mode);
         }
         SideEffect::SetTheme { theme } => match crate::utils::theme::apply_theme(&theme) {
-            Ok(theme_id) => ctx.theme.set(theme_id),
+            Ok(theme_id) => {
+                ctx.theme.set(theme_id);
+                ctx.runtime_state
+                    .set(crate::core::runtime::state::snapshot());
+            }
             Err(error) => ctx.terminal.push_output(OutputLine::error(error)),
         },
         SideEffect::ApplyChange { path, change } => {
@@ -255,10 +259,11 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
             mount_root,
         } => {
             let Some(backend) = ctx.backend_for_mount_root(&mount_root) else {
-                ctx.terminal.push_output(crate::models::OutputLine::error(format!(
-                    "sync: no backend registered at mount root {}",
-                    mount_root.as_str()
-                )));
+                ctx.terminal
+                    .push_output(crate::models::OutputLine::error(format!(
+                        "sync: no backend registered at mount root {}",
+                        mount_root.as_str()
+                    )));
                 return;
             };
             let changes_signal = ctx.changes;

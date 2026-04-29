@@ -254,10 +254,7 @@ fn list(root: &Path) -> CliResult {
             .unwrap_or_else(|| "—".to_string());
         let is_markdown = file.path.ends_with(".md");
         let gas = derive_gas(&body, body.len(), is_markdown);
-        println!(
-            "  {:6} {:32} {:14} {}",
-            status, file.path, gas, modified,
-        );
+        println!("  {:6} {:32} {:14} {}", status, file.path, gas, modified,);
     }
     println!("{} pending entries", manifest.files.len());
 
@@ -501,10 +498,9 @@ fn humanize_compose_error(err: &ComposeError) -> String {
         }
         ComposeError::StatusUnknown => "status must be `draft` or `review`".to_string(),
         ComposeError::ModifiedNotIso => "modified must be YYYY-MM-DD".to_string(),
-        ComposeError::CategoryUnknown => format!(
-            "category must be one of {}",
-            LEDGER_CATEGORIES.join(", ")
-        ),
+        ComposeError::CategoryUnknown => {
+            format!("category must be one of {}", LEDGER_CATEGORIES.join(", "))
+        }
         ComposeError::PriorityUnknown => "priority must be `low`, `med`, or `high`".to_string(),
         ComposeError::TagHasReservedChars => {
             "tags cannot contain `[ ] \" ,` or newlines".to_string()
@@ -561,9 +557,7 @@ fn promote(root: &Path, args: PromoteArgs) -> CliResult {
         }
     }
 
-    println!(
-        "\nready. review the commit, then `git push` and `just pin` to deploy."
-    );
+    println!("\nready. review the commit, then `git push` and `just pin` to deploy.");
     Ok(())
 }
 
@@ -572,10 +566,7 @@ fn promote(root: &Path, args: PromoteArgs) -> CliResult {
 fn parse_promote_path(repo_relative: &str) -> CliResult<PromoteTarget> {
     let trimmed = repo_relative.trim_start_matches('/');
     if !trimmed.ends_with(".md") {
-        return Err(format!(
-            "promote path must end in `.md` (got `{repo_relative}`)"
-        )
-        .into());
+        return Err(format!("promote path must end in `.md` (got `{repo_relative}`)").into());
     }
     let mut parts = trimmed.splitn(2, '/');
     let category = parts
@@ -599,9 +590,7 @@ fn parse_promote_path(repo_relative: &str) -> CliResult<PromoteTarget> {
         .expect("ends_with(.md) checked above")
         .to_string();
     if slug.is_empty() || slug.contains('/') {
-        return Err(
-            format!("promote path slug must be a single segment, got `{rest}`").into(),
-        );
+        return Err(format!("promote path slug must be a single segment, got `{rest}`").into());
     }
     let slug_relpath = format!("{category}/{slug}");
     let bundle_disk_path = PathBuf::from(DEFAULT_CONTENT_DIR)
@@ -640,7 +629,8 @@ fn ensure_clean_working_tree(root: &Path) -> CliResult {
 
 fn confirm_on_bundle_branch(root: &Path) -> CliResult {
     let mut cmd = Process::new("git");
-    cmd.current_dir(root).args(["rev-parse", "--abbrev-ref", "HEAD"]);
+    cmd.current_dir(root)
+        .args(["rev-parse", "--abbrev-ref", "HEAD"]);
     let out = cmd.output()?;
     if !out.status.success() {
         return Err("git rev-parse failed (is this a git checkout?)".into());
@@ -650,9 +640,7 @@ fn confirm_on_bundle_branch(root: &Path) -> CliResult {
     if current == expected {
         return Ok(());
     }
-    eprint!(
-        "warn: HEAD is `{current}`, deploy branch is `{expected}`. Continue? [y/N] "
-    );
+    eprint!("warn: HEAD is `{current}`, deploy branch is `{expected}`. Continue? [y/N] ");
     io::stderr().flush().ok();
     let mut answer = String::new();
     io::stdin().read_line(&mut answer)?;
@@ -852,10 +840,7 @@ where
 /// manifest, so the user-facing mempool view is correct. The orphan blob
 /// is harmless and will be cleaned up the next time the file is committed
 /// to (or by `git gc`).
-fn drop_via_gh(
-    mount: &MempoolMountInfo,
-    path_in_repo: &str,
-) -> CliResult<DropOutcome> {
+fn drop_via_gh(mount: &MempoolMountInfo, path_in_repo: &str) -> CliResult<DropOutcome> {
     let absolute_file_path = file_in_repo(&mount.root_prefix, path_in_repo);
     let absolute_manifest_path = file_in_repo(&mount.root_prefix, "manifest.json");
 
@@ -975,10 +960,7 @@ fn drop_entry(root: &Path, args: DropArgs) -> CliResult {
         }
         DropOutcome::Absent => {
             if args.if_exists {
-                println!(
-                    "mempool drop: {} not present, nothing to do",
-                    args.path
-                );
+                println!("mempool drop: {} not present, nothing to do", args.path);
                 Ok(())
             } else {
                 Err(format!("entry not found at {}", args.path).into())
@@ -1202,7 +1184,10 @@ mod tests {
         // only failure should be category.
         let form = build_form(&args, "").unwrap();
         let errs = validate_form(&form);
-        assert!(errs.iter().any(|e| matches!(e, ComposeError::CategoryUnknown)));
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, ComposeError::CategoryUnknown))
+        );
     }
 
     #[test]
@@ -1211,7 +1196,10 @@ mod tests {
         args.modified = Some("April 28".into());
         let form = build_form(&args, "").unwrap();
         let errs = validate_form(&form);
-        assert!(errs.iter().any(|e| matches!(e, ComposeError::ModifiedNotIso)));
+        assert!(
+            errs.iter()
+                .any(|e| matches!(e, ComposeError::ModifiedNotIso))
+        );
     }
 
     #[test]
@@ -1237,11 +1225,7 @@ mod tests {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let id = COUNTER.fetch_add(1, Ordering::SeqCst);
         let mut d = std::env::temp_dir();
-        d.push(format!(
-            "websh-mempool-test-{}-{}",
-            std::process::id(),
-            id
-        ));
+        d.push(format!("websh-mempool-test-{}-{}", std::process::id(), id));
         if d.exists() {
             fs::remove_dir_all(&d).unwrap();
         }

@@ -12,7 +12,7 @@
     <meta name="author" content="Wonjae Choi">
     <meta name="keywords"
         content="cryptography, web3, ethereum, zero-knowledge, webassembly, rust, filesystem, unix-shell, terminal">
-    <meta name="theme-color" content="#100f0f">
+    <meta name="theme-color" content="#1f1f28">
     <meta name="robots" content="index, follow">
 
     <!-- Security Policy -->
@@ -62,21 +62,21 @@
     <base href="./">
     <script>
         (() => {
-            const key = "websh.theme";
+            const key = "user.THEME";
             const themes = {
-                // Dark
-                "sepia-dark": "#100f0f",
-                "gruvbox-dark": "#282828",
-                "tokyonight-night": "#1a1b26",
-                "dracula": "#282a36",
+                // Dark (alphabetical)
                 "catppuccin-mocha": "#1e1e2e",
+                "dracula": "#282a36",
+                "gruvbox-dark": "#282828",
+                "kanagawa-wave": "#1f1f28",
                 "nord": "#2e3440",
                 "rose-pine": "#191724",
-                "kanagawa-wave": "#1f1f28",
-                // Light
+                "sepia-dark": "#100f0f",
+                "tokyonight-night": "#1a1b26",
+                // Light (alphabetical)
                 "black-ink": "#fffcf0",
-                "solarized-light": "#fdf6e3",
-                "catppuccin-latte": "#eff1f5"
+                "catppuccin-latte": "#eff1f5",
+                "solarized-light": "#fdf6e3"
             };
             const aliases = {
                 "sepia": "sepia-dark",
@@ -106,9 +106,9 @@
                 "kanagawa": "kanagawa-wave",
                 "wave": "kanagawa-wave"
             };
-            const raw = localStorage.getItem(key) || "sepia-dark";
+            const raw = localStorage.getItem(key) || "kanagawa-wave";
             const normalized = raw.trim().toLowerCase().replaceAll("_", "-");
-            const theme = themes[normalized] ? normalized : aliases[normalized] || "sepia-dark";
+            const theme = themes[normalized] ? normalized : aliases[normalized] || "kanagawa-wave";
             document.documentElement.setAttribute("data-theme", theme);
             document.querySelector('meta[name="theme-color"]')?.setAttribute("content", themes[theme]);
         })();
@@ -116,17 +116,17 @@
     <link data-trunk rel="css" href="assets/tokens/primitive.css">
     <link data-trunk rel="css" href="assets/tokens/semantic.css">
     <link data-trunk rel="css" href="assets/tokens/typography.css">
-    <link data-trunk rel="css" href="assets/themes/sepia-dark.css">
-    <link data-trunk rel="css" href="assets/themes/gruvbox-dark.css">
-    <link data-trunk rel="css" href="assets/themes/tokyonight-night.css">
-    <link data-trunk rel="css" href="assets/themes/dracula.css">
     <link data-trunk rel="css" href="assets/themes/catppuccin-mocha.css">
+    <link data-trunk rel="css" href="assets/themes/dracula.css">
+    <link data-trunk rel="css" href="assets/themes/gruvbox-dark.css">
+    <link data-trunk rel="css" href="assets/themes/kanagawa-wave.css">
     <link data-trunk rel="css" href="assets/themes/nord.css">
     <link data-trunk rel="css" href="assets/themes/rose-pine.css">
-    <link data-trunk rel="css" href="assets/themes/kanagawa-wave.css">
+    <link data-trunk rel="css" href="assets/themes/sepia-dark.css">
+    <link data-trunk rel="css" href="assets/themes/tokyonight-night.css">
     <link data-trunk rel="css" href="assets/themes/black-ink.css">
-    <link data-trunk rel="css" href="assets/themes/solarized-light.css">
     <link data-trunk rel="css" href="assets/themes/catppuccin-latte.css">
+    <link data-trunk rel="css" href="assets/themes/solarized-light.css">
     <link rel="stylesheet" href="assets/vendor/katex/katex.min.css">
     <link data-trunk rel="css" href="assets/base.css">
     <link data-trunk rel="css" href="assets/bundle.css">

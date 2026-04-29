@@ -593,4 +593,3 @@ impl LedgerFilter {
         }
     }
 }
-

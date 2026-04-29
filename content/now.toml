@@ -1,7 +1,11 @@
 [[items]]
-date = "2026-04-25"
-text = "Stub now-list entry — fixture data."
+date = "2026-04-26"
+text = "Preparing tabula for EuroSys 2027; deadline May 14."
 
 [[items]]
-date = "2026-04-10"
-text = "Another stub now-list entry."
+date = "2026-04-24"
+text = "Making this website (websh)."
+
+[[items]]
+date = "2026-03-25"
+text = "Drafting a grant proposal on the zk compiler stack for a not-yet-public call."

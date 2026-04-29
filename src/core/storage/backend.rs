@@ -70,8 +70,10 @@ pub trait StorageBackend {
     /// by minutes through its CDN) and read directly from the authoritative
     /// Contents API. Backends that are CDN-free (mock, ipfs read paths) can
     /// ignore the token.
-    fn scan<'a>(&'a self, auth_token: Option<&'a str>)
-        -> BoxFuture<'a, StorageResult<ScannedSubtree>>;
+    fn scan<'a>(
+        &'a self,
+        auth_token: Option<&'a str>,
+    ) -> BoxFuture<'a, StorageResult<ScannedSubtree>>;
 
     fn read_text<'a>(&'a self, rel_path: &'a str) -> BoxFuture<'a, StorageResult<String>>;
 

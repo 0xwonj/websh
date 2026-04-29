@@ -93,8 +93,8 @@ impl GitHubBackend {
                 qualified_name: format!("refs/heads/{}", self.branch),
             },
         };
-        let body_json = serde_json::to_string(&body)
-            .map_err(|e| StorageError::BadRequest(e.to_string()))?;
+        let body_json =
+            serde_json::to_string(&body).map_err(|e| StorageError::BadRequest(e.to_string()))?;
         let resp = gloo_net::http::Request::post(GRAPHQL_ENDPOINT)
             .header("Authorization", &format!("bearer {}", token))
             .header("Content-Type", "application/json")

@@ -202,7 +202,10 @@ mod tests {
         assert_eq!(meta.status.as_deref(), Some("draft"));
         assert_eq!(meta.priority.as_deref(), Some("med"));
         assert_eq!(meta.modified.as_deref(), Some("2026-04-25"));
-        assert_eq!(meta.tags, vec!["essay".to_string(), "writing-process".to_string()]);
+        assert_eq!(
+            meta.tags,
+            vec!["essay".to_string(), "writing-process".to_string()]
+        );
     }
 
     #[test]
@@ -242,7 +245,8 @@ mod tests {
 
     #[test]
     fn ignores_unknown_keys() {
-        let raw = body("---\ntitle: foo\nstatus: draft\nmodified: 2026-04-22\nfuture: ignore\n---\n");
+        let raw =
+            body("---\ntitle: foo\nstatus: draft\nmodified: 2026-04-22\nfuture: ignore\n---\n");
         let meta = parse_mempool_frontmatter(&raw).expect("parses");
         assert_eq!(meta.title.as_deref(), Some("foo"));
     }
@@ -328,8 +332,7 @@ mod tests {
 
     #[test]
     fn derives_gas_for_markdown_word_count() {
-        let body = "---\nfront: matter\n---\n# Heading\n\n".to_string()
-            + &"word ".repeat(420);
+        let body = "---\nfront: matter\n---\n# Heading\n\n".to_string() + &"word ".repeat(420);
         let gas = derive_gas(&body, body.len(), true);
         // 420 words → "~400 words" (rounded down to nearest 50 in 100..=999 bucket)
         assert_eq!(gas, "~400 words");

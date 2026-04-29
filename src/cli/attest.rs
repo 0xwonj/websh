@@ -789,11 +789,7 @@ fn expand_content_paths(root: &Path, raw_paths: Vec<PathBuf>) -> CliResult<Vec<P
                 expanded.push(path);
             }
         } else {
-            return Err(format!(
-                "attestation content path not found: {}",
-                path.display()
-            )
-            .into());
+            return Err(format!("attestation content path not found: {}", path.display()).into());
         }
     }
     Ok(expanded)

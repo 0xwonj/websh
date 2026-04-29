@@ -2,9 +2,16 @@
 //!
 //! The browser stores the selected palette as local preference. CSS consumes
 //! it from `html[data-theme]`; Rust only validates and applies the attribute.
+//!
+//! When adding a new theme, three places must stay in sync:
+//!   1. `THEMES` below.
+//!   2. `index.html` pre-paint script's `themes` map.
+//!   3. `index.html`'s `<link data-trunk rel="css" href="assets/themes/<id>.css">`.
 
-pub const DEFAULT_THEME: &str = "sepia-dark";
-pub const STORAGE_KEY: &str = "websh.theme";
+pub const DEFAULT_THEME: &str = "kanagawa-wave";
+/// localStorage key for the active theme. The `user.` prefix exposes it as
+/// `$THEME` and at `/.websh/state/env/THEME` via the runtime env machinery.
+pub const STORAGE_KEY: &str = "user.THEME";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ThemeDescriptor {
@@ -19,24 +26,12 @@ pub struct ThemeDescriptor {
 }
 
 pub const THEMES: &[ThemeDescriptor] = &[
-    // ===== Dark themes =====
+    // ===== Dark themes (alphabetical by id) =====
     ThemeDescriptor {
-        id: "sepia-dark",
-        label: "Sepia Dark",
-        meta_color: "#100f0f",
-        accent_color: "#da702c",
-    },
-    ThemeDescriptor {
-        id: "gruvbox-dark",
-        label: "Gruvbox Dark",
-        meta_color: "#282828",
-        accent_color: "#cc241d",
-    },
-    ThemeDescriptor {
-        id: "tokyonight-night",
-        label: "TokyoNight Night",
-        meta_color: "#1a1b26",
-        accent_color: "#7aa2f7",
+        id: "catppuccin-mocha",
+        label: "Catppuccin Mocha",
+        meta_color: "#1e1e2e",
+        accent_color: "#cba6f7",
     },
     ThemeDescriptor {
         id: "dracula",
@@ -45,10 +40,16 @@ pub const THEMES: &[ThemeDescriptor] = &[
         accent_color: "#bd93f9",
     },
     ThemeDescriptor {
-        id: "catppuccin-mocha",
-        label: "Catppuccin Mocha",
-        meta_color: "#1e1e2e",
-        accent_color: "#cba6f7",
+        id: "gruvbox-dark",
+        label: "Gruvbox Dark",
+        meta_color: "#282828",
+        accent_color: "#cc241d",
+    },
+    ThemeDescriptor {
+        id: "kanagawa-wave",
+        label: "Kanagawa Wave",
+        meta_color: "#1f1f28",
+        accent_color: "#7e9cd8",
     },
     ThemeDescriptor {
         id: "nord",
@@ -63,12 +64,18 @@ pub const THEMES: &[ThemeDescriptor] = &[
         accent_color: "#eb6f92",
     },
     ThemeDescriptor {
-        id: "kanagawa-wave",
-        label: "Kanagawa Wave",
-        meta_color: "#1f1f28",
-        accent_color: "#7e9cd8",
+        id: "sepia-dark",
+        label: "Sepia Dark",
+        meta_color: "#100f0f",
+        accent_color: "#da702c",
     },
-    // ===== Light themes =====
+    ThemeDescriptor {
+        id: "tokyonight-night",
+        label: "TokyoNight Night",
+        meta_color: "#1a1b26",
+        accent_color: "#7aa2f7",
+    },
+    // ===== Light themes (alphabetical by id) =====
     ThemeDescriptor {
         id: "black-ink",
         label: "Black Ink",
@@ -76,16 +83,16 @@ pub const THEMES: &[ThemeDescriptor] = &[
         accent_color: "#100f0f",
     },
     ThemeDescriptor {
-        id: "solarized-light",
-        label: "Solarized Light",
-        meta_color: "#fdf6e3",
-        accent_color: "#268bd2",
-    },
-    ThemeDescriptor {
         id: "catppuccin-latte",
         label: "Catppuccin Latte",
         meta_color: "#eff1f5",
         accent_color: "#8839ef",
+    },
+    ThemeDescriptor {
+        id: "solarized-light",
+        label: "Solarized Light",
+        meta_color: "#fdf6e3",
+        accent_color: "#268bd2",
     },
 ];
 
@@ -155,14 +162,14 @@ pub fn apply_theme(id: &str) -> Result<&'static str, String> {
                     .iter()
                     .find(|theme| theme.id == theme_id)
                     .map(|theme| theme.meta_color)
-                    .unwrap_or("#100f0f");
+                    .unwrap_or("#1f1f28");
                 let _ = meta.set_attribute("content", meta_color);
             }
         }
 
-        if let Ok(Some(storage)) = window.local_storage() {
-            let _ = storage.set_item(STORAGE_KEY, theme_id);
-        }
+        // Persist via the runtime env adapter so `user.THEME` mirrors here,
+        // `/.websh/state/env/THEME`, and `$THEME` stay in sync from one write.
+        let _ = crate::core::runtime::state::set_env_var("THEME", theme_id);
     }
 
     Ok(theme_id)
@@ -201,5 +208,36 @@ mod tests {
         assert_eq!(normalize_theme_id("rosepine"), Some("rose-pine"));
         assert_eq!(normalize_theme_id("kanagawa"), Some("kanagawa-wave"));
         assert_eq!(normalize_theme_id("unknown"), None);
+    }
+
+    /// Guards against drift between `THEMES` and `index.html`.
+    #[test]
+    fn index_html_lists_all_themes() {
+        let index_html = include_str!("../../index.html");
+
+        assert!(
+            index_html.contains(STORAGE_KEY),
+            "index.html missing STORAGE_KEY {STORAGE_KEY:?}"
+        );
+        assert!(
+            index_html.contains(DEFAULT_THEME),
+            "index.html missing DEFAULT_THEME {DEFAULT_THEME:?}"
+        );
+
+        for theme in THEMES {
+            let link_href = format!("assets/themes/{}.css", theme.id);
+            assert!(
+                index_html.contains(&link_href),
+                "index.html missing <link> for theme {:?} (expected href {link_href:?})",
+                theme.id
+            );
+
+            let map_key = format!("\"{}\":", theme.id);
+            assert!(
+                index_html.contains(&map_key),
+                "index.html pre-paint themes map missing key for theme {:?} (expected {map_key:?})",
+                theme.id
+            );
+        }
     }
 }

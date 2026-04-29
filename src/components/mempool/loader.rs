@@ -20,7 +20,9 @@ pub fn mempool_root() -> VirtualPath {
 /// Individual file fetch failures are logged and the file is skipped.
 pub async fn load_mempool_files(ctx: AppContext) -> Vec<LoadedMempoolFile> {
     let root = mempool_root();
-    let paths = ctx.view_global_fs.with(|fs| collect_mempool_files(fs, &root));
+    let paths = ctx
+        .view_global_fs
+        .with(|fs| collect_mempool_files(fs, &root));
 
     let mut out = Vec::with_capacity(paths.len());
     for path in paths {
