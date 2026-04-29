@@ -382,7 +382,11 @@
 }
 
 .genesisDisconnected::before {
-  display: none;
+  background: transparent;
+  border-left: 1px dashed var(--ledger-rule-bright);
+  width: 0;
+  height: calc(var(--space-6) - 7px);
+  opacity: 0.7;
 }
 
 .genesisLabel {
