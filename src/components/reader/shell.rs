@@ -60,14 +60,16 @@ pub fn ReaderShell(
         <div class=css::surface>
             <SiteChrome route=state.chrome_route />
             <main class=css::page>
-                <Show when=move || !matches!(state.intent.get(), ReaderIntent::Redirect { .. })>
-                    <Ident meta=state.meta />
-                    <TitleBlock intent=state.intent meta=state.meta />
-                </Show>
-                {move || state.save_error.get().map(|message| view! {
-                    <div class=css::errorBanner role="alert">{message}</div>
-                })}
-                {children()}
+                <div class=css::content>
+                    <Show when=move || !matches!(state.intent.get(), ReaderIntent::Redirect { .. })>
+                        <Ident meta=state.meta />
+                        <TitleBlock intent=state.intent meta=state.meta />
+                    </Show>
+                    {move || state.save_error.get().map(|message| view! {
+                        <div class=css::errorBanner role="alert">{message}</div>
+                    })}
+                    {children()}
+                </div>
                 <AttestationSigFooter
                     route=state.attestation_route
                     show_pending=state.show_pending

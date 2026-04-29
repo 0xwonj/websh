@@ -19,6 +19,15 @@
   width: min(100%, 92ch);
   margin: 0 auto;
   padding: 22px 28px 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Sticky-footer: short content leaves the empty middle to grow,
+   pushing the attestation footer + toolbar to the viewport bottom.
+   Long content overflows naturally and the footer lands beneath it. */
+.content {
+  flex: 1;
 }
 
 /* ─── Ident strip ─────────────────────────────────────────────── */
