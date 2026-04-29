@@ -22,8 +22,8 @@ mod url;
 pub use asset::{data_url_for_bytes, media_type_for_path, object_url_for_bytes};
 pub use fetch::{RaceResult, fetch_content, fetch_json, race_with_timeout};
 pub use markdown::{
-    RenderedMarkdown, hydrate_math, render_inline_markdown, render_markdown, rendered_from_html,
-    sanitize_html,
+    HeadingEntry, RenderedMarkdown, hydrate_math, render_inline_markdown, render_markdown,
+    rendered_from_html, sanitize_html,
 };
 pub use ring_buffer::RingBuffer;
 pub use time::current_timestamp;

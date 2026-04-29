@@ -1,7 +1,8 @@
 /* Reader page — archive view, themable via Tier-3 tokens. */
 
 .surface {
-  min-height: 100vh;
+  height: 100vh;
+  overflow-y: auto;
   width: 100%;
   display: flex;
   flex-direction: column;
@@ -144,6 +145,61 @@
   line-height: 1.7;
   margin: 4px 0 12px;
   color: var(--text-primary);
+}
+
+/* ─── Paper layout — markdown body + floating outline sidebar ──── */
+.mdvPaper {
+  position: relative;
+}
+
+/* The sidebar floats into the negative left margin so the markdown body
+   itself stays centred at the page's 92ch max-width. `position: sticky`
+   keeps it visible while the body scrolls underneath. */
+.tocSide {
+  position: sticky;
+  float: left;
+  margin-left: -180px;
+  top: var(--space-4);
+  width: 160px;
+  max-height: calc(100vh - var(--space-8));
+  overflow-y: auto;
+  padding-right: var(--space-2_5);
+  border-right: 1px dashed var(--border-subtle);
+  font-size: 10.5px;
+  color: var(--text-dim);
+  line-height: 1.7;
+}
+
+.tocSideLab {
+  color: var(--text-muted);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: var(--space-1);
+  font-size: 10px;
+}
+
+.tocSideEntry {
+  display: block;
+  color: var(--text-dim);
+  text-decoration: none;
+  border-bottom: 0;
+  padding: 1px 0;
+}
+
+.tocSideEntry:hover {
+  color: var(--text-primary);
+}
+
+.tocSideEntryNested {
+  padding-left: var(--space-2_5);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+@media (max-width: 1080px) {
+  .tocSide {
+    display: none;
+  }
 }
 
 /* ─── Markdown body (rendered HTML inserted via MarkdownView) ─── */
@@ -386,6 +442,7 @@
 /* ─── Toolbar — footnote-mark variant ─────────────────────────── */
 .modefn {
   margin-top: 6px;
+  margin-bottom: -20px;
   padding-top: 0;
   font-size: 11px;
   color: var(--text-dim);

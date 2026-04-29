@@ -38,7 +38,7 @@
   font-size: 11.5px;
   user-select: none;
   margin-top: var(--space-2_5);
-  margin-bottom: 44px;
+  margin-bottom: var(--space-8);
 }
 
 .sigDismissLayer {

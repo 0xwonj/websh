@@ -178,12 +178,12 @@ fn current_homepage_date() -> String {
     #[cfg(target_arch = "wasm32")]
     {
         let date = js_sys::Date::new_0();
-        return format!(
+        format!(
             "{:04}-{:02}-{:02}",
             date.get_full_year(),
             date.get_month() + 1,
             date.get_date()
-        );
+        )
     }
 
     #[cfg(not(target_arch = "wasm32"))]
