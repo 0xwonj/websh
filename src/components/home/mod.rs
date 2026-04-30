@@ -281,38 +281,38 @@ fn NowSection() -> impl IntoView {
     let now = LocalResource::new(move || async move {
         let path = VirtualPath::from_absolute("/now.toml").expect("constant path");
         if !ctx.view_global_fs.with(|fs| fs.exists(&path)) {
-            return fallback_now_document();
+            return None;
         }
 
         ctx.read_text(&path)
             .await
             .ok()
             .and_then(|body| parse_now_toml(&body).ok())
-            .unwrap_or_else(fallback_now_document)
     });
 
     view! {
         {move || {
-            let doc = now.get().unwrap_or_else(fallback_now_document);
-            let timestamp = latest_now_date(&doc.items)
-                .map(|date| format!("last touched {date}"))
-                .unwrap_or_default();
+            now.get().flatten().map(|doc| {
+                let timestamp = latest_now_date(&doc.items)
+                    .map(|date| format!("last touched {date}"))
+                    .unwrap_or_default();
 
-            view! {
-                <div class=css::nowInline>
-                    <p class=css::nowFormalLead><em>"Now"</em>":"</p>
-                    <ul class=css::nowFormal>
-                        {doc.items.into_iter().map(|item| {
-                            let rendered = render_inline_markdown(&item.text);
-                            let rendered = Signal::derive(move || rendered.clone());
-                            view! {
-                                <li><InlineMarkdownView rendered=rendered /></li>
-                            }
-                        }).collect_view()}
-                    </ul>
-                    <p class=css::ts>{timestamp}</p>
-                </div>
-            }
+                view! {
+                    <div class=css::nowInline>
+                        <p class=css::nowFormalLead><em>"Now"</em>":"</p>
+                        <ul class=css::nowFormal>
+                            {doc.items.into_iter().map(|item| {
+                                let rendered = render_inline_markdown(&item.text);
+                                let rendered = Signal::derive(move || rendered.clone());
+                                view! {
+                                    <li><InlineMarkdownView rendered=rendered /></li>
+                                }
+                            }).collect_view()}
+                        </ul>
+                        <p class=css::ts>{timestamp}</p>
+                    </div>
+                }
+            })
         }}
     }
 }
@@ -344,28 +344,6 @@ fn latest_now_date(items: &[NowItem]) -> Option<String> {
         .map(|item| item.date.as_str())
         .max()
         .map(str::to_string)
-}
-
-fn fallback_now_document() -> NowDocument {
-    NowDocument {
-        items: vec![
-            NowItem {
-                date: "2026-04-22".to_string(),
-                text:
-                    "zkgrep - zero-knowledge regex matcher over Plonkish; writing up. Prover slow."
-                        .to_string(),
-            },
-            NowItem {
-                date: "2026-04-22".to_string(),
-                text: "websh - adding | pipes so ls | grep | wc behaves.".to_string(),
-            },
-            NowItem {
-                date: "2026-04-22".to_string(),
-                text: "5 days - kissaten, secondhand bookshops, and absolutely no laptop."
-                    .to_string(),
-            },
-        ],
-    }
 }
 
 #[cfg(test)]
