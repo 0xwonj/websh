@@ -170,7 +170,7 @@ fn homepage_issued_at() -> Option<String> {
         .and_then(|artifact| {
             artifact
                 .subject_for_route("/")
-                .map(|subject| subject.issued_at.clone())
+                .map(|subject| subject.issued_at().to_string())
         })
 }
 

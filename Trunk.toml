@@ -31,3 +31,14 @@ command_arguments = ["--output-file", "assets/bundle.css", "."]
 stage = "pre_build"
 command = "cargo"
 command_arguments = ["run", "--quiet", "--bin", "websh-cli", "--", "content", "manifest"]
+
+# Refresh the attestation artifact (manifest + ledger + sig coverage) and
+# sign newly-changed subjects with the project's PGP key. The subcommand
+# checks `TRUNK_PROFILE` and silently no-ops on dev profiles, so
+# `trunk serve` and `trunk build` stay fast — only `trunk build --release`
+# triggers the full attest flow. `WEBSH_NO_SIGN=1` skips signing on
+# CI / non-author environments without failing the build.
+[[hooks]]
+stage = "pre_build"
+command = "cargo"
+command_arguments = ["run", "--quiet", "--bin", "websh-cli", "--", "attest", "build"]

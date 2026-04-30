@@ -5,7 +5,7 @@ use websh::crypto::ack::{
     ACK_ARTIFACT_PATH, ACK_LOCAL_SOURCE_PATH, AckArtifact, AckPrivateSource,
     build_artifact_from_source,
 };
-use websh::crypto::attestation::{ATTESTATIONS_PATH, AttestationArtifact, SubjectAttestation};
+use websh::crypto::attestation::{ATTESTATIONS_PATH, Attestation, AttestationArtifact};
 use websh::crypto::eth::verify_personal_sign;
 use websh::crypto::pgp::{EXPECTED_PGP_FINGERPRINT, PUBLIC_KEY_PATH, normalize_fingerprint};
 
@@ -55,18 +55,21 @@ fn homepage_attestation_artifact_verifies_when_present() {
     let subject = artifact
         .subject_for_route("/")
         .expect("homepage subject is present");
-    assert_eq!(subject.id, "route:/");
-    assert_eq!(subject.message, subject.expected_message());
+    assert_eq!(subject.id(), "route:/");
+    subject.validate().expect("homepage subject validates");
+    let message = subject
+        .canonical_message()
+        .expect("canonical message renders");
 
-    for attestation in &subject.attestations {
-        if let SubjectAttestation::Ethereum {
+    for attestation in subject.attestations() {
+        if let Attestation::Ethereum {
             address,
             signature,
             recovered_address,
             ..
         } = attestation
         {
-            let verification = verify_personal_sign(address, &subject.message, signature)
+            let verification = verify_personal_sign(address, &message, signature)
                 .expect("homepage Ethereum attestation should verify");
             assert_eq!(&verification.recovered_address, recovered_address);
         }

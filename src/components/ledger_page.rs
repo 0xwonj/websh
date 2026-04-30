@@ -494,7 +494,7 @@ fn ledger_entry_for_artifact_entry(
     let size = file_meta
         .as_ref()
         .and_then(|meta| meta.size)
-        .or_else(|| Some(entry.content.files.iter().map(|file| file.bytes).sum()));
+        .or_else(|| Some(entry.content_files.iter().map(|file| file.bytes).sum()));
     let encrypted = file_meta
         .as_ref()
         .and_then(|meta| meta.access.as_ref())
@@ -519,8 +519,8 @@ fn ledger_entry_for_artifact_entry(
 
 fn description_for_entry(entry: &ContentLedgerEntry) -> String {
     let mut parts = Vec::new();
-    if entry.content.files.len() > 1 {
-        parts.push(format!("{} files", entry.content.files.len()));
+    if entry.content_files.len() > 1 {
+        parts.push(format!("{} files", entry.content_files.len()));
     }
     parts.push(entry.path.clone());
     parts.join(" · ")

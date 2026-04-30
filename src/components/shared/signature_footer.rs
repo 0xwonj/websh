@@ -2,7 +2,7 @@ use leptos::ev;
 use leptos::prelude::*;
 
 use crate::crypto::ack::short_hash;
-use crate::crypto::attestation::{AttestationArtifact, AttestationSubject, SubjectAttestation};
+use crate::crypto::attestation::{Attestation, AttestationArtifact, Subject};
 use crate::crypto::pgp::pretty_fingerprint;
 
 stylance::import_crate_style!(css, "src/components/shared/signature_footer.module.css");
@@ -190,36 +190,44 @@ fn footer_sig_summary_for_route(route: &str, show_pending: bool) -> Option<Foote
         return show_pending.then(|| pending_footer_sig("subject"));
     };
 
-    if subject.attestations.is_empty() && !show_pending {
+    if subject.attestations().is_empty() && !show_pending {
         return None;
     }
 
     Some(footer_sig_summary_for_subject(subject))
 }
 
-fn footer_sig_summary_for_subject(subject: &AttestationSubject) -> FooterSigSummary {
+fn footer_sig_summary_for_subject(subject: &Subject) -> FooterSigSummary {
+    let content_sha = subject.content_sha256().unwrap_or_default();
     let mut rows = Vec::new();
     rows.push(footer_row(
         "route",
-        &subject.route,
+        subject.route(),
         FooterSigValueKind::Text,
     ));
     rows.push(footer_row(
         "content",
-        &subject.content_sha256,
+        &content_sha,
         FooterSigValueKind::MessageHash,
     ));
-    if subject.kind == "homepage" {
+    if let Subject::Homepage(hp) = subject {
         rows.push(footer_row(
             "ack root",
-            &subject.ack_combined_root,
+            &hp.ack_combined_root,
+            FooterSigValueKind::MessageHash,
+        ));
+    }
+    if let Subject::Ledger(ls) = subject {
+        rows.push(footer_row(
+            "chain head",
+            &ls.chain_head,
             FooterSigValueKind::MessageHash,
         ));
     }
 
-    for attestation in &subject.attestations {
+    for attestation in subject.attestations() {
         match attestation {
-            SubjectAttestation::Pgp {
+            Attestation::Pgp {
                 signer,
                 fingerprint,
                 signature,
@@ -260,7 +268,7 @@ fn footer_sig_summary_for_subject(subject: &AttestationSubject) -> FooterSigSumm
                     verified_kind(*verified),
                 ));
             }
-            SubjectAttestation::Ethereum {
+            Attestation::Ethereum {
                 signer,
                 address,
                 recovered_address,
@@ -299,7 +307,7 @@ fn footer_sig_summary_for_subject(subject: &AttestationSubject) -> FooterSigSumm
         }
     }
 
-    if subject.attestations.is_empty() {
+    if subject.attestations().is_empty() {
         rows.push(footer_divider());
         rows.push(footer_row(
             "status",
@@ -310,20 +318,17 @@ fn footer_sig_summary_for_subject(subject: &AttestationSubject) -> FooterSigSumm
 
     FooterSigSummary {
         chip_value: subject
-            .attestations
+            .attestations()
             .first()
             .map(|attestation| short_hash(attestation.message_sha256()))
-            .unwrap_or_else(|| short_hash(&subject.content_sha256)),
-        verified: subject
-            .attestations
-            .iter()
-            .any(SubjectAttestation::verified),
+            .unwrap_or_else(|| short_hash(&content_sha)),
+        verified: subject.attestations().iter().any(Attestation::verified),
         rows,
     }
 }
 
-fn message_prefix(subject: &AttestationSubject) -> String {
-    format!("SHA256({} @ {}) = ", subject.kind, subject.route)
+fn message_prefix(subject: &Subject) -> String {
+    format!("SHA256({} @ {}) = ", subject.kind_str(), subject.route())
 }
 
 fn split_sig_hash(hash: &str) -> (String, String) {

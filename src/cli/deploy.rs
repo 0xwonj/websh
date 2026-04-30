@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use clap::{Args, Subcommand};
 use regex::Regex;
 
-use super::{CliResult, attest};
+use super::CliResult;
 
 const DEFAULT_DIST_DIR: &str = "dist";
 const DEFAULT_GATEWAY: &str = "https://amethyst-decisive-whitefish-145.mypinata.cloud";
@@ -31,10 +31,16 @@ enum DeploySubcommand {
         name: Option<String>,
 
         /// Skip the release build and upload the existing dist directory.
+        /// Note: this also skips the attestation refresh that the trunk
+        /// pre-build hook normally performs. Run
+        /// `websh-cli attest build --force` first if you need a fresh
+        /// attestation artifact without a rebuild.
         #[arg(long)]
         no_build: bool,
 
-        /// Regenerate attestations without calling local gpg.
+        /// Build without signing newly-changed subjects. Propagated to the
+        /// trunk pre-build hook via `WEBSH_NO_SIGN=1`; pending subjects
+        /// remain unsigned in the uploaded dist.
         #[arg(long)]
         no_sign: bool,
 
@@ -70,16 +76,27 @@ fn pinata(
     gateway: String,
     ens_url: String,
 ) -> CliResult {
-    let dotenv = load_dotenv(root)?;
+    let mut envs = load_dotenv(root)?;
 
-    println!("Refreshing content manifest and attestations...");
-    attest::run_default(root, no_sign)?;
+    // Manifest, ledger, attestation refresh, and PGP signing are now
+    // owned by the trunk pre-build hook (`websh-cli attest build`). The
+    // hook reads `WEBSH_NO_SIGN`, so propagate `--no-sign` through the
+    // env vector that `run_trunk` passes to the trunk subprocess.
+    if no_sign {
+        envs.push(("WEBSH_NO_SIGN".to_string(), "1".to_string()));
+    }
 
     if !no_build {
         println!("Cleaning previous Trunk build artifacts...");
-        run_trunk(root, &["clean"], &dotenv)?;
+        run_trunk(root, &["clean"], &envs)?;
         println!("Building release bundle...");
-        run_trunk(root, &["build", "--release"], &dotenv)?;
+        run_trunk(root, &["build", "--release"], &envs)?;
+    } else {
+        println!(
+            "Skipping build (--no-build); uploading existing dist as-is. \
+             Run `cargo run --bin websh-cli -- attest build --force` first if \
+             you need a refreshed attestation artifact without a rebuild."
+        );
     }
 
     let dist_path = root.join(&dist_dir);
@@ -102,7 +119,7 @@ fn pinata(
         root,
         "pinata",
         &["upload", &dist_arg, "--name", &upload_name],
-        &dotenv,
+        &envs,
     )?;
     if !output.stderr.trim().is_empty() {
         eprint!("{}", output.stderr);

@@ -8,7 +8,7 @@ use crate::crypto::ledger::{
 use crate::utils::format::iso_date_prefix;
 
 use super::CliResult;
-use super::attest::build_subject_content;
+use super::attest::build_content_files;
 use super::io::write_json;
 use super::manifest::{
     collect_files_recursive, content_entry_raw_date, matching_file_sidecar, relative_path_from,
@@ -38,11 +38,11 @@ pub(crate) fn generate_content_ledger(
         }
 
         let route = route_for_content_path(&rel_path);
-        let content = build_subject_content(root, &content_paths)?;
+        let content_files = build_content_files(root, &content_paths)?;
         let sort_date = sort_date_for_entry(&content_root, &file_path, &rel_path);
         staged.push((
             sort_date,
-            ContentLedgerEntry::new(subject_id_for_route(&route), route, rel_path, content)?,
+            ContentLedgerEntry::new(subject_id_for_route(&route), route, rel_path, content_files)?,
         ));
     }
     // Canonical ledger order is `(content date asc, path asc)`. Undated entries
@@ -112,8 +112,7 @@ mod tests {
         assert_eq!(entry.route, "/talks/a.pdf");
         assert_eq!(
             entry
-                .content
-                .files
+                .content_files
                 .iter()
                 .map(|file| file.path.as_str())
                 .collect::<Vec<_>>(),

@@ -8,3 +8,4 @@ pub mod attestation;
 pub mod eth;
 pub mod ledger;
 pub mod pgp;
+pub mod subject;

@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use websh::crypto::ack::{ACK_ARTIFACT_PATH, ACK_RECEIPTS_DIR, AckArtifact, slugify_name};
 use websh::crypto::attestation::{
-    ATTESTATIONS_PATH, AttestationArtifact, SubjectAttestation, compute_content_sha256,
+    ATTESTATIONS_PATH, Attestation, AttestationArtifact, Subject, compute_content_sha256,
 };
 use websh::crypto::pgp::normalize_fingerprint;
 
@@ -94,10 +94,10 @@ fn write_ack_artifact(root: &Path) {
 fn write_homepage_content(root: &Path) {
     write_ack_artifact(root);
     fs::create_dir_all(root.join("src/components/home")).unwrap();
-    fs::create_dir_all(root.join("assets")).unwrap();
+    fs::create_dir_all(root.join("assets/themes")).unwrap();
     fs::write(root.join("src/components/home/mod.rs"), "home").unwrap();
     fs::write(root.join("src/components/home/home.module.css"), "home-css").unwrap();
-    fs::write(root.join("assets/theme.css"), "theme").unwrap();
+    fs::write(root.join("assets/themes/dracula.css"), "theme").unwrap();
 }
 
 #[test]
@@ -206,22 +206,21 @@ fn cli_attest_subject_set_builds_deterministic_content_hash() {
     let subject = artifact.subject_for_route("/").unwrap();
     assert_eq!(
         subject
-            .content
-            .files
+            .content_files()
             .iter()
             .map(|file| file.path.as_str())
             .collect::<Vec<_>>(),
         vec!["a.txt", "b.txt"]
     );
     assert_eq!(
-        compute_content_sha256(&subject.content).unwrap(),
-        subject.content_sha256
+        compute_content_sha256(subject.content_files()).unwrap(),
+        subject.content_sha256().unwrap()
     );
 
     let message = cli_output(&root, &["attest", "subject", "message", "--route", "/"]);
-    assert_eq!(message.trim_end(), subject.message);
+    assert_eq!(message.trim_end(), subject.canonical_message().unwrap());
 
-    let first_hash = subject.content_sha256.clone();
+    let first_hash = subject.content_sha256().unwrap();
     cli(
         &root,
         &[
@@ -243,7 +242,11 @@ fn cli_attest_subject_set_builds_deterministic_content_hash() {
     let artifact: AttestationArtifact =
         serde_json::from_str(&fs::read_to_string(root.join(ATTESTATIONS_PATH)).unwrap()).unwrap();
     assert_eq!(
-        artifact.subject_for_route("/").unwrap().content_sha256,
+        artifact
+            .subject_for_route("/")
+            .unwrap()
+            .content_sha256()
+            .unwrap(),
         first_hash
     );
 }
@@ -310,7 +313,11 @@ fn cli_attest_eth_import_accepts_valid_personal_sign_signature() {
 
     let artifact: AttestationArtifact =
         serde_json::from_str(&fs::read_to_string(root.join(ATTESTATIONS_PATH)).unwrap()).unwrap();
-    let message = artifact.subject_for_route("/").unwrap().message.clone();
+    let message = artifact
+        .subject_for_route("/")
+        .unwrap()
+        .canonical_message()
+        .unwrap();
     let (address, signature) = eth_personal_sign_fixture(&message);
 
     cli(
@@ -336,10 +343,10 @@ fn cli_attest_eth_import_accepts_valid_personal_sign_signature() {
     let ethereum = artifact
         .subject_for_route("/")
         .unwrap()
-        .attestations
+        .attestations()
         .iter()
         .find_map(|attestation| match attestation {
-            SubjectAttestation::Ethereum {
+            Attestation::Ethereum {
                 signer,
                 address,
                 recovered_address,
@@ -378,7 +385,11 @@ fn cli_attest_pgp_import_verifies_detached_signature() {
     );
     let artifact: AttestationArtifact =
         serde_json::from_str(&fs::read_to_string(root.join(ATTESTATIONS_PATH)).unwrap()).unwrap();
-    let message = artifact.subject_for_route("/").unwrap().message.clone();
+    let message = artifact
+        .subject_for_route("/")
+        .unwrap()
+        .canonical_message()
+        .unwrap();
     let (key_path, signature_path, fingerprint) = write_pgp_fixture(&root, &message);
 
     cli(
@@ -402,10 +413,10 @@ fn cli_attest_pgp_import_verifies_detached_signature() {
         serde_json::from_str(&fs::read_to_string(root.join(ATTESTATIONS_PATH)).unwrap()).unwrap();
     let subject = artifact.subject_for_route("/").unwrap();
     let pgp = subject
-        .attestations
+        .attestations()
         .iter()
         .find_map(|attestation| match attestation {
-            SubjectAttestation::Pgp {
+            Attestation::Pgp {
                 signer,
                 fingerprint,
                 ..
@@ -449,22 +460,20 @@ fn cli_attest_default_discovers_content_dir_and_manifest() {
     let artifact: AttestationArtifact =
         serde_json::from_str(&fs::read_to_string(root.join(ATTESTATIONS_PATH)).unwrap()).unwrap();
     let ledger_subject = artifact.subject_for_route("/ledger").unwrap();
-    assert_eq!(ledger_subject.kind, "ledger");
+    assert!(matches!(ledger_subject, Subject::Ledger(_)));
     assert_eq!(
         ledger_subject
-            .content
-            .files
+            .content_files()
             .iter()
             .map(|file| file.path.as_str())
             .collect::<Vec<_>>(),
         vec!["content/.websh/ledger.json"]
     );
     let subject = artifact.subject_for_route("/writing/hello").unwrap();
-    assert_eq!(subject.kind, "page");
+    assert!(matches!(subject, Subject::Page(_)));
     assert_eq!(
         subject
-            .content
-            .files
+            .content_files()
             .iter()
             .map(|file| file.path.as_str())
             .collect::<Vec<_>>(),
@@ -523,12 +532,16 @@ fn cli_attest_default_can_sign_with_local_gpg() {
     cli(&root, &["attest", "--no-sign", "--issued-at", "2026-04-26"]);
     let artifact: AttestationArtifact =
         serde_json::from_str(&fs::read_to_string(root.join(ATTESTATIONS_PATH)).unwrap()).unwrap();
-    let message = artifact.subject_for_route("/").unwrap().message.clone();
+    let message = artifact
+        .subject_for_route("/")
+        .unwrap()
+        .canonical_message()
+        .unwrap();
     let ledger_message = artifact
         .subject_for_route("/ledger")
         .unwrap()
-        .message
-        .clone();
+        .canonical_message()
+        .unwrap();
     let (key_path, signature_dir, fingerprint) =
         write_pgp_fixture_set(&root, &[("root", &message), ("ledger", &ledger_message)]);
 
@@ -570,10 +583,10 @@ fn cli_attest_default_can_sign_with_local_gpg() {
     let pgp = artifact
         .subject_for_route("/")
         .unwrap()
-        .attestations
+        .attestations()
         .iter()
         .find_map(|attestation| match attestation {
-            SubjectAttestation::Pgp {
+            Attestation::Pgp {
                 signer,
                 fingerprint,
                 ..
@@ -586,10 +599,10 @@ fn cli_attest_default_can_sign_with_local_gpg() {
     let ledger_pgp = artifact
         .subject_for_route("/ledger")
         .unwrap()
-        .attestations
+        .attestations()
         .iter()
         .find_map(|attestation| match attestation {
-            SubjectAttestation::Pgp { fingerprint, .. } => Some(fingerprint),
+            Attestation::Pgp { fingerprint, .. } => Some(fingerprint),
             _ => None,
         })
         .expect("ledger PGP attestation is stored");

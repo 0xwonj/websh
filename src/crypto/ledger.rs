@@ -4,9 +4,7 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::crypto::attestation::{
-    CONTENT_HASH, SubjectContent, compute_content_sha256, sha256_hex,
-};
+use crate::crypto::attestation::{CONTENT_HASH, ContentFile, compute_content_sha256, sha256_hex};
 
 pub const CONTENT_LEDGER_SCHEME: &str = "websh.content-ledger.v1";
 pub const CONTENT_LEDGER_PATH: &str = "content/.websh/ledger.json";
@@ -30,7 +28,7 @@ pub struct ContentLedgerEntry {
     pub id: String,
     pub route: String,
     pub path: String,
-    pub content: SubjectContent,
+    pub content_files: Vec<ContentFile>,
     pub content_sha256: String,
     pub entry_sha256: String,
 }
@@ -49,7 +47,7 @@ struct ContentLedgerEntryForHash<'a> {
     id: &'a str,
     route: &'a str,
     path: &'a str,
-    content: &'a SubjectContent,
+    content_files: &'a [ContentFile],
     content_sha256: &'a str,
 }
 
@@ -108,7 +106,7 @@ impl ContentLedgerArtifact {
             validate_sha256_field("entry_sha256", &entry.entry_sha256)?;
 
             let content_sha256 =
-                compute_content_sha256(&entry.content).map_err(|error| error.to_string())?;
+                compute_content_sha256(&entry.content_files).map_err(|error| error.to_string())?;
             if content_sha256 != entry.content_sha256 {
                 return Err(format!("content hash mismatch for {}", entry.id));
             }
@@ -126,17 +124,14 @@ impl ContentLedgerArtifact {
 }
 
 fn validate_entry_content(entry: &ContentLedgerEntry) -> Result<(), String> {
-    if entry.content.hash != CONTENT_HASH {
-        return Err(format!("unsupported content hash for {}", entry.id));
-    }
-    if entry.content.files.is_empty() {
+    if entry.content_files.is_empty() {
         return Err(format!("ledger content has no files for {}", entry.id));
     }
 
     let primary_file = format!("content/{}", entry.path);
     let mut previous_path: Option<&str> = None;
     let mut has_primary_file = false;
-    for file in &entry.content.files {
+    for file in &entry.content_files {
         validate_artifact_file_path(&file.path)?;
         validate_sha256_field("content file sha256", &file.sha256)?;
         if file.bytes == 0 {
@@ -219,14 +214,14 @@ impl ContentLedgerEntry {
         id: String,
         route: String,
         path: String,
-        content: SubjectContent,
+        content_files: Vec<ContentFile>,
     ) -> Result<Self, serde_json::Error> {
-        let content_sha256 = compute_content_sha256(&content)?;
+        let content_sha256 = compute_content_sha256(&content_files)?;
         let mut entry = Self {
             id,
             route,
             path,
-            content,
+            content_files,
             content_sha256,
             entry_sha256: String::new(),
         };
@@ -240,7 +235,7 @@ pub fn compute_entry_sha256(entry: &ContentLedgerEntry) -> Result<String, serde_
         id: &entry.id,
         route: &entry.route,
         path: &entry.path,
-        content: &entry.content,
+        content_files: &entry.content_files,
         content_sha256: &entry.content_sha256,
     })
     .map(|bytes| sha256_hex(&bytes))
@@ -262,7 +257,6 @@ pub fn compute_ledger_sha256(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::attestation::SubjectContentFile;
 
     fn sha(byte: char) -> String {
         format!("0x{}", byte.to_string().repeat(64))
@@ -273,14 +267,11 @@ mod tests {
             format!("route:/{path}"),
             format!("/{path}"),
             path.to_string(),
-            SubjectContent {
-                hash: CONTENT_HASH.to_string(),
-                files: vec![SubjectContentFile {
-                    path: format!("content/{path}"),
-                    sha256: sha('a'),
-                    bytes: 3,
-                }],
-            },
+            vec![ContentFile {
+                path: format!("content/{path}"),
+                sha256: sha('a'),
+                bytes: 3,
+            }],
         )
         .unwrap()
     }
@@ -302,21 +293,18 @@ mod tests {
             "route:/talks/a.pdf".to_string(),
             "/talks/a.pdf".to_string(),
             "talks/a.pdf".to_string(),
-            SubjectContent {
-                hash: CONTENT_HASH.to_string(),
-                files: vec![
-                    SubjectContentFile {
-                        path: "content/talks/a.meta.json".to_string(),
-                        sha256: sha('b'),
-                        bytes: 19,
-                    },
-                    SubjectContentFile {
-                        path: "content/talks/a.pdf".to_string(),
-                        sha256: sha('c'),
-                        bytes: 3,
-                    },
-                ],
-            },
+            vec![
+                ContentFile {
+                    path: "content/talks/a.meta.json".to_string(),
+                    sha256: sha('b'),
+                    bytes: 19,
+                },
+                ContentFile {
+                    path: "content/talks/a.pdf".to_string(),
+                    sha256: sha('c'),
+                    bytes: 3,
+                },
+            ],
         )
         .unwrap();
         ContentLedgerArtifact::new(vec![entry])
@@ -327,9 +315,6 @@ mod tests {
 
     #[test]
     fn ledger_validation_accepts_arbitrary_entry_order() {
-        // The CLI is responsible for canonical ordering; validation only
-        // enforces no duplicates and a matching ledger hash, so an unsorted
-        // (but otherwise consistent) artifact still validates.
         let artifact =
             ContentLedgerArtifact::new(vec![entry("writing/z.md"), entry("projects/a.md")])
                 .unwrap();
@@ -385,7 +370,7 @@ mod tests {
     #[test]
     fn ledger_validation_rejects_bad_hash_format() {
         let mut bad = entry("writing/hello.md");
-        bad.content.files[0].sha256 = "0xaaa".to_string();
+        bad.content_files[0].sha256 = "0xaaa".to_string();
         let artifact = ContentLedgerArtifact::new(vec![bad]).unwrap();
         assert!(
             artifact
@@ -401,14 +386,11 @@ mod tests {
             "route:/writing/hello.md".to_string(),
             "/writing/hello.md".to_string(),
             "writing/hello.md".to_string(),
-            SubjectContent {
-                hash: CONTENT_HASH.to_string(),
-                files: vec![SubjectContentFile {
-                    path: "content/writing/hello.meta.json".to_string(),
-                    sha256: sha('d'),
-                    bytes: 4,
-                }],
-            },
+            vec![ContentFile {
+                path: "content/writing/hello.meta.json".to_string(),
+                sha256: sha('d'),
+                bytes: 4,
+            }],
         )
         .unwrap();
         let artifact = ContentLedgerArtifact::new(vec![bad]).unwrap();
@@ -421,21 +403,18 @@ mod tests {
             "route:/talks/a.pdf".to_string(),
             "/talks/a.pdf".to_string(),
             "talks/a.pdf".to_string(),
-            SubjectContent {
-                hash: CONTENT_HASH.to_string(),
-                files: vec![
-                    SubjectContentFile {
-                        path: "content/talks/a.pdf".to_string(),
-                        sha256: sha('e'),
-                        bytes: 3,
-                    },
-                    SubjectContentFile {
-                        path: "content/talks/a.meta.json".to_string(),
-                        sha256: sha('f'),
-                        bytes: 4,
-                    },
-                ],
-            },
+            vec![
+                ContentFile {
+                    path: "content/talks/a.pdf".to_string(),
+                    sha256: sha('e'),
+                    bytes: 3,
+                },
+                ContentFile {
+                    path: "content/talks/a.meta.json".to_string(),
+                    sha256: sha('f'),
+                    bytes: 4,
+                },
+            ],
         )
         .unwrap();
         let artifact = ContentLedgerArtifact::new(vec![bad]).unwrap();

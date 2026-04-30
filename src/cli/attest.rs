@@ -8,13 +8,12 @@ use clap::{Args, Subcommand};
 
 use crate::crypto::ack::{ACK_ARTIFACT_PATH, AckArtifact, short_hash};
 use crate::crypto::attestation::{
-    ATTESTATIONS_PATH, AttestationArtifact, AttestationSubject, CONTENT_HASH, SubjectAttestation,
-    SubjectContent, SubjectContentFile, canonical_subject_message, compute_content_sha256,
-    message_sha256, sha256_hex, subject_id_for_route,
+    ATTESTATIONS_PATH, Attestation, AttestationArtifact, ContentFile, DocumentSubject, Envelope,
+    HomepageSubject, LedgerSubject, PageSubject, Subject, message_sha256, sha256_hex,
 };
 use crate::crypto::eth::verify_personal_sign;
-use crate::crypto::ledger::{CONTENT_LEDGER_PATH, CONTENT_LEDGER_ROUTE};
-use crate::crypto::pgp::{PUBLIC_KEY_PATH, normalize_fingerprint};
+use crate::crypto::ledger::{CONTENT_LEDGER_PATH, CONTENT_LEDGER_ROUTE, ContentLedgerArtifact};
+use crate::crypto::pgp::{PUBLIC_KEY_PATH, normalize_fingerprint, pretty_fingerprint};
 
 use super::CliResult;
 use super::io::{read_json, write_json};
@@ -63,6 +62,17 @@ enum AttestSubcommand {
     Verify {
         #[arg(long)]
         route: Option<String>,
+    },
+    /// Trunk pre-build entrypoint. Refreshes manifest / ledger / attestation
+    /// JSON and signs newly-changed subjects. Skips silently when
+    /// `TRUNK_PROFILE` is not `release`, so dev builds and `trunk serve`
+    /// stay fast.
+    Build {
+        /// Run the flow regardless of `TRUNK_PROFILE`. Useful when running
+        /// the command outside of trunk (e.g. ad-hoc refresh before
+        /// `websh-cli deploy --no-build`).
+        #[arg(long)]
+        force: bool,
     },
 }
 
@@ -119,10 +129,30 @@ struct AttestAllOptions {
     issued_at: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SubjectKind {
+    Homepage,
+    Ledger,
+    Document,
+    Page,
+}
+
+impl SubjectKind {
+    fn parse(value: &str) -> CliResult<Self> {
+        match value {
+            "homepage" => Ok(Self::Homepage),
+            "ledger" => Ok(Self::Ledger),
+            "document" => Ok(Self::Document),
+            "page" => Ok(Self::Page),
+            other => Err(format!("unsupported subject kind: {other}").into()),
+        }
+    }
+}
+
 #[derive(Clone)]
 struct SubjectSpec {
     route: String,
-    kind: String,
+    kind: SubjectKind,
     content_paths: Vec<PathBuf>,
 }
 
@@ -140,6 +170,7 @@ pub(crate) fn run(root: &Path, command: AttestCommand) -> CliResult {
     match command {
         Some(AttestSubcommand::Subject(command)) => subject(root, command),
         Some(AttestSubcommand::Verify { route }) => verify(root, route),
+        Some(AttestSubcommand::Build { force }) => attest_build(root, force),
         None => attest_all(
             root,
             AttestAllOptions {
@@ -155,6 +186,7 @@ pub(crate) fn run(root: &Path, command: AttestCommand) -> CliResult {
 }
 
 pub(crate) fn run_default(root: &Path, no_sign: bool) -> CliResult {
+    let no_sign = no_sign || no_sign_from_env();
     attest_all(
         root,
         AttestAllOptions {
@@ -166,6 +198,29 @@ pub(crate) fn run_default(root: &Path, no_sign: bool) -> CliResult {
             issued_at: None,
         },
     )
+}
+
+/// Trunk pre-build entrypoint. No-ops on dev profiles so `trunk serve`
+/// and incremental dev builds stay fast.
+fn attest_build(root: &Path, force: bool) -> CliResult {
+    if !force && !profile_is_release() {
+        let profile = std::env::var("TRUNK_PROFILE").unwrap_or_default();
+        println!("attest: skipped (profile={profile})");
+        return Ok(());
+    }
+    run_default(root, no_sign_from_env())
+}
+
+fn profile_is_release() -> bool {
+    std::env::var("TRUNK_PROFILE")
+        .map(|p| p == "release")
+        .unwrap_or(false)
+}
+
+fn no_sign_from_env() -> bool {
+    std::env::var("WEBSH_NO_SIGN")
+        .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .unwrap_or(false)
 }
 
 fn subject(root: &Path, command: SubjectCommand) -> CliResult {
@@ -208,14 +263,15 @@ fn attest_all(root: &Path, options: AttestAllOptions) -> CliResult {
         subjects: Vec::new(),
     };
 
-    let homepage_paths = content_paths_or_default(root, "/", "homepage", Vec::new())?;
+    let homepage_paths = content_paths_or_default(root, "/", SubjectKind::Homepage, Vec::new())?;
     artifact.subjects.push(build_subject(
         root,
         &existing,
         "/".to_string(),
-        "homepage".to_string(),
+        SubjectKind::Homepage,
         homepage_paths,
         options.issued_at.clone(),
+        None,
     )?);
 
     let mut routes = BTreeSet::from(["/".to_string()]);
@@ -226,9 +282,10 @@ fn attest_all(root: &Path, options: AttestAllOptions) -> CliResult {
         root,
         &existing,
         CONTENT_LEDGER_ROUTE.to_string(),
-        "ledger".to_string(),
+        SubjectKind::Ledger,
         vec![PathBuf::from(CONTENT_LEDGER_PATH)],
         options.issued_at.clone(),
+        Some(&ledger),
     )?);
 
     for spec in specs {
@@ -242,11 +299,10 @@ fn attest_all(root: &Path, options: AttestAllOptions) -> CliResult {
             spec.kind,
             spec.content_paths,
             options.issued_at.clone(),
+            None,
         )?);
     }
-    artifact
-        .subjects
-        .sort_by(|left, right| left.id.cmp(&right.id));
+    artifact.subjects.sort_by_key(|subject| subject.id());
 
     write_json(&root.join(ATTESTATIONS_PATH), &artifact)?;
 
@@ -285,7 +341,14 @@ fn subject_set(
     content_paths: Vec<PathBuf>,
     issued_at: Option<String>,
 ) -> CliResult {
-    let content_paths = content_paths_or_default(root, &route, &kind, content_paths)?;
+    let kind = SubjectKind::parse(&kind)?;
+    if matches!(kind, SubjectKind::Ledger) {
+        return Err(
+            "ledger subjects are only built by `attest`; chain_head depends on the regenerated ledger artifact"
+                .into(),
+        );
+    }
+    let content_paths = content_paths_or_default(root, &route, kind, content_paths)?;
     let mut artifact = read_artifact(root).unwrap_or_default();
     artifact.validate_header()?;
     let subject = build_subject(
@@ -295,6 +358,7 @@ fn subject_set(
         kind,
         content_paths,
         issued_at,
+        None,
     )?;
     upsert_subject(&mut artifact, subject);
 
@@ -303,11 +367,8 @@ fn subject_set(
     let subject = artifact
         .subject_for_route(&route)
         .expect("subject just inserted");
-    println!(
-        "wrote {} {}",
-        path.display(),
-        short_hash(&subject.content_sha256)
-    );
+    let content_sha = subject.content_sha256()?;
+    println!("wrote {} {}", path.display(), short_hash(&content_sha));
     Ok(())
 }
 
@@ -315,57 +376,67 @@ fn build_subject(
     root: &Path,
     existing: &AttestationArtifact,
     route: String,
-    kind: String,
+    kind: SubjectKind,
     content_paths: Vec<PathBuf>,
     issued_at: Option<String>,
-) -> CliResult<AttestationSubject> {
-    let content = build_subject_content(root, &content_paths)?;
-    let content_sha256 = compute_content_sha256(&content)?;
-    let ack = read_ack(root)?;
+    ledger: Option<&ContentLedgerArtifact>,
+) -> CliResult<Subject> {
+    let content_files = build_content_files(root, &content_paths)?;
     let issued_at = issued_at
         .or_else(|| {
             existing
                 .subject_for_route(&route)
-                .map(|subject| subject.issued_at.clone())
+                .map(|subject| subject.issued_at().to_string())
         })
         .unwrap_or_else(today_utc);
-    let id = subject_id_for_route(&route);
-    let message = canonical_subject_message(
-        &id,
-        &route,
-        &kind,
-        &content_sha256,
-        &ack.combined_root,
-        &issued_at,
-    );
-    let attestations = existing
-        .subject_for_route(&route)
-        .filter(|subject| subject.message == message)
-        .map(|subject| subject.attestations.clone())
-        .unwrap_or_default();
 
-    Ok(AttestationSubject {
-        id,
-        route,
-        kind,
-        content,
-        content_sha256,
-        ack_combined_root: ack.combined_root,
+    let env = Envelope {
+        route: route.clone(),
         issued_at,
-        message,
-        attestations,
-    })
+        content_files,
+        attestations: Vec::new(),
+    };
+
+    let mut subject = match kind {
+        SubjectKind::Homepage => {
+            let ack = read_ack(root)?;
+            Subject::Homepage(HomepageSubject {
+                env,
+                ack_combined_root: ack.combined_root,
+            })
+        }
+        SubjectKind::Ledger => {
+            let ledger = ledger
+                .ok_or("ledger subject requires a ContentLedgerArtifact to bind chain_head")?;
+            Subject::Ledger(LedgerSubject {
+                env,
+                chain_head: ledger.ledger_sha256.clone(),
+            })
+        }
+        SubjectKind::Document => Subject::Document(DocumentSubject { env }),
+        SubjectKind::Page => Subject::Page(PageSubject { env }),
+    };
+
+    if let Some(prior) = existing.subject_for_route(&route)
+        && let (Ok(prior_msg), Ok(new_msg)) =
+            (prior.canonical_message(), subject.canonical_message())
+        && prior_msg == new_msg
+    {
+        subject
+            .attestations_mut()
+            .extend(prior.attestations().iter().cloned());
+    }
+
+    Ok(subject)
 }
 
-fn upsert_subject(artifact: &mut AttestationArtifact, subject: AttestationSubject) {
-    if let Some(existing) = artifact.subject_for_route_mut(&subject.route) {
+fn upsert_subject(artifact: &mut AttestationArtifact, subject: Subject) {
+    if let Some(existing) = artifact.subject_for_route_mut(subject.route()) {
         *existing = subject;
     } else {
         artifact.subjects.push(subject);
     }
-    artifact
-        .subjects
-        .sort_by(|left, right| left.id.cmp(&right.id));
+    artifact.subjects.sort_by_key(|subject| subject.id());
 }
 
 fn subject_message(root: &Path, route: String) -> CliResult {
@@ -374,8 +445,9 @@ fn subject_message(root: &Path, route: String) -> CliResult {
     let subject = artifact
         .subject_for_route(&route)
         .ok_or_else(|| format!("attestation subject not found for route {route}"))?;
-    verify_subject_message(subject)?;
-    println!("{}", subject.message);
+    subject.validate()?;
+    let message = subject.canonical_message()?;
+    println!("{message}");
     Ok(())
 }
 
@@ -392,13 +464,14 @@ fn pgp_import(
         .subject_for_route(&route)
         .ok_or_else(|| format!("attestation subject not found for route {route}"))?
         .clone();
-    verify_subject_message(&subject)?;
+    subject.validate()?;
+    let message = subject.canonical_message()?;
 
     let signature_path = resolve_path(root, &signature);
     let signature_body = fs::read_to_string(&signature_path)?;
-    let fingerprint = verify_pgp_signature(root, &key, &signature_body, &subject.message)?;
+    let fingerprint = verify_pgp_signature(root, &key, &signature_body, &message)?;
     let signer = signer.or_else(|| pgp_signer_from_key(root, &key).ok().flatten());
-    let message_hash = message_sha256(&subject.message);
+    let message_hash = message_sha256(&message);
     let key_path = artifact_path(root, &key)?;
     let signature_path = artifact_path(root, &signature).ok();
 
@@ -406,9 +479,9 @@ fn pgp_import(
         .subject_for_route_mut(&route)
         .expect("subject exists after immutable lookup");
     subject
-        .attestations
-        .retain(|attestation| !matches!(attestation, SubjectAttestation::Pgp { .. }));
-    subject.attestations.push(SubjectAttestation::Pgp {
+        .attestations_mut()
+        .retain(|attestation| !matches!(attestation, Attestation::Pgp { .. }));
+    subject.attestations_mut().push(Attestation::Pgp {
         signer,
         fingerprint,
         key_path,
@@ -436,17 +509,18 @@ fn eth_import(
         .subject_for_route(&route)
         .ok_or_else(|| format!("attestation subject not found for route {route}"))?
         .clone();
-    verify_subject_message(&subject)?;
+    subject.validate()?;
+    let message = subject.canonical_message()?;
 
-    let verification = verify_personal_sign(&address, &subject.message, &signature)?;
-    let message_hash = message_sha256(&subject.message);
+    let verification = verify_personal_sign(&address, &message, &signature)?;
+    let message_hash = message_sha256(&message);
     let subject = artifact
         .subject_for_route_mut(&route)
         .expect("subject exists after immutable lookup");
-    subject.attestations.retain(|attestation| {
-        !matches!(attestation, SubjectAttestation::Ethereum { address: stored, .. } if stored.eq_ignore_ascii_case(&verification.expected_address))
+    subject.attestations_mut().retain(|attestation| {
+        !matches!(attestation, Attestation::Ethereum { address: stored, .. } if stored.eq_ignore_ascii_case(&verification.expected_address))
     });
-    subject.attestations.push(SubjectAttestation::Ethereum {
+    subject.attestations_mut().push(Attestation::Ethereum {
         scheme: "eip191-personal-sign".to_string(),
         signer,
         address: verification.expected_address,
@@ -472,28 +546,68 @@ fn sign_missing_pgp_attestations(
     let routes = artifact
         .subjects
         .iter()
-        .map(|subject| subject.route.clone())
+        .map(|subject| subject.route().to_string())
         .collect::<Vec<_>>();
-    let mut signed = 0usize;
 
-    for route in routes {
+    // Determine up-front whether any subject actually needs a new signature.
+    // No work pending → skip the gpg probe and the fingerprint guard so an
+    // attest-only build never invokes gpg unnecessarily.
+    let mut pending_routes = Vec::new();
+    for route in &routes {
+        let subject = artifact
+            .subject_for_route(route)
+            .ok_or_else(|| format!("attestation subject not found for route {route}"))?;
+        subject.validate()?;
+        if !subject_has_valid_pgp(root, subject)? {
+            pending_routes.push(route.clone());
+        }
+    }
+    if pending_routes.is_empty() {
+        return Ok(0);
+    }
+
+    // gpg detection: missing binary or absent secret key on a release build
+    // must not fail trunk. Warn and leave subjects pending so the build
+    // produces a dist with `pending` markers — author re-signs later.
+    let Some(active_fingerprint) = gpg_secret_key_fingerprint(gpg_key) else {
+        println!(
+            "attest: gpg unavailable or signer key not in keyring; \
+             {} subject(s) left pending",
+            pending_routes.len()
+        );
+        return Ok(0);
+    };
+
+    // Fingerprint guard: refuse to sign with a key that isn't the project
+    // identity. Protects forks / co-authors from accidentally writing
+    // attestations under their own keys.
+    if normalize_fingerprint(&active_fingerprint) != crate::crypto::pgp::EXPECTED_PGP_FINGERPRINT {
+        return Err(format!(
+            "attest: active gpg key fingerprint does not match the project identity.\n  \
+             active:   {active}\n  \
+             expected: {expected}\n  \
+             Refusing to sign with a non-author key. Set WEBSH_NO_SIGN=1 to build without signing.",
+            active = pretty_fingerprint(&active_fingerprint),
+            expected = pretty_fingerprint(crate::crypto::pgp::EXPECTED_PGP_FINGERPRINT),
+        )
+        .into());
+    }
+
+    let mut signed = 0usize;
+    for route in pending_routes {
         let subject = artifact
             .subject_for_route(&route)
-            .ok_or_else(|| format!("attestation subject not found for route {route}"))?
+            .expect("pending route survives the artifact roundtrip")
             .clone();
-        verify_subject_message(&subject)?;
-        if subject_has_valid_pgp(root, &subject) {
-            continue;
-        }
 
         let attestation = sign_subject_with_gpg(root, &subject, key, gpg_key, signature_dir)?;
         let subject = artifact
             .subject_for_route_mut(&route)
             .expect("subject exists after immutable lookup");
         subject
-            .attestations
-            .retain(|attestation| !matches!(attestation, SubjectAttestation::Pgp { .. }));
-        subject.attestations.push(attestation);
+            .attestations_mut()
+            .retain(|attestation| !matches!(attestation, Attestation::Pgp { .. }));
+        subject.attestations_mut().push(attestation);
         signed += 1;
     }
 
@@ -503,10 +617,50 @@ fn sign_missing_pgp_attestations(
     Ok(signed)
 }
 
-fn subject_has_valid_pgp(root: &Path, subject: &AttestationSubject) -> bool {
-    let message_hash = message_sha256(&subject.message);
-    subject.attestations.iter().any(|attestation| {
-        let SubjectAttestation::Pgp {
+/// Probe the local gpg keyring for a secret key matching `gpg_key`
+/// (defaults to whichever key gpg considers active when `None`). Returns
+/// the normalized fingerprint of the first matching secret key, or
+/// `None` when gpg is missing, the key isn't present, or the colon
+/// output couldn't be parsed.
+fn gpg_secret_key_fingerprint(gpg_key: Option<&str>) -> Option<String> {
+    let mut command = Command::new("gpg");
+    command.args(["--with-colons", "--list-secret-keys"]);
+    if let Some(key) = gpg_key {
+        command.arg(key);
+    }
+    let output = command.output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    // Colon-list format (per `doc/DETAILS` in the gnupg source): each line
+    // is `record-type:field2:...:fieldN`. For `fpr` records the fingerprint
+    // sits at column 10 (1-indexed) — that is, the iterator yields the
+    // record type, then 8 empty separator fields, and the 9th `next()` call
+    // lands on the fingerprint. `fpr:` records immediately follow their
+    // owning `sec:` block.
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        let mut fields = line.split(':');
+        if fields.next() == Some("fpr") {
+            for _ in 0..8 {
+                fields.next()?;
+            }
+            if let Some(fp) = fields.next()
+                && !fp.is_empty()
+            {
+                return Some(fp.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn subject_has_valid_pgp(root: &Path, subject: &Subject) -> CliResult<bool> {
+    let message = subject.canonical_message()?;
+    let message_hash = message_sha256(&message);
+    Ok(subject.attestations().iter().any(|attestation| {
+        let Attestation::Pgp {
             fingerprint,
             key_path,
             signature,
@@ -519,27 +673,28 @@ fn subject_has_valid_pgp(root: &Path, subject: &AttestationSubject) -> bool {
         };
         *verified
             && message_sha256 == &message_hash
-            && verify_pgp_signature(root, Path::new(key_path), signature, &subject.message)
+            && verify_pgp_signature(root, Path::new(key_path), signature, &message)
                 .map(|verified_fingerprint| {
                     verified_fingerprint == normalize_fingerprint(fingerprint)
                 })
                 .unwrap_or(false)
-    })
+    }))
 }
 
 fn sign_subject_with_gpg(
     root: &Path,
-    subject: &AttestationSubject,
+    subject: &Subject,
     key: &Path,
     gpg_key: Option<&str>,
     signature_dir: &Path,
-) -> CliResult<SubjectAttestation> {
+) -> CliResult<Attestation> {
+    let message = subject.canonical_message()?;
     let signature_dir = resolve_path(root, signature_dir);
     fs::create_dir_all(&signature_dir)?;
-    let slug = slugify_route(&subject.route);
+    let slug = slugify_route(subject.route());
     let message_path = signature_dir.join(format!("{slug}.message.txt"));
     let signature_path = signature_dir.join(format!("{slug}.sig.asc"));
-    fs::write(&message_path, &subject.message)?;
+    fs::write(&message_path, &message)?;
 
     let mut command = Command::new("gpg");
     command
@@ -556,31 +711,31 @@ fn sign_subject_with_gpg(
     let output = command.output().map_err(|error| {
         format!(
             "failed to run gpg for {}: {error}. Use --no-sign to regenerate pending subjects only.",
-            subject.route
+            subject.route()
         )
     })?;
     if !output.status.success() {
         return Err(format!(
             "gpg failed for {}\n{}",
-            subject.route,
+            subject.route(),
             String::from_utf8_lossy(&output.stderr)
         )
         .into());
     }
 
     let signature_body = fs::read_to_string(&signature_path)?;
-    let fingerprint = verify_pgp_signature(root, key, &signature_body, &subject.message)?;
+    let fingerprint = verify_pgp_signature(root, key, &signature_body, &message)?;
     let signer = pgp_signer_from_key(root, key)
         .ok()
         .flatten()
         .or_else(|| gpg_key.map(ToOwned::to_owned));
-    Ok(SubjectAttestation::Pgp {
+    Ok(Attestation::Pgp {
         signer,
         fingerprint,
         key_path: artifact_path(root, key)?,
         signature: signature_body,
         signature_path: artifact_path(root, &signature_path).ok(),
-        message_sha256: message_sha256(&subject.message),
+        message_sha256: message_sha256(&message),
         verified: true,
     })
 }
@@ -606,68 +761,74 @@ fn verify(root: &Path, route: Option<String>) -> CliResult {
     Ok(())
 }
 
-fn verify_subject(root: &Path, subject: &AttestationSubject) -> CliResult {
-    verify_subject_message(subject)?;
+fn verify_subject(root: &Path, subject: &Subject) -> CliResult {
+    subject.validate()?;
 
-    let rebuilt = build_subject_content(
+    let rebuilt = build_content_files(
         root,
         &subject
-            .content
-            .files
+            .content_files()
             .iter()
             .map(|file| PathBuf::from(&file.path))
             .collect::<Vec<_>>(),
     )?;
-    if rebuilt != subject.content {
-        return Err(format!("content file metadata mismatch for {}", subject.id).into());
+    if rebuilt != subject.content_files() {
+        return Err(format!("content file metadata mismatch for {}", subject.id()).into());
     }
-    let content_sha256 = compute_content_sha256(&rebuilt)?;
-    if content_sha256 != subject.content_sha256 {
-        return Err(format!("content hash mismatch for {}", subject.id).into());
+    let content_sha256 = subject.content_sha256()?;
+
+    match subject {
+        Subject::Homepage(hp) => {
+            let ack = read_ack(root)?;
+            if ack.combined_root != hp.ack_combined_root {
+                return Err(format!("ACK root mismatch for {}", subject.id()).into());
+            }
+        }
+        Subject::Ledger(ls) => {
+            let ledger_path = root.join(crate::crypto::ledger::CONTENT_LEDGER_PATH);
+            let ledger: ContentLedgerArtifact = read_json(&ledger_path)?;
+            ledger.validate()?;
+            if ledger.ledger_sha256 != ls.chain_head {
+                return Err(format!("chain_head mismatch for {}", subject.id()).into());
+            }
+        }
+        Subject::Document(_) | Subject::Page(_) => {}
     }
 
-    let ack = read_ack(root)?;
-    if ack.combined_root != subject.ack_combined_root {
-        return Err(format!("ACK root mismatch for {}", subject.id).into());
-    }
-
-    let message_hash = message_sha256(&subject.message);
-    if subject.attestations.is_empty() {
-        println!(
-            "{}: pending {}",
-            subject.id,
-            short_hash(&subject.content_sha256)
-        );
+    let message = subject.canonical_message()?;
+    let message_hash = message_sha256(&message);
+    if subject.attestations().is_empty() {
+        println!("{}: pending {}", subject.id(), short_hash(&content_sha256));
         return Ok(());
     }
 
-    for attestation in &subject.attestations {
+    for attestation in subject.attestations() {
         if attestation.message_sha256() != message_hash {
-            return Err(format!("attestation message hash mismatch for {}", subject.id).into());
+            return Err(format!("attestation message hash mismatch for {}", subject.id()).into());
         }
         if !attestation.verified() {
-            return Err(format!("stored attestation is not verified for {}", subject.id).into());
+            return Err(format!("stored attestation is not verified for {}", subject.id()).into());
         }
 
         match attestation {
-            SubjectAttestation::Pgp {
+            Attestation::Pgp {
                 fingerprint,
                 key_path,
                 signature,
                 ..
             } => {
                 let verified_fingerprint =
-                    verify_pgp_signature(root, Path::new(key_path), signature, &subject.message)?;
+                    verify_pgp_signature(root, Path::new(key_path), signature, &message)?;
                 if normalize_fingerprint(fingerprint) != verified_fingerprint {
-                    return Err(format!("PGP fingerprint mismatch for {}", subject.id).into());
+                    return Err(format!("PGP fingerprint mismatch for {}", subject.id()).into());
                 }
                 println!(
                     "{}: pgp ok {}",
-                    subject.id,
+                    subject.id(),
                     short_hash(&verified_fingerprint)
                 );
             }
-            SubjectAttestation::Ethereum {
+            Attestation::Ethereum {
                 scheme,
                 address,
                 signature,
@@ -677,44 +838,24 @@ fn verify_subject(root: &Path, subject: &AttestationSubject) -> CliResult {
                 if scheme != "eip191-personal-sign" {
                     return Err(format!("unsupported Ethereum scheme {scheme}").into());
                 }
-                let verification = verify_personal_sign(address, &subject.message, signature)?;
+                let verification = verify_personal_sign(address, &message, signature)?;
                 if !verification
                     .recovered_address
                     .eq_ignore_ascii_case(recovered_address)
                 {
-                    return Err(
-                        format!("Ethereum recovered address mismatch for {}", subject.id).into(),
-                    );
+                    return Err(format!(
+                        "Ethereum recovered address mismatch for {}",
+                        subject.id()
+                    )
+                    .into());
                 }
                 println!(
                     "{}: ethereum ok {}",
-                    subject.id,
+                    subject.id(),
                     short_hash(&verification.recovered_address)
                 );
             }
         }
-    }
-    Ok(())
-}
-
-fn verify_subject_message(subject: &AttestationSubject) -> CliResult {
-    if subject.id != subject_id_for_route(&subject.route) {
-        return Err(format!("subject id does not match route {}", subject.route).into());
-    }
-    if subject.content.hash != CONTENT_HASH {
-        return Err(format!("unsupported content hash {}", subject.content.hash).into());
-    }
-    if subject
-        .content
-        .files
-        .windows(2)
-        .any(|pair| pair[0].path >= pair[1].path)
-    {
-        return Err(format!("content files are not strictly sorted for {}", subject.id).into());
-    }
-    let expected = subject.expected_message();
-    if expected != subject.message {
-        return Err(format!("canonical subject message mismatch for {}", subject.id).into());
     }
     Ok(())
 }
@@ -736,11 +877,11 @@ fn read_ack(root: &Path) -> CliResult<AckArtifact> {
 fn content_paths_or_default(
     root: &Path,
     route: &str,
-    kind: &str,
+    kind: SubjectKind,
     paths: Vec<PathBuf>,
 ) -> CliResult<Vec<PathBuf>> {
     let raw = if paths.is_empty() {
-        if route != "/" || kind != "homepage" {
+        if !matches!(kind, SubjectKind::Homepage) || route != "/" {
             return Err("non-homepage subjects require at least one --content path".into());
         }
         let mut defaults = DEFAULT_HOMEPAGE_CONTENT
@@ -762,9 +903,7 @@ fn content_paths_or_default(
 /// preserved across the input list, with files inside an expanded directory
 /// emitted in the canonical sort order produced by
 /// `manifest::collect_files_recursive`. Duplicates (same canonical
-/// filesystem location reached via multiple input paths) are dropped — the
-/// downstream `build_subject_content` rejects dupes outright, so dropping
-/// here is the user-friendly path.
+/// filesystem location reached via multiple input paths) are dropped.
 fn expand_content_paths(root: &Path, raw_paths: Vec<PathBuf>) -> CliResult<Vec<PathBuf>> {
     let mut seen = BTreeSet::new();
     let mut expanded = Vec::new();
@@ -810,9 +949,10 @@ fn discover_subject_specs(root: &Path, content_dir: &Path) -> CliResult<Vec<Subj
         if let Some(sidecar) = matching_file_sidecar(&content_root, &rel_path) {
             content_paths.push(sidecar);
         }
+        let kind = SubjectKind::parse(kind_for_content_path(&rel_path))?;
         specs.push(SubjectSpec {
             route: route_for_content_path(&rel_path),
-            kind: kind_for_content_path(&rel_path).to_string(),
+            kind,
             content_paths,
         });
     }
@@ -820,13 +960,13 @@ fn discover_subject_specs(root: &Path, content_dir: &Path) -> CliResult<Vec<Subj
     Ok(specs)
 }
 
-pub(crate) fn build_subject_content(root: &Path, paths: &[PathBuf]) -> CliResult<SubjectContent> {
+pub(crate) fn build_content_files(root: &Path, paths: &[PathBuf]) -> CliResult<Vec<ContentFile>> {
     let mut files = paths
         .iter()
         .map(|path| {
             let artifact_path = artifact_path(root, path)?;
             let bytes = fs::read(resolve_path(root, path))?;
-            Ok(SubjectContentFile {
+            Ok(ContentFile {
                 path: artifact_path,
                 sha256: sha256_hex(&bytes),
                 bytes: bytes.len() as u64,
@@ -839,10 +979,7 @@ pub(crate) fn build_subject_content(root: &Path, paths: &[PathBuf]) -> CliResult
         return Err("duplicate content path".into());
     }
 
-    Ok(SubjectContent {
-        hash: CONTENT_HASH.to_string(),
-        files,
-    })
+    Ok(files)
 }
 
 fn verify_pgp_signature(
@@ -952,4 +1089,94 @@ fn civil_from_days(days_since_unix_epoch: i64) -> (i32, u32, u32) {
     let m = mp + if mp < 10 { 3 } else { -9 };
     let year = y + if m <= 2 { 1 } else { 0 };
     (year as i32, m as u32, d as u32)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{no_sign_from_env, profile_is_release};
+    use std::sync::Mutex;
+
+    // Env vars are process-global; serialize tests that touch them.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    /// RAII guard so a panic inside the test body still restores the
+    /// previous value of the env var.
+    struct EnvGuard {
+        key: String,
+        prev: Option<String>,
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.prev {
+                Some(v) => unsafe { std::env::set_var(&self.key, v) },
+                None => unsafe { std::env::remove_var(&self.key) },
+            }
+        }
+    }
+
+    fn with_env<F: FnOnce()>(key: &str, value: Option<&str>, f: F) {
+        let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let prev = std::env::var(key).ok();
+        let _guard = EnvGuard {
+            key: key.to_string(),
+            prev,
+        };
+        match value {
+            Some(v) => unsafe { std::env::set_var(key, v) },
+            None => unsafe { std::env::remove_var(key) },
+        }
+        f();
+        // _guard drops here (or on panic), restoring the previous value.
+    }
+
+    #[test]
+    fn no_sign_from_env_recognizes_truthy_values() {
+        for value in ["1", "true", "TRUE", "True", "yes", "  yes  "] {
+            with_env("WEBSH_NO_SIGN", Some(value), || {
+                assert!(no_sign_from_env(), "value `{value}` should be truthy");
+            });
+        }
+    }
+
+    #[test]
+    fn no_sign_from_env_rejects_falsy_or_empty() {
+        for value in ["", "0", "false", "no", "off"] {
+            with_env("WEBSH_NO_SIGN", Some(value), || {
+                assert!(!no_sign_from_env(), "value `{value}` should be falsy");
+            });
+        }
+    }
+
+    #[test]
+    fn no_sign_from_env_false_when_unset() {
+        with_env("WEBSH_NO_SIGN", None, || {
+            assert!(!no_sign_from_env());
+        });
+    }
+
+    #[test]
+    fn profile_is_release_only_for_release() {
+        for (value, expected) in [
+            (Some("release"), true),
+            (Some("dev"), false),
+            (Some(""), false),
+            (Some("Release"), false), // case-sensitive — TRUNK_PROFILE is `release` lowercase
+        ] {
+            with_env("TRUNK_PROFILE", value, || {
+                assert_eq!(
+                    profile_is_release(),
+                    expected,
+                    "profile=`{value:?}` expected={expected}"
+                );
+            });
+        }
+    }
+
+    #[test]
+    fn profile_is_release_false_when_unset() {
+        with_env("TRUNK_PROFILE", None, || {
+            assert!(!profile_is_release());
+        });
+    }
 }
