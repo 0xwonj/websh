@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code when working with this repository.
 
+## In-flight migration: 3-crate workspace
+
+The branch `refactor/3-crate-workspace` is migrating this repo from a single crate to a Cargo workspace. If you are working on that branch, read `docs/refactor/3-crate-workspace/README.md` first — it is the entry point for the migration's architecture, workflow, conventions, and decision log. Migration-specific rules override the conventions in this file for migration commits only.
+
 ## Build Commands
 
 ```bash
