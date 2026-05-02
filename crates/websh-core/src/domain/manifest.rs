@@ -31,7 +31,7 @@ mod tests {
 
     #[test]
     fn content_manifest_document_round_trips_existing_shape() {
-        let body = include_str!("../../tests/fixtures/manifest_golden.json");
+        let body = include_str!("../../../../tests/fixtures/manifest_golden.json");
         let manifest: ContentManifestDocument = serde_json::from_str(body).expect("parse");
         let encoded = serde_json::to_string_pretty(&manifest).expect("serialize");
         assert_eq!(encoded.trim_end(), body.trim_end());

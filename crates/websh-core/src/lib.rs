@@ -2,4 +2,15 @@
 //!
 //! Compiles for both `wasm32-unknown-unknown` and the host triple. Hosts
 //! everything the browser app and CLI both need. Populated incrementally
-//! by the migration; intentionally empty at the workspace-skeleton stage.
+//! by the migration.
+
+pub mod config;
+pub mod content_routes;
+pub mod domain;
+pub mod theme;
+pub mod utils;
+
+#[doc(hidden)]
+pub mod models {
+    pub use crate::domain::*;
+}

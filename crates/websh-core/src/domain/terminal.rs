@@ -140,7 +140,7 @@ impl OutputLine {
     }
 
     /// Create a long listing entry (ls -l)
-    pub fn long_entry(entry: &crate::core::DirEntry, perms: &super::DisplayPermissions) -> Self {
+    pub fn long_entry(entry: &crate::domain::DirEntry, perms: &super::DisplayPermissions) -> Self {
         let style = if entry.is_dir {
             TextStyle::Directory
         } else if entry.name.starts_with('.') {

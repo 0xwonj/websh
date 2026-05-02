@@ -4,13 +4,13 @@
 //! Text assets are loaded at compile time using `include_str!`.
 
 /// ASCII banner displayed after boot sequence.
-pub const ASCII_BANNER: &str = include_str!("../assets/text/banner.txt");
+pub const ASCII_BANNER: &str = include_str!("../../../assets/text/banner.txt");
 
 /// ASCII profile card for `whoami` command.
-pub const ASCII_PROFILE: &str = include_str!("../assets/text/profile.txt");
+pub const ASCII_PROFILE: &str = include_str!("../../../assets/text/profile.txt");
 
 /// Help text for `help` command.
-pub const HELP_TEXT: &str = include_str!("../assets/text/help.txt");
+pub const HELP_TEXT: &str = include_str!("../../../assets/text/help.txt");
 
 /// Application name displayed in terminal.
 pub const APP_NAME: &str = "wonjae.eth";
@@ -110,7 +110,7 @@ pub enum IconTheme {
 /// Change this value to switch icon styles globally.
 pub const ICON_THEME: IconTheme = IconTheme::Bootstrap;
 
-use crate::models::BootstrapSiteSource;
+use crate::domain::BootstrapSiteSource;
 
 pub const BOOTSTRAP_SITE: BootstrapSiteSource = BootstrapSiteSource {
     repo_with_owner: "0xwonj/websh",

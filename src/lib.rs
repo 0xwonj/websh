@@ -6,11 +6,11 @@
 
 pub mod app;
 pub mod components;
-pub mod config;
+pub use websh_core::config;
 pub mod core;
 pub mod crypto;
 pub mod mempool;
-pub mod models;
+pub use websh_core::domain as models;
 pub mod utils;
 
 #[cfg(not(target_arch = "wasm32"))]

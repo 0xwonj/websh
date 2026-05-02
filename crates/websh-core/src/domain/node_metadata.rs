@@ -312,10 +312,10 @@ pub struct ImageDim {
     pub height: u32,
 }
 
-/// Test-support helpers. Re-exported via `pub` (gated on `cfg(test)`) so
-/// other crate modules' tests can build minimal `NodeMetadata` fixtures
-/// without each one defining its own builder.
-#[cfg(test)]
+/// Test-support helpers consumed by the migration's transitional shim.
+/// Cfg-gating on `cfg(test)` would not propagate through the legacy
+/// crate's `pub use websh_core::domain as models;` re-export; the gate
+/// is dropped and dead-code warnings suppressed.
 #[allow(dead_code)]
 pub mod test_support {
     use super::*;

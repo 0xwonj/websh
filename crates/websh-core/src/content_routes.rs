@@ -1,4 +1,4 @@
-use crate::models::VirtualPath;
+use crate::domain::VirtualPath;
 
 const READER_EXTENSIONS: &[&str] = &[".page.html", ".page.md", ".html", ".md", ".link", ".app"];
 

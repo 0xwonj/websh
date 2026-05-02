@@ -14,13 +14,18 @@ alloy-primitives = { workspace = true }
 unicode-normalization = { workspace = true }
 regex = { workspace = true }
 thiserror = { workspace = true }
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 web-sys = { version = "0.3", features = [
+    "Document",
+    "Element",
+    "Event",
     "Headers",
+    "History",
+    "HtmlElement",
+    "Location",
+    "Navigator",
     "Request",
     "RequestInit",
     "RequestMode",
@@ -33,6 +38,8 @@ gloo-net = "0.6"
 gloo-timers = { version = "0.3", features = ["futures"] }
 idb = "0.6"
 serde-wasm-bindgen = "0.6"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2", features = ["js"] }
 
 [features]

@@ -1,6 +1,6 @@
 //! Runtime mount and bootstrap source models.
 
-use crate::models::VirtualPath;
+use crate::domain::VirtualPath;
 
 /// The single code-declared bootstrap source used to discover the root site.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

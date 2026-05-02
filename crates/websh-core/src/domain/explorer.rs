@@ -1,6 +1,6 @@
 //! Explorer-related data types for the file browser UI.
 
-use crate::models::VirtualPath;
+use crate::domain::VirtualPath;
 
 /// Main view mode (Terminal or Explorer).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

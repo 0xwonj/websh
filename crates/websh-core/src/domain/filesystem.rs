@@ -38,7 +38,7 @@ impl fmt::Display for DisplayPermissions {
 #[derive(Clone, Debug)]
 pub struct DirEntry {
     pub name: String,
-    pub path: crate::models::VirtualPath,
+    pub path: crate::domain::VirtualPath,
     pub is_dir: bool,
     pub title: String,
     pub meta: Option<NodeMetadata>,
