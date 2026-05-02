@@ -4863,7 +4863,6 @@ dependencies = [
  "alloy-primitives",
  "ammonia",
  "base64",
- "clap",
  "comrak",
  "console_error_panic_hook",
  "getrandom 0.2.17",
@@ -4872,20 +4871,15 @@ dependencies = [
  "hex",
  "icondata",
  "idb",
- "imagesize",
  "js-sys",
  "k256",
  "leptos",
  "leptos-use",
  "leptos_icons",
- "lopdf",
- "pgp",
- "rand 0.8.5",
  "regex",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
- "serde_yaml",
  "sha2",
  "stylance",
  "tokio",
@@ -4901,6 +4895,25 @@ dependencies = [
 [[package]]
 name = "websh-cli"
 version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "base64",
+ "clap",
+ "hex",
+ "imagesize",
+ "k256",
+ "lopdf",
+ "pgp",
+ "rand 0.8.5",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "tokio",
+ "toml 0.8.23",
+ "websh-core",
+]
 
 [[package]]
 name = "websh-core"

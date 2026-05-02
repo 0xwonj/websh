@@ -15,16 +15,16 @@ use serde::Deserialize;
 use super::CliResult;
 use super::gh::{gh_capture, gh_succeeds, require_gh};
 use super::manifest::DEFAULT_CONTENT_DIR;
-use crate::config::BOOTSTRAP_SITE;
-use crate::mempool::{
+use websh_core::config::BOOTSTRAP_SITE;
+use websh_core::domain::manifest::{ContentManifestDocument, ContentManifestEntry};
+use websh_core::domain::{MempoolStatus, NodeKind, VirtualPath};
+use websh_core::mempool::{
     ComposeError, ComposeForm, LEDGER_CATEGORIES, MempoolManifestState,
     build_mempool_manifest_state, form_to_payload, serialize_mempool_file, slug_from_title,
     transform_mempool_frontmatter, validate_form,
 };
-use crate::models::manifest::{ContentManifestDocument, ContentManifestEntry};
-use crate::models::{MempoolStatus, NodeKind, VirtualPath};
-use crate::utils::current_timestamp;
-use crate::utils::format::format_date_iso;
+use websh_core::utils::current_timestamp;
+use websh_core::utils::format::format_date_iso;
 
 #[derive(Deserialize)]
 struct ContentsApiResponse {

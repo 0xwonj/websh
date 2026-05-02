@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use clap::{Args, Subcommand};
 use rand::RngCore;
 
-use crate::crypto::ack::{
+use websh_core::crypto::ack::{
     ACK_ARTIFACT_PATH, ACK_LOCAL_SOURCE_PATH, ACK_RECEIPTS_DIR, AckArtifact, AckEntryMode,
     AckPrivateSource, AckReceipt, AckSourceEntry, build_artifact_from_source, hash_hex,
     normalize_ack_name, private_receipt_from_source, public_proof_for_name, short_hash,

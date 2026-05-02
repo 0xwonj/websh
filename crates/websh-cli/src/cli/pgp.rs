@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use clap::{Args, Subcommand};
 
-use crate::crypto::pgp::{
+use websh_core::crypto::pgp::{
     EthereumIdentity, IDENTITY_PATH, IdentityArtifact, PUBLIC_KEY_PATH, PgpIdentity,
     normalize_fingerprint,
 };

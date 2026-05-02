@@ -2,8 +2,8 @@ use std::path::Path;
 
 use clap::{Args, Subcommand};
 
-use crate::crypto::ack::{ACK_ARTIFACT_PATH, AckArtifact, short_hash};
-use crate::crypto::pgp::IDENTITY_PATH;
+use websh_core::crypto::ack::{ACK_ARTIFACT_PATH, AckArtifact, short_hash};
+use websh_core::crypto::pgp::IDENTITY_PATH;
 
 use super::CliResult;
 use super::ack::{self, AckCommand};

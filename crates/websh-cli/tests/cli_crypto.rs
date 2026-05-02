@@ -4,12 +4,12 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use websh::crypto::ack::{ACK_ARTIFACT_PATH, ACK_RECEIPTS_DIR, AckArtifact, slugify_name};
-use websh::crypto::attestation::{
+use websh_core::attestation::artifact::{
     ATTESTATIONS_PATH, Attestation, AttestationArtifact, Subject, compute_content_sha256,
 };
-use websh::crypto::ledger::{CONTENT_LEDGER_PATH, ContentLedger};
-use websh::crypto::pgp::normalize_fingerprint;
+use websh_core::attestation::ledger::{CONTENT_LEDGER_PATH, ContentLedger};
+use websh_core::crypto::ack::{ACK_ARTIFACT_PATH, ACK_RECEIPTS_DIR, AckArtifact, slugify_name};
+use websh_core::crypto::pgp::normalize_fingerprint;
 
 fn temp_root(name: &str) -> PathBuf {
     let stamp = SystemTime::now()
@@ -89,7 +89,11 @@ fn cli_fails(root: &Path, args: &[&str]) {
 fn write_ack_artifact(root: &Path) {
     let path = root.join(ACK_ARTIFACT_PATH);
     fs::create_dir_all(path.parent().unwrap()).unwrap();
-    fs::write(path, include_str!("../assets/crypto/ack.commitment.json")).unwrap();
+    fs::write(
+        path,
+        include_str!("../../../assets/crypto/ack.commitment.json"),
+    )
+    .unwrap();
 }
 
 fn write_homepage_content(root: &Path) {

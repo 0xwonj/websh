@@ -3,9 +3,9 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-use crate::models::manifest::{ContentManifestDocument, ContentManifestEntry};
-use crate::models::{Fields, ImageDim, NodeKind, NodeMetadata, PageSize, SCHEMA_VERSION};
-use crate::utils::content_routes::content_route_for_path;
+use websh_core::content_routes::content_route_for_path;
+use websh_core::domain::manifest::{ContentManifestDocument, ContentManifestEntry};
+use websh_core::domain::{Fields, ImageDim, NodeKind, NodeMetadata, PageSize, SCHEMA_VERSION};
 
 use super::CliResult;
 use super::io::write_json;
@@ -561,8 +561,8 @@ fn default_directory_metadata(dir_rel: &str) -> NodeMetadata {
 fn default_renderer_for_kind(
     kind: NodeKind,
     rel_path: &str,
-) -> Option<crate::models::RendererKind> {
-    use crate::models::RendererKind;
+) -> Option<websh_core::domain::RendererKind> {
+    use websh_core::domain::RendererKind;
     let ext = Path::new(rel_path)
         .extension()
         .and_then(|ext| ext.to_str())
@@ -666,8 +666,8 @@ pub(crate) fn relative_path_from(root: &Path, path: &Path) -> CliResult<String> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{AccessFilter, Recipient};
     use std::sync::atomic::{AtomicU64, Ordering};
+    use websh_core::domain::{AccessFilter, Recipient};
 
     fn tempdir() -> PathBuf {
         static COUNTER: AtomicU64 = AtomicU64::new(0);

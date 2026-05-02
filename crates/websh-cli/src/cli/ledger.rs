@@ -1,12 +1,12 @@
 use std::fs;
 use std::path::Path;
 
-use crate::crypto::attestation::subject_id_for_route;
-use crate::crypto::ledger::{
+use websh_core::attestation::artifact::subject_id_for_route;
+use websh_core::attestation::ledger::{
     CONTENT_LEDGER_CONTENT_PATH, ContentLedger, ContentLedgerCategory, ContentLedgerEntry,
     ContentLedgerInput, ContentLedgerSortKey,
 };
-use crate::utils::format::iso_date_prefix;
+use websh_core::utils::format::iso_date_prefix;
 
 use super::CliResult;
 use super::attest::build_content_files;

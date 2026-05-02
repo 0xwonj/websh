@@ -1,6 +1,8 @@
-//! Native build-time binary: clap dispatchers + engine modules.
-//!
-//! Populated incrementally by the migration; intentionally empty at the
-//! workspace-skeleton stage.
+use websh_cli::run;
 
-fn main() {}
+fn main() {
+    if let Err(error) = run() {
+        eprintln!("error: {error}");
+        std::process::exit(1);
+    }
+}

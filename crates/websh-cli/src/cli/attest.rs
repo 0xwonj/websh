@@ -6,15 +6,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use clap::{Args, Subcommand};
 
-use crate::crypto::ack::{ACK_ARTIFACT_PATH, AckArtifact, short_hash};
-use crate::crypto::attestation::{
+use websh_core::attestation::artifact::{
     ATTESTATIONS_PATH, Attestation, AttestationArtifact, ContentFile, DocumentSubject, Envelope,
     HomepageSubject, LedgerSubject, PageSubject, Subject, message_sha256, sha256_hex,
 };
-use crate::crypto::eth::verify_personal_sign;
-use crate::crypto::ledger::{CONTENT_LEDGER_PATH, CONTENT_LEDGER_ROUTE, ContentLedger};
-use crate::crypto::pgp::{PUBLIC_KEY_PATH, normalize_fingerprint, pretty_fingerprint};
-use crate::models::NodeKind;
+use websh_core::attestation::ledger::{CONTENT_LEDGER_PATH, CONTENT_LEDGER_ROUTE, ContentLedger};
+use websh_core::crypto::ack::{ACK_ARTIFACT_PATH, AckArtifact, short_hash};
+use websh_core::crypto::eth::verify_personal_sign;
+use websh_core::crypto::pgp::{PUBLIC_KEY_PATH, normalize_fingerprint, pretty_fingerprint};
+use websh_core::domain::NodeKind;
 
 use super::CliResult;
 use super::io::{read_json, write_json};
@@ -788,7 +788,7 @@ fn verify_subject(root: &Path, subject: &Subject) -> CliResult {
             }
         }
         Subject::Ledger(ls) => {
-            let ledger_path = root.join(crate::crypto::ledger::CONTENT_LEDGER_PATH);
+            let ledger_path = root.join(websh_core::attestation::ledger::CONTENT_LEDGER_PATH);
             let ledger: ContentLedger = read_json(&ledger_path)?;
             ledger.validate()?;
             if ledger.chain_head != ls.chain_head {
