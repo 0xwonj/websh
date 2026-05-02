@@ -26,6 +26,7 @@ pub mod reader;
 pub mod router;
 pub mod shared;
 pub mod terminal;
+pub mod wallet;
 
 pub use breadcrumb::Breadcrumb;
 pub use home::HomePage;

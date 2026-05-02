@@ -331,14 +331,14 @@ fn SiteChromeWalletMenu(set_open: WriteSignal<bool>) -> impl IntoView {
         ev.stop_propagation();
         close();
         spawn_local(async move {
-            let _ = wallet::connect_with_session(&ctx).await;
+            let _ = crate::components::wallet::connect_with_session(&ctx).await;
         });
     };
 
     let on_disconnect = move |ev: ev::MouseEvent| {
         ev.stop_propagation();
         close();
-        let _ = wallet::disconnect(&ctx);
+        let _ = crate::components::wallet::disconnect(&ctx);
     };
 
     let stop_inside = move |ev: ev::MouseEvent| ev.stop_propagation();

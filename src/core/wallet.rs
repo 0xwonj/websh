@@ -4,7 +4,6 @@
 //! Reflect API.
 
 use js_sys::{Array, Function, Object, Promise, Reflect};
-use leptos::prelude::Set;
 use serde::Deserialize;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
@@ -13,7 +12,6 @@ use wasm_bindgen_futures::JsFuture;
 
 use crate::config::WALLET_TIMEOUT_MS;
 use crate::core::error::{EnvironmentError, WalletError};
-use crate::models::WalletState;
 use crate::utils::{RaceResult, dom, fetch_json, race_with_timeout};
 
 /// Get the `window.ethereum` object injected by an EIP-1193 wallet.
@@ -145,90 +143,18 @@ pub fn clear_session()
     crate::core::runtime::state::set_wallet_session(false)
 }
 
-/// Disconnect the wallet: clear the stored session and reset the reactive
-/// wallet state to `Disconnected`.
+/// Outcome of a successful wallet connection initiated through the UI's
+/// `connect_with_session` orchestrator.
 ///
-/// This is the canonical way to "log out" of a wallet connection from any
-/// UI call site, keeping session-storage cleanup and signal updates in
-/// lockstep.
-pub fn disconnect(
-    ctx: &crate::app::AppContext,
-) -> Result<(), crate::core::error::EnvironmentError> {
-    let snapshot = clear_session()?;
-    ctx.wallet.set(crate::models::WalletState::Disconnected);
-    ctx.runtime_state.set(snapshot);
-    Ok(())
-}
-
-/// Outcome of a successful wallet connection initiated through [`connect_with_session`].
-///
-/// Holds enrichment data (chain id, ENS name) so the caller can render
-/// surface-appropriate feedback. `session_persist_error` is a soft failure:
-/// the wallet is still connected for the current session, but
-/// auto-reconnect on next page load may not work.
+/// `session_persist_error` is a soft failure: the wallet is still connected
+/// for the current session, but auto-reconnect on next page load may not
+/// work.
 #[derive(Debug, Clone)]
 pub struct ConnectOutcome {
     pub address: String,
     pub chain_id: Option<u64>,
     pub ens_name: Option<String>,
     pub session_persist_error: Option<EnvironmentError>,
-}
-
-/// Run the canonical wallet connection flow and reflect each stage on
-/// `AppContext.wallet`. UI surfaces (terminal, site chrome) call this and
-/// then format their own user-facing feedback from the returned outcome.
-///
-/// State transitions:
-/// - `Disconnected` → `Connecting` (popup shown)
-/// - `Connecting` → `Connected { address, chain_id, ens_name: None }`
-/// - then `Connected { ens_name: Some(..) }` if ENS resolves
-/// - any error path → `Disconnected`
-pub async fn connect_with_session(
-    ctx: &crate::app::AppContext,
-) -> Result<ConnectOutcome, WalletError> {
-    if !is_available() {
-        return Err(WalletError::NotInstalled);
-    }
-    ctx.wallet.set(WalletState::Connecting);
-
-    let address = match connect().await {
-        Ok(addr) => addr,
-        Err(err) => {
-            ctx.wallet.set(WalletState::Disconnected);
-            return Err(err);
-        }
-    };
-
-    let session_persist_error = match save_session() {
-        Ok(snapshot) => {
-            ctx.runtime_state.set(snapshot);
-            None
-        }
-        Err(err) => Some(err),
-    };
-
-    let chain_id = get_chain_id().await;
-    ctx.wallet.set(WalletState::Connected {
-        address: address.clone(),
-        ens_name: None,
-        chain_id,
-    });
-
-    let ens_name = resolve_ens(&address).await;
-    if ens_name.is_some() {
-        ctx.wallet.set(WalletState::Connected {
-            address: address.clone(),
-            ens_name: ens_name.clone(),
-            chain_id,
-        });
-    }
-
-    Ok(ConnectOutcome {
-        address,
-        chain_id,
-        ens_name,
-        session_persist_error,
-    })
 }
 
 /// Register a callback for when the connected account changes.

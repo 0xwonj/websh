@@ -54,7 +54,7 @@ fn setup_wallet_events(ctx: AppContext) {
             });
         }
         None => {
-            let _ = wallet::disconnect(&ctx_for_accounts);
+            let _ = crate::components::wallet::disconnect(&ctx_for_accounts);
         }
     });
 

@@ -21,7 +21,7 @@ fn handle_login(ctx: AppContext) {
         ctx.terminal
             .push_output(OutputLine::info("Connecting to wallet..."));
 
-        match wallet::connect_with_session(&ctx).await {
+        match crate::components::wallet::connect_with_session(&ctx).await {
             Ok(outcome) => {
                 if let Some(error) = outcome.session_persist_error {
                     ctx.terminal.push_output(OutputLine::error(format!(
@@ -54,7 +54,7 @@ fn handle_login(ctx: AppContext) {
 /// Execute wallet logout command.
 fn handle_logout(ctx: &AppContext) {
     if ctx.wallet.with(|w| w.is_connected()) {
-        match wallet::disconnect(ctx) {
+        match crate::components::wallet::disconnect(ctx) {
             Ok(()) => ctx
                 .terminal
                 .push_output(OutputLine::success("Disconnected from wallet.")),
