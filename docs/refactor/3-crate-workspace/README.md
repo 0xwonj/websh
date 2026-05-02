@@ -33,14 +33,14 @@ The migration is a **breaking change**. No legacy paths, no backwards-compatibil
 | Phase | Description | Status | Phase artifacts |
 |---|---|---|---|
 | A | Workspace skeleton | complete | ADR 0001 |
-| B | `websh-core` populated | in progress (B0-B4 of 10) | [phases/B-websh-core.md](./phases/B-websh-core.md), [phases/B-review.md](./phases/B-review.md), [phases/B-tasks.md](./phases/B-tasks.md) |
+| B | `websh-core` populated | functionally complete (B9 visibility audit + execute.rs family split deferred to follow-up) | [phases/B-websh-core.md](./phases/B-websh-core.md), [phases/B-review.md](./phases/B-review.md), [phases/B-tasks.md](./phases/B-tasks.md) |
 | C | `websh-cli` populated + engine extraction | pending | — |
 | D | `websh-web` populated + UI consolidation | pending | — |
 | E | Trunk + asset paths working | pending | — |
 | F | Docs + repository hygiene | pending | — |
 | G | Browser PGP verification (held — separate branch later) | held | — |
 
-**Phase B sub-progress** (as of `git log refactor/3-crate-workspace`): B0 + B1+B2 + B3 + B4 + (wallet pre-move-refactor) + B5+B6+B7+B8 merged landed. B9 (visibility audit) + B10 (test relocation) + wrap-up review remain.
+**Phase B sub-progress** (as of `git log refactor/3-crate-workspace`): all moves landed; 616 tests pass; clippy clean. Deferred follow-ups: B9 visibility audit, `execute.rs` family split (pre-existing 800+ file). Phase B wrap-up review (3+ review agents per workflow) is the remaining gate before declaring B fully done.
 
 Status is updated in this table at every phase boundary commit.
 

@@ -70,3 +70,19 @@ These mean B5+ requires more pre-move refactoring than B0 anticipated — separa
 5. Wrap-up review (3+ agents) per `workflow.md`.
 
 The 9 committed commits are all green (`cargo test --workspace` 593+ tests pass, clippy clean). The migration's documents (`README.md`, `architecture.md`, `workflow.md`, `conventions.md`, `principles.md`, `phases/B-*.md`, `adrs/`, this log) remain authoritative for the next session to pick up from.
+
+## 2026-05-03 · Phase B · resumption execution: B5-B10 landed
+
+Resumed and completed Phase B's bulk move:
+
+- `refactor(wallet): split appcontext-bound orchestration from pure wallet primitives` — extracted `connect_with_session` and `disconnect` (the only two Leptos-bound functions in `core/wallet.rs`) into a new `components/wallet.rs`. `core::wallet` is now pure web-sys + ENS + session primitives.
+- `refactor(core): move filesystem engine, runtime, storage, and shell into websh-core` — single bulk-move commit. `core/{engine, runtime, storage, commands, parser, autocomplete, admin, env, wallet, error, merge, changes}` all migrate. `engine/` renames to `filesystem/`. `commands/` renames to `shell/`. The `#[path = "../env.rs"]` and `#[path = "../wallet.rs"]` aliases unwound. Adapters under `storage/{github, idb, persist}` cfg-gated at the parent `mod` declaration. `web-sys` adds the `console` feature.
+- `test(core): relocate engine integration tests into websh-core/tests` — `commit_integration`, `mempool_compose`, `crypto_homepage` move to `crates/websh-core/tests/` with imports rewritten to `websh_core::*` directly. `[[test]] required-features = ["mock"]` moves with them; legacy crate's `mock` feature forwards to `websh-core/mock`. `pgp = "0.19"` joins websh-core's dev-deps for the homepage verification test.
+
+`execute.rs` family split (B8 originally) deferred — moved as one wholesale file under `shell/execute.rs` rather than splitting into `read/write/sync/env/info`. Pre-existing 800+ line file; not introduced by this migration. Tracked as a follow-up after the migration lands.
+
+B9 visibility audit also deferred to a follow-up. The legacy crate's `pub mod core` shim re-exports broad sets via wildcards; tightening to `pub(crate)` for items not actually consumed across crates is a polish step.
+
+Net Phase B state: 13 commits on `refactor/3-crate-workspace`. `cargo test --workspace` 616 tests pass (125 legacy + 468 websh-core + 23 integration). `cargo clippy --workspace --all-targets` clean. `cargo check -p websh-core --target wasm32-unknown-unknown` clean.
+
+Phases C, D, E, F remain. Phase C (CLI engine extraction from clap shims) is the next natural unit; Phase D (move `app.rs`, `components/`, `main.rs` to `crates/websh-web/`) follows; Phase E reconfigures Trunk; Phase F documents the result.
