@@ -6,11 +6,16 @@
 
 pub mod app;
 pub mod components;
-pub use websh_core::config;
-pub mod core;
-pub mod crypto;
-pub mod mempool;
 pub use websh_core::domain as models;
+pub use websh_core::{config, content_routes};
+
+pub mod crypto {
+    pub use websh_core::attestation::{artifact as attestation, ledger, subject};
+    pub use websh_core::crypto::{ack, eth, pgp};
+}
+
+pub mod core;
+pub mod mempool;
 pub mod utils;
 
 #[cfg(not(target_arch = "wasm32"))]

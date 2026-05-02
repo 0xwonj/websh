@@ -1,6 +1,6 @@
 //! Attestation artifact (collection of typed `Subject`s with their signatures).
 //!
-//! The data shape of subjects lives in `crate::crypto::subject`; this module
+//! The data shape of subjects lives in `crate::attestation::subject`; this module
 //! holds the on-disk artifact wrapper, the `Attestation` enum (the actual
 //! signature payloads), and the constants/hash helpers shared across the
 //! crypto modules.
@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-pub use crate::crypto::subject::{
+pub use crate::attestation::subject::{
     ContentFile, DocumentSubject, Envelope, HomepageSubject, LedgerSubject, PageSubject, Subject,
     compute_content_sha256, subject_id_for_route,
 };
@@ -62,7 +62,7 @@ impl Default for AttestationArtifact {
 
 impl AttestationArtifact {
     pub fn from_homepage_asset() -> Result<Self, serde_json::Error> {
-        serde_json::from_str(include_str!("../../assets/crypto/attestations.json"))
+        serde_json::from_str(include_str!("../../../../assets/crypto/attestations.json"))
     }
 
     pub fn subject_for_route(&self, route: &str) -> Option<&Subject> {

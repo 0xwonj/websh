@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::crypto::attestation::{CONTENT_HASH, ContentFile, compute_content_sha256, sha256_hex};
+use crate::attestation::artifact::{CONTENT_HASH, ContentFile, compute_content_sha256, sha256_hex};
 
 pub const CONTENT_LEDGER_SCHEME: &str = "websh.content-ledger.v1";
 pub const CONTENT_LEDGER_PATH: &str = "content/.websh/ledger.json";

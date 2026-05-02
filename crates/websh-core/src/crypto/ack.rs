@@ -153,7 +153,9 @@ impl Default for AckPrivateSource {
 
 impl AckArtifact {
     pub fn from_homepage_asset() -> Result<Self, serde_json::Error> {
-        serde_json::from_str(include_str!("../../assets/crypto/ack.commitment.json"))
+        serde_json::from_str(include_str!(
+            "../../../../assets/crypto/ack.commitment.json"
+        ))
     }
 
     pub fn count(&self) -> usize {

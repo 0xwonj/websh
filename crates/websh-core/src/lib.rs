@@ -4,8 +4,10 @@
 //! everything the browser app and CLI both need. Populated incrementally
 //! by the migration.
 
+pub mod attestation;
 pub mod config;
 pub mod content_routes;
+pub mod crypto;
 pub mod domain;
 pub mod theme;
 pub mod utils;

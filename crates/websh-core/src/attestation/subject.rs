@@ -9,7 +9,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::crypto::attestation::{Attestation, SUBJECT_MESSAGE_SCHEME, sha256_hex};
+use crate::attestation::artifact::{Attestation, SUBJECT_MESSAGE_SCHEME, sha256_hex};
 
 /// One file contributing to a subject's content fingerprint.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
