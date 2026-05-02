@@ -225,7 +225,6 @@ impl Default for ExplorerState {
 /// signal-container struct — see the module-level convention note.
 #[derive(Clone, Copy)]
 pub struct AppContext {
-    // === Shared State ===
     /// Global canonical filesystem tree (`/`, `/db/*`, `/.websh/state/*`).
     pub global_fs: RwSignal<GlobalFs>,
     /// Current canonical working directory for shell/explorer surfaces.
@@ -233,19 +232,16 @@ pub struct AppContext {
     /// Wallet connection state.
     pub wallet: RwSignal<WalletState>,
 
-    // === View Management ===
     /// Current view mode (Terminal or Explorer).
     pub view_mode: RwSignal<ViewMode>,
     /// Current visual palette, mirrored to `html[data-theme]`.
     pub theme: RwSignal<&'static str>,
 
-    // === View-Specific State ===
     /// Terminal state (history, commands).
     pub terminal: TerminalState,
     /// Explorer state (selection, view type, sheet).
     pub explorer: ExplorerState,
 
-    // === Runtime filesystem/write state ===
     /// Staged + working-tree edits awaiting commit.
     pub changes: RwSignal<ChangeSet>,
     /// Merged global canonical filesystem with local `changes` overlaid.
@@ -263,7 +259,6 @@ pub struct AppContext {
     /// outcome.
     pub mount_errors: RwSignal<Vec<runtime::MountFailure>>,
 
-    // === Editor modal ===
     /// When `Some(path)`, the `EditModal` is open editing that path. `None` = closed.
     pub editor_open: RwSignal<Option<crate::models::VirtualPath>>,
 }

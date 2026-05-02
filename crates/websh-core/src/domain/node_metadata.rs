@@ -312,10 +312,8 @@ pub struct ImageDim {
     pub height: u32,
 }
 
-/// Test-support helpers consumed by the migration's transitional shim.
-/// Cfg-gating on `cfg(test)` would not propagate through the legacy
-/// crate's `pub use websh_core::domain as models;` re-export; the gate
-/// is dropped and dead-code warnings suppressed.
+/// Builders for minimal `NodeMetadata` fixtures used by sibling tests
+/// across the crate.
 #[allow(dead_code)]
 pub mod test_support {
     use super::*;

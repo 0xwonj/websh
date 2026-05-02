@@ -485,10 +485,6 @@ mod tests {
         assert_eq!(mode, CompletionMode::None);
     }
 
-    // ------------------------------------------------------------------------
-    // Write-command + sync-subcommand completion
-    // ------------------------------------------------------------------------
-
     /// Build a small fixture FS with two files and two dirs at `/`:
     /// - `home/` (dir), `help/` (dir)
     /// - `hello.md` (file), `hero.md` (file)
@@ -569,8 +565,6 @@ mod tests {
         }
     }
 
-    // --- file-or-dir-completing commands --------------------------------
-
     #[test]
     fn test_touch_completes_files_and_dirs() {
         let fs = write_cmd_fixture();
@@ -635,8 +629,6 @@ mod tests {
         assert!(names.iter().any(|n| n == "home/"), "got {:?}", names);
     }
 
-    // --- dir-only-completing commands -----------------------------------
-
     #[test]
     fn test_mkdir_completes_dirs_only() {
         let fs = write_cmd_fixture();
@@ -682,8 +674,6 @@ mod tests {
         );
     }
 
-    // --- classification through CompletionMode ---------------------------
-
     #[test]
     fn test_classification_write_commands() {
         let (mode, _) = CompletionMode::from_input("touch foo");
@@ -697,8 +687,6 @@ mod tests {
         let (mode, _) = CompletionMode::from_input("rmdir foo");
         assert_eq!(mode, CompletionMode::DirectoryPath);
     }
-
-    // --- sync subcommand completion --------------------------------------
 
     #[test]
     fn test_sync_empty_suggests_all_subcommands() {

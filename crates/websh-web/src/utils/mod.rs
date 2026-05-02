@@ -1,6 +1,6 @@
-//! Utility modules. Cross-platform leaf utilities live in
-//! [`websh_core::utils`] and are re-exported here for the legacy crate's
-//! transitional shim.
+//! Web-side utility modules. Cross-platform leaves are re-exported from
+//! [`websh_core::utils`]; web-only leaves (markdown, breakpoints, theme,
+//! wasm_cleanup) are declared as `pub mod` here.
 
 pub use websh_core::content_routes;
 pub use websh_core::utils::{

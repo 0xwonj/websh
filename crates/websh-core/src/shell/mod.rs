@@ -607,10 +607,6 @@ mod tests {
         assert_eq!(result.exit_code, 1);
     }
 
-    // =========================================================================
-    // Parse tests for write + sync commands
-    // =========================================================================
-
     #[test]
     fn test_parse_touch_ok() {
         assert!(matches!(

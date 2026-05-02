@@ -26,7 +26,6 @@ pub struct ThemeDescriptor {
 }
 
 pub const THEMES: &[ThemeDescriptor] = &[
-    // ===== Dark themes (alphabetical by id) =====
     ThemeDescriptor {
         id: "catppuccin-mocha",
         label: "Catppuccin Mocha",
@@ -75,7 +74,6 @@ pub const THEMES: &[ThemeDescriptor] = &[
         meta_color: "#1a1b26",
         accent_color: "#7aa2f7",
     },
-    // ===== Light themes (alphabetical by id) =====
     ThemeDescriptor {
         id: "black-ink",
         label: "Black Ink",

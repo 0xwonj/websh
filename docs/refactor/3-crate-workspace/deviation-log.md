@@ -86,3 +86,54 @@ B9 visibility audit also deferred to a follow-up. The legacy crate's `pub mod co
 Net Phase B state: 13 commits on `refactor/3-crate-workspace`. `cargo test --workspace` 616 tests pass (125 legacy + 468 websh-core + 23 integration). `cargo clippy --workspace --all-targets` clean. `cargo check -p websh-core --target wasm32-unknown-unknown` clean.
 
 Phases C, D, E, F remain. Phase C (CLI engine extraction from clap shims) is the next natural unit; Phase D (move `app.rs`, `components/`, `main.rs` to `crates/websh-web/`) follows; Phase E reconfigures Trunk; Phase F documents the result.
+
+## 2026-05-03 · wrap-up review consolidation
+
+Four review agents (architecture, principles/idioms, conventions/quality, correctness) ran in parallel against the cumulative diff `787932d..fc656fd`. Cross-cutting findings and resolutions:
+
+### Fixed in-session
+
+- **`web-sys` features missing** — `websh-core` failed standalone wasm32 build because `Blob`/`BlobPropertyBag`/`RequestCache` were only declared on `websh-web`'s manifest. Two-target invariant restored by adding them to `websh-core/Cargo.toml`.
+- **`mock` feature opt-in on production deps** — `websh-cli`'s `[dependencies]` had `websh-core = { features = ["mock"] }`, shipping `MockBackend` into the released binary. Moved to `[dev-dependencies]` per architecture §3.2.
+- **Migration-process narration in production doc comments** — `websh-core/src/lib.rs`, `websh-cli/src/lib.rs`, `websh-web/src/utils/mod.rs`, `websh-web/src/components/wallet.rs`, `domain/node_metadata.rs::test_support` all had references to "the migration", "Phase X", "the legacy crate's transitional shim". Scrubbed per `conventions.md § Comments`.
+- **Surviving banner-block separators** — earlier scrub commit `53787dc` missed indented `    // ====` and `// ----` variants. Stripped from `shell/mod.rs`, `shell/execute.rs`, `shell/autocomplete.rs`, `web/utils/theme.rs`, two more files.
+- **`CLAUDE.md` legacy path** — line 114 referenced `src/core/commands/`; now `crates/websh-core/src/shell/`.
+- **Dead `pub mod models` shim in `websh-core/src/lib.rs`** — `#[doc(hidden)] pub mod models { pub use crate::domain::*; }` had zero cross-crate consumers. Deleted.
+
+### Deferred (logged here as concrete follow-up issues)
+
+The reviewers correctly identified these as material but consistent with the migration's existing deferral pattern. Each becomes a tracked follow-up; none blocks merge:
+
+- **`pub mod core { ... }` legacy shim in `websh-web/src/lib.rs`** carries 122 internal call sites (`crate::core::engine`, `crate::core::commands`, `crate::models::*`, `crate::crypto::ledger`, etc.). Functionally a renaming layer that calls `websh_core::filesystem` "engine" and `websh_core::shell` "commands" to keep old paths alive. Either rewrite the 122 sites to direct `websh_core::*` paths or accept the shim as the canonical web-side import surface and drop the "transitional" framing. Recommended trigger for cleanup: next material refactor that touches each component.
+- **`thiserror` adoption** — `thiserror = "2"` is in `[workspace.dependencies]` and listed in each crate, but every error type in the tree (`websh-core::error::{WalletError, EnvironmentError, FetchError}`, `storage::error::StorageError`, `crypto::eth::Error`, etc.) is hand-rolled `Display + Error`. The conventions doc mandates `thiserror` derives; the in-session promise was to fold the conversion into each error type's move commit. Conversion is mechanical (~30 minutes); a single follow-up commit lands it.
+- **wasm-only deps in plain `[dependencies]` of `websh-core`** — `wasm-bindgen`, `web-sys`, `gloo-net`, `gloo-timers`, `idb`, `serde-wasm-bindgen`, `js-sys`, `wasm-bindgen-futures` should sit under `[target.'cfg(target_arch = "wasm32")'.dependencies]`. They land in plain `[dependencies]` because several modules in `websh-core` (`utils/dom.rs`, `utils/asset.rs`, `runtime/state.rs`, `filesystem/routing.rs`, `storage/idb.rs`, `storage/persist.rs`, `storage/github/client.rs`) reference web-sys types unconditionally. The cfg-gating fix requires also gating those modules at parent `mod` declarations, plus internal cfg arms on functions that `websh-web` consumes on both targets. Substantial follow-up — not a one-liner. Native `cargo check -p websh-core` works today only because web-sys/wasm-bindgen happen to compile (no-op) on the host triple.
+- **Storage adapters not cfg-gated at parent `mod`** — `storage/{github, idb, persist}` declared unconditionally in `storage/mod.rs:7-9`. Coupled with the wasm-deps fix above; gating both together is the natural unit.
+- **`storage::boot` reaches up into engine** — `storage/boot.rs` exports `bootstrap_global_fs() -> GlobalFs`, putting an engine constructor in the adapter layer. Per the layering in `architecture.md §4`, `boot` belongs under `runtime/` (e.g., `runtime/boot.rs`). Pre-existing boundary smell, not introduced by this migration.
+- **CLI engine extraction from clap shims** — `cli/mempool.rs` (1297 lines) and `cli/attest.rs` (1200 lines) bundle dispatchers + engine logic. Architecture §3.2 prescribed `cli/<sub>.rs` ~50 lines + `engine/<domain>/`. Deferred wholesale; tracked as Phase C-bis.
+- **`execute.rs` family split** — pre-existing 2237-line file moved wholesale from `core/commands/execute.rs` to `shell/execute.rs`. Per-family split (`read.rs`/`write.rs`/`sync.rs`/`env.rs`/`info.rs`) deferred per the original Phase B task plan.
+- **B9 visibility audit** — cross-crate `pub` items in `websh-core` not yet narrowed to `pub(crate)` where consumers don't need them. `storage/persist.rs::DraftPersister`, several `pub use` re-exports in `attestation/mod.rs`, etc.
+- **`#[allow(dead_code)]` cleanup** — `storage/{backend, error, github/client, github/graphql, idb, persist}.rs`, `domain/{filesystem, node_metadata}.rs` carry annotations from the pre-migration code. Some items genuinely became dead post-migration; others are consumed cross-crate and the annotation is masking visibility-mismatch noise. Per `principles.md § Anti-patterns`, audit and either delete or tighten visibility.
+- **Pre-existing 800+ line files** — full inventory: `shell/execute.rs` (2237), `cli/mempool.rs` (1297), `cli/attest.rs` (1200), `filesystem/global_fs.rs` (1080), `shell/mod.rs` (935), `crypto/ack.rs` (813), `attestation/ledger.rs` (802). Not introduced by the migration; tracked as a separate follow-up.
+- **`83716cb`'s ledger schema redesign** — the commit that moved `crypto/ledger.rs` to `attestation/ledger.rs` also picked up an unrelated `ContentLedger` schema redesign that landed on `main` between the migration's baseline and this branch's `fe49a6d` checkpoint. Reviewers reading `787932d..fc656fd` see a 437→802-line diff on that file; the body of `83716cb` understates the change. Pre-existing churn; flagged for awareness.
+
+### Reviewer-confirmed strengths (preserve)
+
+- Cross-crate dep direction is clean (`websh-cli ↔ websh-web` no dep; both → `websh-core`).
+- Layered design inside `websh-core` (`domain/` → engines + ports → adapters) holds; no cycles, no upward dep flow.
+- `StorageBackend` remains the canonical hexagonal port; not extended speculatively to mempool/attestation/content_sync.
+- `runtime/wallet.rs` is genuinely Leptos-free (verified by grep); `components/wallet.rs` is the proper UI-bound counterpart.
+- `SideEffect::ClearHistory` extraction is exemplary (data-shaped side effect, testable command logic).
+- `AppContext` preserved as `Copy` struct of signal handles.
+- Single-source-of-truth invariant for `mempool::manifest_entry::build_mempool_manifest_state` holds.
+- `FromStr` discipline preserved on mempool enums.
+- Memo-vs-Effect discipline holds on every new `Effect::new`.
+- `WasmCleanup<F>` SAFETY comment is the gold standard.
+- Conventional Commits format applied to every commit subject; breaking-change `!` and `BREAKING CHANGE:` footers used.
+- Workspace `Cargo.toml` is minimal and clean.
+- All three regression tests for the pre-migration `UpdateFile` CRITICAL fix survived the move.
+
+### Merge recommendation
+
+Reviewer consensus: **PROCEED WITH FOLLOW-UPS**. Three of four reviewers said FIX FIRST initially; their CRITICALs were the in-session fixes already landed (`web-sys` features, `mock` feature placement, doc-comment scrub, banner blocks). Remaining items are tracked deferrals with concrete trigger-points.
+
+The migration's foundational invariants — compile-time crate-boundary layering, hexagonal port, two-target compile, `AppContext` preservation, `SideEffect`-based command logic — are all intact. Branch is ready for review by a human.

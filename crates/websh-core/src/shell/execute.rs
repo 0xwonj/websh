@@ -1284,10 +1284,6 @@ mod tests {
         );
     }
 
-    // ======================================================================
-    // Write-command tests
-    // ======================================================================
-
     #[test]
     fn test_touch_requires_admin() {
         let (ws, fs) = empty_state();
@@ -2049,10 +2045,6 @@ mod tests {
         );
         assert!(!fs.has_children(&home_vpath("file.md")));
     }
-
-    // ======================================================================
-    // Merged runtime view + discard-on-pending-create.
-    // ======================================================================
 
     /// Build the merged "current view" that the terminal dispatcher sees.
     fn view(base: &GlobalFs, changes: &ChangeSet) -> GlobalFs {

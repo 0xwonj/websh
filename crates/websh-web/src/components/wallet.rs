@@ -1,7 +1,6 @@
-//! UI-side wallet orchestration. Wraps pure wallet primitives from
-//! [`websh_core::runtime::wallet`] (post-Phase-B) / `crate::core::wallet`
-//! with the Leptos signal updates that mirror connection state into
-//! `AppContext`.
+//! UI-side wallet orchestration. Wraps the pure wallet primitives in
+//! [`websh_core::runtime::wallet`] with Leptos signal updates that
+//! mirror connection state into [`AppContext`].
 
 use leptos::prelude::Set;
 

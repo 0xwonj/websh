@@ -111,7 +111,7 @@ Important rules:
 
 When adding commands:
 
-1. Add parser support in `src/core/commands/`.
+1. Add parser support in `crates/websh-core/src/shell/`.
 2. Keep execution pure and return `CommandResult`.
 3. Express UI mutations as `SideEffect`.
 4. Dispatch async/browser effects from the UI/runtime boundary.

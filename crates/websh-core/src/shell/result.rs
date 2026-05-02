@@ -75,8 +75,6 @@ pub struct CommandResult {
 }
 
 impl CommandResult {
-    // --- Primary constructors ---
-
     /// Success with output, no side effect.
     pub fn output(lines: Vec<OutputLine>) -> Self {
         Self {
@@ -103,8 +101,6 @@ impl CommandResult {
             side_effect: None,
         }
     }
-
-    // --- Side-effect constructors ---
 
     pub fn navigate(route: RouteRequest) -> Self {
         Self {
@@ -145,8 +141,6 @@ impl CommandResult {
             side_effect: Some(SideEffect::SwitchViewAndNavigate(ViewMode::Explorer, route)),
         }
     }
-
-    // --- Builder methods ---
 
     /// Override the exit code (chainable).
     pub fn with_exit_code(mut self, code: i32) -> Self {
