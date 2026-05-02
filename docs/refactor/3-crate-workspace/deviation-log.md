@@ -40,3 +40,33 @@ After consensus review (`phases/B-review.md`), the design picks up additional re
 - `tests/crypto_homepage.rs` moves to `crates/websh-core/tests/` in B10 alongside `commit_integration.rs` and `mempool_compose.rs`.
 - Visibility audit added as B9 (downgrade `pub` to `pub(crate)` where items aren't cross-crate consumed).
 - Comment audit is part of B0.e (banner-block separators, restate-the-code, development-history narration scrubbed before move).
+
+## 2026-05-03 · Phase B · B0-B4 landed; B5+ deferred to next session
+
+After 9 commits on `refactor/3-crate-workspace`, the migration paused at the B4/B5 boundary. Landed:
+
+- Phase A (workspace skeleton) — 1 commit.
+- B0 pre-move refactoring (4 commits): `SideEffect::ClearHistory` severs `&TerminalState` from shell; `dom::window()` replaces direct `web_sys::window()` in `execute_id`; `AppError` deleted; banner-block comments scrubbed across 16 files. (B0.c and B0.f were satisfied by existing code structure.)
+- B1+B2 merged commit: `domain/`, `utils/`, `config`, `content_routes`, `theme` (split — pure helpers to core, apply/init stay in legacy) all moved into `websh-core`. Forced merge because `config::BootstrapSiteSource` depends on `models::VirtualPath` and `models::wallet` depends on `utils::format`.
+- B3: `crypto/` (ack, eth, pgp) and `attestation/` (artifact, ledger, subject) moved.
+- B4: `mempool/` moved.
+
+B5+ attempted in this session but reverted: bulk-moving `core/{engine,runtime,storage,commands,parser,changes,merge,admin,env,wallet,error,autocomplete}.rs` to their websh-core homes exposes deep Leptos coupling that the recon underestimated. Specifically:
+
+- `core/wallet.rs` uses Leptos `RwSignal` and reaches into `crate::app::AppContext` from inside the engine layer (15+ lines of `ctx.foo.set(...)` calls).
+- `core/runtime/state.rs` similarly threads through `AppContext`.
+- `core/storage/persist.rs` uses `web_sys::console::error_1` (needs `Console` web-sys feature).
+- `core/storage/idb.rs` and `core/storage/persist.rs` reference `crate::core::changes::ChangeSet` which moves to `domain/changes.rs` requiring synchronized internal-import rewrites.
+- `core/commands/execute.rs` hardcodes `crate::DirEntry` (referring to a flat re-export in legacy `core/mod.rs:19`) and a now-stale `crate::core::env`/`wallet` path.
+
+These mean B5+ requires more pre-move refactoring than B0 anticipated — separating the pure engine state from the Leptos-bound state in `wallet.rs` and `state.rs` is a multi-commit effort comparable in scope to B0 itself.
+
+**Resumption plan** (next session):
+
+1. Pre-move refactor `core/wallet.rs`: extract Leptos-bound bits into a new `components/wallet.rs` (or similar), leaving `runtime::wallet` with only pure session/connection logic.
+2. Pre-move refactor `core/runtime/state.rs` similarly: pure types + state mutations, no `AppContext` reach-through.
+3. Add `Console` and `HtmlElement`-related web-sys features to `websh-core`'s Cargo.toml.
+4. Then B5a (storage port + error) → B5b (filesystem engine) → B6 (storage adapters) → B7 (runtime + admin + error) → B8 (shell + execute split) → B9 (visibility audit) → B10 (test relocation) per the plan.
+5. Wrap-up review (3+ agents) per `workflow.md`.
+
+The 9 committed commits are all green (`cargo test --workspace` 593+ tests pass, clippy clean). The migration's documents (`README.md`, `architecture.md`, `workflow.md`, `conventions.md`, `principles.md`, `phases/B-*.md`, `adrs/`, this log) remain authoritative for the next session to pick up from.

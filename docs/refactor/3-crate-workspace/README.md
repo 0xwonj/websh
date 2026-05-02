@@ -32,13 +32,15 @@ The migration is a **breaking change**. No legacy paths, no backwards-compatibil
 
 | Phase | Description | Status | Phase artifacts |
 |---|---|---|---|
-| A | Workspace skeleton | complete | (skipped — minimal scope; ADR 0001) |
-| B | `websh-core` populated | in design | [phases/B-websh-core.md](./phases/B-websh-core.md) |
+| A | Workspace skeleton | complete | ADR 0001 |
+| B | `websh-core` populated | in progress (B0-B4 of 10) | [phases/B-websh-core.md](./phases/B-websh-core.md), [phases/B-review.md](./phases/B-review.md), [phases/B-tasks.md](./phases/B-tasks.md) |
 | C | `websh-cli` populated + engine extraction | pending | — |
 | D | `websh-web` populated + UI consolidation | pending | — |
 | E | Trunk + asset paths working | pending | — |
 | F | Docs + repository hygiene | pending | — |
 | G | Browser PGP verification (held — separate branch later) | held | — |
+
+**Phase B sub-progress** (as of `git log refactor/3-crate-workspace`): B0.a-e (4 commits) + B1+B2 merged + B3 + B4 landed. B5-B10 deferred — see [deviation-log.md § 2026-05-03 B0-B4 landed](./deviation-log.md) for the resumption plan.
 
 Status is updated in this table at every phase boundary commit.
 
