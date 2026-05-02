@@ -1,9 +1,9 @@
 //! End-to-end: staged changes → backend-private manifest regeneration.
 
-use websh::core::changes::{ChangeSet, ChangeType};
-use websh::core::runtime;
-use websh::core::storage::{MockBackend, ScannedSubtree};
-use websh::models::{EntryExtensions, NodeMetadata, VirtualPath};
+use websh_core::domain::changes::{ChangeSet, ChangeType};
+use websh_core::domain::{EntryExtensions, NodeMetadata, VirtualPath};
+use websh_core::runtime;
+use websh_core::storage::{MockBackend, ScannedSubtree};
 
 #[tokio::test(flavor = "current_thread")]
 async fn commit_path_records_staged_paths_and_merged_snapshot() {

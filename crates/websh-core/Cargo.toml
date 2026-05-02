@@ -48,3 +48,8 @@ mock = []
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt"] }
+pgp = "0.19"
+
+[[test]]
+name = "commit_integration"
+required-features = ["mock"]

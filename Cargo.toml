@@ -96,11 +96,7 @@ imagesize = "0.13"
 getrandom = { version = "0.2", features = ["js"] }
 
 [features]
-mock = []
-
-[[test]]
-name = "commit_integration"
-required-features = ["mock"]
+mock = ["websh-core/mock"]
 
 [package.metadata.stylance]
 output_file = "assets/bundle.css"

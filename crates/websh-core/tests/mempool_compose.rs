@@ -1,11 +1,11 @@
 //! Integration tests for pure mempool helpers.
 
-use websh::mempool::{
+use websh_core::domain::{MempoolStatus, VirtualPath};
+use websh_core::mempool::{
     ComposeError, ComposeForm, ComposePayload, MempoolManifestState, build_mempool_manifest_state,
     form_to_payload, parse_mempool_frontmatter, serialize_mempool_file, slug_from_title,
     validate_form,
 };
-use websh::models::{MempoolStatus, VirtualPath};
 
 fn sample_form() -> ComposeForm {
     ComposeForm {

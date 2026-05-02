@@ -1,17 +1,20 @@
 use std::fs;
 use std::path::Path;
 
-use websh::crypto::ack::{
+use websh_core::attestation::artifact::{ATTESTATIONS_PATH, Attestation, AttestationArtifact};
+use websh_core::crypto::ack::{
     ACK_ARTIFACT_PATH, ACK_LOCAL_SOURCE_PATH, AckArtifact, AckPrivateSource,
     build_artifact_from_source,
 };
-use websh::crypto::attestation::{ATTESTATIONS_PATH, Attestation, AttestationArtifact};
-use websh::crypto::eth::verify_personal_sign;
-use websh::crypto::pgp::{EXPECTED_PGP_FINGERPRINT, PUBLIC_KEY_PATH, normalize_fingerprint};
+use websh_core::crypto::eth::verify_personal_sign;
+use websh_core::crypto::pgp::{EXPECTED_PGP_FINGERPRINT, PUBLIC_KEY_PATH, normalize_fingerprint};
 
 #[test]
 fn homepage_hybrid_ack_artifact_verifies() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("workspace root");
     let body = fs::read_to_string(root.join(ACK_ARTIFACT_PATH)).expect("read ACK artifact");
     let artifact: AckArtifact = serde_json::from_str(&body).expect("parse ACK artifact");
     artifact.validate().expect("ACK artifact validates");
@@ -19,7 +22,10 @@ fn homepage_hybrid_ack_artifact_verifies() {
 
 #[test]
 fn local_ack_plaintext_source_matches_public_artifact_when_present() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("workspace root");
     let source_path = root.join(ACK_LOCAL_SOURCE_PATH);
     if !source_path.exists() {
         return;
@@ -40,7 +46,10 @@ fn local_ack_plaintext_source_matches_public_artifact_when_present() {
 
 #[test]
 fn homepage_attestation_artifact_verifies_when_present() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("workspace root");
     let path = root.join(ATTESTATIONS_PATH);
     if !path.exists() {
         return;
@@ -78,7 +87,10 @@ fn homepage_attestation_artifact_verifies_when_present() {
 
 #[test]
 fn homepage_pgp_key_verifies_when_present() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .expect("workspace root");
     let path = root.join(PUBLIC_KEY_PATH);
     if !path.exists() {
         return;

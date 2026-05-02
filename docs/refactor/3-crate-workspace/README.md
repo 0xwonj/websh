@@ -40,7 +40,7 @@ The migration is a **breaking change**. No legacy paths, no backwards-compatibil
 | F | Docs + repository hygiene | pending | — |
 | G | Browser PGP verification (held — separate branch later) | held | — |
 
-**Phase B sub-progress** (as of `git log refactor/3-crate-workspace`): B0.a-e (4 commits) + B1+B2 merged + B3 + B4 landed. B5-B10 deferred — see [deviation-log.md § 2026-05-03 B0-B4 landed](./deviation-log.md) for the resumption plan.
+**Phase B sub-progress** (as of `git log refactor/3-crate-workspace`): B0 + B1+B2 + B3 + B4 + (wallet pre-move-refactor) + B5+B6+B7+B8 merged landed. B9 (visibility audit) + B10 (test relocation) + wrap-up review remain.
 
 Status is updated in this table at every phase boundary commit.
 
