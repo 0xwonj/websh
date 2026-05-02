@@ -213,7 +213,7 @@ mod tests {
     /// Guards against drift between `THEMES` and `index.html`.
     #[test]
     fn index_html_lists_all_themes() {
-        let index_html = include_str!("../../index.html");
+        let index_html = include_str!("../../../../index.html");
 
         assert!(
             index_html.contains(STORAGE_KEY),

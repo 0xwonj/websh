@@ -4857,42 +4857,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "websh"
-version = "0.1.0"
-dependencies = [
- "alloy-primitives",
- "ammonia",
- "base64",
- "comrak",
- "console_error_panic_hook",
- "getrandom 0.2.17",
- "gloo-net",
- "gloo-timers",
- "hex",
- "icondata",
- "idb",
- "js-sys",
- "k256",
- "leptos",
- "leptos-use",
- "leptos_icons",
- "regex",
- "serde",
- "serde-wasm-bindgen",
- "serde_json",
- "sha2",
- "stylance",
- "tokio",
- "toml 0.8.23",
- "unicode-normalization",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "wasm-bindgen-test",
- "web-sys",
- "websh-core",
-]
-
-[[package]]
 name = "websh-cli"
 version = "0.1.0"
 dependencies = [
@@ -4944,6 +4908,36 @@ dependencies = [
 [[package]]
 name = "websh-web"
 version = "0.1.0"
+dependencies = [
+ "alloy-primitives",
+ "ammonia",
+ "base64",
+ "comrak",
+ "console_error_panic_hook",
+ "getrandom 0.2.17",
+ "gloo-net",
+ "gloo-timers",
+ "hex",
+ "icondata",
+ "idb",
+ "js-sys",
+ "leptos",
+ "leptos-use",
+ "leptos_icons",
+ "regex",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "sha2",
+ "stylance",
+ "toml 0.8.23",
+ "unicode-normalization",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "wasm-bindgen-test",
+ "web-sys",
+ "websh-core",
+]
 
 [[package]]
 name = "weezl"

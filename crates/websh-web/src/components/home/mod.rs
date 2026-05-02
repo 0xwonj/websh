@@ -29,7 +29,7 @@ stylance::import_crate_style!(
 mod sections;
 use sections::{Acknowledgements, Appendices, PageFooter};
 
-pub(super) const PUBLIC_KEY_BLOCK: &str = include_str!("../../../content/keys/wonjae.asc");
+pub(super) const PUBLIC_KEY_BLOCK: &str = include_str!("../../../../../content/keys/wonjae.asc");
 
 const TOC_ITEMS: &[TocItem] = &[
     TocItem {

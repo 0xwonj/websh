@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
-use websh::app::App;
+use websh_web::app::App;
 
 fn main() {
     console_error_panic_hook::set_once();

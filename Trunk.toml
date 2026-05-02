@@ -1,13 +1,11 @@
 [build]
 target = "index.html"
 dist = "dist"
-# Static hosting: use relative paths
 public_url = "./"
-# Add hash to filenames for cache optimization
 filehash = true
 
 [watch]
-watch = ["src", "index.html", "assets/base.css", "assets/vendor", "content"]
+watch = ["crates/websh-web/src", "index.html", "assets/base.css", "assets/vendor", "content"]
 ignore = ["assets/bundle.css"]
 enable_cooldown = true
 
@@ -15,32 +13,17 @@ enable_cooldown = true
 addresses = ["127.0.0.1"]
 port = 8080
 
-# Build stylance CSS bundle before Trunk build
 [[hooks]]
 stage = "pre_build"
 command = "stylance"
-command_arguments = ["--output-file", "assets/bundle.css", "."]
+command_arguments = ["--output-file", "assets/bundle.css", "crates/websh-web"]
 
-# Refresh content/ sidecars from frontmatter and regenerate
-# content/manifest.json. `content manifest` runs the full sync (parse
-# YAML frontmatter from markdown, recompute derived fields, fold
-# sidecars into the manifest) so a frontmatter edit is reflected in the
-# very next `trunk serve` reload — dev preview matches release deploy.
-# Idempotent and byte-stable: re-running on unchanged content writes no
-# files (`io::write_json` skips identical content) so this hook never
-# triggers the watcher into a rebuild loop.
 [[hooks]]
 stage = "pre_build"
 command = "cargo"
-command_arguments = ["run", "--quiet", "--bin", "websh-cli", "--", "content", "manifest"]
+command_arguments = ["run", "--quiet", "-p", "websh-cli", "--", "content", "manifest"]
 
-# Refresh the attestation artifact (manifest + ledger + sig coverage) and
-# sign newly-changed subjects with the project's PGP key. The subcommand
-# checks `TRUNK_PROFILE` and silently no-ops on dev profiles, so
-# `trunk serve` and `trunk build` stay fast — only `trunk build --release`
-# triggers the full attest flow. `WEBSH_NO_SIGN=1` skips signing on
-# CI / non-author environments without failing the build.
 [[hooks]]
 stage = "pre_build"
 command = "cargo"
-command_arguments = ["run", "--quiet", "--bin", "websh-cli", "--", "attest", "build"]
+command_arguments = ["run", "--quiet", "-p", "websh-cli", "--", "attest", "build"]

@@ -8,3 +8,70 @@ license.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+websh-core = { path = "../websh-core" }
+leptos = { version = "0.8", features = ["csr"] }
+console_error_panic_hook = "0.1"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = [
+    "Blob",
+    "BlobPropertyBag",
+    "console",
+    "Document",
+    "FocusEvent",
+    "Headers",
+    "History",
+    "Element",
+    "HtmlElement",
+    "HtmlInputElement",
+    "KeyboardEvent",
+    "Location",
+    "Navigator",
+    "Node",
+    "NodeList",
+    "Request",
+    "RequestInit",
+    "RequestMode",
+    "Response",
+    "ScrollBehavior",
+    "ScrollIntoViewOptions",
+    "Storage",
+    "Touch",
+    "TouchEvent",
+    "TouchList",
+    "Url",
+    "Window",
+] }
+js-sys = "0.3"
+comrak = { version = "0.52", default-features = false }
+ammonia = "4"
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = "0.8"
+stylance = "0.7"
+leptos_icons = "0.7"
+leptos-use = { version = "0.18", default-features = false, features = ["use_media_query"] }
+icondata = { version = "0.7", default-features = false, features = ["bootstrap-icons", "lucide"] }
+regex = { workspace = true }
+base64 = { workspace = true }
+gloo-net = "0.6"
+idb = "0.6"
+gloo-timers = { version = "0.3", features = ["futures"] }
+serde-wasm-bindgen = "0.6"
+sha2 = { workspace = true }
+hex = { workspace = true }
+alloy-primitives = { workspace = true }
+unicode-normalization = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+[package.metadata.stylance]
+output_file = "../../assets/bundle.css"
+folders = ["src"]
+extensions = [".module.css"]
+hash_len = 7
+class_name_pattern = "[name]-[hash]"
