@@ -12,7 +12,7 @@ name = "websh-cli"
 path = "src/main.rs"
 
 [dependencies]
-websh-core = { path = "../websh-core", features = ["mock"] }
+websh-core = { path = "../websh-core" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
@@ -29,6 +29,7 @@ regex = { workspace = true }
 toml = "0.8"
 
 [dev-dependencies]
+websh-core = { path = "../websh-core", features = ["mock"] }
 k256 = { version = "0.13", features = ["ecdsa"] }
 alloy-primitives = { workspace = true }
 hex = { workspace = true }
