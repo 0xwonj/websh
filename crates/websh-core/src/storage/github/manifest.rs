@@ -1,8 +1,8 @@
 // Manifest snapshot parse/serialize. Used by the wasm-only GitHub client and
 // by a host-side roundtrip test in `filesystem::global_fs`. The lib build on
-// host therefore sees these helpers as dead code; the allow keeps the build
-// quiet without lying about reachability on wasm32.
-#![allow(dead_code)]
+// host sees these helpers as dead code; the host-only allow keeps wasm32
+// honest while quieting the host build without lying about reachability.
+#![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 
 use crate::domain::EntryExtensions;
 use crate::domain::NodeKind;

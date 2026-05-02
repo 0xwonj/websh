@@ -30,9 +30,6 @@ pub struct DirMeta {
     pub title: String,
     /// Description text
     pub description: Option<String>,
-    /// Icon identifier
-    #[allow(dead_code)]
-    pub icon: Option<String>,
     /// Thumbnail image path
     pub thumbnail: Option<String>,
     /// Tags for categorization
@@ -46,7 +43,6 @@ impl From<&NodeMetadata> for DirMeta {
         Self {
             title: meta.title().unwrap_or("").to_string(),
             description: meta.description().map(str::to_string),
-            icon: meta.icon().map(str::to_string),
             thumbnail: meta.thumbnail().map(str::to_string),
             tags: meta.tags_owned(),
             counts: None,

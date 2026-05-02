@@ -29,7 +29,6 @@ pub struct ScannedDirectory {
     pub meta: NodeMetadata,
 }
 
-#[allow(dead_code)]
 #[derive(Debug)]
 pub struct CommitOutcome {
     pub new_head: String,
@@ -58,7 +57,6 @@ pub struct CommitRequest {
     pub auth_token: Option<String>,
 }
 
-#[allow(dead_code)]
 pub trait StorageBackend {
     fn backend_type(&self) -> &'static str;
 

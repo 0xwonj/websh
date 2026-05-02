@@ -13,7 +13,6 @@ use super::graphql::{BranchRef, CommitMessage, CreateCommitInput, build_file_cha
 use super::manifest::{parse_snapshot, serialize_snapshot};
 use super::path::{encoded_repo_relative_path, normalize_repo_prefix, prefixed_repo_path};
 
-#[allow(dead_code)]
 pub struct GitHubBackend {
     repo_with_owner: String,
     branch: String,
@@ -22,7 +21,6 @@ pub struct GitHubBackend {
     gateway: String,
 }
 
-#[allow(dead_code)]
 impl GitHubBackend {
     pub fn new(
         repo_with_owner: impl Into<String>,
@@ -189,11 +187,8 @@ struct CommitOid {
 }
 
 #[derive(Deserialize)]
-#[allow(dead_code)]
 struct GraphQLErrorItem {
     message: String,
-    #[serde(rename = "type", default)]
-    err_type: Option<String>,
 }
 
 const MUTATION: &str = "\
@@ -258,7 +253,6 @@ struct HeadQueryTarget {
 
 const GRAPHQL_ENDPOINT: &str = "https://api.github.com/graphql";
 
-#[allow(dead_code)]
 fn map_graphql_error(errors: &[GraphQLErrorItem]) -> StorageError {
     for e in errors {
         let msg = e.message.to_lowercase();
@@ -282,7 +276,6 @@ fn map_graphql_error(errors: &[GraphQLErrorItem]) -> StorageError {
     )
 }
 
-#[allow(dead_code)]
 fn map_http_status(status: u16, retry_after: Option<u64>) -> StorageError {
     match status {
         401 | 403 => StorageError::AuthFailed,
@@ -462,7 +455,6 @@ mod tests {
         let e = vec![GraphQLErrorItem {
             message: "expected head oid abc123def456abc123def456abc123def4567890 was not current"
                 .into(),
-            err_type: None,
         }];
         let mapped = map_graphql_error(&e);
         assert!(matches!(mapped, StorageError::Conflict { .. }));

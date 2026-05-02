@@ -3,7 +3,6 @@ use std::fmt;
 pub type StorageResult<T> = Result<T, StorageError>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum StorageError {
     AuthFailed,
     Conflict { remote_head: String },

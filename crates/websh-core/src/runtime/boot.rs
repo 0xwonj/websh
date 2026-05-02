@@ -1,11 +1,11 @@
 //! Pure runtime-layer scaffolding: the canonical bootstrap mount and an
 //! empty `GlobalFs` ready to receive scans. Compiles on every target so
 //! host-side shell tests can rebuild the same fixtures the wasm runtime
-//! sees on first boot. The lib build itself never calls these helpers
-//! (only `runtime::loader` and tests do), so dead-code is allowed at
-//! module scope on host.
+//! sees on first boot. The host lib build never reaches these helpers
+//! (only `runtime::loader` — wasm-only — and tests do), so the dead-code
+//! allow only fires on host.
 
-#![allow(dead_code)]
+#![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 
 use crate::config::BOOTSTRAP_SITE;
 use crate::domain::{RuntimeBackendKind, RuntimeMount, VirtualPath};

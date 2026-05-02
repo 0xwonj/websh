@@ -3,8 +3,6 @@
 //! Displays files and directories in list format.
 //! Grid view is intentionally deferred to avoid complexity.
 
-#![allow(dead_code)]
-
 use icondata::Icon as IconData;
 use leptos::prelude::*;
 use leptos_icons::Icon;
@@ -20,7 +18,11 @@ use websh_core::filesystem::{
 use websh_core::domain::{DisplayPermissions, FileType};
 use crate::utils::format::{format_date_iso, format_size};
 
-stylance::import_crate_style!(css, "src/components/explorer/file_list.module.css");
+stylance::import_crate_style!(
+    #[allow(dead_code)]
+    css,
+    "src/components/explorer/file_list.module.css"
+);
 
 /// Get icon for file/directory based on type
 fn get_icon(entry: &DirEntry) -> IconData {

@@ -54,11 +54,10 @@ impl<'a> Lexer<'a> {
 
     /// Tokenize the entire input into a vector.
     ///
-    /// This is a convenience method that collects all tokens. It consumes
-    /// the lexer, so callers that need to inspect `error()` after iteration
-    /// must use `(&mut lexer).collect()` instead.
-    /// For lazy evaluation, use the `Iterator` implementation directly.
-    #[allow(dead_code)]
+    /// Convenience for callers that don't need lazy evaluation. Consumes the
+    /// lexer, so callers that need `.error()` afterwards must use
+    /// `(&mut lexer).collect()` instead.
+    #[cfg(test)]
     pub fn tokenize(self) -> Vec<Token> {
         self.collect()
     }

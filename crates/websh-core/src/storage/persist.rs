@@ -1,6 +1,5 @@
 //! Debounced IDB persistence for ChangeSet. The scheduling logic lives here so
 //! it is testable and the reactive layer stays thin.
-#![allow(dead_code)]
 
 use std::cell::RefCell;
 use std::rc::Rc;

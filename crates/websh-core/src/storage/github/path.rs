@@ -1,7 +1,7 @@
 // Repo path helpers. `encoded_repo_relative_path`/`percent_encode_segment`
 // are consumed by the wasm-only GitHub client; on host they look dead but
 // remain reachable when compiled for wasm32 or under `cargo test`.
-#![allow(dead_code)]
+#![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 
 pub fn normalize_repo_prefix(prefix: &str) -> Result<String, String> {
     let normalized = prefix.trim_matches('/');

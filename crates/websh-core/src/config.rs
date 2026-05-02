@@ -99,7 +99,6 @@ pub const MS_PER_SECOND: f64 = 1000.0;
 /// - `Bootstrap` - Familiar, slightly bolder (default)
 /// - `Lucide` - Minimal, thin strokes
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[allow(dead_code)]
 pub enum IconTheme {
     #[default]
     Bootstrap,

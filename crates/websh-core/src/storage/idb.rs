@@ -1,7 +1,6 @@
 //! IndexedDB persistence for drafts and metadata.
 //!
 //! Public API: `open_db`, `save_draft`, `load_draft`, `save_metadata`, `load_metadata`.
-#![allow(dead_code)]
 
 use idb::event::DatabaseEvent;
 use idb::{Database, Factory, ObjectStoreParams, TransactionMode};

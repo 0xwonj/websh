@@ -411,16 +411,6 @@ impl AppContext {
         self.mount_errors.set(load.mount_errors);
     }
 
-    /// Toggles between Terminal and Explorer view modes.
-    #[allow(dead_code)]
-    pub fn toggle_view_mode(&self) {
-        self.view_mode.update(|mode| {
-            *mode = match *mode {
-                ViewMode::Terminal => ViewMode::Explorer,
-                ViewMode::Explorer => ViewMode::Terminal,
-            };
-        });
-    }
 }
 
 impl Default for AppContext {

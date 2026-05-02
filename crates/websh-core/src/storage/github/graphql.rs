@@ -1,12 +1,9 @@
-//! Pure building of GraphQL commit payloads. No HTTP, no signals.
-//! See spec §4.2.
-//!
-//! Note: `#[allow(dead_code)]` is applied at module scope because the public
-//! API (`build_file_changes`, `CreateCommitInput`, ...) is consumed by
-//! `client.rs` in Task 2.3. Tests cover every item, so dead-code lint fires
-//! only in the non-test build until the client lands.
+//! Pure GraphQL commit-payload builders. No HTTP, no signals. Items are
+//! consumed by the wasm-only `storage::github::client`; on the host triple
+//! the lint fires because the client isn't compiled. The host-only allow
+//! keeps wasm32 honest while quieting the noisy host build.
 
-#![allow(dead_code)]
+#![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 
 use std::collections::BTreeSet;
 

@@ -55,12 +55,6 @@ impl Pipeline {
         self.commands.is_empty()
     }
 
-    /// Get the first command name (if any)
-    #[allow(dead_code)]
-    pub fn first_command_name(&self) -> Option<&str> {
-        self.commands.first().map(|c| c.name.as_str())
-    }
-
     /// Check if pipeline has a syntax error.
     #[cfg(test)]
     pub fn has_error(&self) -> bool {

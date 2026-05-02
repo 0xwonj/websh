@@ -343,9 +343,10 @@ fn file_in_repo(root_prefix: &str, file_path: &str) -> String {
 struct PromoteTarget {
     /// Path inside the mempool repo, e.g., `writing/foo.md`.
     repo_path: String,
-    /// Category segment, e.g., `writing`. Captured for diagnostics; not
-    /// directly read because `bundle_disk_path` already encodes it.
-    #[allow(dead_code)]
+    /// Category segment, e.g., `writing`. Production code reads category
+    /// indirectly through `bundle_disk_path`; tests assert this field
+    /// directly to verify path-parsing extracts the right segment.
+    #[cfg_attr(not(test), allow(dead_code))]
     category: String,
     /// `<category>/<slug>` (no extension), used in commit messages.
     slug_relpath: String,

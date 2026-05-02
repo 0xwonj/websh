@@ -73,7 +73,6 @@ impl FileType {
 /// carries a single [`NodeMetadata`] record covering both authored and
 /// derived fields.
 #[derive(Clone, Debug)]
-#[allow(dead_code)]
 pub enum FsEntry {
     Directory {
         children: HashMap<String, FsEntry>,
