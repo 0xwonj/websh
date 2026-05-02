@@ -37,6 +37,15 @@
   src: url("/assets/fonts/ibm-plex-mono-700.ttf") format("truetype");
 }
 
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/assets/fonts/geist-mono-400.woff2") format("woff2");
+}
+
 :root {
   --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-code: "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, "Cascadia Mono", Consolas, "Liberation Mono", monospace;
 }

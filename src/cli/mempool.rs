@@ -15,13 +15,14 @@ use serde::Deserialize;
 use super::CliResult;
 use super::gh::{gh_capture, gh_succeeds, require_gh};
 use super::manifest::DEFAULT_CONTENT_DIR;
-use crate::components::ledger_routes::LEDGER_CATEGORIES;
-use crate::components::mempool::{
-    ComposeError, ComposeForm, ComposePayload, derive_gas, form_to_payload,
-    parse_mempool_frontmatter, serialize_mempool_file, slug_from_title, validate_form,
-};
 use crate::config::BOOTSTRAP_SITE;
-use crate::models::manifest::{ContentManifestDocument, ContentManifestFile};
+use crate::mempool::{
+    ComposeError, ComposeForm, LEDGER_CATEGORIES, MempoolManifestState,
+    build_mempool_manifest_state, form_to_payload, serialize_mempool_file, slug_from_title,
+    transform_mempool_frontmatter, validate_form,
+};
+use crate::models::manifest::{ContentManifestDocument, ContentManifestEntry};
+use crate::models::{MempoolStatus, NodeKind, VirtualPath};
 use crate::utils::current_timestamp;
 use crate::utils::format::format_date_iso;
 
@@ -154,9 +155,10 @@ struct PromoteArgs {
     /// Repo-relative path inside the mempool repo (e.g., `writing/test.md`).
     #[arg(long)]
     path: String,
-    /// After the local commit, also delete the entry from the mempool repo.
+    /// Skip the post-commit drop from mempool (verify locally first,
+    /// run `websh-cli mempool drop` later).
     #[arg(long, default_value_t = false)]
-    drop_remote: bool,
+    keep_remote: bool,
     /// Skip attestation regeneration (useful when GPG is not configured).
     #[arg(long, default_value_t = false)]
     no_attest: bool,
@@ -219,45 +221,108 @@ fn list(root: &Path) -> CliResult {
         .map_err(|e| format!("failed to parse mempool manifest: {e}"))?;
 
     println!("{} @ {}:", mount.repo, mount.branch);
-    if manifest.files.is_empty() {
+    let file_entries: Vec<&ContentManifestEntry> = manifest
+        .entries
+        .iter()
+        .filter(|e| !matches!(e.metadata.kind, NodeKind::Directory))
+        .collect();
+    if file_entries.is_empty() {
         println!("0 pending entries");
         return Ok(());
     }
 
-    for file in &manifest.files {
-        let body_url = format!(
-            "repos/{}/contents/{}?ref={}",
-            mount.repo,
-            file_in_repo(&mount.root_prefix, &file.path),
-            mount.branch,
-        );
-        let body = match gh_capture([
-            "api",
-            "-H",
-            "Accept: application/vnd.github.raw",
-            body_url.as_str(),
-        ]) {
-            Ok(body) => body,
-            Err(e) => {
-                eprintln!("warn: failed to fetch {}: {e}", file.path);
-                continue;
-            }
+    for entry in &file_entries {
+        let status = entry
+            .mempool
+            .as_ref()
+            .map(|m| match m.status {
+                MempoolStatus::Draft => "draft",
+                MempoolStatus::Review => "review",
+            })
+            .unwrap_or("?");
+        let modified = entry.metadata.authored.date.as_deref().unwrap_or("—");
+        let gas = if entry.path.ends_with(".md") {
+            entry
+                .metadata
+                .derived
+                .word_count
+                .map(|w| format!("~{w} words"))
+                .unwrap_or_default()
+        } else {
+            entry
+                .metadata
+                .derived
+                .size_bytes
+                .map(|n| format!("{n}B"))
+                .unwrap_or_default()
         };
-        let meta = parse_mempool_frontmatter(&body);
-        let status = meta
-            .as_ref()
-            .and_then(|m| m.status.clone())
-            .unwrap_or_else(|| "?".to_string());
-        let modified = meta
-            .as_ref()
-            .and_then(|m| m.modified.clone())
-            .unwrap_or_else(|| "—".to_string());
-        let is_markdown = file.path.ends_with(".md");
-        let gas = derive_gas(&body, body.len(), is_markdown);
-        println!("  {:6} {:32} {:14} {}", status, file.path, gas, modified,);
+        println!("  {:6} {:32} {:14} {}", status, entry.path, gas, modified);
     }
-    println!("{} pending entries", manifest.files.len());
+    println!("{} pending entries", file_entries.len());
 
+    if let Err(error) = print_drift_warnings(&mount, &file_entries) {
+        eprintln!("warning: drift check failed: {error}");
+    }
+
+    Ok(())
+}
+
+/// Cross-check the manifest against the repo's actual file tree. Surfaces
+/// orphan blobs (file in repo, no manifest entry) and missing blobs
+/// (manifest entry, no file in repo) — both indicate partial-failure
+/// recovery state from a prior `add` / `drop`.
+fn print_drift_warnings(
+    mount: &MempoolMountInfo,
+    manifest_files: &[&ContentManifestEntry],
+) -> CliResult {
+    #[derive(Deserialize)]
+    struct TreeResp {
+        tree: Vec<TreeEntry>,
+    }
+    #[derive(Deserialize)]
+    struct TreeEntry {
+        path: String,
+        #[serde(rename = "type")]
+        kind: String,
+    }
+
+    let url = format!(
+        "repos/{}/git/trees/{}?recursive=1",
+        mount.repo, mount.branch
+    );
+    let body = gh_capture(["api", url.as_str()])?;
+    let resp: TreeResp = serde_json::from_str(&body)
+        .map_err(|e| format!("failed to parse git/trees response: {e}"))?;
+
+    let prefix = mount.root_prefix.trim_matches('/');
+    let strip = |full: &str| -> Option<String> {
+        if prefix.is_empty() {
+            Some(full.to_string())
+        } else {
+            full.strip_prefix(prefix)
+                .and_then(|s| s.strip_prefix('/'))
+                .map(|s| s.to_string())
+        }
+    };
+
+    let repo_md: std::collections::BTreeSet<String> = resp
+        .tree
+        .into_iter()
+        .filter(|e| e.kind == "blob" && e.path.ends_with(".md"))
+        .filter_map(|e| strip(&e.path))
+        .collect();
+    let manifest_paths: std::collections::BTreeSet<String> = manifest_files
+        .iter()
+        .map(|e| e.path.clone())
+        .filter(|p| p.ends_with(".md"))
+        .collect();
+
+    for orphan in repo_md.difference(&manifest_paths) {
+        eprintln!("warning: file in repo not in manifest: {orphan}");
+    }
+    for missing in manifest_paths.difference(&repo_md) {
+        eprintln!("warning: manifest entry not in repo: {missing}");
+    }
     Ok(())
 }
 
@@ -321,13 +386,12 @@ fn add(root: &Path, args: AddArgs) -> CliResult {
         .into());
     }
 
-    let payload = form_to_payload(&form);
-    let file_body = serialize_mempool_file(&payload);
+    let file_body = serialize_mempool_file(&form_to_payload(&form));
 
     eprintln!("preflight: ok ({}/{})", form.category, form.slug);
     eprintln!("write:     {} ({} bytes)", repo_path, file_body.len());
 
-    add_to_mempool_via_gh(&mount, &repo_path, &file_body, &payload)?;
+    add_to_mempool_via_gh(&mount, &repo_path, &file_body)?;
 
     println!(
         "mempool add: {} → {}@{}",
@@ -387,12 +451,7 @@ fn build_form(args: &AddArgs, body: &str) -> CliResult<ComposeForm> {
 /// Two-step add: PUT the file blob, then PUT the rewritten manifest with
 /// the new entry inserted. File-first so a step-2 failure leaves the runtime
 /// view consistent (manifest is the truth; the orphan file is invisible).
-fn add_to_mempool_via_gh(
-    mount: &MempoolMountInfo,
-    repo_path: &str,
-    file_body: &str,
-    payload: &ComposePayload,
-) -> CliResult {
+fn add_to_mempool_via_gh(mount: &MempoolMountInfo, repo_path: &str, file_body: &str) -> CliResult {
     let absolute_file_path = file_in_repo(&mount.root_prefix, repo_path);
     let absolute_manifest_path = file_in_repo(&mount.root_prefix, "manifest.json");
 
@@ -436,19 +495,18 @@ fn add_to_mempool_via_gh(
     let mut manifest: ContentManifestDocument = serde_json::from_slice(&manifest_bytes)
         .map_err(|e| format!("failed to parse mempool manifest: {e}"))?;
 
-    let modified_secs = current_timestamp() / 1000;
-    let new_entry = ContentManifestFile {
+    let canonical_path = VirtualPath::from_absolute(format!("/mempool/{repo_path}"))
+        .map_err(|e| format!("invalid mempool path /mempool/{repo_path}: {e}"))?;
+    let MempoolManifestState { meta, extensions } =
+        build_mempool_manifest_state(file_body, &canonical_path);
+    let new_entry = ContentManifestEntry {
         path: repo_path.to_string(),
-        title: payload.title.clone(),
-        size: Some(file_body.len() as u64),
-        modified: Some(modified_secs),
-        date: None,
-        tags: payload.tags.clone(),
-        access: None,
+        metadata: meta,
+        mempool: extensions.mempool,
     };
-    manifest.files.retain(|f| f.path != repo_path);
-    manifest.files.push(new_entry);
-    manifest.files.sort_by(|a, b| a.path.cmp(&b.path));
+    manifest.entries.retain(|e| e.path != repo_path);
+    manifest.entries.push(new_entry);
+    manifest.entries.sort_by(|a, b| a.path.cmp(&b.path));
 
     let new_body = serde_json::to_string_pretty(&manifest)
         .map_err(|e| format!("failed to re-serialize manifest: {e}"))?
@@ -526,9 +584,10 @@ fn promote(root: &Path, args: PromoteArgs) -> CliResult {
     // Step 1 — fetch + write + regenerate.
     let body = fetch_mempool_body(&mount, &target)?;
     eprintln!("fetch:    {} ({} bytes)", target.repo_path, body.len());
+    let canonical_body = transform_mempool_frontmatter(&body)?;
 
     let mut cleanup = PromoteCleanup::default();
-    if let Err(e) = run_promote_steps(root, &target, &body, &args, &mut cleanup) {
+    if let Err(e) = run_promote_steps(root, &target, &canonical_body, &args, &mut cleanup) {
         rollback(root, &target, &cleanup);
         return Err(e);
     }
@@ -539,8 +598,8 @@ fn promote(root: &Path, args: PromoteArgs) -> CliResult {
         return Err(e);
     }
 
-    // Step 3 — optional drop-remote.
-    if args.drop_remote {
+    // Step 3 — drop the mempool original (default).
+    if !args.keep_remote {
         match drop_via_gh(&mount, &target.repo_path) {
             Ok(DropOutcome::Removed { manifest, blob }) => println!(
                 "mempool drop: removed {} from {} (manifest={}, blob={})",
@@ -720,21 +779,24 @@ fn run_promote_steps(
     eprintln!("write:    {}", target.bundle_disk_path.display());
 
     if args.no_attest {
-        // Direct ledger + manifest regeneration. Set flags BEFORE the calls
-        // so a mid-write failure still lets rollback restore the prior state.
+        // Direct sync + ledger + manifest regeneration. Set flags BEFORE
+        // the calls so a mid-write failure still lets rollback restore
+        // the prior state. Sync runs first so the just-written markdown
+        // file gets a sidecar (with `authored` populated from its
+        // frontmatter) before the manifest is folded.
+        cleanup.manifest_written = true;
+        super::manifest::sync_content(root, Path::new(DEFAULT_CONTENT_DIR))?;
         cleanup.ledger_written = true;
         let ledger = super::ledger::generate_content_ledger(root, Path::new(DEFAULT_CONTENT_DIR))?;
-        cleanup.manifest_written = true;
         let manifest =
-            super::manifest::generate_content_manifest(root, Path::new(DEFAULT_CONTENT_DIR))?;
+            super::manifest::build_manifest_from_sidecars(root, Path::new(DEFAULT_CONTENT_DIR))?;
         eprintln!(
-            "ledger:   {} entries -> content/.websh/ledger.json",
-            ledger.entry_count
+            "ledger:   {} blocks -> content/.websh/ledger.json",
+            ledger.block_count
         );
         eprintln!(
-            "manifest: {} files / {} directories -> content/manifest.json",
-            manifest.files.len(),
-            manifest.directories.len()
+            "manifest: {} entries -> content/manifest.json",
+            manifest.entries.len()
         );
     } else {
         // attest::run_default writes ledger.json + manifest.json + attestations.json
@@ -858,9 +920,9 @@ fn drop_via_gh(mount: &MempoolMountInfo, path_in_repo: &str) -> CliResult<DropOu
     let mut manifest: ContentManifestDocument = serde_json::from_slice(&manifest_bytes)
         .map_err(|e| format!("failed to parse mempool manifest: {e}"))?;
 
-    let before = manifest.files.len();
-    manifest.files.retain(|f| f.path != path_in_repo);
-    let manifest_changed = manifest.files.len() != before;
+    let before = manifest.entries.len();
+    manifest.entries.retain(|entry| entry.path != path_in_repo);
+    let manifest_changed = manifest.entries.len() != before;
 
     if manifest_changed {
         let new_body = serde_json::to_string_pretty(&manifest)

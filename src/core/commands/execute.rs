@@ -11,11 +11,32 @@ use crate::core::engine::{
     GlobalFs, RouteRequest, RouteSurface, canonicalize_user_path, request_path_for_canonical_path,
 };
 use crate::core::{env, wallet};
-use crate::models::{FileMetadata, OutputLine, RuntimeMount, VirtualPath, WalletState};
+use crate::models::{
+    EntryExtensions, Fields, NodeKind, NodeMetadata, OutputLine, RuntimeMount, SCHEMA_VERSION,
+    VirtualPath, WalletState,
+};
 use crate::utils::sysinfo;
 use crate::utils::theme::{THEMES, normalize_theme_id, theme_ids, theme_label};
 
 use super::{AuthAction, Command, CommandResult, PathArg, SideEffect, SyncSubcommand};
+
+fn blank_file_meta(kind: NodeKind) -> NodeMetadata {
+    NodeMetadata {
+        schema: SCHEMA_VERSION,
+        kind,
+        authored: Fields::default(),
+        derived: Fields::default(),
+    }
+}
+
+fn blank_dir_meta() -> NodeMetadata {
+    NodeMetadata {
+        schema: SCHEMA_VERSION,
+        kind: NodeKind::Directory,
+        authored: Fields::default(),
+        derived: Fields::default(),
+    }
+}
 
 /// Execute a parsed command and return output lines.
 ///
@@ -190,7 +211,7 @@ fn format_ls_output(
                     OutputLine::dir_entry(&entry.name, &entry.title)
                 } else {
                     let is_restricted = entry
-                        .file_meta
+                        .meta
                         .as_ref()
                         .map(|m| m.is_restricted())
                         .unwrap_or(false);
@@ -498,10 +519,11 @@ fn execute_touch(
         exit_code: 0,
         side_effect: Some(SideEffect::ApplyChange {
             path: vp,
-            change: ChangeType::CreateFile {
+            change: Box::new(ChangeType::CreateFile {
                 content: String::new(),
-                meta: FileMetadata::default(),
-            },
+                meta: blank_file_meta(NodeKind::Asset),
+                extensions: EntryExtensions::default(),
+            }),
         }),
     }
 }
@@ -532,9 +554,9 @@ fn execute_mkdir(
         exit_code: 0,
         side_effect: Some(SideEffect::ApplyChange {
             path: vp,
-            change: ChangeType::CreateDirectory {
-                meta: crate::models::DirectoryMetadata::default(),
-            },
+            change: Box::new(ChangeType::CreateDirectory {
+                meta: blank_dir_meta(),
+            }),
         }),
     }
 }
@@ -592,7 +614,10 @@ fn execute_rm(
     CommandResult {
         output: vec![],
         exit_code: 0,
-        side_effect: Some(SideEffect::ApplyChange { path: vp, change }),
+        side_effect: Some(SideEffect::ApplyChange {
+            path: vp,
+            change: Box::new(change),
+        }),
     }
 }
 
@@ -640,7 +665,7 @@ fn execute_rmdir(
         exit_code: 0,
         side_effect: Some(SideEffect::ApplyChange {
             path: vp,
-            change: ChangeType::DeleteDirectory,
+            change: Box::new(ChangeType::DeleteDirectory),
         }),
     }
 }
@@ -714,18 +739,23 @@ fn execute_echo_redirect(
         }
         Some(_) => ChangeType::UpdateFile {
             content: body,
-            description: None,
+            meta: None,
+            extensions: None,
         },
         None => ChangeType::CreateFile {
             content: body,
-            meta: FileMetadata::default(),
+            meta: blank_file_meta(NodeKind::Asset),
+            extensions: EntryExtensions::default(),
         },
     };
 
     CommandResult {
         output: vec![],
         exit_code: 0,
-        side_effect: Some(SideEffect::ApplyChange { path: vp, change }),
+        side_effect: Some(SideEffect::ApplyChange {
+            path: vp,
+            change: Box::new(change),
+        }),
     }
 }
 
@@ -1084,10 +1114,7 @@ mod tests {
     #[test]
     fn test_cd_navigates_shell_surface() {
         let mut fs = GlobalFs::empty();
-        fs.upsert_directory(
-            VirtualPath::from_absolute("/db").unwrap(),
-            crate::models::DirectoryMetadata::default(),
-        );
+        fs.upsert_directory(VirtualPath::from_absolute("/db").unwrap(), blank_dir_meta());
         let ts = TerminalState::new();
         let ws = WalletState::Disconnected;
         let cs = ChangeSet::new();
@@ -1111,10 +1138,7 @@ mod tests {
     #[test]
     fn test_explorer_path_navigates_explorer_surface() {
         let mut fs = GlobalFs::empty();
-        fs.upsert_directory(
-            VirtualPath::from_absolute("/db").unwrap(),
-            crate::models::DirectoryMetadata::default(),
-        );
+        fs.upsert_directory(VirtualPath::from_absolute("/db").unwrap(), blank_dir_meta());
         let ts = TerminalState::new();
         let ws = WalletState::Disconnected;
         let cs = ChangeSet::new();
@@ -1141,7 +1165,8 @@ mod tests {
         fs.upsert_file(
             VirtualPath::from_absolute("/blog/hello.md").unwrap(),
             "hello".into(),
-            FileMetadata::default(),
+            blank_file_meta(NodeKind::Asset),
+            EntryExtensions::default(),
         );
         let ts = TerminalState::new();
         let ws = WalletState::Disconnected;
@@ -1368,7 +1393,7 @@ mod tests {
                 ref change,
             }) => {
                 assert_eq!(path.as_str(), "/new.md");
-                assert!(matches!(change, ChangeType::CreateFile { .. }));
+                assert!(matches!(change.as_ref(), ChangeType::CreateFile { .. }));
             }
             other => panic!("expected ApplyChange, got {:?}", other),
         }
@@ -1378,7 +1403,12 @@ mod tests {
     fn test_touch_errors_when_path_exists_in_fs() {
         // Build an fs with a file at "new.md"
         let mut fs = GlobalFs::empty();
-        fs.upsert_file(home_vpath("new.md"), String::new(), FileMetadata::default());
+        fs.upsert_file(
+            home_vpath("new.md"),
+            String::new(),
+            blank_file_meta(NodeKind::Asset),
+            EntryExtensions::default(),
+        );
         let ts = TerminalState::new();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
@@ -1419,7 +1449,10 @@ mod tests {
                 ref change,
             }) => {
                 assert_eq!(path.as_str(), "/newdir");
-                assert!(matches!(change, ChangeType::CreateDirectory { .. }));
+                assert!(matches!(
+                    change.as_ref(),
+                    ChangeType::CreateDirectory { .. }
+                ));
             }
             other => panic!("expected ApplyChange, got {:?}", other),
         }
@@ -1428,10 +1461,7 @@ mod tests {
     #[test]
     fn test_mkdir_errors_when_path_exists() {
         let mut fs = GlobalFs::empty();
-        fs.upsert_directory(
-            home_vpath("dir"),
-            crate::models::DirectoryMetadata::default(),
-        );
+        fs.upsert_directory(home_vpath("dir"), blank_dir_meta());
         let ts = TerminalState::new();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
@@ -1455,7 +1485,8 @@ mod tests {
         fs.upsert_file(
             home_vpath("doomed.md"),
             String::new(),
-            FileMetadata::default(),
+            blank_file_meta(NodeKind::Asset),
+            EntryExtensions::default(),
         );
         let ts = TerminalState::new();
         let ws = admin_wallet();
@@ -1476,9 +1507,10 @@ mod tests {
         match result.side_effect {
             Some(SideEffect::ApplyChange {
                 ref path,
-                change: ChangeType::DeleteFile,
+                ref change,
             }) => {
                 assert_eq!(path.as_str(), "/doomed.md");
+                assert!(matches!(change.as_ref(), ChangeType::DeleteFile));
             }
             other => panic!("expected DeleteFile ApplyChange, got {:?}", other),
         }
@@ -1487,10 +1519,7 @@ mod tests {
     #[test]
     fn test_rm_directory_without_r_errors() {
         let mut fs = GlobalFs::empty();
-        fs.upsert_directory(
-            home_vpath("dir"),
-            crate::models::DirectoryMetadata::default(),
-        );
+        fs.upsert_directory(home_vpath("dir"), blank_dir_meta());
         let ts = TerminalState::new();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
@@ -1512,10 +1541,7 @@ mod tests {
     #[test]
     fn test_rm_directory_recursive_side_effect() {
         let mut fs = GlobalFs::empty();
-        fs.upsert_directory(
-            home_vpath("dir"),
-            crate::models::DirectoryMetadata::default(),
-        );
+        fs.upsert_directory(home_vpath("dir"), blank_dir_meta());
         let ts = TerminalState::new();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
@@ -1535,9 +1561,10 @@ mod tests {
         match result.side_effect {
             Some(SideEffect::ApplyChange {
                 ref path,
-                change: ChangeType::DeleteDirectory,
+                ref change,
             }) => {
                 assert_eq!(path.as_str(), "/dir");
+                assert!(matches!(change.as_ref(), ChangeType::DeleteDirectory));
             }
             other => panic!("expected DeleteDirectory ApplyChange, got {:?}", other),
         }
@@ -1566,10 +1593,7 @@ mod tests {
     #[test]
     fn test_rmdir_empty_directory_side_effect() {
         let mut fs = GlobalFs::empty();
-        fs.upsert_directory(
-            home_vpath("empty"),
-            crate::models::DirectoryMetadata::default(),
-        );
+        fs.upsert_directory(home_vpath("empty"), blank_dir_meta());
         let ts = TerminalState::new();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
@@ -1586,10 +1610,9 @@ mod tests {
         );
         assert_eq!(result.exit_code, 0);
         match result.side_effect {
-            Some(SideEffect::ApplyChange {
-                change: ChangeType::DeleteDirectory,
-                ..
-            }) => {}
+            Some(SideEffect::ApplyChange { ref change, .. }) => {
+                assert!(matches!(change.as_ref(), ChangeType::DeleteDirectory));
+            }
             other => panic!("expected DeleteDirectory, got {:?}", other),
         }
     }
@@ -1597,14 +1620,12 @@ mod tests {
     #[test]
     fn test_rmdir_nonempty_directory_errors() {
         let mut fs = GlobalFs::empty();
-        fs.upsert_directory(
-            home_vpath("dir"),
-            crate::models::DirectoryMetadata::default(),
-        );
+        fs.upsert_directory(home_vpath("dir"), blank_dir_meta());
         fs.upsert_file(
             home_vpath("dir/child.md"),
             String::new(),
-            FileMetadata::default(),
+            blank_file_meta(NodeKind::Asset),
+            EntryExtensions::default(),
         );
         let ts = TerminalState::new();
         let ws = admin_wallet();
@@ -1629,7 +1650,8 @@ mod tests {
         fs.upsert_file(
             home_vpath("file.md"),
             String::new(),
-            FileMetadata::default(),
+            blank_file_meta(NodeKind::Asset),
+            EntryExtensions::default(),
         );
         let ts = TerminalState::new();
         let ws = admin_wallet();
@@ -1654,7 +1676,8 @@ mod tests {
         fs.upsert_file(
             home_vpath("note.md"),
             "hi".to_string(),
-            FileMetadata::default(),
+            blank_file_meta(NodeKind::Asset),
+            EntryExtensions::default(),
         );
         let ts = TerminalState::new();
         let ws = admin_wallet();
@@ -1706,10 +1729,7 @@ mod tests {
     #[test]
     fn test_edit_on_directory_errors() {
         let mut fs = GlobalFs::empty();
-        fs.upsert_directory(
-            home_vpath("dir"),
-            crate::models::DirectoryMetadata::default(),
-        );
+        fs.upsert_directory(home_vpath("dir"), blank_dir_meta());
         let ts = TerminalState::new();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
@@ -1751,7 +1771,7 @@ mod tests {
                 ref change,
             }) => {
                 assert_eq!(path.as_str(), "/greeting.md");
-                match change {
+                match change.as_ref() {
                     ChangeType::CreateFile { content, .. } => assert_eq!(content, "hello"),
                     other => panic!("expected CreateFile, got {:?}", other),
                 }
@@ -1766,7 +1786,8 @@ mod tests {
         fs.upsert_file(
             home_vpath("greet.md"),
             "old".to_string(),
-            FileMetadata::default(),
+            blank_file_meta(NodeKind::Asset),
+            EntryExtensions::default(),
         );
         let ts = TerminalState::new();
         let ws = admin_wallet();
@@ -1785,12 +1806,10 @@ mod tests {
         );
         assert_eq!(result.exit_code, 0);
         match result.side_effect {
-            Some(SideEffect::ApplyChange {
-                change: ChangeType::UpdateFile { ref content, .. },
-                ..
-            }) => {
-                assert_eq!(content, "new");
-            }
+            Some(SideEffect::ApplyChange { ref change, .. }) => match change.as_ref() {
+                ChangeType::UpdateFile { content, .. } => assert_eq!(content, "new"),
+                other => panic!("expected UpdateFile, got {:?}", other),
+            },
             other => panic!("expected UpdateFile, got {:?}", other),
         }
     }
@@ -1875,7 +1894,8 @@ mod tests {
             home_vpath("new.md"),
             ChangeType::CreateFile {
                 content: "x".to_string(),
-                meta: FileMetadata::default(),
+                meta: blank_file_meta(NodeKind::Asset),
+                extensions: EntryExtensions::default(),
             },
         );
         cs.upsert(home_vpath("del.md"), ChangeType::DeleteFile);
@@ -1920,7 +1940,8 @@ mod tests {
             home_vpath("a.md"),
             ChangeType::CreateFile {
                 content: "x".to_string(),
-                meta: FileMetadata::default(),
+                meta: blank_file_meta(NodeKind::Asset),
+                extensions: EntryExtensions::default(),
             },
         );
         let result = execute_command(
@@ -1982,14 +2003,16 @@ mod tests {
             home_vpath("a.md"),
             ChangeType::CreateFile {
                 content: "site".to_string(),
-                meta: FileMetadata::default(),
+                meta: blank_file_meta(NodeKind::Asset),
+                extensions: EntryExtensions::default(),
             },
         );
         cs.upsert(
             VirtualPath::from_absolute("/db/b.md").unwrap(),
             ChangeType::CreateFile {
                 content: "db".to_string(),
-                meta: FileMetadata::default(),
+                meta: blank_file_meta(NodeKind::Asset),
+                extensions: EntryExtensions::default(),
             },
         );
 
@@ -2065,24 +2088,19 @@ mod tests {
     #[test]
     fn test_has_children_empty_dir_is_false() {
         let mut fs = GlobalFs::empty();
-        fs.upsert_directory(
-            home_vpath("empty"),
-            crate::models::DirectoryMetadata::default(),
-        );
+        fs.upsert_directory(home_vpath("empty"), blank_dir_meta());
         assert!(!fs.has_children(&home_vpath("empty")));
     }
 
     #[test]
     fn test_has_children_with_child_is_true() {
         let mut fs = GlobalFs::empty();
-        fs.upsert_directory(
-            home_vpath("dir"),
-            crate::models::DirectoryMetadata::default(),
-        );
+        fs.upsert_directory(home_vpath("dir"), blank_dir_meta());
         fs.upsert_file(
             home_vpath("dir/child.md"),
             String::new(),
-            FileMetadata::default(),
+            blank_file_meta(NodeKind::Asset),
+            EntryExtensions::default(),
         );
         assert!(fs.has_children(&home_vpath("dir")));
     }
@@ -2099,7 +2117,8 @@ mod tests {
         fs.upsert_file(
             home_vpath("file.md"),
             String::new(),
-            FileMetadata::default(),
+            blank_file_meta(NodeKind::Asset),
+            EntryExtensions::default(),
         );
         assert!(!fs.has_children(&home_vpath("file.md")));
     }
@@ -2127,7 +2146,8 @@ mod tests {
             home_vpath("a.md"),
             ChangeType::CreateFile {
                 content: String::new(),
-                meta: FileMetadata::default(),
+                meta: blank_file_meta(NodeKind::Asset),
+                extensions: EntryExtensions::default(),
             },
         );
         let merged = view(&base, &cs);
@@ -2162,7 +2182,7 @@ mod tests {
         cs.upsert(
             home_vpath("d"),
             ChangeType::CreateDirectory {
-                meta: crate::models::DirectoryMetadata::default(),
+                meta: blank_dir_meta(),
             },
         );
         let merged = view(&base, &cs);
@@ -2197,7 +2217,7 @@ mod tests {
         cs.upsert(
             home_vpath("d"),
             ChangeType::CreateDirectory {
-                meta: crate::models::DirectoryMetadata::default(),
+                meta: blank_dir_meta(),
             },
         );
         let merged = view(&base, &cs);
@@ -2231,7 +2251,8 @@ mod tests {
         base.upsert_file(
             home_vpath("existing.md"),
             "hi".into(),
-            FileMetadata::default(),
+            blank_file_meta(NodeKind::Asset),
+            EntryExtensions::default(),
         );
         let cs = ChangeSet::new();
         let merged = view(&base, &cs);
@@ -2254,9 +2275,10 @@ mod tests {
         match result.side_effect {
             Some(SideEffect::ApplyChange {
                 ref path,
-                change: ChangeType::DeleteFile,
+                ref change,
             }) => {
                 assert_eq!(path.as_str(), "/existing.md");
+                assert!(matches!(change.as_ref(), ChangeType::DeleteFile));
             }
             other => panic!("expected ApplyChange(DeleteFile), got {:?}", other),
         }
@@ -2273,7 +2295,8 @@ mod tests {
             home_vpath("a.md"),
             ChangeType::CreateFile {
                 content: String::new(),
-                meta: FileMetadata::default(),
+                meta: blank_file_meta(NodeKind::Asset),
+                extensions: EntryExtensions::default(),
             },
         );
         let merged = view(&base, &cs);

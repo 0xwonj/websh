@@ -148,16 +148,16 @@ impl OutputLine {
         } else {
             TextStyle::File
         };
-        let file_meta = entry.file_meta.as_ref();
+        let meta = entry.meta.as_ref();
         Self::new(OutputLineData::ListEntry {
             name: entry.name.clone(),
             description: entry.title.clone(),
             style,
-            encrypted: file_meta.map(|m| m.is_restricted()).unwrap_or(false),
+            encrypted: meta.map(|m| m.is_restricted()).unwrap_or(false),
             format: ListFormat::Long {
                 permissions: perms.to_string(),
-                size: file_meta.and_then(|m| m.size),
-                modified: file_meta.and_then(|m| m.modified),
+                size: meta.and_then(|m| m.size_bytes()),
+                modified: meta.and_then(|m| m.modified_at()),
             },
         })
     }

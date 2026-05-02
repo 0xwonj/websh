@@ -274,6 +274,10 @@ pub struct AppContext {
     pub remote_heads: RwSignal<BTreeMap<VirtualPath, String>>,
     /// Browser-hydrated runtime state rendered under `/.websh/state`.
     pub runtime_state: RwSignal<RuntimeStateSnapshot>,
+    /// External mount load failures. Reset on every successful
+    /// `apply_runtime_load` so consumers can react to the latest reload
+    /// outcome.
+    pub mount_errors: RwSignal<Vec<runtime::MountFailure>>,
 
     // === Editor modal ===
     /// When `Some(path)`, the `EditModal` is open editing that path. `None` = closed.
@@ -309,6 +313,7 @@ impl AppContext {
             StoredValue::new_local(initial_load.backends);
         let runtime_mounts = RwSignal::new(initial_load.runtime_mounts);
         let remote_heads = RwSignal::new(initial_load.remote_heads);
+        let mount_errors = RwSignal::new(initial_load.mount_errors);
         let theme = RwSignal::new(crate::utils::theme::initial_theme());
 
         let editor_open = RwSignal::new(None);
@@ -334,10 +339,19 @@ impl AppContext {
             runtime_mounts,
             remote_heads,
             runtime_state,
+            mount_errors,
 
             // Editor state
             editor_open,
         }
+    }
+
+    /// Lookup the most recent mount failure (if any) for a canonical path.
+    /// Used by UIs (mempool view, explorer) to render mount-unavailable or
+    /// stale-data states.
+    pub fn mount_failure_for(&self, root: &VirtualPath) -> Option<runtime::MountFailure> {
+        self.mount_errors
+            .with(|failures| failures.iter().find(|f| &f.root == root).cloned())
     }
 
     /// Gets the current prompt string for display.
@@ -416,6 +430,7 @@ impl AppContext {
         self.backends.set_value(load.backends);
         self.runtime_mounts.set(load.runtime_mounts);
         self.remote_heads.set(load.remote_heads);
+        self.mount_errors.set(load.mount_errors);
     }
 
     /// Toggles between Terminal and Explorer view modes.

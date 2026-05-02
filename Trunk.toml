@@ -21,12 +21,14 @@ stage = "pre_build"
 command = "stylance"
 command_arguments = ["--output-file", "assets/bundle.css", "."]
 
-# Regenerate content/manifest.json so the runtime's mount-declaration
-# scan picks up any newly-added content/.websh/mounts/*.mount.json. The
-# manifest is the source of truth for the runtime's view of the bundle
-# source tree; without this, a freshly-added mount declaration on disk
-# is invisible to the runtime until a manual `websh-cli content manifest`
-# run.
+# Refresh content/ sidecars from frontmatter and regenerate
+# content/manifest.json. `content manifest` runs the full sync (parse
+# YAML frontmatter from markdown, recompute derived fields, fold
+# sidecars into the manifest) so a frontmatter edit is reflected in the
+# very next `trunk serve` reload — dev preview matches release deploy.
+# Idempotent and byte-stable: re-running on unchanged content writes no
+# files (`io::write_json` skips identical content) so this hook never
+# triggers the watcher into a rebuild loop.
 [[hooks]]
 stage = "pre_build"
 command = "cargo"

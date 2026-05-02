@@ -82,13 +82,14 @@ Put public content files under `content/`, then run:
 cargo run --bin websh-cli -- attest
 ```
 
-That single command runs the same manifest builder as `websh-cli content manifest`,
+That single command refreshes content sidecars (parsing YAML frontmatter,
+recomputing derived fields), folds them into `content/manifest.json`,
 scans the content tree, refreshes page subjects, and writes
 `assets/crypto/attestations.json`. If
 `content/keys/wonjae.asc` exists, it also asks local `gpg` to create verified PGP
 detached signatures with `Wonjae Choi <wonjae@snu.ac.kr>` for the subjects.
 
-To refresh only the filesystem manifest without signing:
+To refresh sidecars and the filesystem manifest without signing:
 
 ```bash
 cargo run --bin websh-cli -- content manifest

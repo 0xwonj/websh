@@ -4,8 +4,8 @@
 //! inner combinator unit-tested below.
 
 use crate::app::AppContext;
-use crate::components::shared::{FileMeta, file_meta_for_path};
-use crate::models::VirtualPath;
+use crate::components::shared::{FileMeta, file_meta_for_path, size_summary_parts};
+use crate::models::{ImageDim, NodeKind, PageSize, VirtualPath};
 use crate::utils::format::{format_date_iso, format_size};
 
 use super::intent::ReaderIntent;
@@ -20,6 +20,21 @@ pub struct ReaderMeta {
     pub tags: Vec<String>,
     pub description: String,
     pub media_type_hint: Option<&'static str>,
+    /// Effective kind, used by the title strip to render a friendly label
+    /// (e.g. `Page` → "Note") and by view dispatch to pick the right
+    /// metric for the right-hand side of the strip.
+    pub kind: NodeKind,
+    /// PDF MediaBox geometry (points). Drives iframe `aspect-ratio` in
+    /// [`super::views::pdf::PdfReaderView`] and the `· N pages` chip.
+    pub page_size: Option<PageSize>,
+    pub page_count: Option<u32>,
+    /// Pixel dimensions for raster images. Drives `<img width/height>` in
+    /// [`super::views::asset::AssetReaderView`] (preventing layout shift)
+    /// and the `· W×H` chip in the title strip.
+    pub image_dimensions: Option<ImageDim>,
+    /// Markdown word count (frontmatter excluded). Drives the
+    /// `N words · M min` chip on the right side of the title strip.
+    pub word_count: Option<u32>,
 }
 
 impl ReaderMeta {
@@ -27,6 +42,18 @@ impl ReaderMeta {
     /// preferred, mechanical `modified_iso` as fallback, `None` if neither.
     pub fn display_date(&self) -> Option<String> {
         self.date.clone().or_else(|| self.modified_iso.clone())
+    }
+
+    /// Kind-aware size chunks, sharing logic with
+    /// [`FileMeta::size_summary_parts`] so the same file produces the
+    /// same chunks in the title strip and the ledger entry meta line.
+    pub fn size_summary_parts(&self) -> Vec<String> {
+        size_summary_parts(
+            self.kind,
+            self.word_count,
+            self.page_count,
+            self.image_dimensions.as_ref(),
+        )
     }
 }
 
@@ -60,7 +87,7 @@ fn build_reader_meta(intent: &ReaderIntent, node_path: &VirtualPath, meta: FileM
     let date = meta.clean_date();
     let size_pretty = meta.size.map(|size| format_size(Some(size), false));
     let tags = meta.clean_tags();
-    let description = meta.description.trim().to_string();
+    let description = meta.description.as_deref().unwrap_or("").trim().to_string();
     let media_type_hint = media_type_hint_for(intent);
 
     ReaderMeta {
@@ -72,6 +99,11 @@ fn build_reader_meta(intent: &ReaderIntent, node_path: &VirtualPath, meta: FileM
         tags,
         description,
         media_type_hint,
+        kind: meta.kind,
+        page_size: meta.page_size,
+        page_count: meta.page_count,
+        image_dimensions: meta.image_dimensions,
+        word_count: meta.word_count,
     }
 }
 
@@ -94,11 +126,13 @@ mod tests {
 
     fn populated_meta() -> FileMeta {
         FileMeta {
-            description: "An abstract.".to_string(),
+            title: "Sample".to_string(),
+            description: Some("An abstract.".to_string()),
             size: Some(1024),
             modified: Some(1_704_067_200),
             date: Some("2026-04-22".to_string()),
             tags: vec!["paper".to_string(), "draft".to_string()],
+            ..FileMeta::default()
         }
     }
 
@@ -141,7 +175,7 @@ mod tests {
             media_type: "application/pdf".to_string(),
         };
         let meta = FileMeta {
-            description: "  We present a thing.  ".to_string(),
+            description: Some("  We present a thing.  ".to_string()),
             ..FileMeta::default()
         };
         let result = build_reader_meta(&intent, &vp("/papers/x.pdf"), meta);
@@ -172,48 +206,39 @@ mod tests {
         assert_eq!(result.media_type_hint, None);
     }
 
-    #[test]
-    fn display_date_prefers_author_declared() {
-        let m = ReaderMeta {
+    fn reader_meta_with(date: Option<&str>, modified_iso: Option<&str>) -> ReaderMeta {
+        ReaderMeta {
             title: "x".to_string(),
             canonical_path: vp("/x"),
-            modified_iso: Some("2026-04-30".to_string()),
-            date: Some("2026-04-22".to_string()),
+            modified_iso: modified_iso.map(String::from),
+            date: date.map(String::from),
             size_pretty: None,
             tags: vec![],
             description: String::new(),
             media_type_hint: None,
-        };
+            kind: NodeKind::Page,
+            page_size: None,
+            page_count: None,
+            image_dimensions: None,
+            word_count: None,
+        }
+    }
+
+    #[test]
+    fn display_date_prefers_author_declared() {
+        let m = reader_meta_with(Some("2026-04-22"), Some("2026-04-30"));
         assert_eq!(m.display_date().as_deref(), Some("2026-04-22"));
     }
 
     #[test]
     fn display_date_falls_back_to_modified() {
-        let m = ReaderMeta {
-            title: "x".to_string(),
-            canonical_path: vp("/x"),
-            modified_iso: Some("2026-04-30".to_string()),
-            date: None,
-            size_pretty: None,
-            tags: vec![],
-            description: String::new(),
-            media_type_hint: None,
-        };
+        let m = reader_meta_with(None, Some("2026-04-30"));
         assert_eq!(m.display_date().as_deref(), Some("2026-04-30"));
     }
 
     #[test]
     fn display_date_none_when_both_absent() {
-        let m = ReaderMeta {
-            title: "x".to_string(),
-            canonical_path: vp("/x"),
-            modified_iso: None,
-            date: None,
-            size_pretty: None,
-            tags: vec![],
-            description: String::new(),
-            media_type_hint: None,
-        };
+        let m = reader_meta_with(None, None);
         assert!(m.display_date().is_none());
     }
 

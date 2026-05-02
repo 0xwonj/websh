@@ -8,6 +8,7 @@ use websh::crypto::ack::{ACK_ARTIFACT_PATH, ACK_RECEIPTS_DIR, AckArtifact, slugi
 use websh::crypto::attestation::{
     ATTESTATIONS_PATH, Attestation, AttestationArtifact, Subject, compute_content_sha256,
 };
+use websh::crypto::ledger::{CONTENT_LEDGER_PATH, ContentLedger};
 use websh::crypto::pgp::normalize_fingerprint;
 
 fn temp_root(name: &str) -> PathBuf {
@@ -445,22 +446,36 @@ fn cli_attest_default_discovers_content_dir_and_manifest() {
     let manifest: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(root.join("content/manifest.json")).unwrap())
             .unwrap();
-    let files = manifest["files"].as_array().unwrap();
-    let ledger = files
+    let entries = manifest["entries"].as_array().unwrap();
+    let ledger = entries
         .iter()
-        .find(|file| file["path"] == ".websh/ledger.json")
+        .find(|entry| entry["path"] == ".websh/ledger.json")
         .expect("ledger artifact is exposed through manifest");
-    assert_eq!(ledger["title"], "ledger");
-    let hello = files
+    assert_eq!(
+        ledger["metadata"]["derived"]["title"]
+            .as_str()
+            .or_else(|| ledger["metadata"]["authored"]["title"].as_str()),
+        Some("ledger")
+    );
+    let hello = entries
         .iter()
-        .find(|file| file["path"] == "writing/hello.md")
+        .find(|entry| entry["path"] == "writing/hello.md")
         .expect("content file remains in manifest");
-    assert_eq!(hello["title"], "Hello Attested World");
+    assert_eq!(
+        hello["metadata"]["authored"]["title"].as_str(),
+        Some("Hello Attested World")
+    );
 
     let artifact: AttestationArtifact =
         serde_json::from_str(&fs::read_to_string(root.join(ATTESTATIONS_PATH)).unwrap()).unwrap();
     let ledger_subject = artifact.subject_for_route("/ledger").unwrap();
     assert!(matches!(ledger_subject, Subject::Ledger(_)));
+    let ledger: ContentLedger =
+        serde_json::from_str(&fs::read_to_string(root.join(CONTENT_LEDGER_PATH)).unwrap()).unwrap();
+    ledger.validate().unwrap();
+    if let Subject::Ledger(ledger_subject) = ledger_subject {
+        assert_eq!(ledger_subject.chain_head, ledger.chain_head);
+    }
     assert_eq!(
         ledger_subject
             .content_files()
@@ -471,14 +486,14 @@ fn cli_attest_default_discovers_content_dir_and_manifest() {
     );
     let subject = artifact.subject_for_route("/writing/hello").unwrap();
     assert!(matches!(subject, Subject::Page(_)));
-    assert_eq!(
-        subject
-            .content_files()
-            .iter()
-            .map(|file| file.path.as_str())
-            .collect::<Vec<_>>(),
-        vec!["content/writing/hello.md"]
-    );
+    let content_files: Vec<&str> = subject
+        .content_files()
+        .iter()
+        .map(|file| file.path.as_str())
+        .collect();
+    assert!(content_files.contains(&"content/writing/hello.md"));
+    // sync also auto-generates the sidecar; it's part of the attested set.
+    assert!(content_files.contains(&"content/writing/hello.meta.json"));
 }
 
 #[test]
@@ -494,34 +509,38 @@ fn cli_content_manifest_generates_manifest_without_attestation() {
     fs::write(root.join("content/talks/slides.pdf"), b"%PDF").unwrap();
     fs::write(
         root.join("content/talks/slides.meta.json"),
-        r#"{"title":"ZK Talk","date":"2026-04-24","tags":["talk","zk"]}"#,
+        r#"{"schema":1,"kind":"document","authored":{"title":"ZK Talk","date":"2026-04-24","tags":["talk","zk"]},"derived":{}}"#,
     )
     .unwrap();
 
     let output = cli_output(&root, &["content", "manifest"]);
-    assert!(output.contains("manifest: 2 files, 3 directories"));
+    assert!(output.contains("sidecars refreshed"));
     assert!(!root.join(ATTESTATIONS_PATH).exists());
 
     let manifest: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(root.join("content/manifest.json")).unwrap())
             .unwrap();
-    let files = manifest["files"].as_array().unwrap();
-    assert_eq!(files.len(), 2);
-
-    let hello = files
+    let entries = manifest["entries"].as_array().unwrap();
+    let file_entries: Vec<&serde_json::Value> = entries
         .iter()
-        .find(|file| file["path"] == "writing/hello.md")
-        .unwrap();
-    assert_eq!(hello["title"], "Hello Manifest");
-    assert_eq!(hello["date"], "2026-04-20");
+        .filter(|e| e["metadata"]["kind"] != "directory")
+        .collect();
+    assert_eq!(file_entries.len(), 2);
 
-    let slides = files
+    let hello = file_entries
         .iter()
-        .find(|file| file["path"] == "talks/slides.pdf")
+        .find(|e| e["path"] == "writing/hello.md")
         .unwrap();
-    assert_eq!(slides["title"], "ZK Talk");
-    assert_eq!(slides["date"], "2026-04-24");
-    assert_eq!(slides["tags"][0], "talk");
+    assert_eq!(hello["metadata"]["authored"]["title"], "Hello Manifest");
+    assert_eq!(hello["metadata"]["authored"]["date"], "2026-04-20");
+
+    let slides = file_entries
+        .iter()
+        .find(|e| e["path"] == "talks/slides.pdf")
+        .unwrap();
+    assert_eq!(slides["metadata"]["authored"]["title"], "ZK Talk");
+    assert_eq!(slides["metadata"]["authored"]["date"], "2026-04-24");
+    assert_eq!(slides["metadata"]["authored"]["tags"][0], "talk");
 }
 
 #[test]
@@ -550,7 +569,7 @@ fn cli_attest_default_can_sign_with_local_gpg() {
     let fake_gpg = fake_bin.join("gpg");
     fs::write(
         &fake_gpg,
-        "#!/bin/sh\nout=\"\"\nin=\"\"\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = \"--output\" ]; then\n    shift\n    out=\"$1\"\n  else\n    in=\"$1\"\n  fi\n  shift\ndone\nslug=$(basename \"$in\" .message.txt)\ncp \"$WEBSH_FAKE_GPG_SIGNATURE_DIR/$slug.sig.asc\" \"$out\"\n",
+        "#!/bin/sh\nif [ \"$1\" = \"--with-colons\" ] && [ \"$2\" = \"--list-secret-keys\" ]; then\n  printf 'sec:::::::::\\n'\n  printf 'fpr:::::::::%s:\\n' \"$WEBSH_FAKE_GPG_FINGERPRINT\"\n  exit 0\nfi\nout=\"\"\nin=\"\"\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = \"--output\" ]; then\n    shift\n    out=\"$1\"\n  else\n    in=\"$1\"\n  fi\n  shift\ndone\nslug=$(basename \"$in\" .message.txt)\ncp \"$WEBSH_FAKE_GPG_SIGNATURE_DIR/$slug.sig.asc\" \"$out\"\n",
     )
     .unwrap();
     let mut perms = fs::metadata(&fake_gpg).unwrap().permissions();
@@ -574,6 +593,7 @@ fn cli_attest_default_can_sign_with_local_gpg() {
                 "WEBSH_FAKE_GPG_SIGNATURE_DIR",
                 signature_dir.to_str().unwrap(),
             ),
+            ("WEBSH_FAKE_GPG_FINGERPRINT", &fingerprint),
         ],
     );
     cli(&root, &["attest", "verify"]);

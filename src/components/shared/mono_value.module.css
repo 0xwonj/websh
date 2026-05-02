@@ -1,0 +1,51 @@
+.mono {
+  display: inline-block;
+  max-width: 100%;
+  min-width: 0;
+  vertical-align: bottom;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow-y: hidden;
+}
+
+.scroll {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-muted) transparent;
+}
+
+.scroll::-webkit-scrollbar {
+  height: 4px;
+}
+
+.scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scroll::-webkit-scrollbar-thumb {
+  background: var(--border-muted);
+  border-radius: var(--radius-xs);
+}
+
+.truncateEnd {
+  overflow-x: hidden;
+  text-overflow: ellipsis;
+}
+
+.middle {
+  overflow-x: hidden;
+}
+
+.accent {
+  color: var(--accent);
+}
+
+.hex {
+  color: var(--terminal-green);
+}
+
+.code {
+  font-family: var(--font-code);
+}

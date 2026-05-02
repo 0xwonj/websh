@@ -2,8 +2,10 @@
 
 use crate::core::changes::ChangeSet;
 use crate::core::engine::GlobalFs;
-use crate::models::RuntimeMount;
-use crate::models::{DirectoryMetadata, FileMetadata, VirtualPath, WalletState};
+use crate::models::{
+    EntryExtensions, Fields, NodeKind, NodeMetadata, RuntimeMount, SCHEMA_VERSION, VirtualPath,
+    WalletState,
+};
 
 #[path = "../env.rs"]
 pub mod env;
@@ -15,7 +17,7 @@ pub(crate) mod state;
 pub mod wallet;
 
 pub use commit::commit_backend;
-pub use loader::{RuntimeLoad, bootstrap_runtime_load, load_runtime, reload_runtime};
+pub use loader::{MountFailure, RuntimeLoad, bootstrap_runtime_load, load_runtime, reload_runtime};
 pub use state::RuntimeStateSnapshot;
 
 pub fn build_view_global_fs(
@@ -39,9 +41,20 @@ fn populate_runtime_state(
     let state_root = VirtualPath::from_absolute("/.websh/state").expect("constant path");
     fs.remove_subtree(&state_root);
 
-    let dir = |title: &str| DirectoryMetadata {
-        title: title.to_string(),
-        ..Default::default()
+    let dir = |title: &str| NodeMetadata {
+        schema: SCHEMA_VERSION,
+        kind: NodeKind::Directory,
+        authored: Fields {
+            title: Some(title.to_string()),
+            ..Fields::default()
+        },
+        derived: Fields::default(),
+    };
+    let data_file = || NodeMetadata {
+        schema: SCHEMA_VERSION,
+        kind: NodeKind::Data,
+        authored: Fields::default(),
+        derived: Fields::default(),
     };
 
     fs.upsert_directory(state_root.clone(), dir("state"));
@@ -66,7 +79,8 @@ fn populate_runtime_state(
         fs.upsert_file(
             VirtualPath::from_absolute(format!("/.websh/state/env/{key}")).expect("constant path"),
             value.clone(),
-            FileMetadata::default(),
+            data_file(),
+            EntryExtensions::default(),
         );
     }
 
@@ -75,7 +89,8 @@ fn populate_runtime_state(
             VirtualPath::from_absolute("/.websh/state/session/github_token_present")
                 .expect("constant path"),
             "1".to_string(),
-            FileMetadata::default(),
+            data_file(),
+            EntryExtensions::default(),
         );
     }
 
@@ -88,21 +103,24 @@ fn populate_runtime_state(
     fs.upsert_file(
         VirtualPath::from_absolute("/.websh/state/session/wallet_session").expect("constant path"),
         wallet_session,
-        FileMetadata::default(),
+        data_file(),
+        EntryExtensions::default(),
     );
 
     let wallet_json = serde_json::to_string_pretty(wallet_state).unwrap_or_default();
     fs.upsert_file(
         VirtualPath::from_absolute("/.websh/state/wallet/connection.json").expect("constant path"),
         wallet_json,
-        FileMetadata::default(),
+        data_file(),
+        EntryExtensions::default(),
     );
 
     let draft_json = serde_json::to_string_pretty(&changes.summary()).unwrap_or_default();
     fs.upsert_file(
         VirtualPath::from_absolute("/.websh/state/drafts/summary.json").expect("constant path"),
         draft_json,
-        FileMetadata::default(),
+        data_file(),
+        EntryExtensions::default(),
     );
 }
 

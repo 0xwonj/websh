@@ -5,12 +5,8 @@ use serde_json::Value;
 
 use crate::config::BOOTSTRAP_SITE;
 use crate::core::engine::{BackendRegistry, GlobalFs};
-use crate::core::runtime::state::github_token_for_commit;
 use crate::core::storage::{ScannedSubtree, StorageBackend, boot as storage_boot};
-use crate::models::{
-    DerivedIndex, DirectorySidecarMetadata, FileSidecarMetadata, MountDeclaration, RuntimeMount,
-    VirtualPath,
-};
+use crate::models::{DerivedIndex, MountDeclaration, RuntimeMount, VirtualPath};
 
 #[derive(Clone)]
 pub struct RuntimeLoad {
@@ -19,6 +15,19 @@ pub struct RuntimeLoad {
     pub runtime_mounts: Vec<RuntimeMount>,
     pub remote_heads: BTreeMap<VirtualPath, String>,
     pub total_files: usize,
+    /// Mounts that failed to scan. Each entry corresponds to one mount
+    /// declaration in `.websh/mounts/*.mount.json`. The runtime continues
+    /// to load even when individual external mounts fail so site content
+    /// stays available; UIs read this list to surface errors.
+    pub mount_errors: Vec<MountFailure>,
+}
+
+/// Outcome metadata for a single mount that did not load cleanly.
+#[derive(Clone, Debug)]
+pub struct MountFailure {
+    pub root: VirtualPath,
+    pub label: String,
+    pub error: String,
 }
 
 fn bootstrap_runtime_mounts() -> Vec<RuntimeMount> {
@@ -44,6 +53,7 @@ pub fn bootstrap_runtime_load() -> RuntimeLoad {
         runtime_mounts: bootstrap_runtime_mounts(),
         remote_heads: BTreeMap::new(),
         total_files,
+        mount_errors: Vec::new(),
     }
 }
 
@@ -52,17 +62,15 @@ pub async fn load_runtime() -> Result<RuntimeLoad, String> {
     let mut runtime_mounts = bootstrap_runtime_mounts();
     let roots: Vec<_> = backends.keys().cloned().collect();
     let mut scans = Vec::new();
-    // Pass the session GitHub token to every scan so backends can hit the
-    // authoritative Contents API (avoiding raw.githubusercontent.com's
-    // CDN cache lag) when one is available.
-    let auth_token = github_token_for_commit();
 
     for root in roots {
         let Some(backend) = backends.get(&root).cloned() else {
             continue;
         };
+        // The bootstrap site backend is not best-effort: if it can't scan
+        // the local manifest, the app has no usable filesystem at all.
         let scan = backend
-            .scan(auth_token.as_deref())
+            .scan()
             .await
             .map_err(|error| format!("mount {}: {error}", mount_label_for_root(&root)))?;
         scans.push((root, scan));
@@ -70,7 +78,8 @@ pub async fn load_runtime() -> Result<RuntimeLoad, String> {
 
     let mut global_fs = assemble_global_fs(&scans)
         .map_err(|error| format!("assemble global filesystem: {error:?}"))?;
-    apply_runtime_conventions(&mut global_fs, &mut backends, &mut runtime_mounts).await?;
+    let mount_errors =
+        apply_runtime_conventions(&mut global_fs, &mut backends, &mut runtime_mounts).await?;
     let remote_heads = hydrate_remote_heads(&runtime_mounts).await;
     let total_files = count_files(&global_fs, &VirtualPath::root());
 
@@ -80,6 +89,7 @@ pub async fn load_runtime() -> Result<RuntimeLoad, String> {
         runtime_mounts,
         remote_heads,
         total_files,
+        mount_errors,
     })
 }
 
@@ -103,7 +113,7 @@ async fn apply_runtime_conventions(
     global: &mut GlobalFs,
     backends: &mut BackendRegistry,
     runtime_mounts: &mut Vec<RuntimeMount>,
-) -> Result<(), String> {
+) -> Result<Vec<MountFailure>, String> {
     storage_boot::seed_bootstrap_routes(global);
     load_site_json_if_present(global, backends).await?;
 
@@ -127,7 +137,10 @@ async fn apply_runtime_conventions(
 
     runtime_mounts.retain(|mount| bootstrap_roots.iter().any(|root| root == &mount.root));
 
-    let auth_token = github_token_for_commit();
+    // External mounts are best-effort: scan failures are collected and
+    // returned so callers can surface them, but the runtime still loads
+    // with site content intact even when a remote backend is unreachable.
+    let mut mount_errors: Vec<MountFailure> = Vec::new();
     for declaration in load_mount_declarations(global, backends).await? {
         let mount_root = VirtualPath::from_absolute(declaration.mount_at.clone())
             .map_err(|_| format!("invalid mount_at: {}", declaration.mount_at))?;
@@ -140,23 +153,34 @@ async fn apply_runtime_conventions(
         else {
             continue;
         };
-        let scan = backend
-            .scan(auth_token.as_deref())
-            .await
-            .map_err(|error| format!("mount {}: {error}", runtime_mount.label))?;
-        global
-            .mount_scanned_subtree(runtime_mount.root.clone(), &scan)
-            .map_err(|error| format!("mount {}: {error:?}", runtime_mount.label))?;
+        let scan = match backend.scan().await {
+            Ok(scan) => scan,
+            Err(error) => {
+                mount_errors.push(MountFailure {
+                    root: runtime_mount.root.clone(),
+                    label: runtime_mount.label.clone(),
+                    error: error.to_string(),
+                });
+                continue;
+            }
+        };
+        if let Err(error) = global.mount_scanned_subtree(runtime_mount.root.clone(), &scan) {
+            mount_errors.push(MountFailure {
+                root: runtime_mount.root.clone(),
+                label: runtime_mount.label.clone(),
+                error: format!("{error:?}"),
+            });
+            continue;
+        }
         backends.insert(runtime_mount.root.clone(), backend);
         runtime_mounts.push(runtime_mount);
     }
 
     runtime_mounts.sort_by(|left, right| left.root.cmp(&right.root));
 
-    load_sidecar_metadata(global, backends).await?;
     load_route_index(global, backends).await?;
     storage_boot::seed_bootstrap_routes(global);
-    Ok(())
+    Ok(mount_errors)
 }
 
 fn assemble_global_fs(
@@ -226,48 +250,12 @@ async fn load_mount_declarations(
     Ok(declarations)
 }
 
-async fn load_sidecar_metadata(
-    global: &mut GlobalFs,
-    backends: &BackendRegistry,
-) -> Result<(), String> {
-    let mounts: Vec<_> = backends
-        .iter()
-        .map(|(root, backend)| (root.clone(), backend.clone()))
-        .collect();
-    let mount_roots = backends.keys().cloned().collect::<Vec<_>>();
-
-    for (mount_root, backend) in mounts {
-        let files = collect_file_paths_for_mount(global, &mount_root, &mount_roots);
-        for file_path in files {
-            let Some(file_name) = file_path.file_name() else {
-                continue;
-            };
-
-            if file_name.ends_with(".meta.json") {
-                let Some(target_path) = resolve_file_sidecar_target(global, &file_path) else {
-                    continue;
-                };
-                let body = read_backend_text(&backend, &mount_root, &file_path).await?;
-                let metadata: FileSidecarMetadata = serde_json::from_str(&body)
-                    .map_err(|error| format!("parse {}: {error}", file_path.as_str()))?;
-                global.set_node_metadata(target_path, metadata.into());
-                continue;
-            }
-
-            if file_name == "_index.dir.json" {
-                let Some(target_path) = file_path.parent() else {
-                    continue;
-                };
-                let body = read_backend_text(&backend, &mount_root, &file_path).await?;
-                let metadata: DirectorySidecarMetadata = serde_json::from_str(&body)
-                    .map_err(|error| format!("parse {}: {error}", file_path.as_str()))?;
-                global.set_node_metadata(target_path, metadata.into());
-            }
-        }
-    }
-
-    Ok(())
-}
+// Sidecar metadata is no longer fetched at runtime. The CLI
+// `content manifest` step pre-bakes every node's full `NodeMetadata`
+// into the bundled `manifest.json`, and the manifest scan deserializes
+// it directly into each `FsEntry`. This eliminates the previous
+// per-file `.meta.json` fetches (and the rate-limit failures they were
+// prone to).
 
 async fn load_route_index(global: &mut GlobalFs, backends: &BackendRegistry) -> Result<(), String> {
     let site_root = BOOTSTRAP_SITE.mount_root();
@@ -308,44 +296,6 @@ fn collect_file_paths(global: &GlobalFs, root: &VirtualPath) -> Vec<VirtualPath>
     out
 }
 
-fn collect_file_paths_for_mount(
-    global: &GlobalFs,
-    root: &VirtualPath,
-    mount_roots: &[VirtualPath],
-) -> Vec<VirtualPath> {
-    let mut out = Vec::new();
-    collect_file_paths_for_mount_recursive(global, root, root, mount_roots, &mut out);
-    out
-}
-
-fn collect_file_paths_for_mount_recursive(
-    global: &GlobalFs,
-    mount_root: &VirtualPath,
-    path: &VirtualPath,
-    mount_roots: &[VirtualPath],
-    out: &mut Vec<VirtualPath>,
-) {
-    if path != mount_root
-        && mount_roots
-            .iter()
-            .any(|root| root != mount_root && path.starts_with(root))
-    {
-        return;
-    }
-
-    let Some(entry) = global.get_entry(path) else {
-        return;
-    };
-    if !entry.is_directory() {
-        out.push(path.clone());
-        return;
-    }
-
-    for child in global.list_dir(path).unwrap_or_default() {
-        collect_file_paths_for_mount_recursive(global, mount_root, &child.path, mount_roots, out);
-    }
-}
-
 fn collect_file_paths_recursive(global: &GlobalFs, path: &VirtualPath, out: &mut Vec<VirtualPath>) {
     let Some(entry) = global.get_entry(path) else {
         return;
@@ -360,36 +310,6 @@ fn collect_file_paths_recursive(global: &GlobalFs, path: &VirtualPath, out: &mut
     }
 }
 
-fn resolve_file_sidecar_target(
-    global: &GlobalFs,
-    sidecar_path: &VirtualPath,
-) -> Option<VirtualPath> {
-    let file_name = sidecar_path.file_name()?;
-    let sidecar_stem = file_name.strip_suffix(".meta.json")?;
-    let parent = sidecar_path.parent()?;
-    let mut candidates = global
-        .list_dir(&parent)?
-        .into_iter()
-        .filter(|entry| {
-            !entry.is_dir
-                && entry.path != *sidecar_path
-                && !entry.name.ends_with(".meta.json")
-                && entry.name != "_index.dir.json"
-                && (entry.name == sidecar_stem
-                    || entry.name.starts_with(&format!("{sidecar_stem}.")))
-        })
-        .collect::<Vec<_>>();
-
-    candidates.sort_by(|left, right| {
-        left.name
-            .len()
-            .cmp(&right.name.len())
-            .then_with(|| left.name.cmp(&right.name))
-    });
-
-    candidates.into_iter().next().map(|entry| entry.path)
-}
-
 fn count_files(global: &GlobalFs, root: &VirtualPath) -> usize {
     collect_file_paths(global, root).len()
 }
@@ -398,22 +318,44 @@ fn count_files(global: &GlobalFs, root: &VirtualPath) -> usize {
 mod tests {
     use super::*;
     use crate::core::storage::{ScannedDirectory, ScannedFile};
-    use crate::models::{DirectoryMetadata, FileMetadata};
+    use crate::models::{EntryExtensions, Fields, NodeKind, NodeMetadata, SCHEMA_VERSION};
+
+    fn file_meta(kind: NodeKind) -> NodeMetadata {
+        NodeMetadata {
+            schema: SCHEMA_VERSION,
+            kind,
+            authored: Fields::default(),
+            derived: Fields::default(),
+        }
+    }
+
+    fn dir_meta(name: &str) -> NodeMetadata {
+        NodeMetadata {
+            schema: SCHEMA_VERSION,
+            kind: NodeKind::Directory,
+            authored: Fields {
+                title: if name.is_empty() {
+                    None
+                } else {
+                    Some(name.to_string())
+                },
+                ..Fields::default()
+            },
+            derived: Fields::default(),
+        }
+    }
 
     #[test]
     fn assembles_global_fs_under_canonical_mount_roots() {
         let scan = ScannedSubtree {
             files: vec![ScannedFile {
                 path: "index.md".to_string(),
-                description: "index".to_string(),
-                meta: FileMetadata::default(),
+                meta: file_meta(NodeKind::Page),
+                extensions: EntryExtensions::default(),
             }],
             directories: vec![ScannedDirectory {
                 path: "".to_string(),
-                meta: DirectoryMetadata {
-                    title: "home".to_string(),
-                    ..Default::default()
-                },
+                meta: dir_meta("home"),
             }],
         };
 
@@ -421,37 +363,8 @@ mod tests {
             assemble_global_fs(&[(VirtualPath::root(), scan)]).expect("global fs should assemble");
 
         assert!(
-            fs.get_entry(&crate::models::VirtualPath::from_absolute("/index.md").unwrap())
+            fs.get_entry(&VirtualPath::from_absolute("/index.md").unwrap())
                 .is_some()
         );
-    }
-
-    #[test]
-    fn resolve_file_sidecar_targets_matching_file() {
-        let scan = ScannedSubtree {
-            files: vec![
-                ScannedFile {
-                    path: "about.md".to_string(),
-                    description: "About".to_string(),
-                    meta: FileMetadata::default(),
-                },
-                ScannedFile {
-                    path: "about.meta.json".to_string(),
-                    description: "meta".to_string(),
-                    meta: FileMetadata::default(),
-                },
-            ],
-            directories: vec![],
-        };
-
-        let fs =
-            assemble_global_fs(&[(VirtualPath::root(), scan)]).expect("global fs should assemble");
-        let target = resolve_file_sidecar_target(
-            &fs,
-            &VirtualPath::from_absolute("/about.meta.json").unwrap(),
-        )
-        .expect("target");
-
-        assert_eq!(target.as_str(), "/about.md");
     }
 }

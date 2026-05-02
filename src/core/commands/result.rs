@@ -28,7 +28,7 @@ pub enum SideEffect {
     // Filesystem mutations
     ApplyChange {
         path: crate::models::VirtualPath,
-        change: crate::core::changes::ChangeType,
+        change: Box<crate::core::changes::ChangeType>,
     },
     StageChange {
         path: crate::models::VirtualPath,

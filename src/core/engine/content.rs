@@ -92,7 +92,9 @@ fn map_storage_error(error: StorageError) -> FetchError {
 mod tests {
     use std::sync::Mutex;
 
-    use crate::models::{FileMetadata, VirtualPath};
+    use crate::models::{
+        EntryExtensions, Fields, NodeKind, NodeMetadata, SCHEMA_VERSION, VirtualPath,
+    };
 
     use super::*;
 
@@ -106,11 +108,10 @@ mod tests {
             "stub"
         }
 
-        fn scan<'a>(
-            &'a self,
-            _auth_token: Option<&'a str>,
+        fn scan(
+            &self,
         ) -> crate::core::storage::BoxFuture<
-            'a,
+            '_,
             crate::core::storage::StorageResult<crate::core::storage::ScannedSubtree>,
         > {
             Box::pin(async { Ok(crate::core::storage::ScannedSubtree::default()) })
@@ -155,7 +156,17 @@ mod tests {
     async fn pending_content_wins_over_backend_reads() {
         let mut fs = GlobalFs::empty();
         let path = VirtualPath::from_absolute("/.websh/state/env/EDITOR").unwrap();
-        fs.upsert_file(path.clone(), "vim".to_string(), FileMetadata::default());
+        fs.upsert_file(
+            path.clone(),
+            "vim".to_string(),
+            NodeMetadata {
+                schema: SCHEMA_VERSION,
+                kind: NodeKind::Data,
+                authored: Fields::default(),
+                derived: Fields::default(),
+            },
+            EntryExtensions::default(),
+        );
 
         let mut backends = BackendRegistry::new();
         backends.insert(
@@ -175,7 +186,13 @@ mod tests {
         let mut fs = GlobalFs::empty();
         fs.upsert_binary_placeholder(
             VirtualPath::from_absolute("/blog/post.md").unwrap(),
-            FileMetadata::default(),
+            NodeMetadata {
+                schema: SCHEMA_VERSION,
+                kind: NodeKind::Page,
+                authored: Fields::default(),
+                derived: Fields::default(),
+            },
+            EntryExtensions::default(),
         );
 
         let backend = Arc::new(StubBackend {

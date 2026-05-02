@@ -1,7 +1,8 @@
 ---
 title: "tabula"
 date: "2026-04-26"
-tags: ["EuroSys 2027", systems, zk, paper]
+tags: [systems, zk, paper]
+description: "A new zkVM for typed, tabular state transitions."
 ---
 
 # tabula

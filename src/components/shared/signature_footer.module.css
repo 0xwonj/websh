@@ -26,6 +26,13 @@
   line-height: var(--leading-loose);
 }
 
+@media (max-width: 640px) {
+  .colophonTrackers,
+  .colophonJokes {
+    display: none;
+  }
+}
+
 .sigChip {
   display: inline-flex;
   align-items: baseline;
@@ -70,15 +77,18 @@
   font-size: 10.5px;
 }
 
-.mid {
-  opacity: 0.45;
-}
-
 .ok {
-  color: var(--terminal-green);
   font-size: var(--font-size-sm);
   line-height: var(--leading-none);
   margin-left: var(--space-0_5);
+}
+
+.ok[data-state="verified"] {
+  color: var(--terminal-green);
+}
+
+.ok[data-state="pending"] {
+  color: var(--text-dim);
 }
 
 .sigPop {
@@ -120,65 +130,14 @@
 }
 
 .sigV {
-  color: var(--text-primary);
   display: inline-block;
   max-width: calc(100% - 84px);
   vertical-align: top;
-  word-break: break-all;
-  white-space: normal;
 }
 
 .sigHr {
   border-top: 1px dashed var(--border-subtle);
   margin: var(--space-1) 0;
-}
-
-.hex {
-  color: var(--terminal-green);
-}
-
-.okText {
-  color: var(--terminal-green);
-}
-
-.sigFingerprint {
-  color: var(--accent);
-  white-space: nowrap;
-  word-break: normal;
-}
-
-.sigMessage {
-  color: var(--terminal-green);
-  display: inline-flex;
-  max-width: calc(100% - 84px);
-  min-width: 0;
-  overflow: hidden;
-  vertical-align: top;
-  white-space: nowrap;
-  word-break: normal;
-}
-
-.sigMessagePrefix {
-  flex: 0 0 auto;
-  overflow: visible;
-  white-space: nowrap;
-}
-
-.sigHashHead {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-.sigHashMid,
-.sigHashTail {
-  flex: 0 0 auto;
-}
-
-.sigHashMid {
-  opacity: 0.7;
-  padding: 0 var(--space-px);
 }
 
 .sigBlockRow {

@@ -8,16 +8,19 @@
 //! - [`format`] - Size, date, and address formatting
 
 mod asset;
+pub mod breakpoints;
 pub mod content_routes;
 pub mod dom;
 mod fetch;
 pub mod format;
-mod markdown;
+pub mod markdown;
 mod ring_buffer;
 pub mod sysinfo;
 pub mod theme;
 mod time;
 mod url;
+#[cfg(target_arch = "wasm32")]
+pub mod wasm_cleanup;
 
 pub use asset::{data_url_for_bytes, media_type_for_path, object_url_for_bytes};
 pub use fetch::{RaceResult, fetch_content, fetch_json, race_with_timeout};

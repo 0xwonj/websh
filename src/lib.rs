@@ -9,6 +9,7 @@ pub mod components;
 pub mod config;
 pub mod core;
 pub mod crypto;
+pub mod mempool;
 pub mod models;
 pub mod utils;
 

@@ -99,19 +99,15 @@
   --z-modal:   1000;
   --z-toast:   1100;
   --z-debug:   9999;
-
-  /* ===== Breakpoints (informational; CSS @media cannot consume var()) ===== */
-  --bp-sm: 640px;
-  --bp-md: 768px;
-  --bp-lg: 1024px;
 }
 
 /* ===== Responsive token overrides =====
    Tokens may be redefined inside @media blocks here so all global
    responsive scales live in one place. Component CSS continues to
    reference the same token name; the value automatically shrinks
-   below the breakpoint. */
-@media (max-width: 768px) {
+   below the breakpoint. Threshold is the canonical lg (760, mirrors
+   --bp-lg in tokens/breakpoints.css). */
+@media (max-width: 760px) {
   :root {
     --space-8: 1.5rem;          /* 32 → 24px on mobile */
     --font-size-md: 0.8125rem;  /* 14 → 13px on mobile */

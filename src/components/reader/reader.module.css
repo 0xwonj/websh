@@ -3,6 +3,8 @@
 .surface {
   height: 100vh;
   overflow-y: auto;
+  /* Anchor jumps land below the sticky chrome instead of under it. */
+  scroll-padding-top: var(--chrome-height);
   width: 100%;
   display: flex;
   flex-direction: column;
@@ -31,36 +33,37 @@
   flex: 1;
 }
 
-/* ─── Ident strip ─────────────────────────────────────────────── */
-.ident {
-  display: flex;
-  justify-content: space-between;
+/* ─── Ident strip inner layout (color/border via shared chassis) ── */
+.identLeft {
+  display: inline-flex;
   align-items: baseline;
-  color: var(--text-dim);
-  font-size: 11.5px;
-  border-bottom: 1px solid var(--border-subtle);
-  padding-bottom: 6px;
-  margin-bottom: 14px;
-  letter-spacing: 0.02em;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-
-.identId {
+  gap: var(--space-2);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 70%;
+  min-width: 0;
 }
 
-.identId b {
-  color: var(--text-primary);
-  font-weight: 500;
+.identMetric {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  column-gap: 0;
+  row-gap: var(--space-1);
+  font-variant-numeric: tabular-nums;
 }
 
-.identRev {
-  color: var(--terminal-yellow);
-  white-space: nowrap;
+.identMetric > span + span::before {
+  content: "·";
+  margin-inline: var(--gap-meta-sep);
+}
+
+@media (max-width: 640px) {
+  .identMetric > span + span::before {
+    margin-inline: var(--gap-meta-sep-mobile);
+  }
 }
 
 /* ─── TitleBlock ──────────────────────────────────────────────── */
@@ -71,7 +74,7 @@
 .title {
   font-family: inherit;
   font-size: 22px;
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text-primary);
   margin: 8px 0 4px;
   letter-spacing: 0.005em;
@@ -129,7 +132,7 @@
 .sectionTitle {
   font-family: inherit;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   color: var(--text-primary);
   margin: 18px 0 6px;
 }
@@ -137,7 +140,7 @@
 .sectionTitle::before {
   content: attr(data-n) " ";
   color: var(--text-dim);
-  font-weight: 400;
+  font-weight: var(--weight-regular);
 }
 
 .abstractText {
@@ -159,9 +162,11 @@
   position: sticky;
   float: left;
   margin-left: -180px;
-  top: var(--space-4);
+  /* Offset by chrome so the TOC sits just below the sticky bar instead
+     of being clipped by it. */
+  top: calc(var(--chrome-height) + var(--space-4));
   width: 160px;
-  max-height: calc(100vh - var(--space-8));
+  max-height: calc(100vh - var(--chrome-height) - var(--space-8));
   overflow-y: auto;
   padding-right: var(--space-2_5);
   border-right: 1px dashed var(--border-subtle);
@@ -210,7 +215,7 @@
 .mdBody :global(h1) {
   font-family: inherit;
   font-size: 20px;
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   margin: 6px 0 8px;
   letter-spacing: -0.005em;
   color: var(--text-primary);
@@ -218,14 +223,14 @@
 
 .mdBody :global(h2) {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   margin: 18px 0 6px;
   color: var(--text-primary);
 }
 
 .mdBody :global(h3) {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   margin: 14px 0 6px;
   color: var(--text-primary);
 }
@@ -315,7 +320,7 @@
 .mdBody :global(th) {
   background: var(--surface-tint);
   color: var(--text-dim);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 
 .mdBody :global(img) {
@@ -387,6 +392,12 @@
   padding: 1px 6px;
   font-size: 10px;
   text-decoration: none;
+  /* Used by both `<a>` and `<button>` controls — reset the button
+     defaults so the two render identically. */
+  font-family: inherit;
+  background: transparent;
+  cursor: pointer;
+  line-height: inherit;
 }
 
 .pdfChromeCtrl:hover {
@@ -397,8 +408,12 @@
 .pdfViewer {
   display: block;
   width: 100%;
-  height: min(72rem, calc(100vh - 14rem));
-  min-height: 36rem;
+  /* Default to US Letter portrait (8.5 × 11). The view component
+     overrides this inline with the document's actual MediaBox geometry
+     when content sync provided one — landscape slide decks come out
+     wide, portrait papers come out tall. */
+  aspect-ratio: 8.5 / 11;
+  max-height: calc(100vh - 14rem);
   border: 0;
   background: var(--bg-secondary);
 }
@@ -493,7 +508,7 @@
   font-size: 9.5px;
   border: 1px solid var(--border-subtle);
   padding: 0 3px;
-  border-radius: 1px;
+  border-radius: var(--radius-xs);
 }
 
 .modefnSep {
@@ -539,7 +554,7 @@
   border-color: var(--accent);
 }
 
-@media (max-width: 768px) {
+@media (max-width: 760px) {
   .page {
     padding: 16px 14px 0;
   }

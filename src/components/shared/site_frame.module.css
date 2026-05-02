@@ -2,6 +2,8 @@
   height: 100vh;
   width: 100%;
   overflow-y: auto;
+  /* Anchor jumps land below the sticky chrome instead of under it. */
+  scroll-padding-top: var(--chrome-height);
   background: var(--site-surface-bg, var(--bg-primary));
   color: var(--site-surface-ink, var(--text-primary));
   font-family: var(--site-font-family, var(--font-mono));

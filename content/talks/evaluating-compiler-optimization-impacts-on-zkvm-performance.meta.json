@@ -1,7 +1,28 @@
 {
-  "title": "Evaluating Compiler Optimization Impacts on zkVM Performance",
-  "date": "2026-04-24",
-  "tags": [
-    "labseminar"
-  ]
+  "schema": 1,
+  "kind": "document",
+  "authored": {
+    "title": "Evaluating compiler-optimization impacts on zkVM performance",
+    "description": "Slide deck — measuring how LLVM optimization passes interact with zkVM proving cost.",
+    "date": "2026-04-20",
+    "tags": [
+      "talk",
+      "zk",
+      "zkvm",
+      "compilers"
+    ]
+  },
+  "derived": {
+    "title": "evaluating-compiler-optimization-impacts-on-zkvm-performance",
+    "kind": "document",
+    "renderer": "pdf",
+    "page_size": {
+      "width": 960,
+      "height": 540
+    },
+    "page_count": 33,
+    "rotation": 0,
+    "size_bytes": 3565336,
+    "content_sha256": "0xee2bbdd5ab9381e403bddf0590ae4aec42330aa1cb2bd2a1b4c9a20832ca4f13"
+  }
 }

@@ -4,7 +4,7 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use crate::models::{DirectoryMetadata, FileMetadata, VirtualPath};
+use crate::models::{EntryExtensions, NodeMetadata, VirtualPath};
 
 use super::error::StorageResult;
 
@@ -19,14 +19,14 @@ pub struct ScannedSubtree {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScannedFile {
     pub path: String,
-    pub description: String,
-    pub meta: FileMetadata,
+    pub meta: NodeMetadata,
+    pub extensions: EntryExtensions,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScannedDirectory {
     pub path: String,
-    pub meta: DirectoryMetadata,
+    pub meta: NodeMetadata,
 }
 
 #[allow(dead_code)]
@@ -63,17 +63,7 @@ pub trait StorageBackend {
     fn backend_type(&self) -> &'static str;
 
     /// Scan the mount and return its current tree.
-    ///
-    /// `auth_token` is the optional bearer token used for backends whose
-    /// fresh-read path requires authentication. The github backend uses it
-    /// to bypass `raw.githubusercontent.com` (which lags behind git storage
-    /// by minutes through its CDN) and read directly from the authoritative
-    /// Contents API. Backends that are CDN-free (mock, ipfs read paths) can
-    /// ignore the token.
-    fn scan<'a>(
-        &'a self,
-        auth_token: Option<&'a str>,
-    ) -> BoxFuture<'a, StorageResult<ScannedSubtree>>;
+    fn scan(&self) -> BoxFuture<'_, StorageResult<ScannedSubtree>>;
 
     fn read_text<'a>(&'a self, rel_path: &'a str) -> BoxFuture<'a, StorageResult<String>>;
 

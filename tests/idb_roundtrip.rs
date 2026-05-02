@@ -9,7 +9,7 @@ use wasm_bindgen_test::*;
 
 use websh::core::changes::{ChangeSet, ChangeType};
 use websh::core::storage::idb::{load_draft, open_db, save_draft};
-use websh::models::{FileMetadata, VirtualPath};
+use websh::models::{NodeMetadata, VirtualPath};
 
 wasm_bindgen_test_configure!(run_in_browser);
 
@@ -22,7 +22,7 @@ async fn save_then_load_draft_preserves_content() {
         p.clone(),
         ChangeType::CreateFile {
             content: "roundtrip".into(),
-            meta: FileMetadata::default(),
+            meta: NodeMetadata::default(),
         },
     );
 

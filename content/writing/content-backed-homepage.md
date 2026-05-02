@@ -2,6 +2,7 @@
 title: "content-backed homepage"
 date: "2026-04-20"
 tags: [notes, websh, homepage, renderer-test]
+description: "Renderer smoke test — markdown, KaTeX, tables, code blocks."
 ---
 
 # Renderer test: content-backed homepage

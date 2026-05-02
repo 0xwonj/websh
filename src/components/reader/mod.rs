@@ -23,8 +23,9 @@ use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
 use crate::app::AppContext;
-use crate::components::mempool::{derive_new_path, placeholder_frontmatter, save_raw};
+use crate::components::mempool::save_raw;
 use crate::core::engine::{RouteFrame, push_request_path, replace_request_path};
+use crate::mempool::{derive_new_path, placeholder_frontmatter};
 use crate::models::VirtualPath;
 use crate::utils::content_routes::{attestation_route_for_node_path, content_route_for_path};
 use crate::utils::current_timestamp;
@@ -172,10 +173,15 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
 
     let on_toggle_edit = move |()| {
         // Seed the editor only on first entry into Edit; the round-trip
-        // back from preview must keep the in-flight draft intact.
-        if !draft_owned.get_untracked() {
-            let seed = raw_source.get().map(|s| s.to_string()).unwrap_or_default();
-            draft_body.set(seed);
+        // back from preview must keep the in-flight draft intact. If the
+        // resource hasn't resolved yet (mid-refetch on intent transition),
+        // defer ownership so the next toggle re-tries with a real seed
+        // — entering Edit with an empty seed and locking out the eventual
+        // value would silently swallow the source.
+        if !draft_owned.get_untracked()
+            && let Some(seed) = raw_source.get()
+        {
+            draft_body.set(seed.to_string());
             draft_owned.set(true);
         }
         save_error.set(None);
@@ -358,13 +364,22 @@ fn render_view_body(result: Result<RendererContent, String>, meta: Memo<ReaderMe
                     url=url
                     size_pretty=m.size_pretty
                     abstract_text=m.description
+                    page_size=m.page_size
+                    page_count=m.page_count
                 />
             }
             .into_any()
         }
         Ok(RendererContent::Image { url }) => {
-            let alt = meta.get_untracked().title;
-            view! { <AssetReaderView url=url alt=alt /> }.into_any()
+            let m = meta.get_untracked();
+            view! {
+                <AssetReaderView
+                    url=url
+                    alt=m.title
+                    dimensions=m.image_dimensions
+                />
+            }
+            .into_any()
         }
         Ok(RendererContent::Redirecting) => view! { <RedirectingView /> }.into_any(),
         Err(error) => view! { <div class=css::error>{error}</div> }.into_any(),
@@ -450,6 +465,7 @@ struct KeybindingTargets {
 
 #[cfg(target_arch = "wasm32")]
 fn install_reader_keybindings(targets: KeybindingTargets) {
+    use crate::utils::wasm_cleanup::WasmCleanup;
     use leptos::prelude::on_cleanup;
     use wasm_bindgen::JsCast;
     use wasm_bindgen::closure::Closure;
@@ -504,29 +520,3 @@ fn install_reader_keybindings(targets: KeybindingTargets) {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn install_reader_keybindings(_targets: KeybindingTargets) {}
-
-/// Wraps a wasm-bindgen `Closure` so it can travel through Leptos's
-/// `Send + Sync + 'static` cleanup bound. The bound exists because
-/// reactive_graph is platform-generic; on wasm32 there are no threads,
-/// so the closure never crosses threads in practice.
-///
-/// The accessor method (rather than direct field access) is required so
-/// closure disjoint-capture (RFC 2229) sees the whole wrapper as the
-/// captured value, inheriting the unsafe `Send + Sync` impl below.
-#[cfg(target_arch = "wasm32")]
-struct WasmCleanup(wasm_bindgen::closure::Closure<dyn Fn(web_sys::KeyboardEvent)>);
-
-#[cfg(target_arch = "wasm32")]
-impl WasmCleanup {
-    fn js_function(&self) -> &js_sys::Function {
-        use wasm_bindgen::JsCast;
-        self.0.as_ref().unchecked_ref()
-    }
-}
-
-// SAFETY: wasm32 has no threads. The cleanup runs on the same JS thread
-// that installed it; the wrapper is never genuinely sent or shared.
-#[cfg(target_arch = "wasm32")]
-unsafe impl Send for WasmCleanup {}
-#[cfg(target_arch = "wasm32")]
-unsafe impl Sync for WasmCleanup {}

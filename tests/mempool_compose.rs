@@ -1,14 +1,11 @@
-//! Integration tests for the mempool compose / edit flow. Exercises the
-//! pure pieces — serialize roundtrip, target paths, validation, and
-//! `ChangeSet` shape — without spinning up a backend or async runtime.
+//! Integration tests for pure mempool helpers.
 
-use websh::components::mempool::{
-    ComposeError, ComposeForm, ComposeMode, ComposePayload, build_change_set, commit_message,
-    derive_form_from_mode, form_to_payload, parse_mempool_frontmatter, save_path_for,
-    serialize_mempool_file, slug_from_title, target_path, validate_form,
+use websh::mempool::{
+    ComposeError, ComposeForm, ComposePayload, MempoolManifestState, build_mempool_manifest_state,
+    form_to_payload, parse_mempool_frontmatter, serialize_mempool_file, slug_from_title,
+    validate_form,
 };
-use websh::core::changes::ChangeType;
-use websh::models::VirtualPath;
+use websh::models::{MempoolStatus, VirtualPath};
 
 fn sample_form() -> ComposeForm {
     ComposeForm {
@@ -61,15 +58,6 @@ fn serialize_omits_optional_fields_when_unset() {
 }
 
 #[test]
-fn target_path_uses_mempool_namespace() {
-    let form = sample_form();
-    assert_eq!(
-        target_path(&form).as_str(),
-        "/mempool/writing/on-writing-slow.md"
-    );
-}
-
-#[test]
 fn validation_flags_known_bad_inputs() {
     let mut form = sample_form();
     form.title = "   ".into();
@@ -117,90 +105,28 @@ fn validation_rejects_tags_that_break_inline_list() {
 }
 
 #[test]
-fn change_set_for_new_mode_emits_create_file_at_target_path() {
+fn manifest_state_for_new_entry_populates_authored_and_derived() {
     let form = sample_form();
-    let mode = ComposeMode::New {
-        default_category: None,
-    };
-    let changes = build_change_set(&mode, &form);
-    let entries: Vec<_> = changes.iter_all().collect();
-    assert_eq!(entries.len(), 1);
-    let (path, entry) = entries[0];
-    assert_eq!(path.as_str(), "/mempool/writing/on-writing-slow.md");
-    match &entry.change {
-        ChangeType::CreateFile { content, .. } => {
-            assert!(content.starts_with("---\n"));
-            assert!(content.contains("title: \"On writing slow\""));
-        }
-        other => panic!("expected CreateFile, got {other:?}"),
-    }
-}
+    let body = serialize_mempool_file(&form_to_payload(&form));
+    let path = VirtualPath::from_absolute("/mempool/writing/on-writing-slow.md").unwrap();
+    let MempoolManifestState { meta, extensions } = build_mempool_manifest_state(&body, &path);
 
-#[test]
-fn change_set_for_edit_mode_emits_update_file_at_existing_path() {
-    let form = sample_form();
-    let existing = VirtualPath::from_absolute("/mempool/writing/already-here.md").unwrap();
-    let mode = ComposeMode::Edit {
-        path: existing.clone(),
-        body: String::new(),
-    };
-    let changes = build_change_set(&mode, &form);
-    let entries: Vec<_> = changes.iter_all().collect();
-    assert_eq!(entries.len(), 1);
-    let (path, entry) = entries[0];
-    assert_eq!(path, &existing);
-    assert!(matches!(&entry.change, ChangeType::UpdateFile { .. }));
-}
-
-#[test]
-fn save_path_for_edit_keeps_existing_path_even_if_form_drifts() {
-    let mut form = sample_form();
-    form.category = "papers".into();
-    form.slug = "renamed".into();
-    let existing = VirtualPath::from_absolute("/mempool/writing/foo.md").unwrap();
-    let mode = ComposeMode::Edit {
-        path: existing.clone(),
-        body: String::new(),
-    };
-    assert_eq!(save_path_for(&mode, &form), existing);
-}
-
-#[test]
-fn commit_message_uses_relative_path_without_extension() {
-    let form = sample_form();
-    let new_mode = ComposeMode::New {
-        default_category: None,
-    };
-    let edit_mode = ComposeMode::Edit {
-        path: VirtualPath::from_absolute("/mempool/writing/on-writing-slow.md").unwrap(),
-        body: String::new(),
-    };
+    assert_eq!(meta.authored.title.as_deref(), Some("On writing slow"));
+    assert_eq!(meta.authored.date.as_deref(), Some("2026-04-28"));
     assert_eq!(
-        commit_message(&new_mode, &form),
-        "mempool: add writing/on-writing-slow"
+        meta.authored.tags.as_deref(),
+        Some(&["essay".to_string(), "slow".to_string()][..])
     );
-    assert_eq!(
-        commit_message(&edit_mode, &form),
-        "mempool: edit writing/on-writing-slow"
+    assert_eq!(meta.derived.size_bytes, Some(body.len() as u64));
+    assert!(meta.derived.word_count.is_some());
+    assert!(
+        meta.derived
+            .content_sha256
+            .as_deref()
+            .is_some_and(|s| s.starts_with("0x"))
     );
-}
 
-#[test]
-fn derive_edit_form_recovers_authoring_inputs_from_serialized_body() {
-    let original = sample_form();
-    let body = serialize_mempool_file(&form_to_payload(&original));
-    let path = target_path(&original);
-    let mode = ComposeMode::Edit {
-        path: path.clone(),
-        body,
-    };
-    let derived = derive_form_from_mode(&mode, "2026-04-28");
-    assert_eq!(derived.title, original.title);
-    assert_eq!(derived.status, original.status);
-    assert_eq!(derived.modified, original.modified);
-    assert_eq!(derived.priority, original.priority);
-    assert_eq!(derived.tags, original.tags);
-    assert_eq!(derived.category, original.category);
-    assert_eq!(derived.slug, original.slug);
-    assert_eq!(derived.body.trim(), original.body.trim());
+    let mp = extensions.mempool.expect("mempool block populated");
+    assert_eq!(mp.status, MempoolStatus::Draft);
+    assert_eq!(mp.category.as_deref(), Some("writing"));
 }

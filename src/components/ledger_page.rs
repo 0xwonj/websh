@@ -6,21 +6,21 @@ use leptos::prelude::*;
 
 use crate::app::AppContext;
 use crate::components::chrome::SiteChrome;
-use crate::components::ledger_routes::LEDGER_CATEGORIES;
 use crate::components::mempool::{
-    LedgerFilterShape, Mempool, build_mempool_model, load_mempool_files, mempool_root,
+    LedgerFilterShape, Mempool, build_mempool_model, load_mempool_files,
 };
 use crate::components::shared::{
-    AttestationSigFooter, MetaRow, MetaTable, SiteContentFrame, SiteSurface,
+    AttestationSigFooter, IdentifierStrip, MetaRow, MetaTable, MonoOverflow, MonoTone, MonoValue,
+    SiteContentFrame, SiteSurface, size_summary_parts,
 };
 use crate::core::engine::{GlobalFs, RouteFrame};
-use crate::crypto::ack::short_hash;
 use crate::crypto::ledger::{
-    CONTENT_LEDGER_CONTENT_PATH, CONTENT_LEDGER_ROUTE, ContentLedgerArtifact, ContentLedgerEntry,
+    CONTENT_LEDGER_CONTENT_PATH, CONTENT_LEDGER_ROUTE, ContentLedger, ContentLedgerBlock,
 };
-use crate::models::{FsEntry, VirtualPath};
+use crate::mempool::{LEDGER_CATEGORIES, mempool_root};
+use crate::models::{NodeMetadata, VirtualPath};
 use crate::utils::content_routes::content_href_for_path;
-use crate::utils::format::{format_date_iso, format_size};
+use crate::utils::format::{format_date_iso, format_size, iso_date_prefix};
 
 stylance::import_crate_style!(css, "src/components/ledger_page.module.css");
 
@@ -45,11 +45,11 @@ enum LedgerFilter {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct LedgerEntry {
     block_number: String,
-    block_height: usize,
+    block_height: u64,
     path: String,
     href: String,
     title: String,
-    description: String,
+    description: Option<String>,
     date: String,
     category: String,
     kind: String,
@@ -69,10 +69,7 @@ pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
     });
 
     let mempool_ctx = ctx;
-    let mempool_files = LocalResource::new(move || {
-        let ctx = mempool_ctx;
-        async move { load_mempool_files(ctx).await }
-    });
+    let mempool_files = Memo::new(move |_| load_mempool_files(mempool_ctx));
 
     let author_mode = Memo::new(move |_| ctx.runtime_state.with(|rs| rs.github_token_present));
 
@@ -93,9 +90,10 @@ pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
                         ledger.get().map(|result| {
                             match result {
                                 Ok(artifact) => {
+                                    let frame = route.get();
                                     let filter = ledger_filter_for_route(
-                                        &route.get().request.url_path,
-                                        &route.get().resolution.node_path,
+                                        &frame.request.url_path,
+                                        &frame.resolution.node_path,
                                     );
                                     let model = ctx.view_global_fs.with(|fs| {
                                         build_ledger_model(fs, &artifact, &filter)
@@ -109,28 +107,25 @@ pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
                                     let mempool_root_path = mempool_root();
                                     let mempool_files_signal = mempool_files;
                                     let mempool_section = move || {
-                                        mempool_files_signal.get().map(|files| {
-                                            let mempool_model = build_mempool_model(
-                                                &mempool_root_path,
-                                                files.clone(),
-                                                &filter_shape,
-                                            );
-                                            view! {
-                                                <Mempool
-                                                    model=mempool_model
-                                                    author_mode=author_mode
-                                                    collapsed=mempool_collapsed
-                                                />
-                                            }
-                                        })
+                                        let files = mempool_files_signal.get();
+                                        let mempool_model = build_mempool_model(
+                                            mempool_root_path,
+                                            files,
+                                            &filter_shape,
+                                        );
+                                        view! {
+                                            <Mempool
+                                                model=mempool_model
+                                                author_mode=author_mode
+                                                collapsed=mempool_collapsed
+                                            />
+                                        }
                                     };
                                     view! {
                                         <LedgerIdentifier model=model.clone() />
                                         <LedgerHeader model=model.clone() />
                                         <LedgerFilterBar model=model.clone() />
-                                        <Suspense fallback=|| view! { <span></span> }>
-                                            {mempool_section}
-                                        </Suspense>
+                                        {mempool_section}
                                         <LedgerChain model=model.clone() />
                                     }.into_any()
                                 }
@@ -154,17 +149,18 @@ pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
 #[component]
 fn LedgerIdentifier(model: LedgerModel) -> impl IntoView {
     view! {
-        <div class=css::identifier>
-            <span class=css::id>
-                <b>"websh chain"</b>
-            </span>
-            <span class=css::rev>{format!("last appended {}", model.latest_date)}</span>
-        </div>
+        <IdentifierStrip>
+            <span>"websh chain"</span>
+            <span>{format!("last appended {}", model.latest_date)}</span>
+        </IdentifierStrip>
     }
 }
 
 #[component]
 fn LedgerHeader(model: LedgerModel) -> impl IntoView {
+    let head_hash = model.head_hash.clone();
+    let head_hash_label = format!("chain head {head_hash}");
+
     view! {
         <MetaTable class=css::ledgerHead aria_label="Ledger metadata">
             <MetaRow label="blocks" row_class=css::headRow key_class=css::headKey value_class=css::headVal>
@@ -174,7 +170,18 @@ fn LedgerHeader(model: LedgerModel) -> impl IntoView {
                 <span class=css::num>{model.encrypted_count}</span>
             </MetaRow>
             <MetaRow label="head" row_class=css::headRow key_class=css::headKey value_class=css::headVal>
-                <code>{model.head_hash}</code>
+                <span aria-label=head_hash_label>
+                    <MonoValue
+                        value=head_hash.clone()
+                        tone=MonoTone::Hex
+                        overflow=MonoOverflow::ResponsiveMiddle {
+                            narrow: Some((12, 6)),
+                            medium: Some((18, 8)),
+                            wide: Some((24, 12)),
+                        }
+                        title=head_hash
+                    />
+                </span>
                 " "
                 <span class=css::ok aria-label="hash ok" title="hash ok">"✓"</span>
             </MetaRow>
@@ -191,10 +198,10 @@ fn LedgerHeader(model: LedgerModel) -> impl IntoView {
 #[component]
 fn LedgerPending(message: impl Into<String>) -> impl IntoView {
     view! {
-        <div class=css::identifier>
-            <span class=css::id><b>"~"</b></span>
-            <span class=css::rev>"ledger pending"</span>
-        </div>
+        <IdentifierStrip>
+            <span>"~"</span>
+            <span>"ledger pending"</span>
+        </IdentifierStrip>
         <section class=css::empty>
             {message.into()}
         </section>
@@ -233,7 +240,7 @@ fn LedgerFilterLink(
         css::filterLink.to_string()
     };
     view! {
-        <a class=class_name href=href.into()>
+        <a class=class_name href=href.into() aria-current=if active { "page" } else { "false" }>
             {label}
             " "
             <span class=css::count>{count}</span>
@@ -285,11 +292,6 @@ fn LedgerChain(model: LedgerModel) -> impl IntoView {
             {rows}
             <div class=css::genesis>
                 <span class=css::genesisLabel>"genesis"</span>
-                <span class=css::hashCell>
-                    <span class=css::footKey>"hash"</span>
-                    <span class=css::hash>"0x0000…0000"</span>
-                </span>
-                <span class=css::sig aria-hidden="true">"✓"</span>
                 <span class=css::genesisQuote>{model.genesis_date.clone()}</span>
             </div>
         </section>
@@ -298,10 +300,7 @@ fn LedgerChain(model: LedgerModel) -> impl IntoView {
 }
 
 #[component]
-fn LedgerConnector(
-    #[prop(optional)] broken: bool,
-    #[prop(optional)] hidden: usize,
-) -> impl IntoView {
+fn LedgerConnector(#[prop(optional)] broken: bool, #[prop(optional)] hidden: u64) -> impl IntoView {
     let class = if broken {
         format!("{} {}", css::connector, css::connectorBroken)
     } else {
@@ -320,6 +319,9 @@ fn LedgerBlock(entry: LedgerEntry, block_number: String, previous_hash: String) 
     } else {
         css::block.to_string()
     };
+    let previous_hash_label = format!("previous block hash {previous_hash}");
+    let block_hash = entry.hash.clone();
+    let block_hash_label = format!("block hash {block_hash}");
 
     view! {
         <article class=block_class>
@@ -335,7 +337,9 @@ fn LedgerBlock(entry: LedgerEntry, block_number: String, previous_hash: String) 
                 <span class=css::title>
                     <a href=entry.href.clone()>{entry.title.clone()}</a>
                 </span>
-                <span class=css::desc>{entry.description.clone()}</span>
+                {entry.description.clone().map(|text| view! {
+                    <span class=css::desc>{text}</span>
+                })}
                 <span class=css::metaLine>
                     {entry.meta_line.iter().map(|part| view! {
                         <span>{part.clone()}</span>
@@ -343,13 +347,31 @@ fn LedgerBlock(entry: LedgerEntry, block_number: String, previous_hash: String) 
                 </span>
             </div>
             <div class=css::blockFoot>
-                <span class=css::prev>
+                <span class=css::prev aria-label=previous_hash_label>
                     <span class=css::footKey>"prev"</span>
-                    <span class=css::hash>{previous_hash}</span>
+                    <MonoValue
+                        value=previous_hash.clone()
+                        tone=MonoTone::Hex
+                        overflow=MonoOverflow::ResponsiveMiddle {
+                            narrow: Some((6, 4)),
+                            medium: Some((12, 6)),
+                            wide: Some((18, 8)),
+                        }
+                        title=previous_hash
+                    />
                 </span>
-                <span class=css::hashCell>
+                <span class=css::hashCell aria-label=block_hash_label>
                     <span class=css::footKey>"hash"</span>
-                    <span class=css::hash>{entry.hash}</span>
+                    <MonoValue
+                        value=block_hash.clone()
+                        tone=MonoTone::Hex
+                        overflow=MonoOverflow::ResponsiveMiddle {
+                            narrow: Some((6, 4)),
+                            medium: Some((12, 6)),
+                            wide: Some((18, 8)),
+                        }
+                        title=block_hash
+                    />
                 </span>
                 <span class=css::sig aria-label="hash ok" title="hash ok">
                     "✓"
@@ -370,41 +392,25 @@ fn ledger_filter_for_route(request_path: &str, node_path: &VirtualPath) -> Ledge
         .unwrap_or(LedgerFilter::All)
 }
 
-async fn load_content_ledger(ctx: AppContext) -> Result<ContentLedgerArtifact, String> {
+async fn load_content_ledger(ctx: AppContext) -> Result<ContentLedger, String> {
     let path = VirtualPath::from_absolute(format!("/{CONTENT_LEDGER_CONTENT_PATH}"))
         .expect("ledger path is absolute");
     let body = ctx
         .read_text(&path)
         .await
         .map_err(|error| error.to_string())?;
-    let ledger: ContentLedgerArtifact =
-        serde_json::from_str(&body).map_err(|error| error.to_string())?;
+    let ledger: ContentLedger = serde_json::from_str(&body).map_err(|error| error.to_string())?;
     ledger.validate()?;
     Ok(ledger)
 }
 
-fn build_ledger_model(
-    fs: &GlobalFs,
-    ledger: &ContentLedgerArtifact,
-    filter: &LedgerFilter,
-) -> LedgerModel {
-    let mut all_entries = ledger
-        .entries
+fn build_ledger_model(fs: &GlobalFs, ledger: &ContentLedger, filter: &LedgerFilter) -> LedgerModel {
+    let all_entries = ledger
+        .blocks
         .iter()
-        .enumerate()
-        .filter_map(|(index, entry)| {
-            let previous_hash = index
-                .checked_sub(1)
-                .and_then(|previous| ledger.entries.get(previous))
-                .map(|entry| short_hash(&entry.entry_sha256))
-                .unwrap_or_else(|| "0x0000…0000".to_string());
-            ledger_entry_for_artifact_entry(fs, entry, index + 1, previous_hash)
-        })
+        .rev()
+        .filter_map(|block| ledger_entry_for_block(fs, block))
         .collect::<Vec<_>>();
-    // The on-disk ledger is already sorted canonically by `(date asc, path asc)`
-    // by the CLI, so reversing here yields newest-first display while keeping
-    // each block's `prev` aligned with the block visually beneath it.
-    all_entries.reverse();
     let total_count = all_entries.len();
 
     let mut counts = BTreeMap::new();
@@ -421,21 +427,22 @@ fn build_ledger_model(
         .cloned()
         .collect::<Vec<_>>();
     let encrypted_count = entries.iter().filter(|entry| entry.encrypted).count();
-    let head_hash = if filter.is_all() {
-        short_hash(&ledger.ledger_sha256)
-    } else {
-        entries
-            .first()
-            .map(|entry| entry.hash.clone())
-            .unwrap_or_else(|| "—".to_string())
-    };
+    let head_hash = ledger.chain_head.clone();
+    // `latest_date` mirrors the active filter — whatever the user is
+    // looking at, the "last appended" badge tracks that view.
     let latest_date = entries
         .first()
         .map(|entry| entry.date.clone())
         .unwrap_or_else(|| "—".to_string());
-    let genesis_date = entries
-        .last()
-        .map(|entry| entry.date.clone())
+    // `genesis_date`, by contrast, is a property of the chain itself —
+    // not of the filtered view. Compute it from every block's parsed
+    // date (skipping `"undated"` and other non-ISO strings) so the
+    // header always reports the actual earliest dated block, regardless
+    // of which category is selected.
+    let genesis_date = all_entries
+        .iter()
+        .filter_map(|entry| iso_date_prefix(&entry.date).map(str::to_string))
+        .min()
         .unwrap_or_else(|| "—".to_string());
 
     LedgerModel {
@@ -450,59 +457,55 @@ fn build_ledger_model(
     }
 }
 
-fn ledger_entry_for_artifact_entry(
-    fs: &GlobalFs,
-    entry: &ContentLedgerEntry,
-    block_height: usize,
-    previous_hash: String,
-) -> Option<LedgerEntry> {
+fn ledger_entry_for_block(fs: &GlobalFs, block: &ContentLedgerBlock) -> Option<LedgerEntry> {
+    let entry = &block.entry;
     let node_path = VirtualPath::from_absolute(format!("/{}", entry.path)).ok()?;
     let node_meta = fs.node_metadata(&node_path);
-    let (manifest_title, file_meta) = match fs.get_entry(&node_path) {
-        Some(FsEntry::File {
-            description, meta, ..
-        }) => (Some(description.clone()), Some(meta.clone())),
-        _ => (None, None),
-    };
     let fallback_title = fallback_file_title(&entry.path);
     let title = node_meta
-        .and_then(|meta| meta.title.clone())
-        .or(manifest_title)
+        .and_then(|meta| meta.title())
+        .map(str::to_string)
         .unwrap_or(fallback_title);
+    // `meta.description()` resolves authored ?? derived. With sync's
+    // first-paragraph auto-extraction, derived is populated for every
+    // markdown file. Returning None here lets the renderer omit the
+    // description line entirely instead of substituting a low-value
+    // fallback like "N files · path".
     let description = node_meta
-        .and_then(|meta| meta.description.clone())
-        .unwrap_or_else(|| description_for_entry(entry));
+        .and_then(|meta| meta.description())
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty());
     let date = node_meta
-        .and_then(|meta| meta.date.clone())
-        .or_else(|| file_meta.as_ref().and_then(|meta| meta.date.clone()))
-        .or_else(|| {
-            file_meta
-                .as_ref()
-                .and_then(|meta| meta.modified.map(format_date_iso))
-        })
+        .and_then(|meta| meta.date())
+        .map(str::to_string)
+        .or_else(|| node_meta.and_then(|meta| meta.modified_at().map(format_date_iso)))
         .unwrap_or_else(|| "undated".to_string());
-    let category = category_for_path(&entry.path);
+    let category = entry.category.as_str().to_string();
     let kind = kind_for_entry(&category, &entry.path);
-    let tags = if node_meta.is_some_and(|meta| !meta.tags.is_empty()) {
-        node_meta.map(|meta| meta.tags.clone()).unwrap_or_default()
-    } else {
-        file_meta
-            .as_ref()
-            .map(|meta| meta.tags.clone())
-            .unwrap_or_default()
-    };
-    let size = file_meta
-        .as_ref()
-        .and_then(|meta| meta.size)
+    let tags = node_meta.map(NodeMetadata::tags_owned).unwrap_or_default();
+    let size = node_meta
+        .and_then(|meta| meta.size_bytes())
         .or_else(|| Some(entry.content_files.iter().map(|file| file.bytes).sum()));
-    let encrypted = file_meta
-        .as_ref()
-        .and_then(|meta| meta.access.as_ref())
-        .is_some();
+    // Kind-aware metric chunks (e.g. ["9 min"], ["12 pages"],
+    // ["1920×1080"], or ["2,140 words", "9 min"] for prose pages) when
+    // the sync-time derived fields are available. Empty Vec for kinds
+    // without a natural metric or unsynced files — caller falls back to
+    // byte size in that case.
+    let summary_parts = node_meta
+        .map(|meta| {
+            size_summary_parts(
+                meta.effective_kind(),
+                meta.word_count(),
+                meta.page_count(),
+                meta.image_dimensions(),
+            )
+        })
+        .unwrap_or_default();
+    let encrypted = node_meta.and_then(|meta| meta.access()).is_some();
 
     Some(LedgerEntry {
-        block_number: format!("{block_height:04}"),
-        block_height,
+        block_number: format!("{:04}", block.height),
+        block_height: block.height,
         path: entry.path.clone(),
         href: content_href_for_path(&entry.path),
         title,
@@ -510,26 +513,33 @@ fn ledger_entry_for_artifact_entry(
         date,
         category,
         kind,
-        meta_line: meta_line_for_entry(size, &tags),
+        meta_line: meta_line_for_entry(summary_parts, size, &tags),
         encrypted,
-        hash: short_hash(&entry.entry_sha256),
-        previous_hash,
+        hash: block.block_sha256.clone(),
+        previous_hash: block.prev_block_sha256.clone(),
     })
 }
 
-fn description_for_entry(entry: &ContentLedgerEntry) -> String {
-    let mut parts = Vec::new();
-    if entry.content_files.len() > 1 {
-        parts.push(format!("{} files", entry.content_files.len()));
-    }
-    parts.push(entry.path.clone());
-    parts.join(" · ")
-}
-
-fn meta_line_for_entry(size: Option<u64>, tags: &[String]) -> Vec<String> {
-    let mut out = Vec::new();
-    if let Some(size) = size {
-        out.push(format_size(Some(size), false));
+/// Build the meta line shown under each ledger entry.
+///
+/// Prefers the kind-aware summary chunks (["2,140 words", "9 min"],
+/// ["12 pages"], ["1920×1080"]) because they tell a reader what it
+/// costs to consume the entry. Falls back to byte size when those
+/// chunks are absent (kinds without a natural metric, or unsynced
+/// files). Tags follow up to three. The renderer wraps each element in
+/// its own `<span>`; the surrounding `.metaLine` CSS draws a `·`
+/// between every adjacent pair so all gaps are uniform regardless of
+/// whether the boundary is summary↔summary, summary↔tag, or tag↔tag.
+fn meta_line_for_entry(
+    summary_parts: Vec<String>,
+    size: Option<u64>,
+    tags: &[String],
+) -> Vec<String> {
+    let mut out = summary_parts;
+    if out.is_empty()
+        && let Some(bytes) = size
+    {
+        out.push(format_size(Some(bytes), false));
     }
     out.extend(tags.iter().take(3).cloned());
     if out.is_empty() {
@@ -545,17 +555,6 @@ fn fallback_file_title(path: &str) -> String {
         .filter(|stem| !stem.is_empty())
         .unwrap_or(path)
         .to_string()
-}
-
-fn category_for_path(path: &str) -> String {
-    match path.trim_start_matches('/').split('/').next().unwrap_or("") {
-        "writing" => "writing",
-        "projects" => "projects",
-        "papers" => "papers",
-        "talks" => "talks",
-        _ => "misc",
-    }
-    .to_string()
 }
 
 fn kind_for_entry(category: &str, path: &str) -> String {

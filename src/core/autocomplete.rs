@@ -537,45 +537,58 @@ mod tests {
     fn write_cmd_fixture() -> GlobalFs {
         use crate::core::engine::GlobalFs;
         use crate::core::storage::{ScannedDirectory, ScannedFile, ScannedSubtree};
-        use crate::models::{DirectoryMetadata, FileMetadata};
+        use crate::models::{EntryExtensions, Fields, NodeKind, NodeMetadata, SCHEMA_VERSION};
+        fn file_meta() -> NodeMetadata {
+            NodeMetadata {
+                schema: SCHEMA_VERSION,
+                kind: NodeKind::Page,
+                authored: Fields::default(),
+                derived: Fields::default(),
+            }
+        }
+        fn directory_meta(title: &str) -> NodeMetadata {
+            NodeMetadata {
+                schema: SCHEMA_VERSION,
+                kind: NodeKind::Directory,
+                authored: Fields {
+                    title: Some(title.to_string()),
+                    ..Fields::default()
+                },
+                derived: Fields::default(),
+            }
+        }
         let snapshot = ScannedSubtree {
             files: vec![
                 ScannedFile {
                     path: "hello.md".to_string(),
-                    description: "Hello".to_string(),
-                    meta: FileMetadata::default(),
+                    meta: file_meta(),
+                    extensions: EntryExtensions::default(),
                 },
                 ScannedFile {
                     path: "hero.md".to_string(),
-                    description: "Hero".to_string(),
-                    meta: FileMetadata::default(),
+                    meta: file_meta(),
+                    extensions: EntryExtensions::default(),
                 },
                 // Give the dirs a file each so they exist as directories.
                 ScannedFile {
                     path: "home/readme.md".to_string(),
-                    description: "Home readme".to_string(),
-                    meta: FileMetadata::default(),
+                    meta: file_meta(),
+                    extensions: EntryExtensions::default(),
                 },
                 ScannedFile {
                     path: "help/readme.md".to_string(),
-                    description: "Help readme".to_string(),
-                    meta: FileMetadata::default(),
+                    meta: file_meta(),
+                    extensions: EntryExtensions::default(),
                 },
             ],
             directories: vec![
                 ScannedDirectory {
                     path: "home".to_string(),
-                    meta: DirectoryMetadata {
-                        title: "Home".to_string(),
-                        ..Default::default()
-                    },
+                    meta: directory_meta("Home"),
                 },
                 ScannedDirectory {
                     path: "help".to_string(),
-                    meta: DirectoryMetadata {
-                        title: "Help".to_string(),
-                        ..Default::default()
-                    },
+                    meta: directory_meta("Help"),
                 },
             ],
         };

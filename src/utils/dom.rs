@@ -57,16 +57,6 @@ pub fn focus_terminal_input() {
     focus_element("input");
 }
 
-/// Check if the device is mobile or tablet based on screen width.
-///
-/// Uses a breakpoint of 768px (common tablet/desktop threshold).
-pub fn is_mobile_or_tablet() -> bool {
-    window()
-        .and_then(|w| w.inner_width().ok())
-        .and_then(|w| w.as_f64())
-        .is_some_and(|width| width < 768.0)
-}
-
 // =============================================================================
 // Browser Navigation
 // =============================================================================

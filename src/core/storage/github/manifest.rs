@@ -1,94 +1,62 @@
 use crate::core::storage::{
     ScannedDirectory, ScannedFile, ScannedSubtree, StorageError, StorageResult,
 };
-use crate::models::manifest::{
-    ContentManifestDirectory as ManifestDirectory, ContentManifestDocument as ManifestDocument,
-    ContentManifestFile as ManifestFile,
-};
-use crate::models::{DirectoryMetadata, FileMetadata};
+use crate::models::EntryExtensions;
+use crate::models::NodeKind;
+use crate::models::manifest::{ContentManifestDocument, ContentManifestEntry};
 
 use super::path::validate_repo_relative_path;
 
 pub(crate) fn parse_snapshot(body: &str) -> StorageResult<ScannedSubtree> {
-    let manifest: ManifestDocument = serde_json::from_str(body)
+    let manifest: ContentManifestDocument = serde_json::from_str(body)
         .map_err(|error| StorageError::ValidationFailed(error.to_string()))?;
 
-    Ok(ScannedSubtree {
-        files: manifest
-            .files
-            .into_iter()
-            .map(|file| {
-                validate_repo_relative_path(&file.path, false)
-                    .map_err(StorageError::ValidationFailed)?;
-                Ok(ScannedFile {
-                    path: file.path,
-                    description: file.title,
-                    meta: FileMetadata {
-                        size: file.size,
-                        modified: file.modified,
-                        date: file.date,
-                        tags: file.tags,
-                        access: file.access,
-                    },
-                })
-            })
-            .collect::<StorageResult<Vec<_>>>()?,
-        directories: manifest
-            .directories
-            .into_iter()
-            .map(|dir| {
-                validate_repo_relative_path(&dir.path, true)
-                    .map_err(StorageError::ValidationFailed)?;
-                Ok(ScannedDirectory {
-                    path: dir.path,
-                    meta: DirectoryMetadata {
-                        title: dir.title,
-                        description: dir.description,
-                        icon: dir.icon,
-                        thumbnail: dir.thumbnail,
-                        tags: dir.tags,
-                    },
-                })
-            })
-            .collect::<StorageResult<Vec<_>>>()?,
-    })
+    let mut files = Vec::new();
+    let mut directories = Vec::new();
+
+    for entry in manifest.entries {
+        let is_dir = matches!(entry.metadata.effective_kind(), NodeKind::Directory);
+        validate_repo_relative_path(&entry.path, is_dir).map_err(StorageError::ValidationFailed)?;
+        if is_dir {
+            directories.push(ScannedDirectory {
+                path: entry.path,
+                meta: entry.metadata,
+            });
+        } else {
+            files.push(ScannedFile {
+                path: entry.path,
+                meta: entry.metadata,
+                extensions: EntryExtensions {
+                    mempool: entry.mempool,
+                },
+            });
+        }
+    }
+
+    Ok(ScannedSubtree { files, directories })
 }
 
 pub(crate) fn serialize_snapshot(snapshot: &ScannedSubtree) -> StorageResult<String> {
-    let manifest = ManifestDocument {
-        files: snapshot
-            .files
-            .iter()
-            .map(|file| {
-                validate_repo_relative_path(&file.path, false).map_err(StorageError::BadRequest)?;
-                Ok(ManifestFile {
-                    path: file.path.clone(),
-                    title: file.description.clone(),
-                    size: file.meta.size,
-                    modified: file.meta.modified,
-                    date: file.meta.date.clone(),
-                    tags: file.meta.tags.clone(),
-                    access: file.meta.access.clone(),
-                })
-            })
-            .collect::<StorageResult<Vec<_>>>()?,
-        directories: snapshot
-            .directories
-            .iter()
-            .map(|dir| {
-                validate_repo_relative_path(&dir.path, true).map_err(StorageError::BadRequest)?;
-                Ok(ManifestDirectory {
-                    path: dir.path.clone(),
-                    title: dir.meta.title.clone(),
-                    tags: dir.meta.tags.clone(),
-                    description: dir.meta.description.clone(),
-                    icon: dir.meta.icon.clone(),
-                    thumbnail: dir.meta.thumbnail.clone(),
-                })
-            })
-            .collect::<StorageResult<Vec<_>>>()?,
-    };
+    let mut entries = Vec::with_capacity(snapshot.files.len() + snapshot.directories.len());
 
+    for dir in &snapshot.directories {
+        validate_repo_relative_path(&dir.path, true).map_err(StorageError::BadRequest)?;
+        entries.push(ContentManifestEntry {
+            path: dir.path.clone(),
+            metadata: dir.meta.clone(),
+            mempool: None,
+        });
+    }
+    for file in &snapshot.files {
+        validate_repo_relative_path(&file.path, false).map_err(StorageError::BadRequest)?;
+        entries.push(ContentManifestEntry {
+            path: file.path.clone(),
+            metadata: file.meta.clone(),
+            mempool: file.extensions.mempool.clone(),
+        });
+    }
+
+    let manifest = ContentManifestDocument { entries };
     serde_json::to_string_pretty(&manifest)
         .map_err(|error| StorageError::BadRequest(error.to_string()))
 }
@@ -96,29 +64,41 @@ pub(crate) fn serialize_snapshot(snapshot: &ScannedSubtree) -> StorageResult<Str
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::{Fields, NodeMetadata, SCHEMA_VERSION};
 
     #[test]
     fn round_trips_manifest_document() {
         let snapshot = ScannedSubtree {
             files: vec![ScannedFile {
                 path: "about.md".to_string(),
-                description: "About".to_string(),
-                meta: FileMetadata {
-                    size: Some(7),
-                    modified: Some(42),
-                    date: Some("2026-04-26".to_string()),
-                    tags: vec!["intro".to_string()],
-                    access: None,
+                meta: NodeMetadata {
+                    schema: SCHEMA_VERSION,
+                    kind: NodeKind::Page,
+                    authored: Fields {
+                        title: Some("About".to_string()),
+                        date: Some("2026-04-26".to_string()),
+                        tags: Some(vec!["intro".to_string()]),
+                        ..Fields::default()
+                    },
+                    derived: Fields {
+                        size_bytes: Some(7),
+                        modified_at: Some(42),
+                        ..Fields::default()
+                    },
                 },
+                extensions: EntryExtensions::default(),
             }],
             directories: vec![ScannedDirectory {
                 path: String::new(),
-                meta: DirectoryMetadata {
-                    title: "Home".to_string(),
-                    description: Some("Root".to_string()),
-                    icon: None,
-                    thumbnail: None,
-                    tags: vec!["root".to_string()],
+                meta: NodeMetadata {
+                    schema: SCHEMA_VERSION,
+                    kind: NodeKind::Directory,
+                    authored: Fields {
+                        title: Some("Home".to_string()),
+                        tags: Some(vec!["root".to_string()]),
+                        ..Fields::default()
+                    },
+                    derived: Fields::default(),
                 },
             }],
         };
@@ -131,10 +111,9 @@ mod tests {
     #[test]
     fn rejects_manifest_paths_with_traversal_segments() {
         let manifest = r#"{
-            "files": [
-                {"path":"../secret.md","title":"Secret","size":null,"modified":null,"tags":[],"access":null}
-            ],
-            "directories": []
+            "entries": [
+                {"path":"../secret.md","metadata":{"schema":1,"kind":"page","authored":{},"derived":{}}}
+            ]
         }"#;
 
         let err = parse_snapshot(manifest).unwrap_err();

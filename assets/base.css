@@ -44,6 +44,10 @@ a {
   text-decoration: none;
 }
 
+code {
+  font-family: var(--font-code);
+}
+
 ul, ol {
   list-style: none;
 }

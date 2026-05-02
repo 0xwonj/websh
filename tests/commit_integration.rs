@@ -3,7 +3,7 @@
 use websh::core::changes::{ChangeSet, ChangeType};
 use websh::core::runtime;
 use websh::core::storage::{MockBackend, ScannedSubtree};
-use websh::models::{FileMetadata, VirtualPath};
+use websh::models::{EntryExtensions, NodeMetadata, VirtualPath};
 
 #[tokio::test(flavor = "current_thread")]
 async fn commit_path_records_staged_paths_and_merged_snapshot() {
@@ -14,7 +14,8 @@ async fn commit_path_records_staged_paths_and_merged_snapshot() {
         p.clone(),
         ChangeType::CreateFile {
             content: "hello".into(),
-            meta: FileMetadata::default(),
+            meta: NodeMetadata::default(),
+            extensions: EntryExtensions::default(),
         },
     );
 

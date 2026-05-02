@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "kind": "document",
+  "authored": {
+    "description": "PGP public key — verifies content attestations on this site.",
+    "date": "2026-04-20"
+  },
+  "derived": {
+    "title": "wonjae",
+    "kind": "document",
+    "size_bytes": 640,
+    "content_sha256": "0xe2b439e3359273df2e82a30b5b0f68990626abf89065c5f71fb7189bee781c5b"
+  }
+}

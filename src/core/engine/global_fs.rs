@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::core::storage::{ScannedDirectory, ScannedFile, ScannedSubtree};
 use crate::models::{
-    DirEntry, DirectoryMetadata, DisplayPermissions, FileMetadata, FsEntry, LoadedNodeMetadata,
-    RouteIndexEntry, VirtualPath, WalletState,
+    DirEntry, DisplayPermissions, EntryExtensions, Fields, FsEntry, NodeKind, NodeMetadata,
+    RouteIndexEntry, SCHEMA_VERSION, VirtualPath, WalletState,
 };
 
 use super::intent::{RenderIntent, build_render_intent};
@@ -32,7 +32,6 @@ pub struct GlobalFs {
     root: FsEntry,
     mount_points: BTreeSet<VirtualPath>,
     pending_text: BTreeMap<VirtualPath, String>,
-    node_metadata: BTreeMap<VirtualPath, LoadedNodeMetadata>,
     route_index: BTreeMap<String, RouteIndexEntry>,
 }
 
@@ -41,11 +40,10 @@ impl GlobalFs {
         Self {
             root: FsEntry::Directory {
                 children: Default::default(),
-                meta: DirectoryMetadata::default(),
+                meta: directory_metadata(""),
             },
             mount_points: BTreeSet::new(),
             pending_text: BTreeMap::new(),
-            node_metadata: BTreeMap::new(),
             route_index: BTreeMap::new(),
         }
     }
@@ -54,18 +52,11 @@ impl GlobalFs {
         self.mount_points.iter()
     }
 
-    pub fn node_metadata(&self, path: &VirtualPath) -> Option<&LoadedNodeMetadata> {
-        self.node_metadata.get(path)
-    }
-
-    pub fn metadata_entries(
-        &self,
-    ) -> impl Iterator<Item = (&VirtualPath, &LoadedNodeMetadata)> + '_ {
-        self.node_metadata.iter()
-    }
-
-    pub fn set_node_metadata(&mut self, path: VirtualPath, meta: LoadedNodeMetadata) {
-        self.node_metadata.insert(path, meta);
+    /// Returns the unified metadata for the node at `path`, if any. The
+    /// metadata lives directly inside the [`FsEntry`] so this is a tree
+    /// lookup rather than a separate map.
+    pub fn node_metadata(&self, path: &VirtualPath) -> Option<&NodeMetadata> {
+        self.get_entry(path).map(|entry| entry.meta())
     }
 
     pub fn replace_route_index(&mut self, routes: impl IntoIterator<Item = RouteIndexEntry>) {
@@ -202,7 +193,7 @@ impl GlobalFs {
         let is_dir = entry.is_directory();
         let read = match entry {
             FsEntry::Directory { .. } => true,
-            FsEntry::File { meta, .. } => match &meta.access {
+            FsEntry::File { meta, .. } => match meta.access() {
                 None => true,
                 Some(filter) => match wallet {
                     WalletState::Connected { address, .. } => filter
@@ -222,41 +213,65 @@ impl GlobalFs {
         }
     }
 
-    pub fn upsert_file(&mut self, path: VirtualPath, content: String, meta: FileMetadata) {
+    pub fn upsert_file(
+        &mut self,
+        path: VirtualPath,
+        content: String,
+        meta: NodeMetadata,
+        extensions: EntryExtensions,
+    ) {
         self.pending_text.insert(path.clone(), content);
         insert_tree_entry(
             &mut self.root,
             &path,
-            FsEntry::content_file_with_meta("", "", meta),
+            FsEntry::content_file_with_meta("", meta, extensions),
         );
     }
 
-    pub fn upsert_binary_placeholder(&mut self, path: VirtualPath, meta: FileMetadata) {
+    pub fn upsert_binary_placeholder(
+        &mut self,
+        path: VirtualPath,
+        meta: NodeMetadata,
+        extensions: EntryExtensions,
+    ) {
         self.pending_text.remove(&path);
         insert_tree_entry(
             &mut self.root,
             &path,
-            FsEntry::content_file_with_meta("", "", meta),
+            FsEntry::content_file_with_meta("", meta, extensions),
         );
     }
 
-    pub fn update_file_content(
+    /// Apply an in-place edit to an existing file. `meta` / `extensions`,
+    /// when `Some`, replace the file's manifest-side state — required so
+    /// subsequent `export_mount_snapshot` calls see fresh values. `None`
+    /// preserves whatever the base scan had (used by terminal `edit` /
+    /// `echo >` commands that legitimately have no new metadata).
+    pub fn update_file(
         &mut self,
         path: &VirtualPath,
         content: String,
-        description: Option<String>,
+        meta: Option<NodeMetadata>,
+        extensions: Option<EntryExtensions>,
     ) {
-        let Some(FsEntry::File { description: d, .. }) = get_tree_entry_mut(&mut self.root, path)
+        let Some(FsEntry::File {
+            meta: existing_meta,
+            extensions: existing_ext,
+            ..
+        }) = get_tree_entry_mut(&mut self.root, path)
         else {
             return;
         };
-        if let Some(new_d) = description {
-            *d = new_d;
+        if let Some(new_meta) = meta {
+            *existing_meta = new_meta;
+        }
+        if let Some(new_ext) = extensions {
+            *existing_ext = new_ext;
         }
         self.pending_text.insert(path.clone(), content);
     }
 
-    pub fn upsert_directory(&mut self, path: VirtualPath, meta: DirectoryMetadata) {
+    pub fn upsert_directory(&mut self, path: VirtualPath, meta: NodeMetadata) {
         self.pending_text.retain(|k, _| !k.starts_with(&path));
         insert_tree_entry(
             &mut self.root,
@@ -270,13 +285,11 @@ impl GlobalFs {
 
     pub fn remove_entry(&mut self, path: &VirtualPath) {
         self.pending_text.remove(path);
-        self.node_metadata.remove(path);
         remove_tree_entry(&mut self.root, path);
     }
 
     pub fn remove_subtree(&mut self, path: &VirtualPath) {
         self.pending_text.retain(|k, _| !k.starts_with(path));
-        self.node_metadata.retain(|k, _| !k.starts_with(path));
         remove_tree_entry(&mut self.root, path);
         self.mount_points.retain(|p| !p.starts_with(path));
     }
@@ -302,6 +315,14 @@ impl GlobalFs {
         directories.sort_by(|a, b| a.path.cmp(&b.path));
 
         Some(ScannedSubtree { files, directories })
+    }
+
+    /// Iterate over `(path, &NodeMetadata)` for every node in the tree.
+    /// Walks the canonical filesystem so it always reflects the live state.
+    pub fn metadata_entries(&self) -> Vec<(VirtualPath, &NodeMetadata)> {
+        let mut out = Vec::new();
+        collect_metadata_entries(&VirtualPath::root(), &self.root, &mut out);
+        out
     }
 
     fn export_excluded_roots(&self, mount_root: &VirtualPath) -> Vec<VirtualPath> {
@@ -347,10 +368,39 @@ impl FsEngine for GlobalFs {
 fn synthetic_directory(name: &str) -> FsEntry {
     FsEntry::Directory {
         children: Default::default(),
-        meta: DirectoryMetadata {
-            title: name.to_string(),
-            ..Default::default()
+        meta: directory_metadata(name),
+    }
+}
+
+/// Build a `NodeMetadata` describing a directory whose only authored
+/// information is its display title.
+fn directory_metadata(name: &str) -> NodeMetadata {
+    let title = if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    };
+    NodeMetadata {
+        schema: SCHEMA_VERSION,
+        kind: NodeKind::Directory,
+        authored: Fields {
+            title,
+            ..Fields::default()
         },
+        derived: Fields::default(),
+    }
+}
+
+fn collect_metadata_entries<'a>(
+    base: &VirtualPath,
+    entry: &'a FsEntry,
+    out: &mut Vec<(VirtualPath, &'a NodeMetadata)>,
+) {
+    out.push((base.clone(), entry.meta()));
+    if let FsEntry::Directory { children, .. } = entry {
+        for (name, child) in children {
+            collect_metadata_entries(&base.join(name), child, out);
+        }
     }
 }
 
@@ -405,7 +455,11 @@ fn insert_scanned_file(
         if is_last {
             current.insert(
                 (*part).to_string(),
-                FsEntry::content_file_with_meta(&file.path, &file.description, file.meta.clone()),
+                FsEntry::content_file_with_meta(
+                    &file.path,
+                    file.meta.clone(),
+                    file.extensions.clone(),
+                ),
             );
             return;
         }
@@ -462,10 +516,7 @@ fn scanned_directory_entry(
         meta: dir_meta_map
             .get(path)
             .map(|dir| dir.meta.clone())
-            .unwrap_or_else(|| DirectoryMetadata {
-                title: name.to_string(),
-                ..Default::default()
-            }),
+            .unwrap_or_else(|| directory_metadata(name)),
     }
 }
 
@@ -492,8 +543,8 @@ fn collect_scanned_files(
         match entry {
             FsEntry::File {
                 content_path,
-                description,
                 meta,
+                extensions,
             } => {
                 if content_path.is_none() {
                     continue;
@@ -504,8 +555,8 @@ fn collect_scanned_files(
                         .filter(|path| !path.is_empty())
                         .cloned()
                         .unwrap_or(rel),
-                    description: description.clone(),
                     meta: meta.clone(),
+                    extensions: extensions.clone(),
                 });
             }
             FsEntry::Directory { children, .. } => {
@@ -575,19 +626,20 @@ fn path_is_excluded(path: &VirtualPath, excluded_roots: &[VirtualPath]) -> bool 
         .any(|excluded| path.starts_with(excluded))
 }
 
-fn has_manifest_metadata(path: &str, meta: &DirectoryMetadata) -> bool {
-    if meta.description.is_some()
-        || meta.icon.is_some()
-        || meta.thumbnail.is_some()
-        || !meta.tags.is_empty()
+fn has_manifest_metadata(path: &str, meta: &NodeMetadata) -> bool {
+    if meta.description().is_some()
+        || meta.icon().is_some()
+        || meta.thumbnail().is_some()
+        || meta.tags().map(|t| !t.is_empty()).unwrap_or(false)
     {
         return true;
     }
+    let title = meta.title().unwrap_or("");
     if path.is_empty() {
-        return !meta.title.is_empty();
+        return !title.is_empty();
     }
     let last_segment = path.rsplit('/').next().unwrap_or("");
-    !meta.title.is_empty() && meta.title != last_segment
+    !title.is_empty() && title != last_segment
 }
 
 fn sorted_dir_entries(base: &VirtualPath, children: &HashMap<String, FsEntry>) -> Vec<DirEntry> {
@@ -595,18 +647,18 @@ fn sorted_dir_entries(base: &VirtualPath, children: &HashMap<String, FsEntry>) -
         .iter()
         .map(|(name, entry)| {
             let is_dir = entry.is_directory();
-            let (title, file_meta) = match entry {
-                FsEntry::Directory { meta, .. } => (meta.title.clone(), None),
-                FsEntry::File {
-                    description, meta, ..
-                } => (description.clone(), Some(meta.clone())),
+            let title = match entry {
+                FsEntry::Directory { meta, .. } => {
+                    meta.title().unwrap_or(name.as_str()).to_string()
+                }
+                FsEntry::File { meta, .. } => meta.title().unwrap_or(name.as_str()).to_string(),
             };
             DirEntry {
                 name: name.clone(),
                 path: base.join(name),
                 is_dir,
                 title,
-                file_meta,
+                meta: Some(entry.meta().clone()),
             }
         })
         .collect();
@@ -698,9 +750,34 @@ fn get_tree_entry_mut<'a>(root: &'a mut FsEntry, path: &VirtualPath) -> Option<&
 #[cfg(test)]
 mod tests {
     use crate::core::storage::{ScannedDirectory, ScannedFile, ScannedSubtree};
-    use crate::models::FileMetadata;
+    use crate::models::{Fields, NodeKind, NodeMetadata, SCHEMA_VERSION};
 
     use super::*;
+
+    fn file_meta(kind: NodeKind) -> NodeMetadata {
+        NodeMetadata {
+            schema: SCHEMA_VERSION,
+            kind,
+            authored: Fields::default(),
+            derived: Fields::default(),
+        }
+    }
+
+    fn dir_meta(name: &str) -> NodeMetadata {
+        NodeMetadata {
+            schema: SCHEMA_VERSION,
+            kind: NodeKind::Directory,
+            authored: Fields {
+                title: if name.is_empty() {
+                    None
+                } else {
+                    Some(name.to_string())
+                },
+                ..Fields::default()
+            },
+            derived: Fields::default(),
+        }
+    }
 
     fn snapshot(files: &[&str], directories: &[&str]) -> ScannedSubtree {
         ScannedSubtree {
@@ -708,18 +785,15 @@ mod tests {
                 .iter()
                 .map(|path| ScannedFile {
                     path: (*path).to_string(),
-                    description: (*path).to_string(),
-                    meta: FileMetadata::default(),
+                    meta: file_meta(NodeKind::Asset),
+                    extensions: EntryExtensions::default(),
                 })
                 .collect(),
             directories: directories
                 .iter()
                 .map(|path| ScannedDirectory {
                     path: (*path).to_string(),
-                    meta: DirectoryMetadata {
-                        title: path.rsplit('/').next().unwrap_or(path).to_string(),
-                        ..Default::default()
-                    },
+                    meta: dir_meta(path.rsplit('/').next().unwrap_or(path)),
                 })
                 .collect(),
         }
@@ -783,7 +857,7 @@ mod tests {
                 VirtualPath::root(),
                 FsEntry::Directory {
                     children: HashMap::new(),
-                    meta: DirectoryMetadata::default(),
+                    meta: dir_meta(""),
                 },
             )
             .unwrap();
@@ -816,7 +890,12 @@ mod tests {
     fn pending_text_tracks_upserts() {
         let mut global = GlobalFs::empty();
         let path = VirtualPath::from_absolute("/new.md").unwrap();
-        global.upsert_file(path.clone(), "hello".to_string(), FileMetadata::default());
+        global.upsert_file(
+            path.clone(),
+            "hello".to_string(),
+            file_meta(NodeKind::Page),
+            EntryExtensions::default(),
+        );
 
         assert_eq!(global.read_pending_text(&path).as_deref(), Some("hello"));
     }
@@ -841,40 +920,43 @@ mod tests {
 
     #[test]
     fn exported_mount_snapshot_sorts_regardless_of_input_order() {
+        let tagged_dir = |title: &str, tag: &str| NodeMetadata {
+            schema: SCHEMA_VERSION,
+            kind: NodeKind::Directory,
+            authored: Fields {
+                title: Some(title.to_string()),
+                tags: Some(vec![tag.to_string()]),
+                ..Fields::default()
+            },
+            derived: Fields::default(),
+        };
+
         let snapshot = ScannedSubtree {
             files: vec![
                 ScannedFile {
                     path: "z.md".to_string(),
-                    description: "Z".to_string(),
-                    meta: FileMetadata::default(),
+                    meta: file_meta(NodeKind::Page),
+                    extensions: EntryExtensions::default(),
                 },
                 ScannedFile {
                     path: "m.md".to_string(),
-                    description: "M".to_string(),
-                    meta: FileMetadata::default(),
+                    meta: file_meta(NodeKind::Page),
+                    extensions: EntryExtensions::default(),
                 },
                 ScannedFile {
                     path: "a.md".to_string(),
-                    description: "A".to_string(),
-                    meta: FileMetadata::default(),
+                    meta: file_meta(NodeKind::Page),
+                    extensions: EntryExtensions::default(),
                 },
             ],
             directories: vec![
                 ScannedDirectory {
                     path: "z-dir".to_string(),
-                    meta: DirectoryMetadata {
-                        title: "Z".to_string(),
-                        tags: vec!["zone".to_string()],
-                        ..Default::default()
-                    },
+                    meta: tagged_dir("Z", "zone"),
                 },
                 ScannedDirectory {
                     path: "a-dir".to_string(),
-                    meta: DirectoryMetadata {
-                        title: "A".to_string(),
-                        tags: vec!["area".to_string()],
-                        ..Default::default()
-                    },
+                    meta: tagged_dir("A", "area"),
                 },
             ],
         };
@@ -901,7 +983,8 @@ mod tests {
         global.upsert_file(
             root.join("notes.md"),
             "notes".into(),
-            FileMetadata::default(),
+            file_meta(NodeKind::Page),
+            EntryExtensions::default(),
         );
 
         let snapshot = global.export_mount_snapshot(&root).unwrap();
@@ -916,7 +999,7 @@ mod tests {
         global
             .mount_scanned_subtree(root.clone(), &ScannedSubtree::default())
             .unwrap();
-        global.upsert_directory(root.join("empty"), DirectoryMetadata::default());
+        global.upsert_directory(root.join("empty"), dir_meta("empty"));
 
         let snapshot = global.export_mount_snapshot(&root).unwrap();
         let paths: Vec<_> = snapshot
@@ -951,12 +1034,13 @@ mod tests {
             .unwrap();
         global.upsert_directory(
             VirtualPath::from_absolute("/.websh/state").unwrap(),
-            DirectoryMetadata::default(),
+            dir_meta("state"),
         );
         global.upsert_file(
             VirtualPath::from_absolute("/.websh/state/session/wallet_session").unwrap(),
             "1".into(),
-            FileMetadata::default(),
+            file_meta(NodeKind::Data),
+            EntryExtensions::default(),
         );
 
         let snapshot = global.export_mount_snapshot(&VirtualPath::root()).unwrap();

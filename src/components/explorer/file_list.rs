@@ -81,18 +81,18 @@ fn FileListItem(entry: DirEntry) -> impl IntoView {
 
     let is_dir = entry.is_dir;
     let is_restricted = entry
-        .file_meta
+        .meta
         .as_ref()
         .map(|m| m.is_restricted())
         .unwrap_or(false);
     let is_hidden = entry.name.starts_with('.');
     let icon = get_icon(&entry);
-    let size = format_size(entry.file_meta.as_ref().and_then(|m| m.size), false);
+    let size = format_size(entry.meta.as_ref().and_then(|m| m.size_bytes()), false);
     let title = entry.title.clone();
     let modified = entry
-        .file_meta
+        .meta
         .as_ref()
-        .and_then(|m| m.modified)
+        .and_then(|m| m.modified_at())
         .map(format_date_iso);
 
     // Build item path once at creation time (route doesn't change during item lifetime)

@@ -1,35 +1,28 @@
+//! Content manifest schema. The manifest is the bundled projection of
+//! every sidecar in a mount's content tree. The runtime fetches it once
+//! and reads metadata directly — no per-file sidecar fetches at runtime.
+
 use serde::{Deserialize, Serialize};
 
-use super::filesystem::AccessFilter;
+use super::mempool::MempoolFields;
+use super::node_metadata::NodeMetadata;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContentManifestDocument {
-    pub files: Vec<ContentManifestFile>,
-    pub directories: Vec<ContentManifestDirectory>,
+    #[serde(default)]
+    pub entries: Vec<ContentManifestEntry>,
 }
 
+/// `mempool` is a domain-extension sibling block; new domains slot in
+/// here. No `deny_unknown_fields` so older runtimes ignore newer
+/// domain blocks instead of rejecting the manifest.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ContentManifestFile {
+pub struct ContentManifestEntry {
     pub path: String,
-    pub title: String,
-    pub size: Option<u64>,
-    pub modified: Option<u64>,
-    pub date: Option<String>,
-    pub tags: Vec<String>,
-    pub access: Option<AccessFilter>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ContentManifestDirectory {
-    pub path: String,
-    pub title: String,
-    pub tags: Vec<String>,
-    pub description: Option<String>,
-    pub icon: Option<String>,
-    pub thumbnail: Option<String>,
+    pub metadata: NodeMetadata,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mempool: Option<MempoolFields>,
 }
 
 #[cfg(test)]

@@ -45,6 +45,7 @@ serde_json = "1"
 toml = "0.8"
 stylance = "0.7"
 leptos_icons = "0.7"
+leptos-use = { version = "0.18", default-features = false, features = ["use_media_query"] }
 icondata = { version = "0.7", default-features = false, features = ["bootstrap-icons", "lucide"] }
 regex = { version = "1", default-features = false, features = ["std", "perf"] }
 base64 = "0.22"
@@ -66,6 +67,9 @@ wasm-bindgen-test = "0.3"
 clap = { version = "4", features = ["derive"] }
 pgp = "0.19"
 rand = "0.8"
+serde_yaml = "0.9"
+lopdf = "0.34"
+imagesize = "0.13"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.2", features = ["js"] }

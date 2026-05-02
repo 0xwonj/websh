@@ -1,7 +1,7 @@
 use leptos::ev;
 use leptos::prelude::*;
 
-use crate::crypto::ack::short_hash;
+use crate::components::shared::{MonoOverflow, MonoTone, MonoValue};
 use crate::crypto::attestation::{Attestation, AttestationArtifact, Subject};
 use crate::crypto::pgp::pretty_fingerprint;
 
@@ -26,11 +26,16 @@ struct FooterSigRow {
 enum FooterSigValueKind {
     Text,
     Hex,
-    Ok,
     Fingerprint,
     MessageHash,
     Signature,
     Divider,
+    /// Composite recovery confirmation: optional `prefix` label + hash via
+    /// `MonoValue` + verified status indicator. The `verified` flag selects
+    /// the trailing "✓"/"pending" glyph and the hash tone.
+    Recovered {
+        verified: bool,
+    },
 }
 
 #[component]
@@ -47,8 +52,16 @@ pub fn AttestationSigFooter(
         <div class=css::pagefoot data-sigstyle="chip" data-sigpos="center">
             {colophon.then(|| view! {
                 <div class=css::colophon>
-                    <div>"Typeset in IBM Plex Mono. Math by KaTeX. No cookies, no trackers, probably no bugs."</div>
-                    <div>"© Wonjae Choi — CC BY-SA 4.0, except the jokes, which are on the house."</div>
+                    <div>
+                        "Typeset in IBM Plex Mono. Math by KaTeX"
+                        <span class=css::colophonTrackers>". No cookies, no trackers, probably no bugs"</span>
+                        "."
+                    </div>
+                    <div>
+                        "© Wonjae Choi — CC BY-SA 4.0"
+                        <span class=css::colophonJokes>", except the jokes, which are on the house"</span>
+                        "."
+                    </div>
                 </div>
             })}
             <Show when=move || sig_open.get() && summary.get().is_some()>
@@ -59,8 +72,8 @@ pub fn AttestationSigFooter(
                 ></span>
             </Show>
             {move || summary.get().map(|summary| {
-                let (chip_head, chip_tail) = split_sig_chip(&summary.chip_value);
                 let verified = summary.verified;
+                let chip_value = summary.chip_value.clone();
                 let rows = summary.rows.clone();
                 let sig_keydown = move |ev: ev::KeyboardEvent| match ev.key().as_str() {
                     "Enter" | " " => {
@@ -87,16 +100,18 @@ pub fn AttestationSigFooter(
                     >
                         <span class=css::lab>"sig"</span>
                         <span class=css::sigVal>
-                            <span>{chip_head}</span>
-                            {(!chip_tail.is_empty()).then(|| view! {
-                                <span>
-                                    <span class=css::mid>"…"</span>
-                                    <span>{chip_tail}</span>
-                                </span>
-                            })}
+                            <MonoValue
+                                value=chip_value
+                                tone=MonoTone::Accent
+                                overflow=MonoOverflow::Middle { head: 6, tail: 4 }
+                            />
                         </span>
-                        <span class=css::ok aria-label=if verified { "verified" } else { "pending" }>
-                            {if verified { "✓" } else { "" }}
+                        <span
+                            class=css::ok
+                            data-state=if verified { "verified" } else { "pending" }
+                            aria-label=if verified { "verified" } else { "pending" }
+                        >
+                            {if verified { "✓" } else { "…" }}
                         </span>
                         <span
                             class=css::sigPop
@@ -113,69 +128,105 @@ pub fn AttestationSigFooter(
 }
 
 fn render_sig_row(row: FooterSigRow) -> AnyView {
-    if matches!(row.kind, FooterSigValueKind::Divider) {
-        return view! { <div class=css::sigHr></div> }.into_any();
-    }
-    let class_name = row.value_class();
-    if matches!(row.kind, FooterSigValueKind::MessageHash) {
-        let prefix = row.prefix.clone().unwrap_or_default();
-        let full_value = format!("{}{}", prefix, row.value);
-        let (hash_head, hash_tail) = split_sig_hash(&row.value);
-        return view! {
+    match row.kind {
+        FooterSigValueKind::Divider => view! { <div class=css::sigHr></div> }.into_any(),
+        FooterSigValueKind::Signature => view! {
+            <div class=css::sigBlockRow>
+                <div class=css::sigBlockLabel>{row.key}</div>
+                <pre class=css::sigSignature>{row.value}</pre>
+            </div>
+        }
+        .into_any(),
+        FooterSigValueKind::MessageHash => {
+            // Plain hashes (content / ack root / chain head): middle-ellipsis
+            // for at-a-glance fit consistent with other hash cells.
+            // Prefixed hashes ("message" rows with `SHA256(...) = ` preamble):
+            // keep Scroll so the prefix stays readable.
+            let prefix = row.prefix.clone().unwrap_or_default();
+            if prefix.is_empty() {
+                view! {
+                    <div class=css::sigRow>
+                        <span class=css::sigK>{row.key}</span>
+                        " "
+                        <span class=css::sigV>
+                            <MonoValue
+                                value=row.value
+                                tone=MonoTone::Hex
+                                overflow=MonoOverflow::Middle { head: 18, tail: 8 }
+                            />
+                        </span>
+                    </div>
+                }
+                .into_any()
+            } else {
+                let full_value = format!("{}{}", prefix, row.value);
+                view! {
+                    <div class=css::sigRow>
+                        <span class=css::sigK>{row.key}</span>
+                        " "
+                        <span class=css::sigV>
+                            <MonoValue
+                                value=full_value
+                                tone=MonoTone::Hex
+                                overflow=MonoOverflow::Scroll
+                            />
+                        </span>
+                    </div>
+                }
+                .into_any()
+            }
+        }
+        FooterSigValueKind::Recovered { verified } => {
+            let prefix = row.prefix.clone().unwrap_or_default();
+            let status = if verified { "✓" } else { "pending" };
+            let tone = if verified {
+                MonoTone::Hex
+            } else {
+                MonoTone::Plain
+            };
+            view! {
+                <div class=css::sigRow>
+                    <span class=css::sigK>{row.key}</span>
+                    " "
+                    <span class=css::sigV>
+                        {(!prefix.is_empty()).then(|| view! { <>{prefix}" "</> })}
+                        <MonoValue
+                            value=row.value
+                            tone=tone
+                            overflow=MonoOverflow::Middle { head: 18, tail: 8 }
+                        />
+                        " "
+                        {status}
+                    </span>
+                </div>
+            }
+            .into_any()
+        }
+        kind => view! {
             <div class=css::sigRow>
                 <span class=css::sigK>{row.key}</span>
                 " "
-                <span class=class_name title=full_value>
-                    <span class=css::sigMessagePrefix>{prefix}</span>
-                    <span class=css::sigHashHead>{hash_head}</span>
-                    {(!hash_tail.is_empty()).then(|| view! {
-                        <span>
-                            <span class=css::sigHashMid>"…"</span>
-                            <span class=css::sigHashTail>{hash_tail}</span>
-                        </span>
-                    })}
+                <span class=css::sigV>
+                    <MonoValue value=row.value tone=mono_tone_for(kind) />
                 </span>
             </div>
         }
-        .into_any();
+        .into_any(),
     }
-    if matches!(row.kind, FooterSigValueKind::Signature) {
-        return view! {
-            <div class=css::sigBlockRow>
-                <div class=css::sigBlockLabel>{row.key}</div>
-                <pre class=class_name>{row.value}</pre>
-            </div>
-        }
-        .into_any();
+}
+
+fn mono_tone_for(kind: FooterSigValueKind) -> MonoTone {
+    match kind {
+        FooterSigValueKind::Hex | FooterSigValueKind::MessageHash => MonoTone::Hex,
+        FooterSigValueKind::Fingerprint => MonoTone::Accent,
+        FooterSigValueKind::Text
+        | FooterSigValueKind::Signature
+        | FooterSigValueKind::Divider
+        | FooterSigValueKind::Recovered { .. } => MonoTone::Plain,
     }
-    view! {
-        <div class=css::sigRow>
-            <span class=css::sigK>{row.key}</span>
-            " "
-            <span class=class_name>{row.value}</span>
-        </div>
-    }
-    .into_any()
 }
 
 impl FooterSigRow {
-    fn value_class(&self) -> String {
-        let extra = match self.kind {
-            FooterSigValueKind::Text => "",
-            FooterSigValueKind::Hex => css::hex,
-            FooterSigValueKind::Ok => css::okText,
-            FooterSigValueKind::Fingerprint => css::sigFingerprint,
-            FooterSigValueKind::MessageHash => css::sigMessage,
-            FooterSigValueKind::Signature => css::sigSignature,
-            FooterSigValueKind::Divider => "",
-        };
-        if extra.is_empty() {
-            css::sigV.to_string()
-        } else {
-            format!("{} {}", css::sigV, extra)
-        }
-    }
-
     fn with_prefix(mut self, prefix: String) -> Self {
         self.prefix = Some(prefix);
         self
@@ -260,12 +311,10 @@ fn footer_sig_summary_for_subject(subject: &Subject) -> FooterSigSummary {
                 ));
                 rows.push(footer_row(
                     "recovered",
-                    &format!(
-                        "message {} {}",
-                        short_hash(message_sha256),
-                        if *verified { "✓" } else { "pending" }
-                    ),
-                    verified_kind(*verified),
+                    message_sha256,
+                    FooterSigValueKind::Recovered {
+                        verified: *verified,
+                    },
                 ));
             }
             Attestation::Ethereum {
@@ -296,12 +345,10 @@ fn footer_sig_summary_for_subject(subject: &Subject) -> FooterSigSummary {
                 ));
                 rows.push(footer_row(
                     "recovered",
-                    &format!(
-                        "{} {}",
-                        short_hash(recovered_address),
-                        if *verified { "✓" } else { "pending" }
-                    ),
-                    verified_kind(*verified),
+                    recovered_address,
+                    FooterSigValueKind::Recovered {
+                        verified: *verified,
+                    },
                 ));
             }
         }
@@ -320,8 +367,8 @@ fn footer_sig_summary_for_subject(subject: &Subject) -> FooterSigSummary {
         chip_value: subject
             .attestations()
             .first()
-            .map(|attestation| short_hash(attestation.message_sha256()))
-            .unwrap_or_else(|| short_hash(&content_sha)),
+            .map(|attestation| attestation.message_sha256().to_string())
+            .unwrap_or_else(|| content_sha.clone()),
         verified: subject.attestations().iter().any(Attestation::verified),
         rows,
     }
@@ -329,17 +376,6 @@ fn footer_sig_summary_for_subject(subject: &Subject) -> FooterSigSummary {
 
 fn message_prefix(subject: &Subject) -> String {
     format!("SHA256({} @ {}) = ", subject.kind_str(), subject.route())
-}
-
-fn split_sig_hash(hash: &str) -> (String, String) {
-    const TAIL_LEN: usize = 8;
-    if hash.len() <= TAIL_LEN * 2 {
-        return (hash.to_string(), String::new());
-    }
-    (
-        hash[..hash.len() - TAIL_LEN].to_string(),
-        hash[hash.len() - TAIL_LEN..].to_string(),
-    )
 }
 
 fn pending_footer_sig(missing: &str) -> FooterSigSummary {
@@ -365,19 +401,4 @@ fn footer_row(key: &str, value: &str, kind: FooterSigValueKind) -> FooterSigRow 
 
 fn footer_divider() -> FooterSigRow {
     footer_row("", "", FooterSigValueKind::Divider)
-}
-
-fn verified_kind(verified: bool) -> FooterSigValueKind {
-    if verified {
-        FooterSigValueKind::Ok
-    } else {
-        FooterSigValueKind::Text
-    }
-}
-
-fn split_sig_chip(value: &str) -> (String, String) {
-    if value == "pending" || value.len() <= 12 {
-        return (value.to_string(), String::new());
-    }
-    (value[..6].to_string(), value[value.len() - 4..].to_string())
 }

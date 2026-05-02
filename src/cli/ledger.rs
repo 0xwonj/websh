@@ -3,7 +3,8 @@ use std::path::Path;
 
 use crate::crypto::attestation::subject_id_for_route;
 use crate::crypto::ledger::{
-    CONTENT_LEDGER_CONTENT_PATH, ContentLedgerArtifact, ContentLedgerEntry,
+    CONTENT_LEDGER_CONTENT_PATH, ContentLedger, ContentLedgerCategory, ContentLedgerEntry,
+    ContentLedgerInput, ContentLedgerSortKey,
 };
 use crate::utils::format::iso_date_prefix;
 
@@ -15,17 +16,14 @@ use super::manifest::{
     resolve_path, route_for_content_path, should_skip_primary_content_file,
 };
 
-pub(crate) fn generate_content_ledger(
-    root: &Path,
-    content_dir: &Path,
-) -> CliResult<ContentLedgerArtifact> {
+pub(crate) fn generate_content_ledger(root: &Path, content_dir: &Path) -> CliResult<ContentLedger> {
     let content_root = resolve_path(root, content_dir);
     fs::create_dir_all(&content_root)?;
 
     let mut files = Vec::new();
     collect_files_recursive(&content_root, &mut files)?;
 
-    let mut staged: Vec<(String, ContentLedgerEntry)> = Vec::new();
+    let mut staged: Vec<ContentLedgerInput> = Vec::new();
     for file_path in files {
         let rel_path = relative_path_from(&content_root, &file_path)?;
         if should_skip_primary_content_file(&rel_path) {
@@ -40,22 +38,21 @@ pub(crate) fn generate_content_ledger(
         let route = route_for_content_path(&rel_path);
         let content_files = build_content_files(root, &content_paths)?;
         let sort_date = sort_date_for_entry(&content_root, &file_path, &rel_path);
-        staged.push((
-            sort_date,
-            ContentLedgerEntry::new(subject_id_for_route(&route), route, rel_path, content_files)?,
+        let category = ContentLedgerCategory::for_path(&rel_path);
+        staged.push(ContentLedgerInput::new(
+            ContentLedgerSortKey::new(sort_date, rel_path.clone()),
+            ContentLedgerEntry::new(
+                subject_id_for_route(&route),
+                route,
+                rel_path,
+                category,
+                content_files,
+            )?,
         ));
     }
-    // Canonical ledger order is `(content date asc, path asc)`. Undated entries
-    // collapse to the empty string so they sort first canonically (= last in
-    // the newest-first display) and the chain reads coherently.
-    staged.sort_by(|left, right| {
-        left.0
-            .cmp(&right.0)
-            .then_with(|| left.1.path.cmp(&right.1.path))
-    });
-    let entries = staged.into_iter().map(|(_, entry)| entry).collect();
-
-    let ledger = ContentLedgerArtifact::new(entries)?;
+    // `ContentLedger::new` owns canonical block ordering and hash chaining:
+    // `(sort_key.date asc with None first, sort_key.path asc)`.
+    let ledger = ContentLedger::new(staged)?;
     ledger.validate()?;
 
     let ledger_path = content_root.join(CONTENT_LEDGER_CONTENT_PATH);
@@ -67,12 +64,11 @@ pub(crate) fn generate_content_ledger(
     Ok(ledger)
 }
 
-fn sort_date_for_entry(content_root: &Path, file_path: &Path, rel_path: &str) -> String {
+fn sort_date_for_entry(content_root: &Path, file_path: &Path, rel_path: &str) -> Option<String> {
     content_entry_raw_date(content_root, file_path, rel_path)
         .as_deref()
         .and_then(iso_date_prefix)
         .map(|date| date.to_string())
-        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -101,15 +97,16 @@ mod tests {
         fs::write(content.join("talks/a.pdf"), b"pdf").unwrap();
         fs::write(
             content.join("talks/a.meta.json"),
-            r#"{"title":"Talk","tags":["zk"],"date":"2026-04-01"}"#,
+            r#"{"schema":1,"kind":"document","authored":{"title":"Talk","tags":["zk"],"date":"2026-04-01"},"derived":{}}"#,
         )
         .unwrap();
 
         let ledger = generate_content_ledger(&root, Path::new("content")).unwrap();
-        assert_eq!(ledger.entries.len(), 1);
-        let entry = &ledger.entries[0];
+        assert_eq!(ledger.blocks.len(), 1);
+        let entry = &ledger.blocks[0].entry;
         assert_eq!(entry.path, "talks/a.pdf");
         assert_eq!(entry.route, "/talks/a.pdf");
+        assert_eq!(entry.category, ContentLedgerCategory::Talks);
         assert_eq!(
             entry
                 .content_files
@@ -150,18 +147,19 @@ mod tests {
         fs::write(content.join("papers/p.pdf"), b"pdf").unwrap();
         fs::write(
             content.join("papers/p.meta.json"),
-            r#"{"date":"2026-03-10"}"#,
+            r#"{"schema":1,"kind":"document","authored":{"date":"2026-03-10"},"derived":{}}"#,
         )
         .unwrap();
-        // Undated entries — must collapse to the bottom of canonical order.
+        // Undated entries have `None` sort dates, so they sort first with
+        // the path as a tiebreaker.
         fs::write(content.join("misc/b.txt"), b"b").unwrap();
         fs::write(content.join("misc/a.txt"), b"a").unwrap();
 
         let ledger = generate_content_ledger(&root, Path::new("content")).unwrap();
         let order: Vec<&str> = ledger
-            .entries
+            .blocks
             .iter()
-            .map(|entry| entry.path.as_str())
+            .map(|block| block.entry.path.as_str())
             .collect();
 
         assert_eq!(
@@ -174,6 +172,23 @@ mod tests {
                 "papers/p.pdf",
                 "writing/new.md",
             ]
+        );
+        let heights = ledger
+            .blocks
+            .iter()
+            .map(|block| block.height)
+            .collect::<Vec<_>>();
+        assert_eq!(heights, vec![1, 2, 3, 4, 5]);
+        assert_eq!(
+            ledger.blocks[0].prev_block_sha256, ledger.genesis_hash,
+            "first block points to genesis"
+        );
+        for pair in ledger.blocks.windows(2) {
+            assert_eq!(pair[1].prev_block_sha256, pair[0].block_sha256);
+        }
+        assert_eq!(
+            ledger.chain_head,
+            ledger.blocks.last().unwrap().block_sha256
         );
         ledger.validate().unwrap();
 

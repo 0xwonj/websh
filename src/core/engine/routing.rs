@@ -331,6 +331,7 @@ fn resolved_kind_from_index(
             NodeKind::Asset => ResolvedKind::Asset,
             NodeKind::Redirect => ResolvedKind::Redirect,
             NodeKind::Data => classify_candidate(fs, node_path).unwrap_or(ResolvedKind::Document),
+            NodeKind::Directory => ResolvedKind::Directory,
         };
     }
 
@@ -462,9 +463,30 @@ fn normalize_absolute_path(path: &str) -> Option<VirtualPath> {
 #[cfg(test)]
 mod tests {
     use crate::core::storage::{ScannedDirectory, ScannedFile, ScannedSubtree};
-    use crate::models::{DirectoryMetadata, FileMetadata, RouteIndexEntry};
+    use crate::models::{EntryExtensions, Fields, NodeMetadata, RouteIndexEntry, SCHEMA_VERSION};
 
     use super::*;
+
+    fn make_meta(kind: NodeKind) -> NodeMetadata {
+        NodeMetadata {
+            schema: SCHEMA_VERSION,
+            kind,
+            authored: Fields::default(),
+            derived: Fields::default(),
+        }
+    }
+
+    fn make_dir_meta(name: &str) -> NodeMetadata {
+        NodeMetadata {
+            schema: SCHEMA_VERSION,
+            kind: NodeKind::Directory,
+            authored: Fields {
+                title: Some(name.to_string()),
+                ..Fields::default()
+            },
+            derived: Fields::default(),
+        }
+    }
 
     fn site(files: &[&str], directories: &[&str]) -> GlobalFs {
         let snapshot = ScannedSubtree {
@@ -472,18 +494,15 @@ mod tests {
                 .iter()
                 .map(|path| ScannedFile {
                     path: (*path).to_string(),
-                    description: (*path).to_string(),
-                    meta: FileMetadata::default(),
+                    meta: make_meta(NodeKind::Page),
+                    extensions: EntryExtensions::default(),
                 })
                 .collect(),
             directories: directories
                 .iter()
                 .map(|path| ScannedDirectory {
                     path: (*path).to_string(),
-                    meta: DirectoryMetadata {
-                        title: path.rsplit('/').next().unwrap_or(path).to_string(),
-                        ..Default::default()
-                    },
+                    meta: make_dir_meta(path.rsplit('/').next().unwrap_or(path)),
                 })
                 .collect(),
         };

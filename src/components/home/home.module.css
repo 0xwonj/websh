@@ -53,27 +53,6 @@
   font-size: 0.94em;
 }
 
-.identifier {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  color: var(--home-dim);
-  font-size: 11.5px;
-  border-bottom: 1px solid var(--home-rule);
-  padding-bottom: var(--space-1_5);
-  margin-bottom: var(--space-5_5);
-  letter-spacing: 0.02em;
-}
-
-.id b {
-  color: var(--home-ink);
-  font-weight: var(--weight-medium);
-}
-
-.rev {
-  color: var(--home-amber);
-}
-
 .title {
   font-family: inherit;
   font-size: 30px;
@@ -140,7 +119,58 @@
 
 .metaValue {
   padding: var(--space-1_5) var(--space-3);
+  min-width: 0;
   word-break: break-word;
+}
+
+.availCompact {
+  display: none;
+}
+
+.kwCompact {
+  display: none;
+}
+
+.appendixBCompact {
+  display: none;
+}
+
+@media (max-width: 460px) {
+  .appendixBFull {
+    display: none;
+  }
+
+  .appendixBCompact {
+    display: inline;
+  }
+}
+
+@media (max-width: 480px) {
+  .kwFull {
+    display: none;
+  }
+
+  .kwCompact {
+    display: inline;
+  }
+
+  .metaValue .dotSep {
+    word-spacing: -0.25em;
+  }
+
+  .protocolFootWitness {
+    display: none;
+  }
+
+  .ackHashBit {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .protocolFootSetup {
+    display: none;
+  }
 }
 
 .tag {
@@ -150,6 +180,10 @@
   color: var(--home-dim);
   font-size: 10.5px;
   margin-right: var(--space-0_75);
+}
+
+.tag:last-child {
+  margin-right: 0;
 }
 
 .dim {
@@ -471,24 +505,6 @@
   display: none;
 }
 
-.appendix > summary > h2 {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2_5);
-}
-
-.appendix > summary > h2::after {
-  content: "▸";
-  color: var(--home-faint);
-  font-size: var(--font-size-xs);
-  margin-left: auto;
-}
-
-.appendix[open] > summary > h2::after {
-  content: "▾";
-  color: var(--home-accent);
-}
-
 .keyblock {
   font-family: inherit;
   font-size: var(--font-size-xs);
@@ -758,12 +774,6 @@
   font-size: 10.5px;
 }
 
-.root {
-  color: var(--home-hex);
-  font-size: var(--font-size-sm);
-  font-feature-settings: "tnum";
-}
-
 .metaBits {
   margin-left: auto;
   color: var(--home-dim);
@@ -896,6 +906,16 @@
   color: var(--home-hex);
 }
 
+/* Hanging indent for the wrapping `leaf[N]     = sha256(...)` line:
+   first line starts at column 0, subsequent wrapped lines indent under
+   "sha256" (column 14 = "leaf[N]" + 5 spaces + "= "). Single-digit idx
+   assumed; multi-digit idx is off by 1-2 ch but acceptable. */
+.proofBody .leafLine {
+  display: block;
+  padding-left: 14ch;
+  text-indent: -14ch;
+}
+
 .ackFootnote {
   margin-top: var(--space-3_5);
 }
@@ -907,12 +927,24 @@
 }
 
 @media (max-width: 640px) {
-  .title {
-    font-size: var(--font-size-3xl);
-  }
-
   .metaRow {
     grid-template-columns: 96px 1fr;
+  }
+
+  .metaKey {
+    padding: var(--space-1_5) var(--space-1);
+  }
+
+  .metaValue {
+    padding: var(--space-1_5) var(--space-2);
+  }
+
+  .availFull {
+    display: none;
+  }
+
+  .availCompact {
+    display: inline;
   }
 
   .feedRow {
@@ -922,10 +954,5 @@
 
   .feedTag {
     display: none;
-  }
-
-  .verify {
-    grid-template-columns: 1fr auto;
-    grid-template-areas: "prompt button" "input input" "result result";
   }
 }

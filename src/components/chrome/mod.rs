@@ -6,13 +6,15 @@
 
 use leptos::ev;
 use leptos::prelude::*;
+use wasm_bindgen_futures::spawn_local;
 
 use crate::app::AppContext;
 use crate::components::ledger_routes::is_ledger_filter_route_segment;
+use crate::components::shared::{MonoOverflow, MonoValue};
 use crate::config::APP_NAME;
 use crate::core::engine::{RouteFrame, RouteSurface, request_path_for_canonical_path, route_cwd};
 use crate::core::wallet;
-use crate::models::VirtualPath;
+use crate::models::{VirtualPath, WalletState};
 use crate::utils::theme::{THEMES, apply_theme};
 
 stylance::import_crate_style!(css, "src/components/chrome/site_chrome.module.css");
@@ -67,15 +69,6 @@ pub fn SiteChrome(route: Memo<RouteFrame>) -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
     let theme = ctx.theme;
     let identity_href = Signal::derive(|| "/".to_string());
-    let session_name = Signal::derive(move || ctx.wallet.with(|wallet| wallet.display_name()));
-    let network_name = Signal::derive(move || {
-        ctx.wallet.with(|wallet| {
-            wallet
-                .chain_id()
-                .map(|id| wallet::chain_name(id).to_ascii_lowercase())
-                .unwrap_or_else(|| "offline".to_string())
-        })
-    });
     let breadcrumbs = Signal::derive(move || route_breadcrumb_items(&route.get()));
     let active_section = Signal::derive(move || {
         route
@@ -108,8 +101,7 @@ pub fn SiteChrome(route: Memo<RouteFrame>) -> impl IntoView {
         <SiteChromeRoot surface=SiteChromeSurface::Home>
             <SiteChromeLead>
                 <SiteChromeIdentity label=APP_NAME href=identity_href />
-                <SiteChromeChip label="session" value=session_name />
-                <SiteChromeChip label="network" value=network_name />
+                <SiteChromeWalletButton />
             </SiteChromeLead>
             <SiteChromeBreadcrumb items=breadcrumbs />
             <SiteChromeActions>
@@ -266,6 +258,148 @@ pub fn SiteChromeTextChip(value: Signal<String>) -> impl IntoView {
     }
 }
 
+/// Interactive variant of the lead chips that surfaces wallet connect/disconnect
+/// actions without altering the chip visuals. Two `SiteChromeChip`s
+/// (session, network) are wrapped in a single `<button>` so the entire pair is
+/// a single hit target; hover only shifts text color.
+///
+/// On open, a dropdown menu is shown whose contents reflect `WalletState`:
+/// - Disconnected: a `connect wallet` action.
+/// - Connecting: a static `connecting…` line (no actions).
+/// - Connected: address, network, divider, `disconnect`.
+#[component]
+pub fn SiteChromeWalletButton() -> impl IntoView {
+    let ctx = use_context::<AppContext>().expect("AppContext must be provided");
+    let (open, set_open) = signal(false);
+
+    let session = Signal::derive(move || ctx.wallet.with(|w| w.display_name()));
+    let network = Signal::derive(move || {
+        ctx.wallet.with(|wallet| {
+            wallet
+                .chain_id()
+                .map(|id| wallet::chain_name(id).to_ascii_lowercase())
+                .unwrap_or_else(|| "offline".to_string())
+        })
+    });
+
+    let toggle = move |ev: ev::MouseEvent| {
+        ev.stop_propagation();
+        set_open.update(|o| *o = !*o);
+    };
+    let trigger_keydown = move |ev: ev::KeyboardEvent| match ev.key().as_str() {
+        "Escape" => set_open.set(false),
+        "ArrowDown" | "Enter" | " " => {
+            ev.prevent_default();
+            set_open.set(true);
+        }
+        _ => {}
+    };
+
+    view! {
+        <span class=css::walletButton>
+            <button
+                class=css::walletTrigger
+                type="button"
+                aria-haspopup="menu"
+                aria-expanded=move || open.get().to_string()
+                on:click=toggle
+                on:keydown=trigger_keydown
+            >
+                <SiteChromeChip label="session" value=session />
+                <SiteChromeChip label="network" value=network />
+            </button>
+            <Show when=move || open.get()>
+                <button
+                    class=css::walletDismiss
+                    type="button"
+                    aria-label="Close wallet menu"
+                    on:click=move |_| set_open.set(false)
+                ></button>
+                <SiteChromeWalletMenu set_open=set_open />
+            </Show>
+        </span>
+    }
+}
+
+#[component]
+fn SiteChromeWalletMenu(set_open: WriteSignal<bool>) -> impl IntoView {
+    let ctx = use_context::<AppContext>().expect("AppContext must be provided");
+
+    let close = move || set_open.set(false);
+
+    let on_connect = move |ev: ev::MouseEvent| {
+        ev.stop_propagation();
+        close();
+        spawn_local(async move {
+            let _ = wallet::connect_with_session(&ctx).await;
+        });
+    };
+
+    let on_disconnect = move |ev: ev::MouseEvent| {
+        ev.stop_propagation();
+        close();
+        let _ = wallet::disconnect(&ctx);
+    };
+
+    let stop_inside = move |ev: ev::MouseEvent| ev.stop_propagation();
+
+    view! {
+        <div class=css::walletMenu role="menu" aria-label="Wallet" on:click=stop_inside>
+            {move || ctx.wallet.with(|state| match state {
+                WalletState::Disconnected => view! {
+                    <button
+                        class=css::walletMenuItem
+                        type="button"
+                        role="menuitem"
+                        on:click=on_connect
+                    >
+                        "connect wallet"
+                    </button>
+                }.into_any(),
+                WalletState::Connecting => view! {
+                    <span class=css::walletMenuStatus>"connecting…"</span>
+                }.into_any(),
+                WalletState::Connected { address, ens_name, chain_id } => {
+                    let address_full = address.clone();
+                    let ens = ens_name.clone();
+                    let chain = chain_id
+                        .map(|id| format!("{} · chain {}", wallet::chain_name(id).to_ascii_lowercase(), id))
+                        .unwrap_or_else(|| "no chain".to_string());
+                    view! {
+                        <div class=css::walletMenuRow>
+                            <span class=css::walletMenuKey>"address"</span>
+                            <MonoValue
+                                value=address_full.clone()
+                                overflow=MonoOverflow::Middle { head: 10, tail: 8 }
+                                title=address_full
+                            />
+                        </div>
+                        {ens.map(|name| view! {
+                            <div class=css::walletMenuRow>
+                                <span class=css::walletMenuKey>"ens"</span>
+                                <MonoValue value=name overflow=MonoOverflow::TruncateEnd />
+                            </div>
+                        })}
+                        <div class=css::walletMenuRow>
+                            <span class=css::walletMenuKey>"network"</span>
+                            <span class=css::walletMenuVal>{chain}</span>
+                        </div>
+                        <span class=css::walletMenuDivider aria-hidden="true"></span>
+                        <button
+                            class=css::walletMenuItem
+                            type="button"
+                            role="menuitem"
+                            on:click=on_disconnect
+                        >
+                            "disconnect"
+                        </button>
+                    }.into_any()
+                }
+            })}
+        </div>
+    }
+}
+
 #[component]
 pub fn SiteChromeDivider() -> impl IntoView {
     view! {
@@ -301,7 +435,7 @@ pub fn SiteChromePalettePicker(theme: RwSignal<&'static str>) -> impl IntoView {
             >
                 <span class=css::themeSwatch aria-hidden="true"></span>
                 <span class=css::themeLabel>"palette"</span>
-                <span class=css::paletteChevron aria-hidden="true">"v"</span>
+                <span class=css::paletteChevron aria-hidden="true">"▾"</span>
             </button>
             <Show when=move || palette_open.get()>
                 <button

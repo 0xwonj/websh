@@ -1,94 +1,24 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use serde::{Deserialize, Serialize};
+use super::mempool::MempoolFields;
+use super::node_metadata::{NodeKind, NodeMetadata};
 
-// =============================================================================
-// File Metadata
-// =============================================================================
-
-/// Metadata for files and directories.
-///
-/// Note: `FileMetadata` is never serialized standalone. Backend adapters
-/// decide how these fields map onto their private on-wire formats.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FileMetadata {
-    /// File size in bytes (None for directories or unknown)
-    pub size: Option<u64>,
-    /// Last modification time as Unix timestamp
-    pub modified: Option<u64>,
-    /// Human-authored content date for feed-like surfaces.
-    pub date: Option<String>,
-    /// Tags for categorization.
-    pub tags: Vec<String>,
-    /// Access filter (None = publicly readable)
-    pub access: Option<AccessFilter>,
+/// Domain-extension sibling blocks on a file entry — one optional
+/// typed field per domain, populated from the manifest entry.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct EntryExtensions {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mempool: Option<MempoolFields>,
 }
-
-impl FileMetadata {
-    /// Check if this file is access-restricted.
-    pub fn is_restricted(&self) -> bool {
-        self.access.is_some()
-    }
-}
-
-/// Metadata for directories (from .meta.json).
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DirectoryMetadata {
-    /// Display title
-    pub title: String,
-    /// Longer description text
-    pub description: Option<String>,
-    /// Icon identifier (e.g., "folder-code")
-    pub icon: Option<String>,
-    /// Thumbnail image path
-    pub thumbnail: Option<String>,
-    /// Tags for categorization
-    pub tags: Vec<String>,
-}
-
-/// Access-control metadata for a file.
-///
-/// "Access" is advisory: it filters who the UI shows content to. Actual
-/// cryptographic confidentiality is not provided by this metadata field.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
-pub struct AccessFilter {
-    /// Wallet addresses listed as recipients.
-    pub recipients: Vec<Recipient>,
-}
-
-/// A single listed recipient.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
-pub struct Recipient {
-    /// Wallet address (checksum or lowercase).
-    pub address: String,
-}
-
-// =============================================================================
-// Display Permissions
-// =============================================================================
 
 /// Unix-style permission display (computed at runtime).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DisplayPermissions {
-    /// Is this a directory?
     pub is_dir: bool,
-    /// Read permission (based on access filter)
     pub read: bool,
-    /// Write permission (based on admin/mount status)
     pub write: bool,
-    /// Execute permission
     pub execute: bool,
-}
-
-/// Directory entry returned by canonical filesystem directory listings.
-#[derive(Clone, Debug)]
-pub struct DirEntry {
-    pub name: String,
-    pub path: crate::models::VirtualPath,
-    pub is_dir: bool,
-    pub title: String,
-    pub file_meta: Option<FileMetadata>,
 }
 
 impl fmt::Display for DisplayPermissions {
@@ -102,6 +32,16 @@ impl fmt::Display for DisplayPermissions {
             if self.execute { 'x' } else { '-' },
         )
     }
+}
+
+/// Directory entry returned by canonical filesystem directory listings.
+#[derive(Clone, Debug)]
+pub struct DirEntry {
+    pub name: String,
+    pub path: crate::models::VirtualPath,
+    pub is_dir: bool,
+    pub title: String,
+    pub meta: Option<NodeMetadata>,
 }
 
 /// Supported file types for the reader
@@ -129,13 +69,76 @@ impl FileType {
     }
 }
 
+/// Represents an entry in the canonical filesystem tree. Each entry now
+/// carries a single [`NodeMetadata`] record covering both authored and
+/// derived fields.
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub enum FsEntry {
+    Directory {
+        children: HashMap<String, FsEntry>,
+        meta: NodeMetadata,
+    },
+    File {
+        content_path: Option<String>,
+        meta: NodeMetadata,
+        extensions: EntryExtensions,
+    },
+}
+
+impl FsEntry {
+    /// Create a file without content path (static file).
+    pub fn file() -> Self {
+        FsEntry::File {
+            content_path: None,
+            meta: NodeMetadata {
+                kind: NodeKind::Asset,
+                ..NodeMetadata::default()
+            },
+            extensions: EntryExtensions::default(),
+        }
+    }
+
+    /// Create a file with full metadata and domain extensions.
+    pub fn content_file_with_meta(
+        path: &str,
+        meta: NodeMetadata,
+        extensions: EntryExtensions,
+    ) -> Self {
+        FsEntry::File {
+            content_path: Some(path.to_string()),
+            meta,
+            extensions,
+        }
+    }
+
+    pub fn is_directory(&self) -> bool {
+        matches!(self, FsEntry::Directory { .. })
+    }
+
+    pub fn is_restricted(&self) -> bool {
+        match self {
+            FsEntry::File { meta, .. } | FsEntry::Directory { meta, .. } => meta.is_restricted(),
+        }
+    }
+
+    /// Get the metadata regardless of file/directory.
+    pub fn meta(&self) -> &NodeMetadata {
+        match self {
+            FsEntry::File { meta, .. } | FsEntry::Directory { meta, .. } => meta,
+        }
+    }
+
+    pub fn meta_mut(&mut self) -> &mut NodeMetadata {
+        match self {
+            FsEntry::File { meta, .. } | FsEntry::Directory { meta, .. } => meta,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // =========================================================================
-    // FileType Tests
-    // =========================================================================
 
     #[test]
     fn test_file_type_detection() {
@@ -146,71 +149,5 @@ mod tests {
         assert_eq!(FileType::from_path("images/photo.JPG"), FileType::Image);
         assert_eq!(FileType::from_path("links/github.link"), FileType::Link);
         assert_eq!(FileType::from_path("unknown/file.xyz"), FileType::Unknown);
-    }
-}
-
-/// Represents an entry in the canonical filesystem tree.
-#[derive(Clone, Debug)]
-#[allow(dead_code)]
-pub enum FsEntry {
-    Directory {
-        children: HashMap<String, FsEntry>,
-        meta: DirectoryMetadata,
-    },
-    File {
-        content_path: Option<String>,
-        description: String,
-        meta: FileMetadata,
-    },
-}
-
-impl FsEntry {
-    /// Create a file without content path (static file).
-    pub fn file(description: &str) -> Self {
-        FsEntry::File {
-            content_path: None,
-            description: description.to_string(),
-            meta: FileMetadata::default(),
-        }
-    }
-
-    /// Create a file with full metadata.
-    pub fn content_file_with_meta(path: &str, description: &str, meta: FileMetadata) -> Self {
-        FsEntry::File {
-            content_path: Some(path.to_string()),
-            description: description.to_string(),
-            meta,
-        }
-    }
-
-    /// Check if this entry is a directory.
-    pub fn is_directory(&self) -> bool {
-        matches!(self, FsEntry::Directory { .. })
-    }
-
-    /// Check if this file is access-restricted.
-    pub fn is_restricted(&self) -> bool {
-        match self {
-            FsEntry::File { meta, .. } => meta.is_restricted(),
-            FsEntry::Directory { .. } => false,
-        }
-    }
-
-    /// Get the file metadata (files only).
-    #[allow(dead_code)]
-    pub fn file_meta(&self) -> Option<&FileMetadata> {
-        match self {
-            FsEntry::File { meta, .. } => Some(meta),
-            FsEntry::Directory { .. } => None,
-        }
-    }
-
-    /// Get the directory metadata (directories only).
-    #[allow(dead_code)]
-    pub fn dir_meta(&self) -> Option<&DirectoryMetadata> {
-        match self {
-            FsEntry::Directory { meta, .. } => Some(meta),
-            FsEntry::File { .. } => None,
-        }
     }
 }

@@ -87,8 +87,10 @@ pub fn PreviewBody(
                     />
                 }.into_any()
             } else {
-                let meta_desc = data.file_meta.get()
-                    .map(|meta| meta.description)
+                let meta_desc = data
+                    .file_meta
+                    .get()
+                    .and_then(|meta| meta.description)
                     .filter(|d| !d.is_empty());
                 view! {
                     <TextPreview

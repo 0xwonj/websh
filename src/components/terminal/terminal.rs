@@ -10,7 +10,7 @@ use crate::core::engine::route_cwd;
 use crate::core::{
     SideEffect, autocomplete, execute_pipeline, get_hint, parse_input, runtime, wallet,
 };
-use crate::models::{OutputLine, WalletState};
+use crate::models::OutputLine;
 use crate::utils::dom::focus_terminal_input;
 
 stylance::import_crate_style!(css, "src/components/terminal/terminal.module.css");
@@ -22,60 +22,35 @@ stylance::import_crate_style!(css, "src/components/terminal/terminal.module.css"
 /// Execute wallet login command asynchronously.
 fn handle_login(ctx: AppContext) {
     wasm_bindgen_futures::spawn_local(async move {
-        if !wallet::is_available() {
-            ctx.terminal.push_output(OutputLine::error(
-                "No EIP-1193 wallet found. Please install a browser wallet extension.",
-            ));
-            return;
-        }
-
-        ctx.wallet.set(WalletState::Connecting);
         ctx.terminal
             .push_output(OutputLine::info("Connecting to wallet..."));
 
-        match wallet::connect().await {
-            Ok(address) => {
-                match wallet::save_session() {
-                    Ok(snapshot) => ctx.runtime_state.set(snapshot),
-                    Err(error) => ctx.terminal.push_output(OutputLine::error(format!(
+        match wallet::connect_with_session(&ctx).await {
+            Ok(outcome) => {
+                if let Some(error) = outcome.session_persist_error {
+                    ctx.terminal.push_output(OutputLine::error(format!(
                         "login: failed to persist session: {error}"
-                    ))),
+                    )));
                 }
-                let chain_id = wallet::get_chain_id().await;
-
-                ctx.wallet.set(WalletState::Connected {
-                    address: address.clone(),
-                    ens_name: None,
-                    chain_id,
-                });
-                ctx.terminal
-                    .push_output(OutputLine::success(format!("Connected: {}", address)));
-
-                if let Some(id) = chain_id {
+                ctx.terminal.push_output(OutputLine::success(format!(
+                    "Connected: {}",
+                    outcome.address
+                )));
+                if let Some(id) = outcome.chain_id {
                     ctx.terminal.push_output(OutputLine::info(format!(
                         "Network: {} (chain_id={})",
                         wallet::chain_name(id),
                         id
                     )));
                 }
-
-                ctx.terminal
-                    .push_output(OutputLine::info("Resolving ENS..."));
-                if let Some(ens_name) = wallet::resolve_ens(&address).await {
-                    ctx.wallet.set(WalletState::Connected {
-                        address: address.clone(),
-                        ens_name: Some(ens_name.clone()),
-                        chain_id,
-                    });
+                if let Some(ens) = outcome.ens_name {
                     ctx.terminal
-                        .push_output(OutputLine::success(format!("ENS: {}", ens_name)));
+                        .push_output(OutputLine::success(format!("ENS: {}", ens)));
                 }
             }
-            Err(e) => {
-                ctx.wallet.set(WalletState::Disconnected);
-                ctx.terminal
-                    .push_output(OutputLine::error(format!("Connection failed: {}", e)));
-            }
+            Err(e) => ctx
+                .terminal
+                .push_output(OutputLine::error(format!("Connection failed: {}", e))),
         }
     });
 }
@@ -216,7 +191,7 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
             Err(error) => ctx.terminal.push_output(OutputLine::error(error)),
         },
         SideEffect::ApplyChange { path, change } => {
-            ctx.changes.update(|cs| cs.upsert(path, change));
+            ctx.changes.update(|cs| cs.upsert(path, *change));
         }
         SideEffect::StageChange { path } => {
             ctx.changes.update(|cs| cs.stage(&path));

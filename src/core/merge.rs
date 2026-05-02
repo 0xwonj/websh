@@ -30,21 +30,32 @@ pub fn apply_staged_changes_to_global_for_root(
 
 fn apply_global_change(fs: &mut GlobalFs, path: &VirtualPath, change: &ChangeType) {
     match change {
-        ChangeType::CreateFile { content, meta } => {
-            fs.upsert_file(path.clone(), content.clone(), meta.clone());
+        ChangeType::CreateFile {
+            content,
+            meta,
+            extensions,
+        } => {
+            fs.upsert_file(
+                path.clone(),
+                content.clone(),
+                meta.clone(),
+                extensions.clone(),
+            );
         }
         ChangeType::CreateBinary {
             blob_id: _,
             mime: _,
             meta,
+            extensions,
         } => {
-            fs.upsert_binary_placeholder(path.clone(), meta.clone());
+            fs.upsert_binary_placeholder(path.clone(), meta.clone(), extensions.clone());
         }
         ChangeType::UpdateFile {
             content,
-            description,
+            meta,
+            extensions,
         } => {
-            fs.update_file_content(path, content.clone(), description.clone());
+            fs.update_file(path, content.clone(), meta.clone(), extensions.clone());
         }
         ChangeType::DeleteFile => {
             fs.remove_entry(path);
@@ -61,10 +72,19 @@ fn apply_global_change(fs: &mut GlobalFs, path: &VirtualPath, change: &ChangeTyp
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{DirectoryMetadata, FileMetadata, FsEntry};
+    use crate::models::test_support::{blank_meta, directory_meta};
+    use crate::models::{EntryExtensions, FsEntry, NodeKind, NodeMetadata};
 
     fn p(s: &str) -> VirtualPath {
         VirtualPath::from_absolute(s).unwrap()
+    }
+
+    fn file_meta() -> NodeMetadata {
+        blank_meta(NodeKind::Page)
+    }
+
+    fn dir_meta(title: &str) -> NodeMetadata {
+        directory_meta(title)
     }
 
     fn base() -> GlobalFs {
@@ -82,7 +102,8 @@ mod tests {
             p("/note.md"),
             ChangeType::CreateFile {
                 content: "hi".into(),
-                meta: FileMetadata::default(),
+                meta: file_meta(),
+                extensions: EntryExtensions::default(),
             },
         );
         let merged = merged(&base(), &cs);
@@ -92,7 +113,12 @@ mod tests {
     #[test]
     fn delete_removes_from_merged() {
         let mut fs = base();
-        fs.upsert_file(p("/a.md"), "a".into(), FileMetadata::default());
+        fs.upsert_file(
+            p("/a.md"),
+            "a".into(),
+            file_meta(),
+            EntryExtensions::default(),
+        );
         let mut cs = ChangeSet::new();
         cs.upsert(p("/a.md"), ChangeType::DeleteFile);
         let merged = merged(&fs, &cs);
@@ -102,13 +128,19 @@ mod tests {
     #[test]
     fn update_replaces_content() {
         let mut fs = base();
-        fs.upsert_file(p("/a.md"), "old".into(), FileMetadata::default());
+        fs.upsert_file(
+            p("/a.md"),
+            "old".into(),
+            file_meta(),
+            EntryExtensions::default(),
+        );
         let mut cs = ChangeSet::new();
         cs.upsert(
             p("/a.md"),
             ChangeType::UpdateFile {
                 content: "new".into(),
-                description: None,
+                meta: None,
+                extensions: None,
             },
         );
         let merged = merged(&fs, &cs);
@@ -119,13 +151,7 @@ mod tests {
     #[test]
     fn create_directory_appears_in_merged() {
         let mut cs = ChangeSet::new();
-        let meta = DirectoryMetadata {
-            title: "Notes".into(),
-            description: None,
-            icon: None,
-            thumbnail: None,
-            tags: Vec::new(),
-        };
+        let meta = dir_meta("Notes");
         cs.upsert(
             p("/notes"),
             ChangeType::CreateDirectory { meta: meta.clone() },
@@ -136,7 +162,7 @@ mod tests {
             .expect("directory should exist");
         match entry {
             FsEntry::Directory { meta: m, .. } => {
-                assert_eq!(m.title, "Notes");
+                assert_eq!(m.title(), Some("Notes"));
             }
             _ => panic!("expected Directory entry at /notes"),
         }
@@ -145,17 +171,13 @@ mod tests {
     #[test]
     fn delete_directory_removes_subtree_and_pending_content() {
         let mut fs = base();
-        fs.upsert_directory(
-            p("/a"),
-            DirectoryMetadata {
-                title: "a".into(),
-                description: None,
-                icon: None,
-                thumbnail: None,
-                tags: Vec::new(),
-            },
+        fs.upsert_directory(p("/a"), dir_meta("a"));
+        fs.upsert_file(
+            p("/a/b.md"),
+            "inner".into(),
+            file_meta(),
+            EntryExtensions::default(),
         );
-        fs.upsert_file(p("/a/b.md"), "inner".into(), FileMetadata::default());
         // Sanity-check the seed.
         assert!(fs.get_entry(&p("/a/b.md")).is_some());
         assert_eq!(
@@ -179,7 +201,8 @@ mod tests {
             ChangeType::CreateBinary {
                 blob_id: "blob-xyz".into(),
                 mime: "image/png".into(),
-                meta: FileMetadata::default(),
+                meta: file_meta(),
+                extensions: EntryExtensions::default(),
             },
         );
         let merged = merged(&base(), &cs);
@@ -195,7 +218,8 @@ mod tests {
             p("/a/b/c.md"),
             ChangeType::CreateFile {
                 content: "nested".into(),
-                meta: FileMetadata::default(),
+                meta: file_meta(),
+                extensions: EntryExtensions::default(),
             },
         );
         let merged = merged(&base(), &cs);
@@ -215,25 +239,28 @@ mod tests {
     }
 
     #[test]
-    fn update_file_updates_description() {
+    fn update_file_updates_pending_text() {
         let mut fs = base();
-        fs.upsert_file(p("/a.md"), "old".into(), FileMetadata::default());
+        fs.upsert_file(
+            p("/a.md"),
+            "old".into(),
+            file_meta(),
+            EntryExtensions::default(),
+        );
         let mut cs = ChangeSet::new();
         cs.upsert(
             p("/a.md"),
             ChangeType::UpdateFile {
                 content: "new".into(),
-                description: Some("updated desc".into()),
+                meta: None,
+                extensions: None,
             },
         );
         let merged = merged(&fs, &cs);
-        let entry = merged.get_entry(&p("/a.md")).expect("file should exist");
-        match entry {
-            FsEntry::File { description, .. } => {
-                assert_eq!(description, "updated desc");
-            }
-            _ => panic!("expected File entry at /a.md"),
-        }
+        assert_eq!(
+            merged.read_pending_text(&p("/a.md")).as_deref(),
+            Some("new")
+        );
     }
 
     #[test]
@@ -244,7 +271,8 @@ mod tests {
             p("/note.md"),
             ChangeType::CreateFile {
                 content: "hi".into(),
-                meta: FileMetadata::default(),
+                meta: file_meta(),
+                extensions: EntryExtensions::default(),
             },
         );
         apply_staged_changes_to_global_for_root(&mut fs, &cs, &VirtualPath::root());
@@ -259,7 +287,8 @@ mod tests {
             p("/work/note.md"),
             ChangeType::CreateFile {
                 content: "hi".into(),
-                meta: FileMetadata::default(),
+                meta: file_meta(),
+                extensions: EntryExtensions::default(),
             },
         );
         apply_staged_changes_to_global_for_root(&mut fs, &cs, &p("/db"));
@@ -275,7 +304,8 @@ mod tests {
             path.clone(),
             ChangeType::CreateFile {
                 content: "draft".into(),
-                meta: FileMetadata::default(),
+                meta: file_meta(),
+                extensions: EntryExtensions::default(),
             },
         );
         cs.unstage(&path);

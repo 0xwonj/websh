@@ -76,28 +76,43 @@ fn content_intent_for_node(path: &VirtualPath) -> RenderIntent {
 mod tests {
     use crate::core::engine::{GlobalFs, RouteRequest, resolve_route};
     use crate::core::storage::{ScannedDirectory, ScannedFile, ScannedSubtree};
-    use crate::models::{DirectoryMetadata, FileMetadata, VirtualPath};
+    use crate::models::{
+        EntryExtensions, Fields, NodeKind, NodeMetadata, SCHEMA_VERSION, VirtualPath,
+    };
 
     use super::*;
 
     fn site(files: &[&str], directories: &[&str]) -> GlobalFs {
+        let make_meta = |kind: NodeKind| NodeMetadata {
+            schema: SCHEMA_VERSION,
+            kind,
+            authored: Fields::default(),
+            derived: Fields::default(),
+        };
+        let make_dir_meta = |name: &str| NodeMetadata {
+            schema: SCHEMA_VERSION,
+            kind: NodeKind::Directory,
+            authored: Fields {
+                title: Some(name.to_string()),
+                ..Fields::default()
+            },
+            derived: Fields::default(),
+        };
+
         let snapshot = ScannedSubtree {
             files: files
                 .iter()
                 .map(|path| ScannedFile {
                     path: (*path).to_string(),
-                    description: (*path).to_string(),
-                    meta: FileMetadata::default(),
+                    meta: make_meta(NodeKind::Page),
+                    extensions: EntryExtensions::default(),
                 })
                 .collect(),
             directories: directories
                 .iter()
                 .map(|path| ScannedDirectory {
                     path: (*path).to_string(),
-                    meta: DirectoryMetadata {
-                        title: path.rsplit('/').next().unwrap_or(path).to_string(),
-                        ..Default::default()
-                    },
+                    meta: make_dir_meta(path.rsplit('/').next().unwrap_or(path)),
                 })
                 .collect(),
         };

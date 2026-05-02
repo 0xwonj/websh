@@ -1,8 +1,20 @@
 //! `Ident` strip + `TitleBlock` (h1 + per-intent `MetaTable`).
+//!
+//! The `Ident` strip sits above the title and shows two single-line
+//! summaries:
+//!
+//! - **Left**: friendly kind label + compact date, e.g. `"Note 2026/0314"`.
+//! - **Right**: a kind-specific size chip — words+min for prose, page
+//!   count for PDFs, pixel dimensions for images.
+//!
+//! The `MetaTable` below the title is the verbose breakdown
+//! (Type / Size / Date / Tags / Caption) and is unrelated to the strip.
 
 use leptos::prelude::*;
 
-use crate::components::shared::{MetaRow, MetaTable};
+use crate::components::shared::{IdentifierStrip, MetaRow, MetaTable};
+use crate::models::NodeKind;
+use crate::utils::format::format_date_compact;
 
 use super::css;
 use super::intent::ReaderIntent;
@@ -78,23 +90,53 @@ pub fn rows_for(intent: &ReaderIntent, meta: &ReaderMeta) -> Vec<RowSpec> {
     rows
 }
 
+/// Friendly display label for a [`NodeKind`]. Shorter than the enum
+/// variant name and closer to how authors talk about their content
+/// ("Note" rather than "Page", "Doc" rather than "Document").
+fn kind_label(kind: NodeKind) -> &'static str {
+    match kind {
+        NodeKind::Page => "Note",
+        NodeKind::Document => "Doc",
+        NodeKind::App => "App",
+        NodeKind::Asset => "Asset",
+        NodeKind::Redirect => "Link",
+        NodeKind::Data => "Data",
+        NodeKind::Directory => "Folder",
+    }
+}
+
 #[component]
 pub fn Ident(meta: Memo<ReaderMeta>) -> impl IntoView {
     view! {
         {move || {
             let m = meta.get();
-            let path = m.canonical_path.as_str().to_string();
-            let date = m.display_date();
-            // `canonical_path.as_str()` is always at least "/", so the path
-            // span is always present; the right-hand `Date` span is rendered
-            // only when a date is available.
+            let kind = kind_label(m.kind).to_string();
+            // Compact date on the left side (next to kind). Falls back to
+            // the ISO `modified_iso` if no authored date is set; the strip
+            // omits the date when neither is present.
+            let date = m
+                .display_date()
+                .as_deref()
+                .and_then(format_date_compact);
+            // Each metric chunk renders as its own sibling `<span>`; the
+            // `.identMetric > span + span::before` rule in the module
+            // CSS draws the `·` separator between chunks at the same
+            // spacing token as the ledger card meta line.
+            let parts = m.size_summary_parts();
             view! {
-                <div class=css::ident>
-                    <span class=css::identId><b>{path}</b></span>
-                    {date.map(|value| view! {
-                        <span class=css::identRev>{value}</span>
+                <IdentifierStrip muted=true>
+                    <span class=css::identLeft>
+                        <span>{kind}</span>
+                        {date.map(|value| view! { <span>{value}</span> })}
+                    </span>
+                    {(!parts.is_empty()).then(|| view! {
+                        <span class=css::identMetric>
+                            {parts.into_iter().map(|chunk| view! {
+                                <span>{chunk}</span>
+                            }).collect_view()}
+                        </span>
                     })}
-                </div>
+                </IdentifierStrip>
             }
         }}
     }
@@ -205,6 +247,11 @@ mod tests {
             tags: vec![],
             description: String::new(),
             media_type_hint: Some("UTF-8 · CommonMark"),
+            kind: crate::models::NodeKind::Page,
+            page_size: None,
+            page_count: None,
+            image_dimensions: None,
+            word_count: None,
         }
     }
 
@@ -293,5 +340,34 @@ mod tests {
             rows2.iter().all(|r| !matches!(r, RowSpec::Caption { .. })),
             "Caption should be omitted, got {rows2:?}"
         );
+    }
+
+    #[test]
+    fn kind_labels_cover_every_variant() {
+        // Sanity check that each enum variant maps to a non-empty label.
+        // Drives the leftmost token of the ident strip; an empty string
+        // would render as just a date with a leading space.
+        for kind in [
+            NodeKind::Page,
+            NodeKind::Document,
+            NodeKind::App,
+            NodeKind::Asset,
+            NodeKind::Redirect,
+            NodeKind::Data,
+            NodeKind::Directory,
+        ] {
+            assert!(!kind_label(kind).is_empty(), "label missing for {kind:?}");
+        }
+    }
+
+    #[test]
+    fn reader_meta_size_summary_parts_delegates_to_shared() {
+        // Spot-check that the ReaderMeta wrapper produces the same
+        // chunks as the shared free function. Full per-kind coverage
+        // lives with `FileMeta::size_summary_parts` in shared/file_meta.rs.
+        let mut m = meta_with(None, None);
+        m.kind = NodeKind::Page;
+        m.word_count = Some(2_140);
+        assert_eq!(m.size_summary_parts(), vec!["2,140 words", "9 min"]);
     }
 }

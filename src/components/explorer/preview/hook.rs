@@ -7,7 +7,7 @@ use leptos::prelude::*;
 
 use crate::app::AppContext;
 use crate::components::shared::{FileMeta, file_meta_for_path};
-use crate::models::{DirectoryMetadata, FileType, Selection};
+use crate::models::{FileType, NodeMetadata, Selection};
 use crate::utils::{RenderedMarkdown, data_url_for_bytes, media_type_for_path, render_markdown};
 
 /// Fetched content for preview.
@@ -24,7 +24,7 @@ pub enum PreviewContent {
 }
 
 /// Directory metadata for preview display (includes runtime counts).
-#[derive(Clone, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DirMeta {
     /// Title from .meta.json
     pub title: String,
@@ -41,14 +41,14 @@ pub struct DirMeta {
     pub counts: Option<(usize, usize)>,
 }
 
-impl From<&DirectoryMetadata> for DirMeta {
-    fn from(meta: &DirectoryMetadata) -> Self {
+impl From<&NodeMetadata> for DirMeta {
+    fn from(meta: &NodeMetadata) -> Self {
         Self {
-            title: meta.title.clone(),
-            description: meta.description.clone(),
-            icon: meta.icon.clone(),
-            thumbnail: meta.thumbnail.clone(),
-            tags: meta.tags.clone(),
+            title: meta.title().unwrap_or("").to_string(),
+            description: meta.description().map(str::to_string),
+            icon: meta.icon().map(str::to_string),
+            thumbnail: meta.thumbnail().map(str::to_string),
+            tags: meta.tags_owned(),
             counts: None,
         }
     }
@@ -132,22 +132,25 @@ pub fn use_preview() -> PreviewData {
             .unwrap_or(FileType::Unknown)
     });
 
-    // Get file metadata
-    let file_meta = Signal::derive(move || {
+    // Memoized so dependent views skip re-rendering when the selection
+    // changes but the projected metadata is byte-identical (common when
+    // re-selecting the same file after a sync).
+    let file_meta = Memo::new(move |_| {
         selection
             .get()
             .filter(|s| !s.is_dir)
             .and_then(|s| file_meta_for_path(ctx, &s.path))
     });
 
-    // Get directory metadata from FsEntry
-    let dir_meta = Signal::derive(move || {
+    // Memoized: the wrapped fs walk produces an `Eq` projection, so the
+    // expensive list_dir + count loop only fires when the result changes.
+    let dir_meta = Memo::new(move |_| {
         selection.get().filter(|s| s.is_dir).map(|s| {
             ctx.view_global_fs.with(|fs| {
                 let mut meta = fs
                     .get_entry(&s.path)
-                    .and_then(|e| e.dir_meta())
-                    .map(DirMeta::from)
+                    .filter(|e| e.is_directory())
+                    .map(|e| DirMeta::from(e.meta()))
                     .unwrap_or_else(|| DirMeta {
                         title: s.path.file_name().unwrap_or("").to_string(),
                         ..Default::default()
@@ -211,8 +214,8 @@ pub fn use_preview() -> PreviewData {
         is_dir,
         is_restricted,
         file_type,
-        dir_meta,
-        file_meta,
+        dir_meta: dir_meta.into(),
+        file_meta: file_meta.into(),
         image_url,
         content,
         selection,

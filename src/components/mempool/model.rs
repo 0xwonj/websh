@@ -1,15 +1,10 @@
-//! Mempool data model: entries, statuses, priorities, and the rendered model
-//! that the `Mempool` component consumes.
+//! Mempool data model — entries + the rendered model the component consumes.
 
 use std::collections::BTreeMap;
 
-use crate::components::ledger_routes::LEDGER_CATEGORIES;
-use crate::components::mempool::parse::{
-    RawMempoolMeta, category_for_mempool_path, derive_gas, extract_first_paragraph,
-    parse_mempool_status, parse_priority,
-};
-use crate::models::VirtualPath;
-use crate::utils::format::iso_date_prefix;
+use crate::mempool::{LEDGER_CATEGORIES, category_for_mempool_path};
+use crate::models::{MempoolFields, MempoolStatus, NodeMetadata, Priority, VirtualPath};
+use crate::utils::format::{format_size, format_thousands_u32, iso_date_prefix};
 
 const DEFAULT_TITLE_FALLBACK: &str = "untitled";
 
@@ -36,23 +31,8 @@ pub struct MempoolEntry {
     pub tags: Vec<String>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MempoolStatus {
-    Draft,
-    Review,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Priority {
-    Low,
-    Med,
-    High,
-}
-
-/// Mirror of `LedgerFilter` used by the chain page, scoped to mempool needs.
-/// We do not import `LedgerFilter` directly because it is a private item of
-/// `ledger_page.rs`; copying the shape here keeps the mempool independently
-/// testable.
+/// Local mirror of `ledger_page::LedgerFilter` (private there) so the
+/// mempool stays independently testable.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LedgerFilterShape {
     All,
@@ -71,14 +51,12 @@ impl LedgerFilterShape {
     }
 }
 
-/// One file fetched from the mempool mount, ready to feed `build_mempool_model`.
-#[derive(Clone, Debug)]
+/// One mempool file projected from its manifest entry.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LoadedMempoolFile {
     pub path: VirtualPath,
-    pub meta: RawMempoolMeta,
-    pub body: String,
-    pub byte_len: usize,
-    pub is_markdown: bool,
+    pub meta: NodeMetadata,
+    pub mempool: MempoolFields,
 }
 
 pub fn build_mempool_model(
@@ -117,33 +95,38 @@ fn build_entry(mempool_root: &VirtualPath, file: LoadedMempoolFile) -> Option<Me
     let LoadedMempoolFile {
         path,
         meta,
-        body,
-        byte_len,
-        is_markdown,
+        mempool,
     } = file;
 
     let title = meta
-        .title
+        .title()
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| DEFAULT_TITLE_FALLBACK.to_string());
-    let status = meta
-        .status
-        .as_deref()
-        .and_then(parse_mempool_status)
-        .unwrap_or(MempoolStatus::Draft);
-    let priority = meta.priority.as_deref().and_then(parse_priority);
-    let modified = meta
-        .modified
-        .clone()
-        .unwrap_or_else(|| "undated".to_string());
-    let sort_key = meta
-        .modified
+        .unwrap_or(DEFAULT_TITLE_FALLBACK)
+        .to_string();
+    let status = mempool.status;
+    let priority = mempool.priority;
+    let date = meta.date().map(str::to_string);
+    let modified = date.clone().unwrap_or_else(|| "undated".to_string());
+    let sort_key = date
         .as_deref()
         .and_then(|raw| iso_date_prefix(raw).map(|prefix| prefix.to_string()));
-    let category = category_for_mempool_path(&path, mempool_root);
+    let category = mempool
+        .category
+        .clone()
+        .unwrap_or_else(|| category_for_mempool_path(&path, mempool_root));
     let kind = kind_for_category(&category);
-    let desc = extract_first_paragraph(&body);
-    let gas = derive_gas(&body, byte_len, is_markdown);
+    let desc = meta.description().unwrap_or("").to_string();
+    let is_markdown = path.as_str().ends_with(".md");
+    let gas = if is_markdown {
+        meta.word_count()
+            .map(|w| format!("~{} words", format_thousands_u32(w)))
+            .unwrap_or_default()
+    } else {
+        meta.size_bytes()
+            .map(|n| format_size(Some(n), false))
+            .unwrap_or_default()
+    };
+    let tags = meta.tags_owned();
 
     Some(MempoolEntry {
         path,
@@ -156,7 +139,7 @@ fn build_entry(mempool_root: &VirtualPath, file: LoadedMempoolFile) -> Option<Me
         modified,
         sort_key,
         gas,
-        tags: meta.tags,
+        tags,
     })
 }
 
@@ -185,32 +168,31 @@ fn sort_entries(entries: &mut [MempoolEntry]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::components::mempool::parse::*;
-
-    fn meta(status: &str, modified: &str, priority: Option<&str>) -> RawMempoolMeta {
-        RawMempoolMeta {
-            title: Some("untitled".to_string()),
-            category: None,
-            status: Some(status.to_string()),
-            priority: priority.map(str::to_string),
-            modified: Some(modified.to_string()),
-            tags: vec![],
-        }
-    }
+    use crate::models::{Fields, NodeKind, SCHEMA_VERSION};
 
     fn loaded(
         path: &str,
-        meta: RawMempoolMeta,
-        body: &str,
-        byte_len: usize,
-        is_markdown: bool,
+        date: Option<&str>,
+        status: MempoolStatus,
+        priority: Option<Priority>,
     ) -> LoadedMempoolFile {
         LoadedMempoolFile {
             path: VirtualPath::from_absolute(path).unwrap(),
-            meta,
-            body: body.to_string(),
-            byte_len,
-            is_markdown,
+            meta: NodeMetadata {
+                schema: SCHEMA_VERSION,
+                kind: NodeKind::Page,
+                authored: Fields {
+                    title: Some("untitled".to_string()),
+                    date: date.map(str::to_string),
+                    ..Fields::default()
+                },
+                derived: Fields::default(),
+            },
+            mempool: MempoolFields {
+                status,
+                priority,
+                category: None,
+            },
         }
     }
 
@@ -220,24 +202,21 @@ mod tests {
         let files = vec![
             loaded(
                 "/mempool/writing/old.md",
-                meta("draft", "2026-03-01", None),
-                "old",
-                3,
-                true,
+                Some("2026-03-01"),
+                MempoolStatus::Draft,
+                None,
             ),
             loaded(
                 "/mempool/writing/new.md",
-                meta("draft", "2026-04-01", None),
-                "new",
-                3,
-                true,
+                Some("2026-04-01"),
+                MempoolStatus::Draft,
+                None,
             ),
             loaded(
                 "/mempool/writing/mid.md",
-                meta("review", "2026-03-15", Some("med")),
-                "mid",
-                3,
-                true,
+                Some("2026-03-15"),
+                MempoolStatus::Review,
+                Some(Priority::Med),
             ),
         ];
         let model = build_mempool_model(&mempool_root, files, &LedgerFilterShape::All);
@@ -255,17 +234,15 @@ mod tests {
         let files = vec![
             loaded(
                 "/mempool/writing/a.md",
-                meta("draft", "2026-04-01", None),
-                "a",
-                1,
-                true,
+                Some("2026-04-01"),
+                MempoolStatus::Draft,
+                None,
             ),
             loaded(
                 "/mempool/papers/b.md",
-                meta("draft", "2026-04-02", None),
-                "b",
-                1,
-                true,
+                Some("2026-04-02"),
+                MempoolStatus::Draft,
+                None,
             ),
         ];
         let model = build_mempool_model(
@@ -286,22 +263,15 @@ mod tests {
         let files = vec![
             loaded(
                 "/mempool/writing/dated.md",
-                meta("draft", "2026-04-01", None),
-                "x",
-                1,
-                true,
+                Some("2026-04-01"),
+                MempoolStatus::Draft,
+                None,
             ),
             loaded(
                 "/mempool/writing/undated.md",
-                RawMempoolMeta {
-                    title: Some("u".into()),
-                    status: Some("draft".into()),
-                    modified: None,
-                    ..Default::default()
-                },
-                "y",
-                1,
-                true,
+                None,
+                MempoolStatus::Draft,
+                None,
             ),
         ];
         let model = build_mempool_model(&mempool_root, files, &LedgerFilterShape::All);

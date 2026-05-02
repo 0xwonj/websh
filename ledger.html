@@ -1,0 +1,2528 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>j.doe — /home/j/ledger</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0b0b0c;
+  --paper:#0b0b0c;
+  --ink:#e9e3d2;
+  --ink-dim:#8b8676;
+  --ink-faint:#4a4740;
+  --rule:#2a2825;
+  --rule-bright:#3c3930;
+  --chrome:#070707;
+  --chrome-2:#060607;
+  --panel:#0f0f10;
+  --tint: rgba(255,255,255,.015);
+  --accent:#c94f3a;
+  --accent-dim:#6e3025;
+  --hex:#6c8c7a;
+  --amber:#d6a35c;
+  --mono:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans:"IBM Plex Sans", system-ui, sans-serif;
+}
+*{box-sizing:border-box}
+html,body{background:var(--bg); color:var(--ink);}
+body{
+  margin:0; font-family:var(--mono);
+  font-size:14px; line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+  font-feature-settings:"liga","kern","calt";
+}
+::selection{background:var(--accent); color:var(--bg)}
+a{color:inherit; text-decoration:none; border-bottom:1px dotted var(--ink-faint)}
+a:hover{color:var(--accent); border-bottom-color:var(--accent)}
+a.plain{border-bottom:0}
+
+/* ——— archive chrome ——— */
+.archive-bar{
+  background:var(--chrome);
+  border-bottom:1px solid var(--rule);
+  font-size:11px; color:var(--ink-dim);
+  padding:6px 18px;
+  display:flex; gap:14px; flex-wrap:wrap; align-items:center;
+}
+.archive-bar b{color:var(--ink); font-weight:500}
+.archive-bar .ens{color:var(--ink); font-weight:500}
+.archive-bar .ens:hover{color:var(--accent)}
+.archive-bar nav{display:flex; gap:14px}
+.archive-bar nav a{color:var(--ink-dim); position:relative; border-bottom:0}
+.archive-bar nav a:hover{color:var(--ink)}
+.archive-bar nav a.here{color:var(--accent)}
+.archive-bar nav a.here::after{
+  content:""; position:absolute; left:0; right:0; bottom:-7px;
+  border-bottom:1px solid var(--accent);
+}
+.archive-bar .spacer{flex:1}
+.archive-bar .breadcrumb{
+  display:inline-flex; align-items:baseline; gap:6px;
+  color:var(--ink-dim); font-variant-numeric:tabular-nums;
+}
+.archive-bar .breadcrumb a{color:var(--ink-dim); border-bottom:0}
+.archive-bar .breadcrumb a:hover{color:var(--accent)}
+.archive-bar .breadcrumb .sep{color:var(--ink-faint); font-weight:400}
+.archive-bar .breadcrumb .here{color:var(--ink)}
+
+/* ——— page frame ——— */
+.page{
+  max-width: 84ch;
+  margin: 0 auto;
+  padding: 28px 28px 0;
+  position:relative;
+}
+
+/* identifier */
+.identifier{
+  display:flex; justify-content:space-between; align-items:baseline;
+  color:var(--ink-dim); font-size:11.5px;
+  border-bottom:1px solid var(--rule); padding-bottom:6px; margin-bottom:18px;
+  letter-spacing:.02em;
+}
+.identifier .id b{color:var(--ink); font-weight:500}
+.identifier .rev{color:var(--amber)}
+
+/* ——— ledger header (the "meta" table for this page) ——— */
+.ledger-head{
+  border:1px solid var(--rule);
+  margin: 18px 0 24px;
+  font-size:12px;
+}
+.ledger-head .row{
+  display:grid; grid-template-columns: 130px 1fr;
+  border-bottom:1px solid var(--rule);
+}
+.ledger-head .row:last-child{border-bottom:0}
+.ledger-head .k{
+  background:var(--tint);
+  padding:6px 12px; color:var(--ink-dim);
+  border-right:1px solid var(--rule);
+  letter-spacing:.02em;
+}
+.ledger-head .v{padding:6px 12px; word-break:break-word}
+.ledger-head .v code{color:var(--hex)}
+.ledger-head .v .num{color:var(--ink); font-weight:500}
+.ledger-head .v .ok{color:var(--hex)}
+.ledger-head .v .live{color:var(--accent)}
+.ledger-head .v .live::before{
+  content:"●"; margin-right:4px;
+  animation: blink 1.6s steps(2,end) infinite;
+}
+@keyframes blink{ 50%{opacity:.25} }
+
+/* ——— section heading ——— */
+h1.section-title{
+  font-family:var(--mono);
+  font-size:20px; line-height:1.2; font-weight:600;
+  margin: 18px 0 4px;
+  letter-spacing:-.005em;
+}
+h1.section-title .glyph{color:var(--ink-faint); font-weight:400; margin-right:8px}
+.section-sub{
+  color:var(--ink-dim); font-size:12px; margin-bottom:18px;
+  display:flex; gap:10px; flex-wrap:wrap; align-items:baseline;
+}
+.section-sub .pill{
+  border:1px solid var(--rule); padding:1px 7px; color:var(--ink-dim);
+  font-size:10.5px; letter-spacing:.04em;
+}
+.section-sub .pill.on{color:var(--accent); border-color:var(--accent-dim)}
+
+/* ——— block-box chain (Variant A) ——— */
+.chain{
+  margin: 14px 0 24px;
+  font-family:var(--mono);
+  display:flex; flex-direction:column;
+  gap: 14px; /* visible gap between blocks */
+}
+.block{
+  border:1px solid var(--rule);
+  background: transparent;
+  position:relative;
+  transition: border-color .12s ease, background .12s ease;
+}
+.block:hover{ background: var(--tint); }
+.block:hover, .block.focus{ border-color: var(--rule-bright); }
+.block .head{
+  display:flex; align-items:baseline; gap:14px;
+  padding:6px 12px;
+  border-bottom:1px solid var(--rule);
+  background: var(--tint);
+  font-size:11px; letter-spacing:.04em;
+  color:var(--ink-dim); text-transform:uppercase;
+}
+.block .head .bn{color:var(--ink); font-weight:600}
+.block .head .kind{
+  border:1px solid var(--rule); padding:0 6px;
+  text-transform:none; letter-spacing:0;
+  font-size:10.5px;
+}
+.block .head .kind.paper  {color:var(--accent); border-color:var(--accent-dim)}
+.block .head .kind.project{color:var(--hex)}
+.block .head .kind.writing{color:var(--amber)}
+.block .head .kind.talk   {color:var(--ink)}
+.block .head .kind.note   {color:var(--ink-dim)}
+.block .head .kind.photo  {color:var(--ink-dim)}
+.block .head .date{margin-left:auto; color:var(--ink-dim); text-transform:none; letter-spacing:0}
+.block .body{
+  padding:10px 14px 12px;
+  font-size:13.5px; line-height:1.55;
+}
+.block .body .ttl{
+  display:block; color:var(--ink); font-weight:500; font-size:14px;
+}
+.block .body .ttl a{ border-bottom:0; color:inherit; }
+.block .body .ttl a:hover{ color:var(--accent); }
+.block .body .desc{
+  color:var(--ink-dim); font-size:12.5px; margin-top:3px;
+}
+.block .body .meta-line{
+  color:var(--ink-faint); font-size:11px; margin-top:6px;
+  display:flex; gap:14px; flex-wrap:wrap;
+}
+.block .foot{
+  display:grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap:14px;
+  padding:5px 12px;
+  border-top:1px dashed var(--rule);
+  font-size:11px; color:var(--ink-faint);
+  font-variant-numeric:tabular-nums;
+}
+.block .foot .k{color:var(--ink-faint); margin-right:6px}
+.block .foot .h{color:var(--hex)}
+.block .foot .ok{color:var(--hex)}
+.block .foot .v{color:var(--accent)}
+.block .foot .prev,
+.block .foot .hash{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* link line between blocks (the chain) — spans the full gap */
+.block::after{
+  content:"";
+  position:absolute; left:50%; top: 100%;
+  width:1px; height: 14px; /* matches .chain gap */
+  background: var(--rule-bright);
+  transform: translateX(-.5px);
+}
+.block:last-of-type::after{ display:none; }
+.block:hover::after{ background: var(--accent-dim); }
+
+/* genesis */
+.genesis{
+  border:1px dashed var(--rule);
+  padding: 8px 12px;
+  margin-top: 24px; /* room for the connector dot above */
+  font-size:11px; color:var(--ink-faint);
+  display:flex; gap:14px; flex-wrap:wrap; align-items:baseline;
+  position:relative;
+}
+.genesis::before{
+  content:"";
+  position:absolute; left:50%; bottom: 100%;
+  width:1px; height: 14px;
+  background: var(--rule-bright);
+  transform: translateX(-.5px);
+}
+.genesis .lab{color:var(--ink-faint); letter-spacing:.08em; text-transform:uppercase}
+.genesis .h{color:var(--hex); opacity:.6}
+.genesis .quote{color:var(--ink-dim); font-style:italic; margin-left:auto}
+
+/* ——— crypto modes (per-block) ——— */
+.lock{
+  border:1px solid var(--rule); padding:0 5px;
+  color:var(--ink-dim); font-size:10.5px;
+  text-transform:none; letter-spacing:0;
+  margin-left: 4px;
+}
+.lock[data-state="encrypted"]{ color:var(--accent); border-color:var(--accent-dim); }
+
+/* OFF — show plaintext */
+body[data-crypto="off"] .block.locked .body .ttl,
+body[data-crypto="off"] .block.locked .body .desc{ /* normal */ }
+
+/* BLOB — replace title with hex blob */
+body[data-crypto="blob"] .block.locked .body .ttl{ display:none; }
+body[data-crypto="blob"] .block.locked .body .desc{ display:none; }
+body[data-crypto="blob"] .block.locked .body .blob{
+  display:block;
+  color:var(--hex); font-size:12px; line-height:1.5;
+  word-break:break-all;
+  background: rgba(108,140,122,.04);
+  padding: 6px 8px;
+  border:1px dashed var(--rule);
+  margin-top: 2px;
+}
+body[data-crypto="blob"] .block.locked .body .blob .key{
+  color:var(--ink-faint); margin-right:4px;
+}
+body[data-crypto="blob"] .block.locked .body .blob .decrypt{
+  display:inline-block; margin-top:6px;
+  color:var(--ink-dim); border:1px solid var(--rule);
+  padding:1px 8px; font-size:10.5px;
+  letter-spacing:.04em;
+  cursor:not-allowed;
+}
+body[data-crypto="blob"] .block.locked .body .blob .decrypt::before{ content:"🔒  "; }
+
+/* SCRAMBLE — letters look randomised; reveal on hover */
+body[data-crypto="scramble"] .block.locked .body .ttl .scram{
+  display:inline-block;
+  font-family:var(--mono);
+  filter: blur(.3px);
+  letter-spacing: .08em;
+}
+body[data-crypto="scramble"] .block.locked:hover .body .ttl .scram{
+  filter: blur(0);
+  letter-spacing: 0;
+}
+body[data-crypto="scramble"] .block.locked .body .desc{ color:var(--ink-faint); }
+body[data-crypto="scramble"] .block.locked .body .desc .scram{ filter: blur(.4px); letter-spacing:.04em; }
+body[data-crypto="scramble"] .block.locked:hover .body .desc .scram{ filter:blur(0); letter-spacing:0; }
+
+/* PGP — show as PGP message block in place of body */
+body[data-crypto="pgp"] .block.locked .body .ttl,
+body[data-crypto="pgp"] .block.locked .body .desc,
+body[data-crypto="pgp"] .block.locked .body .meta-line{ display:none; }
+body[data-crypto="pgp"] .block.locked .body .pgp{
+  display:block;
+  font-family:var(--mono);
+  font-size:11px; color:var(--ink-dim);
+  line-height:1.45;
+  border:1px solid var(--rule); padding:8px 10px;
+  white-space:pre-wrap; word-break:break-all;
+  background: rgba(0,0,0,.18);
+}
+body[data-crypto="pgp"] .block.locked .body .pgp .header{ color:var(--ink); }
+body[data-crypto="pgp"] .block.locked .body .pgp .fp{ color:var(--accent); letter-spacing:.06em; }
+
+/* default: hide alt-modes when crypto=off (or for unlocked rows) */
+.block .body .blob,
+.block .body .pgp{ display:none; }
+
+/* sections */
+.section{ display:none; }
+.section.on{ display:block; }
+
+/* all mode — show only the merged global chain */
+body[data-section="all"] .section{ display: none; }
+body[data-section="all"] .section.global-section{ display: block; }
+body[data-section="all"] .section .section-title{ display: none; }
+body[data-section="all"] .section .section-sub{ display: none; }
+.global-section .section-title,
+.global-section .section-sub{ display: none; }
+
+/* in single-category mode, hide global, show that section */
+body[data-section="writing"] .section.global-section,
+body[data-section="projects"] .section.global-section,
+body[data-section="papers"] .section.global-section,
+body[data-section="misc"] .section.global-section{ display: none; }
+
+/* ——— filter bars (six variants, switched by body[data-filterstyle]) ——— */
+.filter-bar{
+  display: none;
+  margin: 0 0 18px;
+  font-family: var(--mono); font-size: 11px;
+  color: var(--ink-dim);
+}
+body[data-filterstyle="pill"]       .filter-bar.fb-pill,
+body[data-filterstyle="tab"]        .filter-bar.fb-tab,
+body[data-filterstyle="breadcrumb"] .filter-bar.fb-breadcrumb,
+body[data-filterstyle="cli"]        .filter-bar.fb-cli,
+body[data-filterstyle="segment"]    .filter-bar.fb-segment,
+body[data-filterstyle="dropdown"]   .filter-bar.fb-dropdown,
+body[data-filterstyle="row"]        .filter-bar.fb-row{ display: flex; }
+
+/* shared count chip */
+.cat-pill .ct{
+  color: var(--ink-faint); font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.cat-pill.on .ct{ color: var(--accent); opacity: .7; }
+.cat-pill{
+  font-family: var(--mono); cursor: pointer;
+  background: transparent; user-select: none;
+  transition: color .12s ease, border-color .12s ease, background .12s ease;
+}
+
+/* shared summary */
+.filter-bar .summary{
+  color: var(--ink-faint); font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+}
+
+/* ——— 1. PILL (legacy) ——— */
+.filter-bar.fb-pill{
+  flex-wrap: wrap; gap: 6px 8px; align-items: center;
+  padding: 8px 0 10px;
+  border-bottom: 1px dashed var(--rule);
+}
+.fb-pill .grp{ display:inline-flex; gap: 6px; align-items: baseline; padding-right: 4px; }
+.fb-pill .lab{
+  color: var(--ink-faint); letter-spacing: .08em;
+  text-transform: uppercase; font-size: 10px;
+  margin-right: 4px;
+}
+.fpill{
+  border: 1px solid var(--rule); color: var(--ink-dim);
+  padding: 1px 8px; font-size: 11px; letter-spacing: .02em;
+}
+.fpill .ct{ margin-left: 5px; }
+.fpill:hover{ color: var(--ink); border-color: var(--rule-bright); }
+.fpill.on{
+  color: var(--accent); border-color: var(--accent-dim);
+  background: rgba(201,79,58,.06);
+}
+
+/* ——— 2. TAB (terminal underline, centered with flanking dashes) ——— */
+.filter-bar.fb-tab{
+  align-items: baseline; gap: 6px;
+  padding: 4px 0 0;
+  border-bottom: 1px solid var(--rule);
+  flex-wrap: nowrap;
+}
+.fb-tab .dash{
+  flex: 1 1 0;
+  min-width: 0;
+  color: var(--ink-faint); letter-spacing: .04em;
+  overflow: hidden;
+  white-space: nowrap;
+  /* fill the available space with repeating dashes */
+  background-image: linear-gradient(to right, currentColor 50%, transparent 50%);
+  background-size: 7px 1px;
+  background-repeat: repeat-x;
+  background-position: left center;
+  height: 1px;
+  align-self: center;
+  opacity: .5;
+}
+.fb-tab .dash:last-child{ background-position: right center; }
+.fb-tab .dash.flex{ /* legacy */ }
+.ftab{
+  border: 0; padding: 4px 10px 6px;
+  color: var(--ink-dim); font-size: 11.5px;
+  position: relative; letter-spacing: .02em;
+  flex: 0 0 auto;
+}
+.ftab:hover{ color: var(--ink); }
+.ftab .ct{ margin-left: 4px; }
+.ftab.on{ color: var(--accent); }
+.ftab.on::after{
+  content: ""; position: absolute; left: 6px; right: 6px; bottom: -1px;
+  border-bottom: 1px solid var(--accent);
+}
+
+/* ——— 3. BREADCRUMB ——— */
+.filter-bar.fb-breadcrumb{
+  align-items: baseline; gap: 6px;
+  padding: 8px 0 10px;
+  border-bottom: 1px dashed var(--rule);
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+.fb-breadcrumb .prompt{ color: var(--ink); font-weight: 500; }
+.fb-breadcrumb .sep{ color: var(--ink-faint); }
+.fb-breadcrumb .hint{
+  color: var(--ink-faint); font-size: 10.5px; margin-left: auto;
+  letter-spacing: .04em;
+}
+.fb-breadcrumb .hint code{ color: var(--ink-dim); }
+.fcrumb{
+  border: 0; padding: 0; color: var(--ink-dim);
+  border-bottom: 1px dotted var(--ink-faint);
+  font-size: 12px; letter-spacing: .01em;
+}
+.fcrumb:hover{ color: var(--accent); border-bottom-color: var(--accent); }
+.fcrumb.on{
+  color: var(--accent); border-bottom-color: var(--accent);
+}
+
+/* ——— 4. CLI ——— */
+.filter-bar.fb-cli{
+  align-items: baseline; gap: 5px;
+  padding: 10px 12px; margin-bottom: 18px;
+  background: rgba(0,0,0,.18);
+  border: 1px solid var(--rule);
+  font-size: 12px; flex-wrap: wrap;
+}
+.fb-cli .prompt{ color: var(--hex); font-weight: 600; }
+.fb-cli .cmd{ color: var(--ink); }
+.fb-cli .flag{ color: var(--ink-dim); }
+.fb-cli .pipe{ color: var(--ink-faint); }
+.fb-cli .caret{
+  color: var(--accent); margin-left: 2px;
+  animation: blink 1.1s steps(2,end) infinite;
+  font-size: 10px;
+}
+.fcli{
+  border: 0; padding: 0 2px;
+  color: var(--ink-dim); font-size: 12px;
+  border-bottom: 1px dashed transparent;
+}
+.fcli:hover{ color: var(--ink); border-bottom-color: var(--ink-faint); }
+.fcli.on{ color: var(--accent); border-bottom-color: var(--accent); }
+
+/* ——— 5. SEGMENT ——— */
+.filter-bar.fb-segment{
+  align-items: center; gap: 12px;
+  margin-bottom: 18px;
+}
+.fb-segment .seg-row{
+  display: inline-flex;
+  border: 1px solid var(--rule);
+  font-size: 11.5px;
+}
+.fseg{
+  border: 0; padding: 6px 14px;
+  color: var(--ink-dim);
+  border-right: 1px solid var(--rule);
+  letter-spacing: .02em;
+}
+.fseg:last-child{ border-right: 0; }
+.fseg:hover{ color: var(--ink); background: var(--tint); }
+.fseg.on{
+  color: var(--accent);
+  background: rgba(201,79,58,.08);
+}
+
+/* ——— 6. DROPDOWN ——— */
+.filter-bar.fb-dropdown{
+  align-items: center; gap: 8px;
+  padding: 8px 0 10px;
+  border-bottom: 1px dashed var(--rule);
+}
+.fb-dropdown .lab{
+  color: var(--ink-faint); letter-spacing: .08em;
+  text-transform: uppercase; font-size: 10px;
+}
+.fb-dropdown .dot{ color: var(--ink-faint); }
+.fb-dropdown select.fdd{
+  background: var(--bg); color: var(--accent);
+  border: 1px solid var(--rule);
+  font: inherit; font-size: 12px;
+  padding: 2px 6px; cursor: pointer;
+}
+.fb-dropdown select.fdd:hover{ border-color: var(--accent-dim); }
+
+/* ——— 7. ROW (ledger-head style) ——— */
+.filter-bar.fb-row{
+  margin-bottom: 18px;
+  flex-direction: column;
+}
+.fb-row .lhrow{
+  display: grid; grid-template-columns: 130px 1fr;
+  border: 1px solid var(--rule);
+  font-size: 12px;
+}
+.fb-row .lhrow .k{
+  background: var(--tint);
+  padding: 6px 12px; color: var(--ink-dim);
+  border-right: 1px solid var(--rule);
+  letter-spacing: .02em;
+}
+.fb-row .lhrow .v{
+  padding: 6px 12px;
+  display: inline-flex; gap: 14px; flex-wrap: wrap; align-items: baseline;
+}
+.frow{
+  border: 0; padding: 0;
+  color: var(--ink-dim); font-size: 12px;
+  letter-spacing: .01em;
+}
+.frow .mark{ color: var(--ink-faint); margin-right: 2px; }
+.frow .ct{ margin-left: 3px; }
+.frow:hover{ color: var(--ink); }
+.frow:hover .mark{ color: var(--ink-dim); }
+.frow.on{ color: var(--accent); }
+.frow.on .mark{ color: var(--accent); }
+
+/* hide blocks/sections that don't match active filters */
+.block.f-out, .mp-item.f-out{ display: none; }
+.section.f-empty{ display: none !important; }
+.section.f-empty + .genesis,
+.section .genesis.f-out{ display: none; }
+
+/* mempool collapse */
+.mempool .mp-head .mp-toggle{
+  background: transparent; border: 0;
+  color: var(--ink-dim); cursor: pointer;
+  font-family: var(--mono); font-size: 11px;
+  padding: 0 4px 0 0; margin: 0;
+  letter-spacing: 0;
+}
+.mempool .mp-head .mp-toggle:hover{ color: var(--accent); }
+.mempool .mp-head{
+  cursor: pointer; user-select: none;
+}
+.mempool.collapsed .mp-list{ display: none; }
+.mempool.collapsed{ margin-bottom: 24px; }
+.mp-empty{
+  padding: 14px 16px;
+  color: var(--ink-faint); font-size: 11.5px;
+  text-align: center; font-style: italic;
+  border-top: 1px dashed var(--rule);
+}
+
+/* ——— mempool ——— */
+.mempool{
+  border: 1px dashed var(--rule);
+  margin: 14px 0 36px;
+  font-family: var(--mono);
+  background: rgba(214,163,92,.018);
+  position: relative;
+  opacity: .92;
+}
+body[data-mempool="off"] .mempool{ display:none; }
+.mempool .mp-head{
+  display:flex; align-items:baseline; gap:14px;
+  padding:5px 12px;
+  border-bottom: 1px dashed var(--rule);
+  font-size:11px; letter-spacing:.04em;
+  color: var(--ink-faint); text-transform:uppercase;
+}
+.mempool .mp-head .lab{
+  color: var(--amber); font-weight:600; letter-spacing:.06em;
+}
+.mempool .mp-head .lab::before{
+  content:"⏳ "; opacity:.85;
+}
+.mempool .mp-head .count{ color: var(--ink-dim); }
+.mempool .mp-head .right{
+  margin-left:auto; display:flex; gap:10px; align-items:baseline;
+  text-transform: none; letter-spacing: 0;
+}
+.mempool .mp-head .mine-btn{
+  border:1px solid var(--rule);
+  color: var(--ink-dim); padding: 0 7px;
+  font-family: var(--mono); font-size: 10.5px;
+  background: transparent; cursor: pointer;
+  letter-spacing: .04em;
+}
+.mempool .mp-head .mine-btn:hover{
+  color: var(--accent); border-color: var(--accent-dim);
+}
+.mempool .mp-head .mine-btn:disabled{
+  opacity:.4; cursor: not-allowed;
+}
+.mempool .mp-head .gas-tip{
+  color: var(--ink-faint); font-size: 10.5px;
+}
+
+.mp-list{ display:flex; flex-direction:column; }
+.mp-item{
+  display: grid;
+  grid-template-columns: 92px 1fr auto;
+  gap: 14px;
+  padding: 8px 12px;
+  border-bottom: 1px dashed var(--rule);
+  font-size: 12.5px;
+  color: var(--ink-dim);
+  transition: background .12s ease, transform .18s ease, opacity .18s ease;
+  align-items: start;
+}
+.mp-item .modified{
+  color: var(--ink-faint); font-size: 11px;
+  text-align: right; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  align-self: start;
+  padding-top: 1px;
+  letter-spacing: .02em;
+}
+.mp-item:last-child{ border-bottom: 0; }
+.mp-item:hover{
+  background: rgba(255,255,255,.025);
+  transform: translateY(-1px);
+}
+.mp-item .status{
+  font-size: 10.5px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  display:flex; align-items:baseline; gap:5px;
+}
+.mp-item .status::before{ content:"⏳"; opacity:.6; font-size: 10px; }
+.mp-item[data-status="draft"]     .status{ color: var(--ink-dim); }
+.mp-item[data-status="review"]    .status{ color: var(--amber); }
+.mp-item[data-status="review"] .status::before{ content:"⌛"; animation: blink 1.6s steps(2,end) infinite; }
+
+.mp-item .ttl{
+  color: var(--ink); font-weight: 500; font-size: 13px;
+}
+.mp-item .ttl .kind-tag{
+  /* legacy fallback */
+}
+.mp-item .desc{
+  color: var(--ink-faint); font-size: 11.5px;
+  margin-top: 2px;
+}
+.mp-item .when{
+  color: var(--ink-faint); font-size: 10.5px;
+  text-align: right; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  align-self: start;
+  padding-top: 1px;
+}
+.mp-item .meta{
+  margin-top: 4px;
+  display: flex; gap: 12px; flex-wrap: wrap;
+  font-size: 10.5px;
+  color: var(--ink-faint);
+}
+body[data-mempool="minimal"] .mp-item .meta{ display: none; }
+body[data-mempool="minimal"] .mp-item .desc{ display: none; }
+
+.mp-item .meta .kv{
+  display: inline-flex; gap: 4px; align-items: baseline;
+}
+.mp-item .meta .k{ color: var(--ink-faint); opacity: .7; }
+.mp-item .meta .v{ color: var(--ink-dim); }
+.mp-item .meta .pri-low    { color: var(--ink-dim); }
+.mp-item .meta .pri-med    { color: var(--amber); }
+.mp-item .meta .pri-high   { color: var(--accent); }
+
+/* connector from mempool to chain head — removed; use spacing instead */
+.mempool{ margin-bottom: 36px; }
+.mempool .mp-foot{
+  display: none;
+}
+.mempool .mp-foot .legend{ opacity: .8; }
+
+/* per-row: whole row is clickable */
+.mp-item.clickable{ cursor: pointer; }
+.mp-item.clickable:hover{ background: rgba(255,255,255,.03); }
+
+/* kind-tag colors — mirror block .kind colors */
+.mp-item .kind-tag{
+  border:1px solid var(--rule); padding: 0 5px;
+  font-size: 10px;
+  margin-right: 6px; letter-spacing: 0;
+  text-transform: none;
+  display: inline-block; line-height: 1.55;
+}
+.mp-item .kind-tag.paper  { color:var(--accent); border-color:var(--accent-dim); }
+.mp-item .kind-tag.project{ color:var(--hex);    border-color: rgba(108,140,122,.4); }
+.mp-item .kind-tag.writing{ color:var(--amber);  border-color: rgba(214,163,92,.4); }
+.mp-item .kind-tag.talk   { color:var(--ink); }
+.mp-item .kind-tag.note   { color:var(--ink-dim); }
+.mp-item .kind-tag.photo  { color:var(--ink-dim); }
+
+/* mine confirm modal */
+.mine-confirm-backdrop{
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(0,0,0,.55);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono);
+  animation: mp-fadein .12s ease;
+}
+@keyframes mp-fadein{ from{opacity:0} to{opacity:1} }
+.mine-confirm{
+  background: var(--panel);
+  border: 1px solid var(--rule-bright);
+  width: min(440px, 92vw);
+  padding: 18px 20px 14px;
+  font-size: 12.5px;
+  color: var(--ink);
+  box-shadow: 0 12px 40px rgba(0,0,0,.6);
+}
+.mine-confirm h4{
+  margin: 0 0 4px; font-size: 11px; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--amber); font-weight: 600;
+}
+.mine-confirm h4::before{ content: "⛏ "; opacity: .7; }
+.mine-confirm .mc-q{
+  color: var(--ink); font-size: 14px; margin: 6px 0 10px; line-height:1.45;
+}
+.mine-confirm .mc-q b{ color: var(--accent); font-weight: 500; }
+.mine-confirm .mc-abstract{
+  color: var(--ink-dim); font-size: 12px; line-height: 1.55;
+  margin: 0 0 14px;
+  border-left: 2px solid var(--rule);
+  padding: 2px 0 2px 10px;
+  white-space: pre-wrap;
+  max-height: 180px; overflow-y: auto;
+}
+.mine-confirm .mc-meta{
+  border: 1px dashed var(--rule);
+  padding: 8px 10px; margin-bottom: 14px;
+  font-size: 11.5px; color: var(--ink-dim);
+  display: grid; grid-template-columns: 70px 1fr; gap: 4px 10px;
+}
+.mine-confirm .mc-meta .k{ color: var(--ink-faint); }
+.mine-confirm .mc-actions{
+  display: flex; gap: 8px; justify-content: flex-end;
+}
+.mine-confirm button{
+  background: transparent; border:1px solid var(--rule);
+  color: var(--ink-dim); padding: 4px 14px;
+  font-family: var(--mono); font-size: 11.5px; cursor: pointer;
+  letter-spacing: .04em;
+}
+.mine-confirm button:hover{ color: var(--ink); border-color: var(--rule-bright); }
+.mine-confirm button.primary{
+  color: var(--accent); border-color: var(--accent-dim);
+}
+.mine-confirm button.primary:hover{
+  background: rgba(201,79,58,.12);
+}
+.mine-confirm .mc-foot{
+  margin-top: 8px; color: var(--ink-faint); font-size: 10.5px;
+  text-align: right;
+}
+
+.mp-item.mining{
+  animation: mp-mining 0.55s ease forwards;
+  pointer-events: none;
+}
+@keyframes mp-mining{
+  0%   { background: rgba(214,163,92,.04); }
+  40%  { background: rgba(201,79,58,.18); transform: translateY(-2px); }
+  80%  { background: rgba(108,140,122,.14); }
+  100% { opacity: 0; transform: translateY(-8px); height: 0; padding-top:0; padding-bottom:0; border-color: transparent; }
+}
+.block.minted{
+  animation: mp-minted 0.6s ease forwards;
+}
+@keyframes mp-minted{
+  0%   { opacity: 0; transform: translateY(-12px); border-color: var(--accent); background: rgba(201,79,58,.12); }
+  40%  { opacity: 1; transform: translateY(0); border-color: var(--accent); background: rgba(201,79,58,.08); }
+  100% { opacity: 1; transform: translateY(0); border-color: var(--rule); background: transparent; }
+}
+.block.minted .head .bn::after{
+  content: " ✓ minted";
+  color: var(--hex);
+  font-size: 9.5px;
+  letter-spacing: .04em;
+  margin-left: 4px;
+  animation: mp-fade 2.4s ease forwards;
+}
+@keyframes mp-fade{ 0%,60%{opacity:1} 100%{opacity:0} }
+
+body[data-mempool="off"]{ /* mempool hidden */ }
+
+/* page footer */
+.pagefoot{
+  margin-top: 48px;
+  border-top:1px solid var(--rule);
+  padding-top:14px;
+  display:flex; justify-content:space-between; align-items:flex-start; gap:20px; flex-wrap:wrap;
+  font-size:11.5px; color:var(--ink-dim);
+}
+.pagefoot .colophon{line-height:1.7}
+.pagefoot .colophon b{color:var(--ink); font-weight:500}
+
+/* sig chip */
+.sig-chip{
+  display:inline-flex; align-items:baseline; gap:6px;
+  padding:1px 8px; border:1px solid var(--rule);
+  color:var(--ink-dim); cursor:pointer; position:relative;
+  font-size:11.5px; user-select:none;
+}
+.sig-chip .lab{color:var(--ink-faint); font-size:10.5px; letter-spacing:.04em; text-transform:uppercase}
+.sig-chip .val{color:var(--accent); font-variant-numeric:tabular-nums}
+.sig-chip .ok{color:var(--hex); margin-left:2px}
+.sig-chip .val .mid{opacity:.45}
+.sig-chip:hover{border-color:var(--accent-dim)}
+
+/* Tweaks panel */
+#tweaks{
+  position:fixed; right:14px; bottom:14px; z-index:50;
+  background:var(--panel); border:1px solid var(--rule);
+  padding:10px 12px; font-family:var(--mono); font-size:11px;
+  width:240px; display:none;
+  max-height:80vh; overflow-y:auto;
+}
+#tweaks.on{display:block}
+#tweaks h5{margin:8px 0 6px; font-size:10px; letter-spacing:.2em; color:var(--ink-dim); font-weight:500; text-transform:uppercase}
+#tweaks h5:first-child{margin-top:0}
+#tweaks label{display:flex; justify-content:space-between; align-items:center; margin:6px 0; color:var(--ink-dim); gap:8px}
+#tweaks select, #tweaks input{
+  background:var(--bg); color:var(--ink); border:1px solid var(--rule);
+  font:inherit; padding:2px 4px; font-size:11px;
+}
+#tweaks .desc{
+  color:var(--ink-faint); font-size:10px; line-height:1.4;
+  border-top:1px dashed var(--rule); margin-top:8px; padding-top:6px;
+}
+
+@media (max-width: 640px){
+  .ledger-head .row{grid-template-columns: 96px 1fr}
+  .page{padding: 22px 16px 0}
+  h1.section-title{font-size:17px}
+  .block .foot{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body data-crypto="blob" data-section="all">
+
+<!-- archive top bar — same identity, breadcrumb adjusts per section -->
+<div class="archive-bar">
+  <a href="homepage v2.html" class="ens">wonjae.eth</a>
+  <span class="spacer"></span>
+  <span class="breadcrumb" aria-label="path">
+    <a href="homepage v2.html">~</a><span class="sep">/</span><span class="here" id="bcSection">writing</span>
+  </span>
+  <span class="spacer"></span>
+  <nav>
+    <a href="homepage v2.html" data-nav-href="homepage v2.html">paper</a>
+    <a href="#" data-section="writing"  class="here">writing</a>
+    <a href="#" data-section="projects">projects</a>
+    <a href="#" data-section="papers">papers</a>
+    <a href="#" data-section="misc">misc</a>
+  </nav>
+</div>
+
+<main class="page">
+
+  <!-- identifier — stays page-wide, like the paper id but for the ledger -->
+  <div class="identifier">
+    <span class="id"><b id="idLabel">/home/j/writing</b> <span style="color:var(--ink-faint)">·</span> ledger A</span>
+    <span class="rev">last appended 2026-04-22</span>
+  </div>
+
+  <!-- ledger header — the meta-table for the current section -->
+  <div class="ledger-head">
+    <div class="row"><div class="k">ledger</div>     <div class="v"><code id="lhPath">/home/j/writing</code></div></div>
+    <div class="row"><div class="k">entries</div>    <div class="v"><span class="num" id="lhN">0</span> <span style="color:var(--ink-faint)">·</span> encrypted <span class="num" id="lhEnc">0</span></div></div>
+    <div class="row"><div class="k">head</div>       <div class="v"><code id="lhHead">—</code> <span class="ok">✓ verified</span></div></div>
+    <div class="row"><div class="k">genesis</div>    <div class="v"><code id="lhGen">2024-09-01</code> <span style="color:var(--ink-faint)">— "I started writing things down."</span></div></div>
+    <div class="row"><div class="k">status</div>     <div class="v"><span class="live">appendable</span></div></div>
+  </div>
+
+  <!-- filter — six visual variants, switched by body[data-filterstyle] -->
+
+  <!-- 1. pill -->
+  <div class="filter-bar fb-pill" id="fbPill">
+    <span class="grp">
+      <span class="lab">kind</span>
+      <button class="fpill cat-pill on" data-cat="all">all<span class="ct" data-ct="all">0</span></button>
+      <button class="fpill cat-pill" data-cat="writing">writing<span class="ct" data-ct="writing">0</span></button>
+      <button class="fpill cat-pill" data-cat="projects">projects<span class="ct" data-ct="projects">0</span></button>
+      <button class="fpill cat-pill" data-cat="papers">papers<span class="ct" data-ct="papers">0</span></button>
+      <button class="fpill cat-pill" data-cat="misc">misc<span class="ct" data-ct="misc">0</span></button>
+    </span>
+    <span class="summary" data-summary></span>
+  </div>
+
+  <!-- 2. tab — terminal-style underline -->
+  <div class="filter-bar fb-tab" id="fbTab">
+    <span class="dash" aria-hidden="true"></span>
+    <button class="ftab cat-pill on" data-cat="all">all <span class="ct" data-ct="all">0</span></button>
+    <button class="ftab cat-pill" data-cat="writing">writing <span class="ct" data-ct="writing">0</span></button>
+    <button class="ftab cat-pill" data-cat="projects">projects <span class="ct" data-ct="projects">0</span></button>
+    <button class="ftab cat-pill" data-cat="papers">papers <span class="ct" data-ct="papers">0</span></button>
+    <button class="ftab cat-pill" data-cat="misc">misc <span class="ct" data-ct="misc">0</span></button>
+    <span class="dash" aria-hidden="true"></span>
+  </div>
+
+  <!-- 3. breadcrumb radio -->
+  <div class="filter-bar fb-breadcrumb" id="fbBreadcrumb">
+    <span class="prompt">~</span><span class="sep">/</span>
+    <button class="fcrumb cat-pill on" data-cat="all">all</button>
+    <span class="sep">/</span>
+    <button class="fcrumb cat-pill" data-cat="writing">writing</button>
+    <button class="fcrumb cat-pill" data-cat="projects">projects</button>
+    <button class="fcrumb cat-pill" data-cat="papers">papers</button>
+    <button class="fcrumb cat-pill" data-cat="misc">misc</button>
+    <span class="hint">click to <code>cd</code></span>
+  </div>
+
+  <!-- 4. CLI prompt -->
+  <div class="filter-bar fb-cli" id="fbCli">
+    <span class="prompt">$</span>
+    <span class="cmd">ledger</span>
+    <span class="flag">--filter=[</span>
+    <button class="fcli cat-pill on" data-cat="all">all</button>
+    <span class="pipe">|</span>
+    <button class="fcli cat-pill" data-cat="writing">writing</button>
+    <span class="pipe">|</span>
+    <button class="fcli cat-pill" data-cat="projects">projects</button>
+    <span class="pipe">|</span>
+    <button class="fcli cat-pill" data-cat="papers">papers</button>
+    <span class="pipe">|</span>
+    <button class="fcli cat-pill" data-cat="misc">misc</button>
+    <span class="flag">]</span>
+    <span class="caret">▮</span>
+  </div>
+
+  <!-- 5. segmented control -->
+  <div class="filter-bar fb-segment" id="fbSegment">
+    <div class="seg-row">
+      <button class="fseg cat-pill on" data-cat="all">all</button>
+      <button class="fseg cat-pill" data-cat="writing">writing</button>
+      <button class="fseg cat-pill" data-cat="projects">projects</button>
+      <button class="fseg cat-pill" data-cat="papers">papers</button>
+      <button class="fseg cat-pill" data-cat="misc">misc</button>
+    </div>
+    <span class="summary" data-summary></span>
+  </div>
+
+  <!-- 6. dropdown + counter -->
+  <div class="filter-bar fb-dropdown" id="fbDropdown">
+    <span class="lab">showing:</span>
+    <select class="fdd" id="fbDropdownSel">
+      <option value="all">all</option>
+      <option value="writing">writing</option>
+      <option value="projects">projects</option>
+      <option value="papers">papers</option>
+      <option value="misc">misc</option>
+    </select>
+    <span class="dot">·</span>
+    <span class="summary" data-summary></span>
+  </div>
+
+  <!-- 7. row inside a header-style table -->
+  <div class="filter-bar fb-row" id="fbRow">
+    <div class="lhrow">
+      <div class="k">kinds</div>
+      <div class="v">
+        <button class="frow cat-pill on" data-cat="all"><span class="mark">[●]</span> all <span class="ct" data-ct="all">0</span></button>
+        <button class="frow cat-pill" data-cat="writing"><span class="mark">[ ]</span> writing <span class="ct" data-ct="writing">0</span></button>
+        <button class="frow cat-pill" data-cat="projects"><span class="mark">[ ]</span> projects <span class="ct" data-ct="projects">0</span></button>
+        <button class="frow cat-pill" data-cat="papers"><span class="mark">[ ]</span> papers <span class="ct" data-ct="papers">0</span></button>
+        <button class="frow cat-pill" data-cat="misc"><span class="mark">[ ]</span> misc <span class="ct" data-ct="misc">0</span></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- global mempool -->
+  <div class="mempool" id="globalMempool"></div>
+
+  <!-- global merged chain -->
+  <section class="section global-section" id="globalSection" data-section="global">
+    <div class="chain global-chain" id="globalChain" data-chain></div>
+    <div class="genesis" id="globalGenesis">
+      <span class="lab">genesis</span>
+      <code class="h">prev: 0x0000…0000</code>
+      <span style="color:var(--ink-dim)">2024-09-01</span>
+      <span class="quote">"I started keeping a ledger."</span>
+    </div>
+  </section>
+
+  <!-- ===================================================================
+       WRITING
+       =================================================================== -->
+  <section class="section on" data-section="writing">
+    <h1 class="section-title"><span class="glyph">§</span>writing</h1>
+    <div class="section-sub">
+      <span>Notes, essays, and longer-form thinking — appended block by block.</span>
+      <span class="pill">24 entries</span>
+    </div>
+
+    <div class="chain" data-chain>
+
+      <article class="block" data-bn="0024" data-kind="writing" data-date="2026-03"
+               data-prev="0x8af3c011" data-hash="0x7c21f81d">
+        <div class="head">
+          <span class="bn">block 0024</span>
+          <span class="kind writing">writing</span>
+          <span class="date">2026-03-18</span>
+        </div>
+        <div class="body">
+          <span class="ttl"><a href="#">a commitment scheme for bibliographies</a></span>
+          <span class="desc">If your reading list is a Merkle tree, "I read this" is one hash and an inclusion proof. Half-joke, half-serious.</span>
+          <span class="meta-line"><span>~ 1,800 words</span><span>est. 9 min</span></span>
+        </div>
+        <div class="foot">
+          <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+          <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+          <span class="sig"><span class="ok">✓</span></span>
+        </div>
+      </article>
+
+      <article class="block locked" data-bn="0023" data-kind="writing" data-date="2026-03" data-lock="encrypted"
+               data-prev="0x4d12e9aa" data-hash="0x8af3c011">
+        <div class="head">
+          <span class="bn">block 0023</span>
+          <span class="kind writing">writing</span>
+          <span class="lock" data-state="encrypted">🔒 encrypted</span>
+          <span class="date">2026-03-04</span>
+        </div>
+        <div class="body">
+          <span class="ttl"><a href="#"><span class="scram" data-text="(draft) on leaving academia, maybe">(draft) on leaving academia, maybe</span></a></span>
+          <span class="desc"><span class="scram" data-text="A private draft. Decrypts when I'm braver, or never.">A private draft. Decrypts when I'm braver, or never.</span></span>
+          <span class="meta-line">written for myself, no plans to publish.</span>
+          <span class="blob"><span class="key">ciphertext (age):</span><br><span class="bytes">YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBQ
+QkRudk5SVkVQbVdtcXFLN29yYTZqL2lJVkx2VmZHU
+3J0cElmclpEenZJCmxlcm9DZmVRTjRORDJjbVhuOC
+9pcDVENzVEMW1JWFp6Q3VEYjJUYUI4SzgKLS0tIE
+o4dHFCT3o3enVRdEpLN3kxbW5mTXBnbnRrTktrR2t
+jSVpMOGVoOXVHL00K</span><br><span class="decrypt">decrypt</span></span>
+          <span class="pgp"><span class="header">-----BEGIN PGP MESSAGE-----</span>
+Comment: encrypted to <span class="fp">7A3C 9F1B 0E42 4D31</span>
+
+hQEMA0p7K2v9N4xHAQf+P9rT7uK+Yh3qLk2sWvE6oDx8aR4mB1nC0pX5tQ7zKy3wN
+8mFlUe2vR+aH6cPq4dZjY1bX9oS3uK7wL0eA5tF8gJ1nM2pQrV6sB3iC7yD4xT9o
+=A71B
+<span class="header">-----END PGP MESSAGE-----</span></span>
+        </div>
+        <div class="foot">
+          <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+          <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+          <span class="sig"><span class="ok">✓</span></span>
+        </div>
+      </article>
+
+      <article class="block" data-bn="0022" data-kind="writing" data-date="2026-02"
+               data-prev="0x1f0c93ee" data-hash="0x4d12e9aa">
+        <div class="head">
+          <span class="bn">block 0022</span>
+          <span class="kind writing">writing</span>
+          <span class="date">2026-02-11</span>
+        </div>
+        <div class="body">
+          <span class="ttl"><a href="#">folding schemes, in pictures</a></span>
+          <span class="desc">Drawing the relaxed R1CS instance with crayons until it makes sense. Includes one bad pun about Nova.</span>
+          <span class="meta-line"><span>~ 2,400 words</span><span>13 figures</span></span>
+        </div>
+        <div class="foot">
+          <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+          <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+          <span class="sig"><span class="ok">✓</span></span>
+        </div>
+      </article>
+
+      <article class="block" data-bn="0021" data-kind="note" data-date="2026-01"
+               data-prev="0x920aab17" data-hash="0x1f0c93ee">
+        <div class="head">
+          <span class="bn">block 0021</span>
+          <span class="kind note">note</span>
+          <span class="date">2026-01-29</span>
+        </div>
+        <div class="body">
+          <span class="ttl"><a href="#">re-reading "The Discipline of Programming" in 2026</a></span>
+          <span class="desc">Dijkstra was right about almost everything except the typewriter.</span>
+          <span class="meta-line"><span>~ 900 words</span></span>
+        </div>
+        <div class="foot">
+          <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+          <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+          <span class="sig"><span class="ok">✓</span></span>
+        </div>
+      </article>
+
+      <article class="block locked" data-bn="0020" data-kind="writing" data-date="2025-12" data-lock="encrypted"
+               data-prev="0x6633baf2" data-hash="0x920aab17">
+        <div class="head">
+          <span class="bn">block 0020</span>
+          <span class="kind writing">writing</span>
+          <span class="lock" data-state="encrypted">🔒 encrypted</span>
+          <span class="date">2025-12-22</span>
+        </div>
+        <div class="body">
+          <span class="ttl"><a href="#"><span class="scram" data-text="notes on a referee report">notes on a referee report</span></a></span>
+          <span class="desc"><span class="scram" data-text="Public after the venue announces. Hash committed; text withheld.">Public after the venue announces. Hash committed; text withheld.</span></span>
+          <span class="meta-line"><span>~ 1,400 words</span><span>opens in 130 days</span></span>
+          <span class="blob"><span class="key">ciphertext (age):</span><br><span class="bytes">ZW1iYXJnby0+IFgyNTUxOSAyMDI2LTA5LTAxClVuc
+GFkdW9LZWxiV2tQS3F1V0t1S3l4VlRoYUJ4dnJ3cn
+NlSWJueWFwM2NHRTBnTQpUZGFFSWZ3SkZuV0xKR0
+JPMUJDeVB0NkRiZk1hSXVxL0J1ZXNXVGRMYi9wYW
+JraWlV</span><br><span class="decrypt">unlocks 2026-09-01</span></span>
+          <span class="pgp"><span class="header">-----BEGIN PGP MESSAGE-----</span>
+Comment: time-locked · opens 2026-09-01
+
+hQEMA0p7K2v9N4xHAQf+T8sJ4kP3rW9bX2qY7vC5oA1nE6dFhI4gLm0sV9pQ7zKy
+3wN8mFlUe2vR+aH6cPq4dZjY1bX9oS3uK7wL0eA5tF8gJ1nM2pQrV6sB3iC7yD4
+=B92C
+<span class="header">-----END PGP MESSAGE-----</span></span>
+        </div>
+        <div class="foot">
+          <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+          <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+          <span class="sig"><span class="ok">✓</span></span>
+        </div>
+      </article>
+
+      <article class="block" data-bn="0019" data-kind="writing" data-date="2025-12"
+               data-prev="0x0d5e2a13" data-hash="0x6633baf2">
+        <div class="head">
+          <span class="bn">block 0019</span>
+          <span class="kind writing">writing</span>
+          <span class="date">2025-12-20</span>
+        </div>
+        <div class="body">
+          <span class="ttl"><a href="#">why your ZK circuit is slow</a></span>
+          <span class="desc">A field guide to the hot-loop instructions in popular proving systems. Mostly: "you're hashing too much."</span>
+          <span class="meta-line"><span>~ 3,100 words</span><span>cited 4×</span></span>
+        </div>
+        <div class="foot">
+          <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+          <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+          <span class="sig"><span class="ok">✓</span></span>
+        </div>
+      </article>
+
+      <article class="block locked" data-bn="0018" data-kind="writing" data-date="2025-11" data-lock="encrypted"
+               data-prev="0xaf271bb0" data-hash="0x0d5e2a13">
+        <div class="head">
+          <span class="bn">block 0018</span>
+          <span class="kind writing">writing</span>
+          <span class="lock" data-state="encrypted">🔒 encrypted</span>
+          <span class="date">2025-11-15</span>
+        </div>
+        <div class="body">
+          <span class="ttl"><a href="#"><span class="scram" data-text="advisor war stories (do not redistribute)">advisor war stories (do not redistribute)</span></a></span>
+          <span class="desc"><span class="scram" data-text="Send me an email and a reason; I'll send the key.">Send me an email and a reason; I'll send the key.</span></span>
+          <span class="meta-line">specific names involved; will publish if I ever stop being a coward.</span>
+          <span class="blob"><span class="key">ciphertext (gpg):</span><br><span class="bytes">LS0tLS1CRUdJTiBQR1AgTUVTU0FHRS0tLS0tCgpoUUVNQTBwN
+0syejlONHhIQVFmK1A5clQ3dUsrWWgzcUxrMnNXdkU2b0R4O
+GFSNG1CMW5DMHBYNXRRN3pLeTN3TjhtRmxVZTJ2UithSDZj
+UHE0ZFpqWTFiWDlvUzN1S3d3TDBlQTV0RjhnSjFu</span><br><span class="decrypt">decrypt</span></span>
+          <span class="pgp"><span class="header">-----BEGIN PGP MESSAGE-----</span>
+Comment: encrypted to <span class="fp">7A3C 9F1B 0E42 4D31</span>
+
+hQEMA0p7K2v9N4xHAQf+P9rT7uK+Yh3qLk2sWvE6oDx8aR4mB1nC0pX5tQ7zKy3w
+N8mFlUe2vR+aH6cPq4dZjY1bX9oS3uK7wL0eA5tF8gJ1nM2pQrV6sB3iC7yD4xT
+=C13F
+<span class="header">-----END PGP MESSAGE-----</span></span>
+        </div>
+        <div class="foot">
+          <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+          <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+          <span class="sig"><span class="ok">✓</span></span>
+        </div>
+      </article>
+
+      <article class="block" data-bn="0017" data-kind="writing" data-date="2025-10"
+               data-prev="0x33f1cc9e" data-hash="0xaf271bb0">
+        <div class="head">
+          <span class="bn">block 0017</span>
+          <span class="kind writing">writing</span>
+          <span class="date">2025-10-04</span>
+        </div>
+        <div class="body">
+          <span class="ttl"><a href="#">notes on Halo2 custom gates</a></span>
+          <span class="desc">Each gate as a constraint polynomial; each polynomial as a small piece of taste. Mostly opinions, some equations.</span>
+          <span class="meta-line"><span>~ 1,600 words</span><span>est. 8 min</span></span>
+        </div>
+        <div class="foot">
+          <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+          <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+          <span class="sig"><span class="ok">✓</span></span>
+        </div>
+      </article>
+
+      <article class="block" data-bn="0016" data-kind="note" data-date="2025-09"
+               data-prev="0x00000000" data-hash="0x33f1cc9e">
+        <div class="head">
+          <span class="bn">block 0016</span>
+          <span class="kind note">note</span>
+          <span class="date">2025-09-21</span>
+        </div>
+        <div class="body">
+          <span class="ttl"><a href="#">on writing in public, eight months in</a></span>
+          <span class="desc">Some posts get 3 readers. Some get 3,000. The 3-reader ones are usually better.</span>
+          <span class="meta-line"><span>~ 1,200 words</span></span>
+        </div>
+        <div class="foot">
+          <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+          <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+          <span class="sig"><span class="ok">✓</span></span>
+        </div>
+      </article>
+
+    </div><!-- /chain -->
+
+    <div class="genesis">
+      <span class="lab">genesis</span>
+      <code class="h">prev: 0x0000…0000</code>
+      <span style="color:var(--ink-dim)">2024-09-01</span>
+      <span class="quote">"I started writing things down."</span>
+    </div>
+  </section>
+
+  <!-- ===================================================================
+       PROJECTS
+       =================================================================== -->
+  <section class="section" data-section="projects">
+    <h1 class="section-title"><span class="glyph">§</span>projects</h1>
+    <div class="section-sub">
+      <span>Things I've built; some still alive, some clearly not.</span>
+      <span class="pill">7 entries</span>
+    </div>
+
+    <div class="mempool" data-mempool-for="projects" hidden></div>
+
+    <div class="chain" data-chain>
+
+      <article class="block" data-bn="0007" data-kind="project" data-date="2026-03"
+               data-prev="0x9c12fa44" data-hash="0xb1d8e0c2">
+        <div class="head">
+          <span class="bn">block 0007</span>
+          <span class="kind project">project</span>
+          <span class="date">2026-03-08</span>
+        </div>
+        <div class="body">
+          <span class="ttl"><a href="websh v1.html">websh v0.3.1 — pipes, cd -, persistent FS</a></span>
+          <span class="desc">A browser-resident shell over a virtual filesystem. The whole site is mounted at <code>/</code>.</span>
+          <span class="meta-line"><span>rust + ts</span><span>2.4k LOC</span><span>MIT</span></span>
+        </div>
+        <div class="foot">
+          <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+          <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+          <span class="sig"><span class="ok">✓</span></span>
+        </div>
+      </article>
+
+      <article class="block" data-bn="0006" data-kind="project" data-date="2026-02"
+               data-prev="0x55aa7720" data-hash="0x9c12fa44">
+        <div class="head">
+          <span class="bn">block 0006</span>
+          <span class="kind project">project</span>
+          <span class="date">2026-02-14</span>
+        </div>
+        <div class="body">
+          <span class="ttl"><a href="#">zkgrep — zero-knowledge regex matcher</a></span>
+          <span class="desc">Plonkish circuit + lookup table for character classes; preprint linked. Prover slow, verifier fast.</span>
+          <span class="meta-line"><span>halo2</span><span>3.7k LOC</span><span>research</span></span>
+        </div>
+        <div class="foot">
+          <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+          <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+          <span class="sig"><span class="ok">✓</span></span>
+        </div>
+      </article>
+
+      <article class="block locked" data-bn="0005" data-kind="project" data-date="2025-11" data-lock="encrypted"
+               data-prev="0x2ee84a91" data-hash="0x55aa7720">
+        <div class="head">
+          <span class="bn">block 0005</span>
+          <span class="kind project">project</span>
+          <span class="lock" data-state="encrypted">🔒 encrypted</span>
+          <span class="date">2025-11-06</span>
+        </div>
+        <div class="body">
+          <span class="ttl"><a href="#"><span class="scram" data-text="(internal) compiler for a DSL I'm not allowed to name yet">(internal) compiler for a DSL I'm not allowed to name yet</span></a></span>
+          <span class="desc"><span class="scram" data-text="Under NDA. Public when the org goes public.">Under NDA. Public when the org goes public.</span></span>
+          <span class="meta-line"><span>ocaml</span><span>~?</span><span>private</span></span>
+          <span class="blob"><span class="key">ciphertext (age):</span><br><span class="bytes">YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBQQ
+mRudk5SVkVQbVdtcXFLN29yYTZqL2lJVkx2VmZHU3J0cE
+lmclpEenZJCmxlcm9DZmVRTjRORDJjbVhuOC9pcDVENz
+VEMW1JWFp6Q3VEYjJUYUI4SzgK</span><br><span class="decrypt">decrypt</span></span>
+          <span class="pgp"><span class="header">-----BEGIN PGP MESSAGE-----</span>
+Comment: NDA · do not request
+
+hQEMA0p7K2v9N4xHAQf+P9rT7uK+Yh3qLk2sWvE6oDx8aR4mB1nC0pX5tQ7zKy3w
+N8mFlUe2vR+aH6cPq4dZjY1bX9oS3uK7wL0eA5tF8gJ1nM2pQrV6sB3iC7yD4xT
+=D14A
+<span class="header">-----END PGP MESSAGE-----</span></span>
+        </div>
+        <div class="foot">
+          <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+          <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+          <span class="sig"><span class="ok">✓</span></span>
+        </div>
+      </article>
+
+      <article class="block" data-bn="0004" data-kind="project" data-date="2025-08"
+               data-prev="0x70b1aabe" data-hash="0x2ee84a91">
+        <div class="head">
+          <span class="bn">block 0004</span>
+          <span class="kind project">project</span>
+          <span class="date">2025-08-19</span>
+        </div>
+        <div class="body">
+          <span class="ttl"><a href="#">plonkit — a tiny Plonk prover for teaching</a></span>
+          <span class="desc">~600 lines of Rust. Slow on purpose; readable on purpose. Used in two grad seminars I know of.</span>
+          <span class="meta-line"><span>rust</span><span>620 LOC</span><span>MIT</span></span>
+        </div>
+        <div class="foot">
+          <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+          <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+          <span class="sig"><span class="ok">✓</span></span>
+        </div>
+      </article>
+
+      <article class="block" data-bn="0003" data-kind="project" data-date="2025-04"
+               data-prev="0x18eb4c0d" data-hash="0x70b1aabe">
+        <div class="head">
+          <span class="bn">block 0003</span>
+          <span class="kind project">project</span>
+          <span class="date">2025-04-11</span>
+        </div>
+        <div class="body">
+          <span class="ttl"><a href="#">paper-shepherd — refereeing workflow over IPFS</a></span>
+          <span class="desc">An experiment in versioned, content-addressed reviews. Worked. Nobody wanted it.</span>
+          <span class="meta-line"><span>typescript</span><span>1.1k LOC</span><span>archived</span></span>
+        </div>
+        <div class="foot">
+          <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+          <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+          <span class="sig"><span class="ok">✓</span></span>
+        </div>
+      </article>
+
+      <article class="block" data-bn="0002" data-kind="project" data-date="2024-12"
+               data-prev="0xa83920ff" data-hash="0x18eb4c0d">
+        <div class="head">
+          <span class="bn">block 0002</span>
+          <span class="kind project">project</span>
+          <span class="date">2024-12-09</span>
+        </div>
+        <div class="body">
+          <span class="ttl"><a href="#">tex-to-anything — paper → HTML/EPUB/markdown</a></span>
+          <span class="desc">Because LaTeX is great and the web should also be great. Heuristic, but mostly correct.</span>
+          <span class="meta-line"><span>haskell</span><span>2.0k LOC</span><span>BSD-2</span></span>
+        </div>
+        <div class="foot">
+          <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+          <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+          <span class="sig"><span class="ok">✓</span></span>
+        </div>
+      </article>
+
+      <article class="block" data-bn="0001" data-kind="project" data-date="2024-09"
+               data-prev="0x00000000" data-hash="0xa83920ff">
+        <div class="head">
+          <span class="bn">block 0001</span>
+          <span class="kind project">project</span>
+          <span class="date">2024-09-15</span>
+        </div>
+        <div class="body">
+          <span class="ttl"><a href="#">this site, which mostly exists so I'd write more</a></span>
+          <span class="desc">A homepage that takes itself slightly too seriously. By design.</span>
+          <span class="meta-line"><span>html</span><span>obviously</span><span>CC BY-SA</span></span>
+        </div>
+        <div class="foot">
+          <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+          <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+          <span class="sig"><span class="ok">✓</span></span>
+        </div>
+      </article>
+
+    </div>
+
+    <div class="genesis">
+      <span class="lab">genesis</span>
+      <code class="h">prev: 0x0000…0000</code>
+      <span style="color:var(--ink-dim)">2024-09-01</span>
+      <span class="quote">"I started shipping things."</span>
+    </div>
+  </section>
+
+  <!-- ===================================================================
+       PAPERS
+       =================================================================== -->
+  <section class="section" data-section="papers">
+    <h1 class="section-title"><span class="glyph">§</span>papers</h1>
+    <div class="section-sub">
+      <span>Peer-reviewed and preprint. Each row links to its ePrint id.</span>
+      <span class="pill">12 entries</span>
+    </div>
+
+    <div class="mempool" data-mempool-for="papers" hidden></div>
+
+    <div class="chain" data-chain>
+
+      <article class="block" data-bn="0012" data-kind="paper" data-date="2026-04"
+               data-prev="0x6e4c9203" data-hash="0xc103aa17">
+        <div class="head">
+          <span class="bn">block 0012</span>
+          <span class="kind paper">paper</span>
+          <span class="date">2026-04-02</span>
+        </div>
+        <div class="body">
+          <span class="ttl"><a href="homepage v2.html">zkgrep: proof-carrying regular expressions</a></span>
+          <span class="desc">W. Choi · single-author preprint · Paper 2026/0420 · zkgrep compiles a regex into a Plonkish circuit with lookup-argued character classes.</span>
+          <span class="meta-line"><span>cs.CR · cs.PL</span><span>32 pp.</span><span>BibTeX</span></span>
+        </div>
+        <div class="foot">
+          <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+          <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+          <span class="sig"><span class="ok">✓</span></span>
+        </div>
+      </article>
+
+      <article class="block locked" data-bn="0011" data-kind="paper" data-date="2026-03" data-lock="encrypted"
+               data-prev="0x214beedb" data-hash="0x6e4c9203">
+        <div class="head">
+          <span class="bn">block 0011</span>
+          <span class="kind paper">paper</span>
+          <span class="lock" data-state="encrypted">🔒 encrypted</span>
+          <span class="date">2026-03-04</span>
+        </div>
+        <div class="body">
+          <span class="ttl"><a href="#"><span class="scram" data-text="(under review) folding without commitments — title placeholder">(under review) folding without commitments — title placeholder</span></a></span>
+          <span class="desc"><span class="scram" data-text="Title and abstract withheld until decision; commit hash on chain.">Title and abstract withheld until decision; commit hash on chain.</span></span>
+          <span class="meta-line">drafted from notes on a long flight; not yet sure if it survives a re-read.</span>
+          <span class="blob"><span class="key">ciphertext (age):</span><br><span class="bytes">QU5PTi1TVUItVjEKQUVTLTI1Ni1HQ00gd2l0aCBuY
+W5jZSBmcm9tIFNIQTI1Ni0obWFudXNjcmlwdC5wZGYpCk
+NJUEhFUlRFWFQ6CiAgYTMxZmMwZTI3YjhkNGYxYTljYjI
+0ZjE0OTJkM2VmYWMyN2JiM2E0YzExMjJlMDg5</span><br><span class="decrypt">decrypt</span></span>
+          <span class="pgp"><span class="header">-----BEGIN PGP MESSAGE-----</span>
+Comment: encrypted to <span class="fp">7A3C 9F1B 0E42 4D31</span>
+
+hQEMA0p7K2v9N4xHAQf+T8sJ4kP3rW9bX2qY7vC5oA1nE6dFhI4gLm0sV9pQ7zKy
+3wN8mFlUe2vR+aH6cPq4dZjY1bX9oS3uK7wL0eA5tF8gJ1nM2pQrV6sB3iC7yD4
+=E27D
+<span class="header">-----END PGP MESSAGE-----</span></span>
+        </div>
+        <div class="foot">
+          <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+          <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+          <span class="sig"><span class="ok">✓</span></span>
+        </div>
+      </article>
+
+      <article class="block" data-bn="0010" data-kind="paper" data-date="2025-12"
+               data-prev="0x91dd8027" data-hash="0x214beedb">
+        <div class="head">
+          <span class="bn">block 0010</span>
+          <span class="kind paper">paper</span>
+          <span class="date">2025-12-17</span>
+        </div>
+        <div class="body">
+          <span class="ttl"><a href="#">succinct compilers for arithmetic circuits</a></span>
+          <span class="desc">Choi, Park · CRYPTO 2025 · A typed IR with cost-aware lowering for SNARK circuits; 2.1× constraint reduction in our benchmarks.</span>
+          <span class="meta-line"><span>cs.CR · cs.PL</span><span>28 pp.</span><span>BibTeX</span></span>
+        </div>
+        <div class="foot">
+          <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+          <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+          <span class="sig"><span class="ok">✓</span></span>
+        </div>
+      </article>
+
+      <article class="block" data-bn="0009" data-kind="paper" data-date="2025-08"
+               data-prev="0x40110aae" data-hash="0x91dd8027">
+        <div class="head">
+          <span class="bn">block 0009</span>
+          <span class="kind paper">paper</span>
+          <span class="date">2025-08-13</span>
+        </div>
+        <div class="body">
+          <span class="ttl"><a href="#">tracing the L1: an empirical study of EVM gas hotspots</a></span>
+          <span class="desc">Choi, Lee, Kang · USENIX Security '25 · Long-tail of expensive opcodes in real Ethereum traces; ~14% of gas in 0.4% of contracts.</span>
+          <span class="meta-line"><span>cs.CR</span><span>17 pp.</span><span>code · data</span></span>
+        </div>
+        <div class="foot">
+          <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+          <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+          <span class="sig"><span class="ok">✓</span></span>
+        </div>
+      </article>
+
+      <article class="block locked" data-bn="0008" data-kind="paper" data-date="2025-05" data-lock="encrypted"
+               data-prev="0xa1d63920" data-hash="0x40110aae">
+        <div class="head">
+          <span class="bn">block 0008</span>
+          <span class="kind paper">paper</span>
+          <span class="lock" data-state="encrypted">🔒 encrypted</span>
+          <span class="date">2025-05-22</span>
+        </div>
+        <div class="body">
+          <span class="ttl"><a href="#"><span class="scram" data-text="(under review) succinct sumcheck over rings — title placeholder">(under review) succinct sumcheck over rings — title placeholder</span></a></span>
+          <span class="desc"><span class="scram" data-text="With M. Park. Title and abstract withheld until camera-ready.">With M. Park. Title and abstract withheld until camera-ready.</span></span>
+          <span class="meta-line">a paper i am still arguing with myself about.</span>
+          <span class="blob"><span class="key">ciphertext (age):</span><br><span class="bytes">QU5PTi1TVUItVjEKQUVTLTI1Ni1HQ00gd2l0aCBuY
+W5jZSBmcm9tIFNIQTI1Ni0obWFudXNjcmlwdC5wZGYpCk
+NJUEhFUlRFWFQ6CiAgZmU5ZTRiM2QyN2NjMTBhMjE2YzM
+1ZTMzN2ZkMTljYzExZGI0ZjAyMmExODA0ZTAw</span><br><span class="decrypt">decrypt</span></span>
+          <span class="pgp"><span class="header">-----BEGIN PGP MESSAGE-----</span>
+Comment: encrypted to <span class="fp">7A3C 9F1B 0E42 4D31</span>
+
+hQEMA0p7K2v9N4xHAQf+P9rT7uK+Yh3qLk2sWvE6oDx8aR4mB1nC0pX5tQ7zKy3w
+N8mFlUe2vR+aH6cPq4dZjY1bX9oS3uK7wL0eA5tF8gJ1nM2pQrV6sB3iC7yD4xT
+=F38B
+<span class="header">-----END PGP MESSAGE-----</span></span>
+        </div>
+        <div class="foot">
+          <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+          <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+          <span class="sig"><span class="ok">✓</span></span>
+        </div>
+      </article>
+
+      <article class="block" data-bn="0007" data-kind="paper" data-date="2024-12"
+               data-prev="0x00000000" data-hash="0xa1d63920">
+        <div class="head">
+          <span class="bn">block 0007</span>
+          <span class="kind paper">paper</span>
+          <span class="date">2024-12-05</span>
+        </div>
+        <div class="body">
+          <span class="ttl"><a href="#">a type system for circuit fairness</a></span>
+          <span class="desc">Choi · CCS 2024 · Distinguished paper award. Linear types for non-malleable witness flow; runtime overhead 0%.</span>
+          <span class="meta-line"><span>cs.CR · cs.PL</span><span>18 pp.</span><span>★ best paper</span></span>
+        </div>
+        <div class="foot">
+          <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+          <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+          <span class="sig"><span class="ok">✓</span></span>
+        </div>
+      </article>
+
+    </div>
+
+    <div class="genesis">
+      <span class="lab">genesis</span>
+      <code class="h">prev: 0x0000…0000</code>
+      <span style="color:var(--ink-dim)">2024-12-15</span>
+      <span class="quote">"I submitted my first paper."</span>
+    </div>
+  </section>
+
+  <!-- ===================================================================
+       MISC
+       =================================================================== -->
+  <section class="section" data-section="misc">
+    <h1 class="section-title"><span class="glyph">§</span>misc</h1>
+    <div class="section-sub">
+      <span>Things I read, made, or saw — committed for posterity, not curation.</span>
+      <span class="pill">∗ entries</span>
+    </div>
+
+    <div class="mempool" data-mempool-for="misc" hidden></div>
+
+    <div class="chain" data-chain>
+
+      <article class="block" data-bn="041" data-kind="note" data-date="2026-04"
+               data-prev="0x71f0a2c9" data-hash="0x2ad9b117">
+        <div class="head">
+          <span class="bn">block 041</span>
+          <span class="kind note">note</span>
+          <span class="date">2026-04-22</span>
+        </div>
+        <div class="body">
+          <span class="ttl">currently reading</span>
+          <span class="desc">Halo2 book ch.4 · Bachelard, "The Poetics of Space" · Stross, "Accelerando" (re-read).</span>
+          <span class="meta-line"><span>3 books</span><span>1 paper</span></span>
+        </div>
+        <div class="foot">
+          <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+          <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+          <span class="sig"><span class="ok">✓</span></span>
+        </div>
+      </article>
+
+      <article class="block" data-bn="040" data-kind="photo" data-date="2026-04"
+               data-prev="0x0c91eebd" data-hash="0x71f0a2c9">
+        <div class="head">
+          <span class="bn">block 040</span>
+          <span class="kind photo">photo</span>
+          <span class="date">2026-04-12</span>
+        </div>
+        <div class="body">
+          <span class="ttl">desk, 03:00, april</span>
+          <span class="desc">Two monitors, one cat, one cup of cold coffee. Committed to the chain so I'd remember.</span>
+          <span class="meta-line"><span>1 image</span><span>2.4 MB</span></span>
+        </div>
+        <div class="foot">
+          <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+          <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+          <span class="sig"><span class="ok">✓</span></span>
+        </div>
+      </article>
+
+      <article class="block locked" data-bn="039" data-kind="note" data-date="2026-03" data-lock="encrypted"
+               data-prev="0xb4220d8e" data-hash="0x0c91eebd">
+        <div class="head">
+          <span class="bn">block 039</span>
+          <span class="kind note">note</span>
+          <span class="lock" data-state="encrypted">🔒 encrypted</span>
+          <span class="date">2026-03-30</span>
+        </div>
+        <div class="body">
+          <span class="ttl"><span class="scram" data-text="things i'd tell my first-year self">things i'd tell my first-year self</span></span>
+          <span class="desc"><span class="scram" data-text="A list. Written for me, not you. Sealed.">A list. Written for me, not you. Sealed.</span></span>
+          <span class="meta-line">a list. written for me, not you.</span>
+          <span class="blob"><span class="key">ciphertext (age):</span><br><span class="bytes">YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBQQ
+mRudk5SVkVQbVdtcXFLN29yYTZqL2lJVkx2VmZHU3J0c
+ElmclpEenZJCmxlcm9DZmVRTjRORDJjbVhuOC9pcDVE
+NzVEMW1JWFp6Q3VEYjJUYUI4SzgK</span><br><span class="decrypt">decrypt</span></span>
+          <span class="pgp"><span class="header">-----BEGIN PGP MESSAGE-----</span>
+Comment: private journal · self-recipient
+
+hQEMA0p7K2v9N4xHAQf+P9rT7uK+Yh3qLk2sWvE6oDx8aR4mB1nC0pX5tQ7zKy3w
+N8mFlUe2vR+aH6cPq4dZjY1bX9oS3uK7wL0eA5tF8gJ1nM2pQrV6sB3iC7yD4xT
+=A11C
+<span class="header">-----END PGP MESSAGE-----</span></span>
+        </div>
+        <div class="foot">
+          <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+          <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+          <span class="sig"><span class="ok">✓</span></span>
+        </div>
+      </article>
+
+      <article class="block" data-bn="038" data-kind="note" data-date="2026-03"
+               data-prev="0x1c558203" data-hash="0xb4220d8e">
+        <div class="head">
+          <span class="bn">block 038</span>
+          <span class="kind note">note</span>
+          <span class="date">2026-03-19</span>
+        </div>
+        <div class="body">
+          <span class="ttl">kissaten ranking, march edition</span>
+          <span class="desc">Café de l'Ambre · Daibo (closed, in memoriam) · Chatei Hatou · my desk.</span>
+          <span class="meta-line"><span>4 places</span><span>biased</span></span>
+        </div>
+        <div class="foot">
+          <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+          <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+          <span class="sig"><span class="ok">✓</span></span>
+        </div>
+      </article>
+
+      <article class="block locked" data-bn="037" data-kind="note" data-date="2026-02" data-lock="encrypted"
+               data-prev="0x882a1119" data-hash="0x1c558203">
+        <div class="head">
+          <span class="bn">block 037</span>
+          <span class="kind note">note</span>
+          <span class="lock" data-state="encrypted">🔒 encrypted</span>
+          <span class="date">2026-02-08</span>
+        </div>
+        <div class="body">
+          <span class="ttl"><span class="scram" data-text="addresses, recipes, phone numbers">addresses, recipes, phone numbers</span></span>
+          <span class="desc"><span class="scram" data-text="Personal directory. Email me a reason and we'll see.">Personal directory. Email me a reason and we'll see.</span></span>
+          <span class="meta-line">personal directory. email me a reason and we'll see.</span>
+          <span class="blob"><span class="key">ciphertext (gpg):</span><br><span class="bytes">LS0tLS1CRUdJTiBQR1AgTUVTU0FHRS0tLS0tCgpoUUVNQTBwN
+0syejlONHhIQVFmK1A5clQ3dUsrWWgzcUxrMnNXdkU2b0R4O
+GFSNG1CMW5DMHBYNXRRN3pLeTN3TjhtRmxVZTJ2UithSDZj
+UHE0ZFpqWTFiWDlvUzN1S3d3TDBlQTV0RjhnSjFu</span><br><span class="decrypt">decrypt</span></span>
+          <span class="pgp"><span class="header">-----BEGIN PGP MESSAGE-----</span>
+Comment: encrypted to <span class="fp">7A3C 9F1B 0E42 4D31</span>
+
+hQEMA0p7K2v9N4xHAQf+P9rT7uK+Yh3qLk2sWvE6oDx8aR4mB1nC0pX5tQ7zKy3w
+N8mFlUe2vR+aH6cPq4dZjY1bX9oS3uK7wL0eA5tF8gJ1nM2pQrV6sB3iC7yD4xT
+=B22D
+<span class="header">-----END PGP MESSAGE-----</span></span>
+        </div>
+        <div class="foot">
+          <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+          <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+          <span class="sig"><span class="ok">✓</span></span>
+        </div>
+      </article>
+
+      <article class="block" data-bn="036" data-kind="note" data-date="2026-01"
+               data-prev="0x00000000" data-hash="0x882a1119">
+        <div class="head">
+          <span class="bn">block 036</span>
+          <span class="kind note">note</span>
+          <span class="date">2026-01-03</span>
+        </div>
+        <div class="body">
+          <span class="ttl">walking log · jan 2026</span>
+          <span class="desc">73 km on foot, mostly along the Han. The river is the original chain.</span>
+          <span class="meta-line"><span>73 km</span><span>14 walks</span></span>
+        </div>
+        <div class="foot">
+          <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+          <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+          <span class="sig"><span class="ok">✓</span></span>
+        </div>
+      </article>
+
+    </div>
+
+    <div class="genesis">
+      <span class="lab">genesis</span>
+      <code class="h">prev: 0x0000…0000</code>
+      <span style="color:var(--ink-dim)">2024-09-01</span>
+      <span class="quote">"I started keeping notes."</span>
+    </div>
+  </section>
+
+  <!-- footer -->
+  <div class="pagefoot"></div>
+</main>
+
+<!-- Tweaks -->
+<div id="tweaks">
+  <h5>Crypto representation</h5>
+  <label>Mode
+    <select id="tw-crypto">
+      <option value="off">off — show plaintext</option>
+      <option value="blob" selected>ciphertext blob</option>
+      <option value="scramble">scramble + blur</option>
+      <option value="pgp">PGP message</option>
+    </select>
+  </label>
+  <p class="desc" id="cryptoDesc">
+    Renders <code>.locked</code> blocks as base-64 ciphertext with a "decrypt" affordance.
+  </p>
+
+  <h5>Chain</h5>
+  <label>Hash length
+    <select id="tw-hashlen">
+      <option value="short" selected>short (0x7c21…f81d)</option>
+      <option value="med">med (0x7c21f81d)</option>
+      <option value="long">long (full 16 chars)</option>
+    </select>
+  </label>
+  <label>Connector
+    <select id="tw-connector">
+      <option value="line" selected>thin line</option>
+      <option value="arrow">arrow ▽</option>
+      <option value="none">none</option>
+    </select>
+  </label>
+
+  <h5>Section</h5>
+  <label>Show
+    <select id="tw-section">
+      <option value="all" selected>all (filtered)</option>
+      <option value="writing">writing only</option>
+      <option value="projects">projects only</option>
+      <option value="papers">papers only</option>
+      <option value="misc">misc only</option>
+    </select>
+  </label>
+  <label>Filter style
+    <select id="tw-filterstyle">
+      <option value="pill" selected>pill (current)</option>
+      <option value="tab">tab — terminal underline</option>
+      <option value="breadcrumb">breadcrumb — ~ / cd</option>
+      <option value="cli">CLI — $ ledger --filter</option>
+      <option value="segment">segment — single bar</option>
+      <option value="dropdown">dropdown — minimal</option>
+      <option value="row">row — ledger-head style</option>
+    </select>
+  </label>
+
+  <h5>Mempool</h5>
+  <label>Visibility
+    <select id="tw-mempool">
+      <option value="full" selected>full — meta visible</option>
+      <option value="minimal">minimal — title only</option>
+      <option value="off">off — hide</option>
+    </select>
+  </label>
+  <label>Mine button
+    <select id="tw-mine">
+      <option value="on" selected>on</option>
+      <option value="off">off</option>
+    </select>
+  </label>
+  <p class="desc" id="mempoolDesc">
+    Pending entries above the chain head: drafts, in review, scheduled, bounced. "Mine" promotes the top one to a new block.
+  </p>
+</div>
+
+<script>
+/* ——————————————————————————————————————
+   chain rendering: write hashes into each block's .foot
+   —————————————————————————————————————— */
+function shortenHash(h, mode){
+  if(!h) return "—";
+  if(h === "0x00000000") return "0x0000…0000";
+  if(mode === "long")  return h.length > 18 ? h : h.padEnd(18, "0");
+  if(mode === "med")   return h.replace(/^0x/, "0x").slice(0, 10);
+  // short
+  const head = h.slice(0,6);
+  const tail = h.slice(-4);
+  return head + "…" + tail;
+}
+
+function renderHashes(){
+  const mode = STATE.hashlen;
+  document.querySelectorAll('.block').forEach(b=>{
+    const prev = b.dataset.prev || "0x00000000";
+    const hash = b.dataset.hash || "—";
+    const prevSpan = b.querySelector('.foot .prev .h');
+    const hashSpan = b.querySelector('.foot .hash .h');
+    if(prevSpan) prevSpan.textContent = shortenHash(prev, mode);
+    if(hashSpan) hashSpan.textContent = shortenHash(hash, mode);
+  });
+}
+
+/* ——————————————————————————————————————
+   ledger header counts + head hash per section
+   —————————————————————————————————————— */
+function refreshLedgerHeader(){
+  const sec = STATE.section;
+  const isAll = sec === 'all';
+  // selector scope: all sections, or just one
+  const blocks = isAll
+    ? document.querySelectorAll('.section:not(.global-section) .block')
+    : document.querySelectorAll(`.section[data-section="${sec}"] .block`);
+  const enc = [...blocks].filter(b => b.dataset.lock === 'encrypted').length;
+  document.getElementById('lhPath').textContent = isAll ? '/home/j/' : '/home/j/' + sec;
+  document.getElementById('lhN').textContent    = blocks.length;
+  document.getElementById('lhEnc').textContent  = enc;
+  // head = hash of the first block (most recent) overall
+  const head = blocks[0] ? (blocks[0].dataset.hash || '—') : '—';
+  document.getElementById('lhHead').textContent = shortenHash(head, STATE.hashlen);
+  // breadcrumb + identifier
+  document.getElementById('bcSection').textContent = isAll ? 'ledger' : sec;
+  document.getElementById('idLabel').textContent   = isAll ? '/home/j/' : '/home/j/' + sec;
+  // genesis date
+  const genDates = { writing:'2024-09-01', projects:'2024-09-01', papers:'2024-12-15', misc:'2024-09-01', all:'2024-09-01' };
+  document.getElementById('lhGen').textContent = genDates[sec] || '2024-09-01';
+}
+
+/* ——————————————————————————————————————
+   section switching (top nav)
+   —————————————————————————————————————— */
+function showSection(name){
+  STATE.section = name;
+  document.body.dataset.section = name;
+  document.querySelectorAll('.section').forEach(s=>{
+    s.classList.toggle('on', s.dataset.section === name);
+  });
+  // nav highlight: in 'all' mode, reflect filter selection
+  const fcat = STATE.filterCat || 'all';
+  document.querySelectorAll('.archive-bar nav a[data-section]').forEach(a=>{
+    let on = false;
+    if(name === 'all'){
+      on = fcat !== 'all' && fcat === a.dataset.section;
+    } else {
+      on = a.dataset.section === name;
+    }
+    a.classList.toggle('here', on);
+  });
+  refreshLedgerHeader();
+  renderHashes();
+  renderAllMempools();
+  applyFilters();
+}
+
+/* ————————————————————
+   filter strip (kind: single-select radio)
+   ———————————————————— */
+function applyFilters(){
+  // STATE.filterCat is a single string: 'all' | 'writing' | 'projects' | 'papers' | 'misc'
+  const cat = (STATE.filterCat || 'all');
+  const inAllMode = STATE.section === 'all';
+  const allCat = cat === 'all';
+
+  // ORIGINAL sections (sources of truth) — used for single-category view + counts
+  const origSections = document.querySelectorAll('.section:not(.global-section)');
+  let total = 0, visible = 0;
+  origSections.forEach(sec=>{
+    const secName = sec.dataset.section;
+    const sectionVisibleByMode = !inAllMode && sec.classList.contains('on');
+    sec.querySelectorAll('.block').forEach(b=>{
+      total++;
+      const matchCat = allCat || cat === secName;
+      const out = !(matchCat && sectionVisibleByMode);
+      b.classList.toggle('f-out', out);
+      if(!out) visible++;
+    });
+    sec.classList.remove('f-empty');
+  });
+
+  // GLOBAL chain (only visible in all-mode) — filter clones by their data-sec
+  const globalSec = document.querySelector('.section.global-section');
+  if(globalSec){
+    let gVisible = 0;
+    globalSec.querySelectorAll('.block').forEach(b=>{
+      const bsec = b.dataset.sec;
+      const out = !(inAllMode && (allCat || bsec === cat));
+      b.classList.toggle('f-out', out);
+      if(!out) gVisible++;
+    });
+    if(inAllMode){
+      visible = gVisible;
+      total = globalSec.querySelectorAll('.block').length;
+    }
+  }
+
+  // re-render global mempool so it reflects the filter
+  renderGlobalMempool();
+
+  // pill visual state (single-select) — applies to ALL filter variants
+  document.querySelectorAll('.cat-pill').forEach(p=>{
+    p.classList.toggle('on', p.dataset.cat === cat);
+  });
+  // row variant marker glyph
+  document.querySelectorAll('.frow').forEach(p=>{
+    const m = p.querySelector('.mark');
+    if(m) m.textContent = (p.dataset.cat === cat) ? '[●]' : '[ ]';
+  });
+  // dropdown variant select
+  const dd = document.getElementById('fbDropdownSel');
+  if(dd && dd.value !== cat) dd.value = cat;
+
+  // counts on category pills (always from originals)
+  const counts = { all: 0, writing: 0, projects: 0, papers: 0, misc: 0 };
+  origSections.forEach(sec=>{
+    const n = sec.querySelectorAll('.block').length;
+    counts[sec.dataset.section] = n;
+    counts.all += n;
+  });
+  Object.keys(counts).forEach(k=>{
+    const el = document.querySelector(`[data-ct="${k}"]`);
+    if(el) el.textContent = counts[k];
+  });
+
+  // nav highlight reflects filter in all-mode
+  if(inAllMode){
+    document.querySelectorAll('.archive-bar nav a[data-section]').forEach(a=>{
+      a.classList.toggle('here', !allCat && a.dataset.section === cat);
+    });
+  }
+
+  // summary — write to every variant's [data-summary]
+  document.querySelectorAll('[data-summary]').forEach(sum=>{
+    sum.textContent = allCat ? `${total} blocks` : `${visible} / ${total} visible`;
+  });
+}
+
+function selectCat(cat){
+  STATE.filterCat = cat;
+  applyFilters();
+  persist();
+}
+
+/* ————————————————————
+   build the global merged chain (time-sorted, all kinds)
+   ———————————————————— */
+function parseBlockDate(b){
+  // data-date might be "YYYY-MM" or "YYYY-MM-DD" or "YYYY-MM · venue" etc.
+  // also look at .head .date textContent for "YYYY-MM-DD"
+  const dateEl = b.querySelector('.head .date');
+  const txt = (dateEl && dateEl.textContent) || b.dataset.date || '';
+  // pick first YYYY-MM-DD or YYYY-MM
+  const m = txt.match(/(\d{4})-(\d{2})(?:-(\d{2}))?/);
+  if(!m) return '0000-00-00';
+  return `${m[1]}-${m[2]}-${m[3] || '15'}`;
+}
+
+function buildGlobalChain(){
+  const target = document.getElementById('globalChain');
+  if(!target) return;
+  // collect all blocks from non-global sections, clone them
+  const sources = document.querySelectorAll('.section:not(.global-section) .block');
+  const items = [];
+  sources.forEach(b=>{
+    const sec = b.closest('.section').dataset.section;
+    items.push({ el: b, sec, date: parseBlockDate(b) });
+  });
+  // sort desc by date
+  items.sort((a,b)=> b.date.localeCompare(a.date));
+  // renumber and re-link so the merged chain is one monotonic ledger:
+  //   - block numbers: oldest = 0001, newest = N
+  //   - prev/hash: each block's prev = the next-older block's hash
+  // (we keep the real per-section chains in the originals; this is the global view)
+  const N = items.length;
+  // generate stable-looking hashes per global index from the sort date + sec + bn
+  function gHash(seed){
+    // tiny string hash → 8 hex chars, padded
+    let h = 0x811c9dc5;
+    for(let i=0; i<seed.length; i++){
+      h = (h ^ seed.charCodeAt(i)) >>> 0;
+      h = (h * 0x01000193) >>> 0;
+    }
+    return '0x' + h.toString(16).padStart(8, '0').slice(0, 8);
+  }
+  // clear and append clones
+  target.innerHTML = '';
+  items.forEach((it, i)=>{
+    const clone = it.el.cloneNode(true);
+    clone.dataset.sec = it.sec;
+    clone.dataset.sortDate = it.date;
+    // global block number: most recent (i=0) gets N, oldest gets 1
+    const gbn = String(N - i).padStart(4, '0');
+    clone.dataset.bn = gbn;
+    const bnEl = clone.querySelector('.head .bn');
+    if(bnEl) bnEl.textContent = 'block ' + gbn;
+    // global hash for this index
+    const myHash = gHash(`${gbn}|${it.sec}|${it.date}`);
+    clone.dataset.hash = myHash;
+    // prev = next-older block's hash; oldest's prev is genesis
+    if(i < N - 1){
+      const nx = items[i + 1];
+      const nxBn = String(N - (i + 1)).padStart(4, '0');
+      clone.dataset.prev = gHash(`${nxBn}|${nx.sec}|${nx.date}`);
+    } else {
+      clone.dataset.prev = '0x00000000';
+    }
+    target.appendChild(clone);
+  });
+}
+
+/* ——————————————————————————————————————
+   crypto mode + connector
+   —————————————————————————————————————— */
+function applyCrypto(mode){
+  document.body.dataset.crypto = mode;
+  STATE.crypto = mode;
+  const desc = {
+    off:      'Locks off — every block shows its plaintext title and description.',
+    blob:     'Locked blocks render as base-64 ciphertext with a "decrypt" affordance.',
+    scramble: 'Locked titles blur and lose letter spacing; hover to focus briefly.',
+    pgp:      'Locked blocks display a full PGP message envelope in place of the body.'
+  };
+  const d = document.getElementById('cryptoDesc');
+  if(d) d.textContent = desc[mode] || '';
+  // for scramble mode, perturb letters; for others, restore original
+  document.querySelectorAll('.scram').forEach(el=>{
+    const orig = el.dataset.text || el.textContent;
+    if(mode === 'scramble'){
+      el.textContent = scrambleText(orig);
+    } else {
+      el.textContent = orig;
+    }
+  });
+}
+
+function scrambleText(s){
+  // shuffle letters within each word; keep spaces/punctuation in place
+  return s.replace(/[A-Za-z]+/g, w => {
+    const arr = w.split('');
+    for(let i=arr.length-1;i>0;i--){
+      const j = Math.floor(Math.random()*(i+1));
+      [arr[i],arr[j]] = [arr[j],arr[i]];
+    }
+    return arr.join('');
+  });
+}
+
+function applyFilterStyle(mode){
+  STATE.filterstyle = mode;
+  document.body.dataset.filterstyle = mode;
+}
+
+function applyConnector(mode){
+  STATE.connector = mode;
+  // simple: toggle ::after via a body class
+  document.body.dataset.connector = mode;
+  // we'll use CSS for line/none; arrow uses pseudo content via JS
+  let style = document.getElementById('connector-style');
+  if(!style){
+    style = document.createElement('style');
+    style.id = 'connector-style';
+    document.head.appendChild(style);
+  }
+  if(mode === 'arrow'){
+    style.textContent = `
+      .block::after{
+        content:"▽" !important;
+        color: var(--ink-faint) !important;
+        background: var(--bg) !important;
+        font-size: 10px;
+        height: auto !important;
+        width: auto !important;
+        left: 50% !important;
+        transform: translateX(-50%) translateY(2px);
+        top: 100% !important;
+        line-height: 1;
+        padding: 0 3px;
+      }
+      .block::before{ display:none !important; }`;
+  } else if(mode === 'none'){
+    style.textContent = `.block::after, .block::before{ display:none !important; } .chain{ gap: 0 !important; } .block{ margin-bottom:-1px; }`;
+  } else {
+    style.textContent = ``;
+  }
+}
+
+/* ——————————————————————————————————————
+   tweaks state + bindings
+   —————————————————————————————————————— */
+/* ——————————————————————————————————————
+   mempool — pending items per section
+   —————————————————————————————————————— */
+const MEMPOOL = {
+  writing: [
+    { status:"draft",     kind:"writing", title:"on writing slow",
+      desc:"a defense of the long delay between thought and post.",
+      abstract:"An argument that publication latency is a feature, not a bug — that the slow draft is itself a kind of revision against your past self. Personal essay; some references to Kundera and to my own old posts I'd rather not link.",
+      gas:"~12,000 words",
+      priority:"low",  modified:"2026-04-12" },
+    { status:"draft",     kind:"writing", title:"websh — async tasks, in pictures",
+      desc:"how the shell schedules, suspends, resumes; sketches first.",
+      abstract:"Companion piece to the websh project log. Twelve diagrams of the task scheduler, from the simplest single-promise case up to nested cooperative cancellation. Aimed at people who already use async/await and still find it confusing.",
+      gas:"~3,400 words",
+      priority:"med",  modified:"2026-04-25" },
+    { status:"review",    kind:"paper",   title:"folding without commitments",
+      desc:"under review; awaiting decision.",
+      abstract:"A short note on folding schemes that omit the usual polynomial commitments, replacing them with a structured hash and a tighter accumulation argument. Submitted to a workshop; revisions queued for after the decision.",
+      gas:"24 pp.",
+      priority:"high", modified:"2026-03-30" }
+  ],
+  projects: [
+    { status:"draft",     kind:"project", title:"websh v0.4 — pipes through workers",
+      desc:"move long-running ops off the main thread; keep TTY responsive.",
+      abstract:"Refactor of the websh runtime to push expensive commands (grep over large mounts, JSON pretty-print, regex search) into Web Workers. Adds a small message-passing protocol; preserves cd, history, and FS handles. Should fix the TTY freeze during long pipes.",
+      gas:"~800 LOC",
+      priority:"high", modified:"2026-04-26" },
+    { status:"draft",     kind:"project", title:"plonkit — teaching release v0.2",
+      desc:"two more chapters, one more example circuit.",
+      abstract:"Second teaching release of the tiny Plonk prover. New chapters: lookup arguments, custom gates. New example: a 4-bit ALU encoded in ~120 constraints, hand-verified. Same readable-on-purpose style; benchmarks unchanged.",
+      gas:"~300 LOC + docs",
+      priority:"med",  modified:"2026-04-20" },
+    { status:"draft",   kind:"project", title:"ipfs-paper-shepherd · revival",
+      desc:"dependency drift, no users. shelved again.",
+      abstract:"Attempted to revive the 2025 IPFS refereeing prototype. Dependencies have rotted (libp2p major bumps, dead pinning service). Reverted; will not retry without a real user.",
+      gas:"unknown",
+      priority:"low",  modified:"2026-04-19" }
+  ],
+  papers: [
+    { status:"review",    kind:"paper", title:"succinct sumcheck over rings",
+      desc:"with M. Park. submitted; awaiting reviews.",
+      abstract:"With M. Park. A sumcheck protocol that runs natively over a small commutative ring, avoiding the lift-to-field overhead in our previous work. Includes a worked example over Z/2^32 and a benchmark against the field-based version.",
+      gas:"~20 pp.",
+      priority:"high", modified:"2026-03-15" },
+    { status:"draft",     kind:"paper", title:"a calculus for proof-carrying regex",
+      desc:"follow-up to zkgrep; semantics first, then circuits.",
+      abstract:"A small typed calculus whose terms are regular expressions carrying their own SNARK proofs of match. We give an operational semantics, a compilation to Plonkish circuits, and a soundness argument relative to the underlying lookup argument. Sections 1–3 drafted; §4 (cost model) is the slow part.",
+      gas:"~28 pp.",
+      priority:"med",  modified:"2026-04-22" },
+    { status:"draft", kind:"talk",  title:"invited talk · ZK Summit '26",
+      desc:"slides + handout in progress.",
+      abstract:"Invited talk surveying recent compiler work on SNARK circuits, framed for a research-engineering audience. 30 min + 10 min Q&A. Slides + a short handout will be appended after the event.",
+      gas:"~24 slides",
+      priority:"low",  modified:"2026-04-18" }
+  ],
+  misc: [
+    { status:"draft", kind:"note",  title:"reading list · q2 2026",
+      desc:"three books, two papers; posted at quarter end.",
+      abstract:"Three books I will probably finish: Bachelard (re-read), Stross, one TBD novel. Two papers I will definitely finish. Posted as a single note at quarter end so I can see, with embarrassment, how much I missed.",
+      gas:"5 entries",
+      priority:"low",  modified:"2026-04-15" },
+    { status:"draft",     kind:"photo", title:"film roll · march walks",
+      desc:"36 frames, mostly the river. waiting on dev.",
+      abstract:"One roll of Portra 400 from the river walks in March. 36 exposures, mostly the same bridge from different angles. At the lab; will be appended once scanned.",
+      gas:"36 frames",
+      priority:"low",  modified:"2026-04-08" }
+  ]
+};
+
+function fmtPriority(p){
+  const cls = p === "high" ? "pri-high" : p === "med" ? "pri-med" : "pri-low";
+  const dot = p === "high" ? "▲▲▲" : p === "med" ? "▲▲" : "▲";
+  return `<span class="${cls}">${dot} ${p}</span>`;
+}
+
+function renderMempool(/* legacy: ignored */){
+  renderGlobalMempool();
+}
+
+function renderGlobalMempool(){
+  const host = document.getElementById('globalMempool');
+  if(!host) return;
+
+  // flatten all sections in time order (newest modified first)
+  const all = [];
+  ['writing','projects','papers','misc'].forEach(sec=>{
+    (MEMPOOL[sec] || []).forEach((it, i)=>{
+      all.push({...it, sec, idx: i});
+    });
+  });
+  all.sort((a,b)=> (b.modified || '').localeCompare(a.modified || ''));
+
+  // apply category filter for visible count
+  const cat = STATE.filterCat || 'all';
+  const allCat = cat === 'all';
+  const filtered = all.filter(it => allCat || it.sec === cat);
+
+  const collapsed = STATE.mempoolCollapsed === true;
+  host.classList.toggle('collapsed', collapsed);
+
+  if(all.length === 0){
+    host.innerHTML = `
+      <div class="mp-head">
+        <span class="lab">mempool</span>
+        <span class="count">· 0 pending</span>
+      </div>`;
+    return;
+  }
+
+  const itemsHtml = filtered.map(it => {
+    const canMine = STATE.mine === "on";
+    return `
+    <div class="mp-item ${canMine ? 'clickable' : ''}" data-status="${it.status}" data-sec="${it.sec}" data-idx="${it.idx}" tabindex="${canMine ? 0 : -1}">
+      <div class="status">${it.status}</div>
+      <div>
+        <div class="ttl"><span class="kind-tag ${it.kind}">${it.kind}</span>${it.title}</div>
+        <div class="desc">${it.desc}</div>
+        <div class="meta">
+          <span class="kv"><span class="k">priority</span><span class="v">${fmtPriority(it.priority)}</span></span>
+          <span class="kv"><span class="k">gas</span><span class="v">${it.gas}</span></span>
+        </div>
+      </div>
+      <div class="modified">${it.modified}</div>
+    </div>`;
+  }).join('');
+
+  const emptyMsg = filtered.length === 0
+    ? `<div class="mp-empty">no pending entries match the current filter</div>`
+    : '';
+
+  host.innerHTML = `
+    <div class="mp-head">
+      <button class="mp-toggle" aria-expanded="${!collapsed}" aria-label="toggle mempool">
+        <span class="caret">${collapsed ? '▸' : '▾'}</span>
+      </button>
+      <span class="lab">mempool</span>
+      <span class="count">· ${filtered.length}${filtered.length !== all.length ? ' / ' + all.length : ''} pending</span>
+    </div>
+    <div class="mp-list">${itemsHtml}${emptyMsg}</div>`;
+
+  // toggle handler
+  const toggleBtn = host.querySelector('.mp-toggle');
+  if(toggleBtn){
+    toggleBtn.addEventListener('click', ()=>{
+      STATE.mempoolCollapsed = !collapsed;
+      renderGlobalMempool();
+      persist();
+    });
+  }
+  // also: clicking the head (anywhere except a row) toggles
+  const head = host.querySelector('.mp-head');
+  if(head){
+    head.addEventListener('click', (e)=>{
+      if(e.target.closest('.mp-toggle')) return; // already handled
+      STATE.mempoolCollapsed = !collapsed;
+      renderGlobalMempool();
+      persist();
+    });
+  }
+
+  // row click → confirm mine
+  host.querySelectorAll('.mp-item.clickable').forEach(row => {
+    const sec = row.dataset.sec;
+    const idx = parseInt(row.dataset.idx, 10);
+    row.addEventListener('click', () => askMineConfirm(sec, idx));
+    row.addEventListener('keydown', e => {
+      if(e.key === 'Enter' || e.key === ' '){
+        e.preventDefault();
+        askMineConfirm(sec, idx);
+      }
+    });
+  });
+}
+
+function renderAllMempools(){
+  renderGlobalMempool();
+}
+
+function applyMempool(mode){
+  STATE.mempool = mode;
+  document.body.dataset.mempool = mode;
+  const desc = {
+    full:    'Pending entries with priority/gas metadata, above the chain head.',
+    minimal: 'Pending entries collapsed to title + status only.',
+    off:     'Mempool hidden — chain head is the topmost element.'
+  };
+  const d = document.getElementById('mempoolDesc');
+  if(d) d.textContent = desc[mode] || '';
+}
+
+/* mine: pop a mempool item by index, prepend a new block to the chain */
+function askMineConfirm(sec, idx){
+  const items = MEMPOOL[sec];
+  if(!items || !items[idx]) return;
+  const it = items[idx];
+
+  // remove any existing modal
+  document.querySelectorAll('.mine-confirm-backdrop').forEach(n => n.remove());
+
+  const back = document.createElement('div');
+  back.className = 'mine-confirm-backdrop';
+  back.innerHTML = `
+    <div class="mine-confirm" role="dialog" aria-modal="true">
+      <h4>mine block · confirm</h4>
+      <div class="mc-q">Append <b>${it.title}</b> to <b>/home/j/${sec}</b>?</div>
+      <div class="mc-abstract">${it.abstract || it.desc}</div>
+      <div class="mc-meta">
+        <span class="k">kind</span><span><span class="kind-tag ${it.kind}">${it.kind}</span></span>
+        <span class="k">status</span><span>${it.status}</span>
+        <span class="k">priority</span><span>${fmtPriority(it.priority)}</span>
+        <span class="k">gas</span><span>${it.gas}</span>
+        <span class="k">modified</span><span>${it.modified}</span>
+      </div>
+      <div class="mc-actions">
+        <button class="cancel">cancel</button>
+        <button class="primary confirm">commit ▾</button>
+      </div>
+    </div>`;
+  document.body.appendChild(back);
+
+  const close = () => back.remove();
+  back.addEventListener('click', e => { if(e.target === back) close(); });
+  back.querySelector('.cancel').addEventListener('click', close);
+  back.querySelector('.confirm').addEventListener('click', () => {
+    close();
+    mineByIndex(sec, idx);
+  });
+  document.addEventListener('keydown', function esc(e){
+    if(e.key === 'Escape'){ close(); document.removeEventListener('keydown', esc); }
+  });
+  setTimeout(() => back.querySelector('.cancel').focus(), 30);
+}
+
+function mineByIndex(sec, idx){
+  const items = MEMPOOL[sec];
+  if(!items || !items[idx]) return;
+  const host = document.getElementById('globalMempool');
+  const root = document.querySelector(`.section[data-section="${sec}"]`);
+  const chain = root && root.querySelector('.chain');
+  if(!host || !chain) return;
+  const targetItem = host.querySelector(`.mp-item[data-sec="${sec}"][data-idx="${idx}"]`);
+  host.querySelectorAll('.mine-row').forEach(b => b.disabled = true);
+
+  if(targetItem) targetItem.classList.add('mining');
+
+  const popped = items.splice(idx, 1)[0];
+  const topBlock = chain.querySelector('.block');
+  const topBn = topBlock ? (topBlock.dataset.bn || "0000") : "0000";
+  const nextBn = String(parseInt(topBn, 10) + 1).padStart(topBn.length, "0");
+  const prevHash = topBlock ? (topBlock.dataset.hash || "0x00000000") : "0x00000000";
+  const newHash = "0x" + Math.random().toString(16).slice(2, 10);
+  const today = new Date().toISOString().slice(0, 10);
+
+  setTimeout(() => {
+    const article = document.createElement('article');
+    article.className = 'block minted';
+    article.dataset.bn   = nextBn;
+    article.dataset.kind = popped.kind;
+    article.dataset.date = today.slice(0, 7);
+    article.dataset.prev = prevHash;
+    article.dataset.hash = newHash;
+    article.innerHTML = `
+      <div class="head">
+        <span class="bn">block ${nextBn}</span>
+        <span class="kind ${popped.kind}">${popped.kind}</span>
+        <span class="date">${today}</span>
+      </div>
+      <div class="body">
+        <span class="ttl"><a href="#">${popped.title}</a></span>
+        <span class="desc">${popped.desc}</span>
+        <span class="meta-line"><span>${popped.gas}</span><span>just minted</span></span>
+      </div>
+      <div class="foot">
+        <span class="prev"><span class="k">prev</span><span class="h"></span></span>
+        <span class="hash"><span class="k">hash</span><span class="h"></span></span>
+        <span class="sig"><span class="ok">✓</span></span>
+      </div>`;
+    chain.insertBefore(article, chain.firstChild);
+    renderHashes();
+    refreshLedgerHeader();
+    renderMempool(sec);
+    // rebuild global merged chain so the new block flows in time-sorted
+    buildGlobalChain();
+    renderHashes();
+    applyFilters();
+  }, 520);
+}
+
+const STATE = /*EDITMODE-BEGIN*/{
+  "crypto": "blob",
+  "hashlen": "short",
+  "connector": "line",
+  "section": "all",
+  "mempool": "full",
+  "mine": "on",
+  "filterCat": "all",
+  "mempoolCollapsed": false,
+  "filterstyle": "tab"
+}/*EDITMODE-END*/;
+
+function persist(){
+  try{ window.parent.postMessage({type:'__edit_mode_set_keys', edits: STATE}, '*'); }catch(e){}
+}
+
+function bindTweaks(){
+  const map = {
+    crypto:    v => applyCrypto(v),
+    hashlen:   v => { STATE.hashlen = v; renderHashes(); refreshLedgerHeader(); renderAllMempools(); },
+    connector: v => applyConnector(v),
+    section:   v => showSection(v),
+    mempool:   v => { applyMempool(v); renderAllMempools(); },
+    mine:      v => { STATE.mine = v; renderAllMempools(); },
+    filterstyle: v => applyFilterStyle(v),
+  };
+  Object.keys(map).forEach(k=>{
+    const el = document.getElementById('tw-'+k);
+    if(!el) return;
+    el.value = STATE[k];
+    el.addEventListener('input', ()=>{
+      STATE[k] = el.value;
+      map[k](el.value);
+      persist();
+    });
+  });
+}
+
+/* nav clicks — acts as filter shortcut */
+document.querySelectorAll('.archive-bar nav a[data-section]').forEach(a=>{
+  a.addEventListener('click', e=>{
+    e.preventDefault();
+    const sec = a.dataset.section;
+    // switch to all-mode and set filter
+    STATE.section = 'all';
+    STATE.filterCat = sec;
+    const sel = document.getElementById('tw-section');
+    if(sel) sel.value = 'all';
+    showSection('all');
+    persist();
+  });
+});
+
+/* breadcrumb home (~) clears filters */
+document.querySelectorAll('.archive-bar .breadcrumb a, .archive-bar .ens').forEach(a=>{
+  // these go to homepage; nothing to do here
+});
+
+/* filter strip click handlers */
+document.querySelectorAll('.cat-pill').forEach(p=>{
+  p.addEventListener('click', ()=>{
+    if(STATE.section !== 'all'){
+      STATE.section = 'all';
+      const sel = document.getElementById('tw-section');
+      if(sel) sel.value = 'all';
+      showSection('all');
+    }
+    selectCat(p.dataset.cat);
+  });
+});
+
+/* dropdown filter variant */
+(function(){
+  const dd = document.getElementById('fbDropdownSel');
+  if(!dd) return;
+  dd.addEventListener('change', ()=>{
+    if(STATE.section !== 'all'){
+      STATE.section = 'all';
+      const sel = document.getElementById('tw-section');
+      if(sel) sel.value = 'all';
+      showSection('all');
+    }
+    selectCat(dd.value);
+  });
+})();
+
+/* sig chip */
+(function(){
+  const hex = "0123456789abcdef";
+  function chunk(n){ let s=""; for(let i=0;i<n;i++) s+=hex[Math.floor(Math.random()*16)]; return s; }
+  function resign(){
+    document.querySelectorAll('#footSigHead').forEach(el=>{ el.textContent = "0x" + chunk(4); });
+    document.querySelectorAll('#footSigTail').forEach(el=>{ el.textContent = chunk(4); });
+  }
+  let atTop = true;
+  window.addEventListener("scroll", () => {
+    const nowTop = window.scrollY < 4;
+    if(nowTop && !atTop) resign();
+    atTop = nowTop;
+  }, {passive:true});
+})();
+
+/* — Tweaks host contract — */
+window.addEventListener('message', (e)=>{
+  const d = e.data || {};
+  if(d.type==='__activate_edit_mode')   document.getElementById('tweaks').classList.add('on');
+  if(d.type==='__deactivate_edit_mode') document.getElementById('tweaks').classList.remove('on');
+});
+
+/* init */
+bindTweaks();
+buildGlobalChain();
+applyCrypto(STATE.crypto);
+applyConnector(STATE.connector);
+applyFilterStyle(STATE.filterstyle);
+applyMempool(STATE.mempool);
+renderAllMempools();
+showSection(STATE.section);
+applyFilters();
+
+try{ window.parent.postMessage({type:'__edit_mode_available'}, '*'); }catch(e){}
+</script>
+</body>
+</html>

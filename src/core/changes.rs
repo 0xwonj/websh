@@ -6,29 +6,41 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::models::{DirectoryMetadata, FileMetadata, VirtualPath};
+use crate::models::EntryExtensions;
+use crate::models::{NodeMetadata, VirtualPath};
 use crate::utils::current_timestamp;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChangeType {
     CreateFile {
         content: String,
-        meta: FileMetadata,
+        meta: NodeMetadata,
+        #[serde(default, skip_serializing_if = "is_default_extensions")]
+        extensions: EntryExtensions,
     },
     CreateBinary {
         blob_id: String,
         mime: String,
-        meta: FileMetadata,
+        meta: NodeMetadata,
+        #[serde(default, skip_serializing_if = "is_default_extensions")]
+        extensions: EntryExtensions,
     },
     UpdateFile {
         content: String,
-        description: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        meta: Option<NodeMetadata>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        extensions: Option<EntryExtensions>,
     },
     DeleteFile,
     CreateDirectory {
-        meta: DirectoryMetadata,
+        meta: NodeMetadata,
     },
     DeleteDirectory,
+}
+
+fn is_default_extensions(e: &EntryExtensions) -> bool {
+    e == &EntryExtensions::default()
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -204,9 +216,16 @@ mod tests {
     }
 
     fn create_file(content: &str) -> ChangeType {
+        use crate::models::{Fields, NodeKind, SCHEMA_VERSION};
         ChangeType::CreateFile {
             content: content.to_string(),
-            meta: FileMetadata::default(),
+            meta: NodeMetadata {
+                schema: SCHEMA_VERSION,
+                kind: NodeKind::Page,
+                authored: Fields::default(),
+                derived: Fields::default(),
+            },
+            extensions: EntryExtensions::default(),
         }
     }
 
@@ -276,7 +295,8 @@ mod tests {
             p("/upd.md"),
             ChangeType::UpdateFile {
                 content: "y".into(),
-                description: None,
+                meta: None,
+                extensions: None,
             },
         );
         cs.upsert(p("/del.md"), ChangeType::DeleteFile);

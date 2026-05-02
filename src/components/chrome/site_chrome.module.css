@@ -24,7 +24,11 @@
   font-size: var(--font-size-xs);
   line-height: var(--leading-snug);
   padding: var(--space-1_5) var(--space-4_5);
-  position: relative;
+  /* Sticky against the surrounding scroll container (each page's
+     `.surface` is `overflow-y: auto`). Background is already opaque so
+     content scrolls cleanly underneath. */
+  position: sticky;
+  top: 0;
   z-index: var(--z-chrome);
 }
 
@@ -193,6 +197,158 @@
   white-space: nowrap;
 }
 
+.walletButton {
+  position: relative;
+  display: inline-flex;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.walletTrigger {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.walletTrigger:focus-visible {
+  outline: 1px dotted var(--archive-rule-bright);
+  outline-offset: 2px;
+}
+
+.walletTrigger > * + * {
+  position: relative;
+  margin-left: var(--space-2_5);
+  padding-left: var(--space-2_5);
+}
+
+.walletTrigger > * + *::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 1px;
+  height: 12px;
+  background: var(--archive-rule-bright);
+  opacity: 0.55;
+  transform: translateY(-50%);
+}
+
+.walletTrigger:hover .chipValue,
+.walletTrigger[aria-expanded="true"] .chipValue {
+  color: var(--archive-accent);
+}
+
+.walletDismiss {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-sticky);
+  cursor: default;
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+
+.walletMenu {
+  position: absolute;
+  top: calc(100% + var(--space-1_75));
+  left: 0;
+  z-index: var(--z-chrome);
+  width: max(220px, 100%);
+  max-width: min(320px, calc(100vw - 24px));
+  background: var(--archive-chrome);
+  color: var(--archive-ink);
+  border: 1px solid var(--archive-rule-bright);
+  box-shadow: 0 14px 34px var(--shadow-color);
+  padding: var(--space-1_25);
+  display: flex;
+  flex-direction: column;
+}
+
+.walletMenu::before {
+  content: "";
+  position: absolute;
+  top: calc(-1 * var(--space-1));
+  left: var(--space-3);
+  width: var(--space-1_75);
+  height: var(--space-1_75);
+  background: var(--archive-chrome);
+  border-left: 1px solid var(--archive-rule-bright);
+  border-top: 1px solid var(--archive-rule-bright);
+  transform: rotate(45deg);
+}
+
+.walletMenuItem {
+  display: block;
+  width: 100%;
+  background: transparent;
+  color: var(--archive-ink);
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-align: left;
+  padding: var(--space-1_25) var(--space-1_75);
+}
+
+.walletMenuItem:hover,
+.walletMenuItem:focus {
+  background: var(--archive-tint);
+  color: var(--archive-accent);
+  outline: none;
+}
+
+.walletMenuStatus {
+  display: block;
+  color: var(--archive-faint);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  padding: var(--space-1_25) var(--space-1_75);
+  font-style: italic;
+}
+
+.walletMenuRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: 11px;
+  padding: var(--space-1) var(--space-1_75);
+  min-width: 0;
+}
+
+.walletMenuKey {
+  flex: 0 0 auto;
+  width: 56px;
+  color: var(--archive-faint);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.walletMenuVal {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--archive-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.walletMenuDivider {
+  display: block;
+  border-top: 1px solid var(--archive-rule);
+  margin: var(--space-1) 0;
+}
+
 .themePicker {
   position: relative;
   display: inline-flex;
@@ -244,9 +400,8 @@
 
 .paletteChevron {
   color: var(--archive-faint);
-  font-size: 9px;
+  font-size: var(--font-size-xs);
   line-height: var(--leading-none);
-  transform: translateY(-1px);
 }
 
 .paletteDismiss {
@@ -343,43 +498,54 @@
 }
 
 @media (max-width: 760px) {
-  .archive {
-    grid-template-columns: auto minmax(0, 1fr);
-    align-items: start;
-    gap: var(--space-1_75) var(--space-3);
-    padding: var(--space-1_5) var(--space-3);
-  }
+  /*
+    Mobile compaction (Option A) — two rows, three columns:
+      Row 1: lead (identity + walletButton) | _ | palette
+      Row 2: nav                            | _ | breadcrumb
 
-  .identity {
-    grid-column: 1;
+    `.actions` becomes `display: contents` so its children (.nav, .divider,
+    .themePicker) participate in the chrome grid directly. Spacing tokens
+    inherit from desktop — only the layout shape changes here.
+  */
+  .archive {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    align-items: center;
+    row-gap: var(--space-1_5);
+    padding: var(--space-1_5) var(--space-2_5);
   }
 
   .lead {
-    grid-column: 1 / -1;
-    flex-wrap: wrap;
-    gap: var(--space-2) var(--space-2_5);
-  }
-
-  .breadcrumb {
-    grid-column: 2;
-    justify-self: end;
-    max-width: 100%;
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: start;
   }
 
   .actions {
-    grid-column: 1 / -1;
-    justify-self: end;
-    width: 100%;
-    flex-wrap: wrap;
-    gap: var(--space-2) var(--space-2_5);
+    display: contents;
   }
 
   .nav {
-    gap: var(--space-2_5);
+    grid-column: 1;
+    grid-row: 2;
+    justify-self: start;
   }
 
   .divider {
-    height: 12px;
+    display: none;
+  }
+
+  .themePicker {
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: end;
+  }
+
+  .breadcrumb {
+    grid-column: 3;
+    grid-row: 2;
+    justify-self: end;
+    max-width: 100%;
   }
 
   .chipKey {
@@ -390,33 +556,17 @@
     max-width: 14ch;
   }
 
-  .themeLabel {
-    display: none;
-  }
-
   .paletteMenu {
     width: min(166px, calc(100vw - 24px));
   }
 }
 
 @media (max-width: 460px) {
-  .archive {
-    font-size: 10.5px;
-  }
-
-  .actions {
-    justify-content: space-between;
-  }
-
-  .lead {
-    width: 100%;
-  }
-
-  .nav {
-    gap: var(--space-2);
-  }
-
   .chipValue {
     max-width: 10ch;
+  }
+
+  .themeLabel {
+    display: none;
   }
 }

@@ -9,7 +9,6 @@ use crate::app::AppContext;
 use crate::config::{APP_NAME, APP_TAGLINE, APP_VERSION, ASCII_BANNER, boot_delays};
 use crate::core::{env, runtime, wallet};
 use crate::models::{OutputLine, ViewMode, WalletState};
-use crate::utils::dom::is_mobile_or_tablet;
 use crate::utils::format::{format_elapsed, format_eth_address};
 
 /// Delay helper using setTimeout
@@ -58,12 +57,21 @@ pub fn run(ctx: AppContext) {
         match runtime::reload_runtime().await {
             Ok(load) => {
                 let total_files = load.total_files;
+                let mount_errors = load.mount_errors.clone();
                 ctx.apply_runtime_load(load);
                 ctx.terminal.push_output(OutputLine::success(format!(
                     "{} Total: {} files mounted",
                     format_elapsed(elapsed()),
                     total_files
                 )));
+                for failure in mount_errors {
+                    ctx.terminal.push_output(OutputLine::error(format!(
+                        "{} mount {} unavailable: {}",
+                        format_elapsed(elapsed()),
+                        failure.label,
+                        failure.error
+                    )));
+                }
             }
             Err(error) => {
                 ctx.apply_runtime_load(runtime::bootstrap_runtime_load());
@@ -136,19 +144,11 @@ pub fn run(ctx: AppContext) {
             }
         }
 
-        if is_mobile_or_tablet() {
-            ctx.view_mode.set(ViewMode::Explorer);
-            ctx.terminal.push_output(OutputLine::info(format!(
-                "{} Mobile device detected, switching to Explorer mode",
-                format_elapsed(elapsed())
-            )));
-        } else {
-            ctx.view_mode.set(ViewMode::Terminal);
-            ctx.terminal.push_output(OutputLine::info(format!(
-                "{} Desktop detected, initializing Terminal mode",
-                format_elapsed(elapsed())
-            )));
-        }
+        ctx.view_mode.set(ViewMode::Terminal);
+        ctx.terminal.push_output(OutputLine::info(format!(
+            "{} Initializing Terminal mode",
+            format_elapsed(elapsed())
+        )));
         delay(&window, boot_delays::BOOT_COMPLETE).await;
 
         ctx.terminal.push_output(OutputLine::success(format!(

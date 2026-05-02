@@ -12,22 +12,44 @@
   align-items: baseline;
   gap: var(--space-3_5);
   padding: var(--space-1_25) var(--space-3);
-  border-bottom: 1px dashed var(--ledger-rule);
   font-size: var(--font-size-xs);
   letter-spacing: 0.04em;
   color: var(--ledger-faint);
   text-transform: uppercase;
-  cursor: pointer;
   user-select: none;
+}
+
+/* `border-top` on next sibling, not `border-bottom` on previous —
+   so collapsed siblings don't double up against the outer frame. */
+.mpHead + .mpKeyForm,
+.mpHead + .mpList {
+  border-top: 1px dashed var(--ledger-rule);
 }
 
 .mpHead:hover .mpLabel {
   color: var(--ledger-ink);
 }
 
-.mpHead:focus-visible {
+.mpDisclosure {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3_5);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mpDisclosure:focus-visible {
   outline: 1px solid var(--ledger-accent);
-  outline-offset: -1px;
+  outline-offset: 2px;
 }
 
 .mpToggle {
@@ -40,7 +62,7 @@
 
 .mpLabel {
   color: var(--ledger-amber);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
   letter-spacing: 0.06em;
 }
 
@@ -87,6 +109,98 @@
   outline-offset: 1px;
 }
 
+/* ─── Inline `+ key` PAT entry form ────────────────────────────── */
+.mpKeyForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1_25);
+  padding: var(--space-2_5) var(--space-3);
+  background: var(--surface-tint);
+  font-size: 11px;
+}
+
+.mpKeyForm + .mpList {
+  border-top: 1px dashed var(--ledger-rule);
+}
+
+.mpKeyTitle {
+  color: var(--ledger-dim);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+
+.mpKeyRow {
+  display: flex;
+  gap: var(--space-1_5);
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+
+.mpKeyInput {
+  flex: 1 1 18ch;
+  min-width: 0;
+  border: 1px solid var(--ledger-rule);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  padding: var(--space-1) var(--space-1_75);
+  letter-spacing: 0.02em;
+}
+
+.mpKeyInput:focus-visible {
+  outline: 1px solid var(--ledger-accent);
+  outline-offset: 0;
+  border-color: var(--ledger-accent-dim);
+}
+
+.mpKeyBtn {
+  border: 1px solid var(--ledger-rule);
+  background: transparent;
+  color: var(--ledger-dim);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  padding: 0 var(--space-2);
+  cursor: pointer;
+  line-height: 1.55;
+}
+
+.mpKeyBtn:hover {
+  color: var(--ledger-accent);
+  border-color: var(--ledger-accent-dim);
+}
+
+.mpKeyBtn:focus-visible {
+  outline: 1px solid var(--ledger-accent);
+  outline-offset: 1px;
+}
+
+.mpKeyHint {
+  color: var(--ledger-faint);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+.mpKeyHintLink {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px dotted currentColor;
+}
+
+.mpKeyHintLink:hover,
+.mpKeyHintLink:focus-visible {
+  color: var(--ledger-accent);
+  border-bottom-color: var(--ledger-accent);
+  outline: none;
+}
+
+.mpKeyError {
+  color: var(--terminal-red);
+  font-size: 10.5px;
+}
+
 .mpList {
   display: flex;
   flex-direction: column;
@@ -104,7 +218,7 @@
  * paint a dotted border and accent-color on hover. */
 .mpList .mpItem {
   display: grid;
-  grid-template-columns: 92px 1fr auto;
+  grid-template-columns: 92px 1fr;
   gap: var(--space-3_5);
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px dashed var(--ledger-rule);
@@ -114,6 +228,7 @@
   cursor: pointer;
   transition: background 0.12s ease;
   text-decoration: none;
+  position: relative;
 }
 
 .mpList .mpItem:focus-visible {
@@ -162,8 +277,12 @@
 
 .mpTitle {
   color: var(--ledger-ink);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   font-size: 13px;
+  padding-right: 65px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .mpKindTag {
@@ -202,6 +321,7 @@
   color: var(--ledger-faint);
   font-size: 11.5px;
   margin-top: 2px;
+  padding-right: 65px;
 }
 
 .mpMeta {
@@ -240,14 +360,23 @@
   color: var(--ledger-dim);
 }
 
+.mpPriArrows {
+  letter-spacing: 0.04em;
+}
+
+.mpPriArrows + .mpPriLabel {
+  margin-left: 4px;
+}
+
 .mpModified {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-3);
   color: var(--ledger-faint);
   font-size: 10.5px;
   text-align: right;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
-  align-self: start;
-  padding-top: 1px;
   letter-spacing: 0.02em;
 }
 
@@ -260,3 +389,42 @@
   border-top: 1px dashed var(--ledger-rule);
 }
 
+.mpMountUnavailable {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 16px;
+  border-top: 1px dashed var(--ledger-rule);
+  font-size: 11.5px;
+  line-height: var(--leading-snug);
+  color: var(--ledger-amber);
+}
+
+.mpMountTitle {
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 10.5px;
+  font-weight: var(--weight-medium);
+}
+
+.mpMountReason {
+  color: var(--ledger-faint);
+  font-family: var(--font-code);
+  font-size: 10.5px;
+  word-break: break-word;
+}
+
+.mpMountHint {
+  color: var(--ledger-faint);
+  font-style: italic;
+}
+
+@media (max-width: 460px) {
+  .mpPriLabel {
+    display: none;
+  }
+
+  .mpKindTag {
+    display: none;
+  }
+}

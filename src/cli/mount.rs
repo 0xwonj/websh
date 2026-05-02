@@ -17,9 +17,9 @@ use serde::Serialize;
 
 use super::CliResult;
 use super::gh::{gh_succeeds, require_gh};
-use super::manifest::{DEFAULT_CONTENT_DIR, generate_content_manifest};
+use super::manifest::{DEFAULT_CONTENT_DIR, sync_content};
 
-const EMPTY_MANIFEST_BODY: &str = "{\"files\":[],\"directories\":[]}\n";
+const EMPTY_MANIFEST_BODY: &str = "{\"entries\":[]}\n";
 
 #[derive(Args)]
 pub(crate) struct MountCommand {
@@ -127,11 +127,14 @@ fn init_mount(root: &Path, init: MountInit) -> CliResult {
     std::fs::write(&mount_decl_path, format!("{body}\n"))?;
     eprintln!("local: wrote {}", mount_decl_path.display());
 
-    let bundle = generate_content_manifest(root, Path::new(DEFAULT_CONTENT_DIR))?;
+    // `sync_content` (not the projection-only path) so the new
+    // mount-declaration sidecar gets created and the bundled manifest
+    // reflects it without the user having to remember to run a separate
+    // refresh step.
+    let bundle = sync_content(root, Path::new(DEFAULT_CONTENT_DIR))?;
     eprintln!(
-        "bundle manifest regenerated: {} files / {} directories",
-        bundle.files.len(),
-        bundle.directories.len()
+        "bundle manifest regenerated: {} entries",
+        bundle.entries.len()
     );
 
     eprintln!(

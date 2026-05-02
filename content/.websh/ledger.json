@@ -2,111 +2,205 @@
   "version": 1,
   "scheme": "websh.content-ledger.v1",
   "hash": "sha256",
-  "entries": [
+  "genesis_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "blocks": [
     {
-      "id": "route:/keys/wonjae.asc",
-      "route": "/keys/wonjae.asc",
-      "path": "keys/wonjae.asc",
-      "content_files": [
-        {
-          "path": "content/keys/wonjae.asc",
-          "sha256": "0xe2b439e3359273df2e82a30b5b0f68990626abf89065c5f71fb7189bee781c5b",
-          "bytes": 640
-        }
-      ],
-      "content_sha256": "0x8e453ea89452ee4079ba522534e0fd2bc31c741d7498b1205f71aa85a2e8d261",
-      "entry_sha256": "0x29d407212e79c62425b21ff56907ce0c9b4334b9a1a58514761468c965777853"
+      "height": 1,
+      "sort_key": {
+        "date": "2026-04-20",
+        "path": "keys/wonjae.asc"
+      },
+      "prev_block_sha256": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "block_sha256": "0x37146199b89020cf79621e5ba11207a0340fe8524d5ec0766616f8eec8da6260",
+      "entry": {
+        "id": "route:/keys/wonjae.asc",
+        "route": "/keys/wonjae.asc",
+        "path": "keys/wonjae.asc",
+        "category": "misc",
+        "content_files": [
+          {
+            "path": "content/keys/wonjae.asc",
+            "sha256": "0xe2b439e3359273df2e82a30b5b0f68990626abf89065c5f71fb7189bee781c5b",
+            "bytes": 640
+          },
+          {
+            "path": "content/keys/wonjae.meta.json",
+            "sha256": "0xfc6b5dcdacc9b51ef03608764a09fe3bea9ceaa3c2b443c3a2bbefa41e597563",
+            "bytes": 352
+          }
+        ],
+        "content_sha256": "0x1f42e4ac20aed0c1cceed95154fb844a9250a2fae47a6970808af75946412b77"
+      }
     },
     {
-      "id": "route:/now.toml",
-      "route": "/now.toml",
-      "path": "now.toml",
-      "content_files": [
-        {
-          "path": "content/now.toml",
-          "sha256": "0x363a81ef1beae7d191eb498a4a4fb39117305abeb69f8c0be08a24588ac63678",
-          "bytes": 278
-        }
-      ],
-      "content_sha256": "0x9e0f9dd00627247d89bdef7f565a637e16c15db229640eaccc9cd7f350593c4f",
-      "entry_sha256": "0xa58bf5c598bcf6e6c172b889f066bfa4ee37d2fcca4674010c29556be32fba35"
+      "height": 2,
+      "sort_key": {
+        "date": "2026-04-20",
+        "path": "talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.pdf"
+      },
+      "prev_block_sha256": "0x37146199b89020cf79621e5ba11207a0340fe8524d5ec0766616f8eec8da6260",
+      "block_sha256": "0xa0b9b1df9fd29aa421b0adccaa4fa37b017f0a144c652c01543b0428a51230be",
+      "entry": {
+        "id": "route:/talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.pdf",
+        "route": "/talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.pdf",
+        "path": "talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.pdf",
+        "category": "talks",
+        "content_files": [
+          {
+            "path": "content/talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.meta.json",
+            "sha256": "0x7d406c9dd05f169eb8e3998036d70c45b2061838a7a16220fd30948a58feb207",
+            "bytes": 720
+          },
+          {
+            "path": "content/talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.pdf",
+            "sha256": "0xee2bbdd5ab9381e403bddf0590ae4aec42330aa1cb2bd2a1b4c9a20832ca4f13",
+            "bytes": 3565336
+          }
+        ],
+        "content_sha256": "0x91c906ae82a398655eba6159de2f361458936b7f6ec5c33b4926406f433d0aee"
+      }
     },
     {
-      "id": "route:/talks/zk-compilers",
-      "route": "/talks/zk-compilers",
-      "path": "talks/zk-compilers.md",
-      "content_files": [
-        {
-          "path": "content/talks/zk-compilers.md",
-          "sha256": "0x228f5027d3502acc81dfbc1948b68a88a58161baa62921d661bcb6b443c29709",
-          "bytes": 173
-        }
-      ],
-      "content_sha256": "0x1436a90a2ea4ee19b5eea359652c6b53b4dff3f7013b469c4e785586d8f6abdb",
-      "entry_sha256": "0xea8388f854b9bea1e694579ea2439a4aa3f8bd419cf78e4e68cd9b80792732b6"
+      "height": 3,
+      "sort_key": {
+        "date": "2026-04-20",
+        "path": "writing/content-backed-homepage.md"
+      },
+      "prev_block_sha256": "0xa0b9b1df9fd29aa421b0adccaa4fa37b017f0a144c652c01543b0428a51230be",
+      "block_sha256": "0x4e07bb1439fa40df98fa88aecbe6b5f10a3a3540909982f16550aa79cd8fb2fd",
+      "entry": {
+        "id": "route:/writing/content-backed-homepage",
+        "route": "/writing/content-backed-homepage",
+        "path": "writing/content-backed-homepage.md",
+        "category": "writing",
+        "content_files": [
+          {
+            "path": "content/writing/content-backed-homepage.md",
+            "sha256": "0xc2ac889c773a0adafc4e2efc070e6d49ba6fc69049e9563be7dfbfc699b6f7fa",
+            "bytes": 990
+          },
+          {
+            "path": "content/writing/content-backed-homepage.meta.json",
+            "sha256": "0x47f1bfe198739494c4c95b06a728ea482d76ac3b80bd54f7c60449ca5e0e67bf",
+            "bytes": 547
+          }
+        ],
+        "content_sha256": "0x4eb4233c486b34cfee2c743a3bbd07508b8dc67399173a59183acd74063fb55b"
+      }
     },
     {
-      "id": "route:/writing/content-backed-homepage",
-      "route": "/writing/content-backed-homepage",
-      "path": "writing/content-backed-homepage.md",
-      "content_files": [
-        {
-          "path": "content/writing/content-backed-homepage.md",
-          "sha256": "0x3a54fc965e095d0c07fe8ce09bf45ce606e1ed7613406cd49f97030e60e295ce",
-          "bytes": 913
-        }
-      ],
-      "content_sha256": "0x7d39dbb13c091a570193df93dee885f928d4b7c04f965c37a4c237fdfda984e2",
-      "entry_sha256": "0x87a2ea489667a2da7f0970f70fa23360fbc6c7486fe0c545e2e35e109197d66b"
+      "height": 4,
+      "sort_key": {
+        "date": "2026-04-22",
+        "path": "projects/websh.md"
+      },
+      "prev_block_sha256": "0x4e07bb1439fa40df98fa88aecbe6b5f10a3a3540909982f16550aa79cd8fb2fd",
+      "block_sha256": "0x72fb88389989501759903baea5d6f9ce3aeea1254cc69dfee5612b14a9bf8c40",
+      "entry": {
+        "id": "route:/projects/websh",
+        "route": "/projects/websh",
+        "path": "projects/websh.md",
+        "category": "projects",
+        "content_files": [
+          {
+            "path": "content/projects/websh.md",
+            "sha256": "0x6d529f7b2dbd6de0b11870c04aebabfc213fa0c3f3bab3a26256e87d78a471a6",
+            "bytes": 236
+          },
+          {
+            "path": "content/projects/websh.meta.json",
+            "sha256": "0x6b7a26279bf22be89982fd5aec8860d21bd73d079acea95f97c32e9bc40ea130",
+            "bytes": 516
+          }
+        ],
+        "content_sha256": "0x13942a79dc5982d5bf07cd23a4629c963de3919137551ce6f6762b8da521b5f7"
+      }
     },
     {
-      "id": "route:/projects/websh",
-      "route": "/projects/websh",
-      "path": "projects/websh.md",
-      "content_files": [
-        {
-          "path": "content/projects/websh.md",
-          "sha256": "0x34c2c22811d86065a2b531d637b20b8c0eed5f342b979d22ef80dbffa24c69d1",
-          "bytes": 148
-        }
-      ],
-      "content_sha256": "0x675885eceeac061d4dd75ef68eeddf983a1423ec2c75fc0f9200ae75cc30ddb0",
-      "entry_sha256": "0xd9e9523919b1cb4afc3de19aa125f791308414fc2ec3ff7029857cbb24d2221d"
+      "height": 5,
+      "sort_key": {
+        "date": "2026-04-23",
+        "path": "talks/zk-compilers.md"
+      },
+      "prev_block_sha256": "0x72fb88389989501759903baea5d6f9ce3aeea1254cc69dfee5612b14a9bf8c40",
+      "block_sha256": "0xf092ac0b7cf606fcc0717fac20b903b08423245b4e9fd885148e7251659ea9a5",
+      "entry": {
+        "id": "route:/talks/zk-compilers",
+        "route": "/talks/zk-compilers",
+        "path": "talks/zk-compilers.md",
+        "category": "talks",
+        "content_files": [
+          {
+            "path": "content/talks/zk-compilers.md",
+            "sha256": "0x599963aa4dbb36a0e64ab37ce61146eafcb1a6519a60e6587b12fce094621726",
+            "bytes": 263
+          },
+          {
+            "path": "content/talks/zk-compilers.meta.json",
+            "sha256": "0x01ebeeccfd5ebfc2e8a32ccd480e7bdbcfd00c84062b84220f5f9c39137300e2",
+            "bytes": 533
+          }
+        ],
+        "content_sha256": "0xbaaabe808a15a2e30c885ee4f3f468a2499855da411eac27c0c971a363312f6a"
+      }
     },
     {
-      "id": "route:/talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.pdf",
-      "route": "/talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.pdf",
-      "path": "talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.pdf",
-      "content_files": [
-        {
-          "path": "content/talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.meta.json",
-          "sha256": "0x323d3105f439c677dc51a605b1f91b09ff2a49bad139e26f627ff6cd28d157ff",
-          "bytes": 136
-        },
-        {
-          "path": "content/talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.pdf",
-          "sha256": "0xee2bbdd5ab9381e403bddf0590ae4aec42330aa1cb2bd2a1b4c9a20832ca4f13",
-          "bytes": 3565336
-        }
-      ],
-      "content_sha256": "0x22db15447f29d5add9e7620b2fa38494dfee9768e57b65bc63a535840eec34bd",
-      "entry_sha256": "0xf121710af3b5e4087b06672291e7c5f1e365c7f17bb4d7686fbaa3a8d63173c2"
+      "height": 6,
+      "sort_key": {
+        "date": "2026-04-26",
+        "path": "papers/tabula.md"
+      },
+      "prev_block_sha256": "0xf092ac0b7cf606fcc0717fac20b903b08423245b4e9fd885148e7251659ea9a5",
+      "block_sha256": "0x10d2e78b50999affe9f08c3186413bd51c72b659cab45a88862a744c0a7d759b",
+      "entry": {
+        "id": "route:/papers/tabula",
+        "route": "/papers/tabula",
+        "path": "papers/tabula.md",
+        "category": "papers",
+        "content_files": [
+          {
+            "path": "content/papers/tabula.md",
+            "sha256": "0xdbed15a29be2dff62cf89c08ee1992b6377650eafe76a9a8f74d2e59f659a9a5",
+            "bytes": 178
+          },
+          {
+            "path": "content/papers/tabula.meta.json",
+            "sha256": "0x2e94784f66a1d0beac4e8790991d52969d16b6b59a2b8a3486b65f6e6c69da20",
+            "bytes": 471
+          }
+        ],
+        "content_sha256": "0x32328333150d9e364f8e4e9079107599a9869f295cdbe40941c7809923577388"
+      }
     },
     {
-      "id": "route:/papers/tabula",
-      "route": "/papers/tabula",
-      "path": "papers/tabula.md",
-      "content_files": [
-        {
-          "path": "content/papers/tabula.md",
-          "sha256": "0x443eb00b26386354bd8ca889ae0a6c1720a47f266300384161eff562a675b289",
-          "bytes": 130
-        }
-      ],
-      "content_sha256": "0x9ca5b013ebb528954696ffbb4823c4b9908a6e8bf062afbf92c53860fd7e9dec",
-      "entry_sha256": "0xab269e03517993b2fd49f4145936d53b29ecb700f24ecef641bf772110b56f04"
+      "height": 7,
+      "sort_key": {
+        "date": "2026-04-30",
+        "path": "now.toml"
+      },
+      "prev_block_sha256": "0x10d2e78b50999affe9f08c3186413bd51c72b659cab45a88862a744c0a7d759b",
+      "block_sha256": "0xb957b05a206a59bdaf4ebcde0f84535b0d1553eed3035fab66044717b3d6bc45",
+      "entry": {
+        "id": "route:/now.toml",
+        "route": "/now.toml",
+        "path": "now.toml",
+        "category": "misc",
+        "content_files": [
+          {
+            "path": "content/now.meta.json",
+            "sha256": "0x228fd25c3a52d74c584e52eb706da715d3be779616e6f7e039c496dc28c42eee",
+            "bytes": 339
+          },
+          {
+            "path": "content/now.toml",
+            "sha256": "0x11e2367bdc46ec6dfc52c2a97a0e62425ca1953b35989fa861827b03b8022e37",
+            "bytes": 308
+          }
+        ],
+        "content_sha256": "0xc8b5e62707c585993a2be663e42a4f2e0c677b51c6fe8ad6826513d0dd80dbbf"
+      }
     }
   ],
-  "entry_count": 7,
-  "ledger_sha256": "0x964364bb5e701810ceff53cefe2db14e925681154a7c5d4ecef0584291a82bc5"
+  "block_count": 7,
+  "chain_head": "0xb957b05a206a59bdaf4ebcde0f84535b0d1553eed3035fab66044717b3d6bc45"
 }

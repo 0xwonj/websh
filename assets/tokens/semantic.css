@@ -18,6 +18,11 @@
   --gap-inline:  var(--space-2);
   --gap-stack:   var(--space-3);
   --gap-section: var(--space-6);
+  /* Spacing on either side of the `·` separator that joins meta-line
+     chunks (ledger card meta, reader title strip metric). At <=640px
+     the dot tightens up so the line fits more chunks per row. */
+  --gap-meta-sep:        var(--space-2);    /* 8px - default */
+  --gap-meta-sep-mobile: var(--space-1_5);  /* 6px - md tier */
 
   /* ===== Typography roles ===== */
   --text-meta-size:       var(--font-size-xs);
@@ -34,6 +39,12 @@
   --content-width-default: 50rem;
   --content-pad-x:         var(--space-7);
   --content-pad-x-mobile:  var(--space-4);
+  /* Effective rendered height of the sticky `.archive` chrome. Drives
+     `scroll-padding-top` on every scroll surface and the offset of any
+     other sticky element below it (e.g. reader TOC). Approximation —
+     keep within ±2px of reality so anchor jumps land just below the
+     bar instead of under it. */
+  --chrome-height:         32px;
 
   /* ===== Motion roles ===== */
   --motion-hover:

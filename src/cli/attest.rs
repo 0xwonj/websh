@@ -12,15 +12,16 @@ use crate::crypto::attestation::{
     HomepageSubject, LedgerSubject, PageSubject, Subject, message_sha256, sha256_hex,
 };
 use crate::crypto::eth::verify_personal_sign;
-use crate::crypto::ledger::{CONTENT_LEDGER_PATH, CONTENT_LEDGER_ROUTE, ContentLedgerArtifact};
+use crate::crypto::ledger::{CONTENT_LEDGER_PATH, CONTENT_LEDGER_ROUTE, ContentLedger};
 use crate::crypto::pgp::{PUBLIC_KEY_PATH, normalize_fingerprint, pretty_fingerprint};
+use crate::models::NodeKind;
 
 use super::CliResult;
 use super::io::{read_json, write_json};
 use super::manifest::{
-    DEFAULT_CONTENT_DIR, collect_files_recursive, generate_content_manifest, kind_for_content_path,
-    matching_file_sidecar, relative_path_from, resolve_path, route_for_content_path,
-    should_skip_primary_content_file,
+    DEFAULT_CONTENT_DIR, build_manifest_from_sidecars, collect_files_recursive,
+    kind_for_content_path, matching_file_sidecar, relative_path_from, resolve_path,
+    route_for_content_path, should_skip_primary_content_file, sync_content,
 };
 
 const DEFAULT_HOMEPAGE_CONTENT: &[&str] = &[
@@ -250,8 +251,9 @@ fn subject(root: &Path, command: SubjectCommand) -> CliResult {
 fn attest_all(root: &Path, options: AttestAllOptions) -> CliResult {
     let content_root = resolve_path(root, &options.content_dir);
     fs::create_dir_all(&content_root)?;
+    sync_content(root, &options.content_dir)?;
     let ledger = super::ledger::generate_content_ledger(root, &options.content_dir)?;
-    let manifest = generate_content_manifest(root, &options.content_dir)?;
+    let manifest = build_manifest_from_sidecars(root, &options.content_dir)?;
     let specs = discover_subject_specs(root, &options.content_dir)?;
 
     let existing = read_artifact(root).unwrap_or_default();
@@ -325,10 +327,10 @@ fn attest_all(root: &Path, options: AttestAllOptions) -> CliResult {
 
     verify(root, None)?;
     println!(
-        "attest: {} subjects, {} manifest files, {} ledger entries, {} new pgp signatures",
+        "attest: {} subjects, {} manifest entries, {} ledger blocks, {} new pgp signatures",
         artifact.subjects.len(),
-        manifest.files.len(),
-        ledger.entry_count,
+        manifest.entries.len(),
+        ledger.block_count,
         signed
     );
     Ok(())
@@ -379,7 +381,7 @@ fn build_subject(
     kind: SubjectKind,
     content_paths: Vec<PathBuf>,
     issued_at: Option<String>,
-    ledger: Option<&ContentLedgerArtifact>,
+    ledger: Option<&ContentLedger>,
 ) -> CliResult<Subject> {
     let content_files = build_content_files(root, &content_paths)?;
     let issued_at = issued_at
@@ -406,11 +408,11 @@ fn build_subject(
             })
         }
         SubjectKind::Ledger => {
-            let ledger = ledger
-                .ok_or("ledger subject requires a ContentLedgerArtifact to bind chain_head")?;
+            let ledger =
+                ledger.ok_or("ledger subject requires a ContentLedger to bind chain_head")?;
             Subject::Ledger(LedgerSubject {
                 env,
-                chain_head: ledger.ledger_sha256.clone(),
+                chain_head: ledger.chain_head.clone(),
             })
         }
         SubjectKind::Document => Subject::Document(DocumentSubject { env }),
@@ -581,14 +583,15 @@ fn sign_missing_pgp_attestations(
     // Fingerprint guard: refuse to sign with a key that isn't the project
     // identity. Protects forks / co-authors from accidentally writing
     // attestations under their own keys.
-    if normalize_fingerprint(&active_fingerprint) != crate::crypto::pgp::EXPECTED_PGP_FINGERPRINT {
+    let expected_fingerprint = pgp_fingerprint_from_key(root, key)?;
+    if normalize_fingerprint(&active_fingerprint) != expected_fingerprint {
         return Err(format!(
-            "attest: active gpg key fingerprint does not match the project identity.\n  \
+            "attest: active gpg key fingerprint does not match the supplied public key.\n  \
              active:   {active}\n  \
              expected: {expected}\n  \
              Refusing to sign with a non-author key. Set WEBSH_NO_SIGN=1 to build without signing.",
             active = pretty_fingerprint(&active_fingerprint),
-            expected = pretty_fingerprint(crate::crypto::pgp::EXPECTED_PGP_FINGERPRINT),
+            expected = pretty_fingerprint(&expected_fingerprint),
         )
         .into());
     }
@@ -786,9 +789,9 @@ fn verify_subject(root: &Path, subject: &Subject) -> CliResult {
         }
         Subject::Ledger(ls) => {
             let ledger_path = root.join(crate::crypto::ledger::CONTENT_LEDGER_PATH);
-            let ledger: ContentLedgerArtifact = read_json(&ledger_path)?;
+            let ledger: ContentLedger = read_json(&ledger_path)?;
             ledger.validate()?;
-            if ledger.ledger_sha256 != ls.chain_head {
+            if ledger.chain_head != ls.chain_head {
                 return Err(format!("chain_head mismatch for {}", subject.id()).into());
             }
         }
@@ -949,7 +952,7 @@ fn discover_subject_specs(root: &Path, content_dir: &Path) -> CliResult<Vec<Subj
         if let Some(sidecar) = matching_file_sidecar(&content_root, &rel_path) {
             content_paths.push(sidecar);
         }
-        let kind = SubjectKind::parse(kind_for_content_path(&rel_path))?;
+        let kind = subject_kind_for_node_kind(kind_for_content_path(&rel_path));
         specs.push(SubjectSpec {
             route: route_for_content_path(&rel_path),
             kind,
@@ -958,6 +961,13 @@ fn discover_subject_specs(root: &Path, content_dir: &Path) -> CliResult<Vec<Subj
     }
     specs.sort_by(|left, right| left.route.cmp(&right.route));
     Ok(specs)
+}
+
+fn subject_kind_for_node_kind(kind: NodeKind) -> SubjectKind {
+    match kind {
+        NodeKind::Page => SubjectKind::Page,
+        _ => SubjectKind::Document,
+    }
 }
 
 pub(crate) fn build_content_files(root: &Path, paths: &[PathBuf]) -> CliResult<Vec<ContentFile>> {
@@ -1017,6 +1027,14 @@ fn pgp_signer_from_key(root: &Path, key_path: &Path) -> CliResult<Option<String>
         .iter()
         .map(|user| String::from_utf8_lossy(user.id.id()).trim().to_string())
         .find(|user_id| !user_id.is_empty()))
+}
+
+fn pgp_fingerprint_from_key(root: &Path, key_path: &Path) -> CliResult<String> {
+    use pgp::composed::{Deserializable, SignedPublicKey};
+    use pgp::types::KeyDetails;
+
+    let (key, _headers) = SignedPublicKey::from_armor_file(resolve_path(root, key_path))?;
+    Ok(normalize_fingerprint(&key.fingerprint().to_string()))
 }
 
 pub(crate) fn artifact_path(root: &Path, path: &Path) -> CliResult<String> {

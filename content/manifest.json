@@ -1,172 +1,301 @@
 {
-  "files": [
-    {
-      "path": ".websh/ledger.json",
-      "title": "ledger",
-      "size": 4342,
-      "modified": 1777496676,
-      "date": null,
-      "tags": [],
-      "access": null
-    },
-    {
-      "path": ".websh/mounts/mempool.mount.json",
-      "title": "mempool.mount",
-      "size": 161,
-      "modified": 1777366773,
-      "date": null,
-      "tags": [],
-      "access": null
-    },
-    {
-      "path": "keys/wonjae.asc",
-      "title": "wonjae",
-      "size": 640,
-      "modified": 1777370539,
-      "date": null,
-      "tags": [],
-      "access": null
-    },
-    {
-      "path": "now.toml",
-      "title": "now",
-      "size": 278,
-      "modified": 1777474479,
-      "date": null,
-      "tags": [],
-      "access": null
-    },
-    {
-      "path": "papers/tabula.md",
-      "title": "tabula",
-      "size": 130,
-      "modified": 1777366405,
-      "date": "2026-04-26",
-      "tags": [
-        "EuroSys 2027",
-        "systems",
-        "zk",
-        "paper"
-      ],
-      "access": null
-    },
-    {
-      "path": "projects/websh.md",
-      "title": "websh",
-      "size": 148,
-      "modified": 1777366405,
-      "date": "2026-04-22",
-      "tags": [
-        "local app",
-        "rust",
-        "wasm",
-        "filesystem"
-      ],
-      "access": null
-    },
-    {
-      "path": "talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.pdf",
-      "title": "Evaluating Compiler Optimization Impacts on zkVM Performance",
-      "size": 3565336,
-      "modified": 1777366405,
-      "date": "2026-04-24",
-      "tags": [
-        "labseminar"
-      ],
-      "access": null
-    },
-    {
-      "path": "talks/zk-compilers.md",
-      "title": "zk compilers, and why they're hard",
-      "size": 173,
-      "modified": 1777366405,
-      "date": "2026-03-10",
-      "tags": [
-        "talk",
-        "zk",
-        "compilers"
-      ],
-      "access": null
-    },
-    {
-      "path": "writing/content-backed-homepage.md",
-      "title": "content-backed homepage",
-      "size": 913,
-      "modified": 1777366405,
-      "date": "2026-04-20",
-      "tags": [
-        "notes",
-        "websh",
-        "homepage",
-        "renderer-test"
-      ],
-      "access": null
-    }
-  ],
-  "directories": [
+  "entries": [
     {
       "path": "",
-      "title": "Home",
-      "tags": [],
-      "description": null,
-      "icon": null,
-      "thumbnail": null
+      "metadata": {
+        "schema": 1,
+        "kind": "directory",
+        "authored": {},
+        "derived": {
+          "title": "Home",
+          "kind": "directory",
+          "child_count": 7
+        }
+      }
     },
     {
       "path": ".websh",
-      "title": ".websh",
-      "tags": [],
-      "description": null,
-      "icon": null,
-      "thumbnail": null
+      "metadata": {
+        "schema": 1,
+        "kind": "directory",
+        "authored": {},
+        "derived": {
+          "title": ".websh",
+          "kind": "directory",
+          "child_count": 2
+        }
+      }
     },
     {
       "path": ".websh/mounts",
-      "title": "mounts",
-      "tags": [],
-      "description": null,
-      "icon": null,
-      "thumbnail": null
+      "metadata": {
+        "schema": 1,
+        "kind": "directory",
+        "authored": {},
+        "derived": {
+          "title": "mounts",
+          "kind": "directory",
+          "child_count": 1
+        }
+      }
     },
     {
       "path": "keys",
-      "title": "keys",
-      "tags": [],
-      "description": null,
-      "icon": null,
-      "thumbnail": null
+      "metadata": {
+        "schema": 1,
+        "kind": "directory",
+        "authored": {},
+        "derived": {
+          "title": "keys",
+          "kind": "directory",
+          "child_count": 1
+        }
+      }
     },
     {
       "path": "papers",
-      "title": "papers",
-      "tags": [],
-      "description": null,
-      "icon": null,
-      "thumbnail": null
+      "metadata": {
+        "schema": 1,
+        "kind": "directory",
+        "authored": {},
+        "derived": {
+          "title": "papers",
+          "kind": "directory",
+          "child_count": 1
+        }
+      }
     },
     {
       "path": "projects",
-      "title": "projects",
-      "tags": [],
-      "description": null,
-      "icon": null,
-      "thumbnail": null
+      "metadata": {
+        "schema": 1,
+        "kind": "directory",
+        "authored": {},
+        "derived": {
+          "title": "projects",
+          "kind": "directory",
+          "child_count": 1
+        }
+      }
     },
     {
       "path": "talks",
-      "title": "talks",
-      "tags": [],
-      "description": null,
-      "icon": null,
-      "thumbnail": null
+      "metadata": {
+        "schema": 1,
+        "kind": "directory",
+        "authored": {},
+        "derived": {
+          "title": "talks",
+          "kind": "directory",
+          "child_count": 2
+        }
+      }
     },
     {
       "path": "writing",
-      "title": "writing",
-      "tags": [],
-      "description": null,
-      "icon": null,
-      "thumbnail": null
+      "metadata": {
+        "schema": 1,
+        "kind": "directory",
+        "authored": {},
+        "derived": {
+          "title": "writing",
+          "kind": "directory",
+          "child_count": 1
+        }
+      }
+    },
+    {
+      "path": ".websh/ledger.json",
+      "metadata": {
+        "schema": 1,
+        "kind": "data",
+        "authored": {},
+        "derived": {
+          "title": "ledger",
+          "kind": "data",
+          "size_bytes": 7705
+        }
+      }
+    },
+    {
+      "path": ".websh/mounts/mempool.mount.json",
+      "metadata": {
+        "schema": 1,
+        "kind": "data",
+        "authored": {},
+        "derived": {
+          "title": "mempool.mount",
+          "kind": "data",
+          "size_bytes": 161
+        }
+      }
+    },
+    {
+      "path": "keys/wonjae.asc",
+      "metadata": {
+        "schema": 1,
+        "kind": "document",
+        "authored": {
+          "description": "PGP public key — verifies content attestations on this site.",
+          "date": "2026-04-20"
+        },
+        "derived": {
+          "title": "wonjae",
+          "kind": "document",
+          "size_bytes": 640,
+          "content_sha256": "0xe2b439e3359273df2e82a30b5b0f68990626abf89065c5f71fb7189bee781c5b"
+        }
+      }
+    },
+    {
+      "path": "now.toml",
+      "metadata": {
+        "schema": 1,
+        "kind": "document",
+        "authored": {
+          "description": "What I'm working on right now — short status feed.",
+          "date": "2026-04-30"
+        },
+        "derived": {
+          "title": "now",
+          "kind": "document",
+          "size_bytes": 308,
+          "content_sha256": "0x11e2367bdc46ec6dfc52c2a97a0e62425ca1953b35989fa861827b03b8022e37"
+        }
+      }
+    },
+    {
+      "path": "papers/tabula.md",
+      "metadata": {
+        "schema": 1,
+        "kind": "page",
+        "authored": {
+          "title": "tabula",
+          "description": "A new zkVM for typed, tabular state transitions.",
+          "date": "2026-04-26",
+          "tags": [
+            "systems",
+            "zk",
+            "paper"
+          ]
+        },
+        "derived": {
+          "title": "tabula",
+          "kind": "page",
+          "renderer": "markdown_page",
+          "size_bytes": 178,
+          "content_sha256": "0xdbed15a29be2dff62cf89c08ee1992b6377650eafe76a9a8f74d2e59f659a9a5",
+          "word_count": 8
+        }
+      }
+    },
+    {
+      "path": "projects/websh.md",
+      "metadata": {
+        "schema": 1,
+        "kind": "page",
+        "authored": {
+          "title": "websh",
+          "description": "Browser-native filesystem shell. Rust + Wasm, runs entirely client-side.",
+          "date": "2026-04-22",
+          "tags": [
+            "local app",
+            "rust",
+            "wasm",
+            "filesystem"
+          ]
+        },
+        "derived": {
+          "title": "websh",
+          "kind": "page",
+          "renderer": "markdown_page",
+          "size_bytes": 236,
+          "content_sha256": "0x6d529f7b2dbd6de0b11870c04aebabfc213fa0c3f3bab3a26256e87d78a471a6",
+          "word_count": 9
+        }
+      }
+    },
+    {
+      "path": "talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.pdf",
+      "metadata": {
+        "schema": 1,
+        "kind": "document",
+        "authored": {
+          "title": "Evaluating compiler-optimization impacts on zkVM performance",
+          "description": "Slide deck — measuring how LLVM optimization passes interact with zkVM proving cost.",
+          "date": "2026-04-20",
+          "tags": [
+            "talk",
+            "zk",
+            "zkvm",
+            "compilers"
+          ]
+        },
+        "derived": {
+          "title": "evaluating-compiler-optimization-impacts-on-zkvm-performance",
+          "kind": "document",
+          "renderer": "pdf",
+          "page_size": {
+            "width": 960,
+            "height": 540
+          },
+          "page_count": 33,
+          "rotation": 0,
+          "size_bytes": 3565336,
+          "content_sha256": "0xee2bbdd5ab9381e403bddf0590ae4aec42330aa1cb2bd2a1b4c9a20832ca4f13"
+        }
+      }
+    },
+    {
+      "path": "talks/zk-compilers.md",
+      "metadata": {
+        "schema": 1,
+        "kind": "page",
+        "authored": {
+          "title": "zk compilers, and why they're hard",
+          "description": "Talk outline — what makes zk compilers different from regular compilers.",
+          "date": "2026-04-23",
+          "tags": [
+            "talk",
+            "zk",
+            "compilers"
+          ]
+        },
+        "derived": {
+          "title": "zk-compilers",
+          "kind": "page",
+          "renderer": "markdown_page",
+          "size_bytes": 263,
+          "content_sha256": "0x599963aa4dbb36a0e64ab37ce61146eafcb1a6519a60e6587b12fce094621726",
+          "word_count": 14
+        }
+      }
+    },
+    {
+      "path": "writing/content-backed-homepage.md",
+      "metadata": {
+        "schema": 1,
+        "kind": "page",
+        "authored": {
+          "title": "content-backed homepage",
+          "description": "Renderer smoke test — markdown, KaTeX, tables, code blocks.",
+          "date": "2026-04-20",
+          "tags": [
+            "notes",
+            "websh",
+            "homepage",
+            "renderer-test"
+          ]
+        },
+        "derived": {
+          "title": "content-backed-homepage",
+          "kind": "page",
+          "renderer": "markdown_page",
+          "size_bytes": 990,
+          "content_sha256": "0xc2ac889c773a0adafc4e2efc070e6d49ba6fc69049e9563be7dfbfc699b6f7fa",
+          "word_count": 130
+        }
+      }
     }
   ]
 }

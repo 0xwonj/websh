@@ -30,6 +30,21 @@ pub async fn commit_backend(
     backend.commit(&request).await
 }
 
+/// Compose a [`CommitRequest`] from the local change set + the remote
+/// base snapshot.
+///
+/// Caveat: `base_snapshot` is fetched via the same scan path as boot
+/// (raw.githubusercontent.com), which is fronted by a CDN with up to a
+/// 5-minute edge cache. `expectedHeadOid` (re-fetched fresh via GraphQL
+/// in [`crate::core::storage::github::GitHubBackend::commit`]) protects
+/// the *git tree* from concurrent commits, but `manifest.json` is a
+/// regular file we overwrite using this potentially-stale base. If
+/// another writer landed a manifest change inside the staleness window,
+/// their entries will be silently dropped from our merged snapshot. For
+/// a single-author site this is a non-issue; multi-writer setups should
+/// either coordinate externally or read the manifest through the
+/// GraphQL `object(expression: "<oid>:manifest.json")` path against the
+/// same OID we mutate against.
 async fn prepare_commit(
     backend: &Arc<dyn StorageBackend>,
     mount_root: &VirtualPath,
@@ -38,7 +53,7 @@ async fn prepare_commit(
     expected_head: Option<String>,
     auth_token: Option<String>,
 ) -> StorageResult<CommitRequest> {
-    let base_snapshot = backend.scan(auth_token.as_deref()).await?;
+    let base_snapshot = backend.scan().await?;
     let mut merged = GlobalFs::empty();
     merged
         .mount_scanned_subtree(mount_root.clone(), &base_snapshot)
@@ -195,9 +210,18 @@ mod tests {
     use crate::core::storage::{
         BoxFuture, ScannedFile, ScannedSubtree, StorageBackend, StorageResult,
     };
-    use crate::models::FileMetadata;
+    use crate::models::{EntryExtensions, Fields, NodeKind, NodeMetadata, SCHEMA_VERSION};
 
     use super::*;
+
+    fn blank_meta() -> NodeMetadata {
+        NodeMetadata {
+            schema: SCHEMA_VERSION,
+            kind: NodeKind::Page,
+            authored: Fields::default(),
+            derived: Fields::default(),
+        }
+    }
 
     struct PrepareBackend {
         scan: Mutex<Option<ScannedSubtree>>,
@@ -208,10 +232,7 @@ mod tests {
             "prepare"
         }
 
-        fn scan<'a>(
-            &'a self,
-            _auth_token: Option<&'a str>,
-        ) -> BoxFuture<'a, StorageResult<ScannedSubtree>> {
+        fn scan(&self) -> BoxFuture<'_, StorageResult<ScannedSubtree>> {
             let scan = self.scan.lock().unwrap().take().unwrap_or_default();
             Box::pin(async move { Ok(scan) })
         }
@@ -242,8 +263,8 @@ mod tests {
             scan: Mutex::new(Some(ScannedSubtree {
                 files: vec![ScannedFile {
                     path: "keep.md".to_string(),
-                    description: "Keep".to_string(),
-                    meta: FileMetadata::default(),
+                    meta: blank_meta(),
+                    extensions: EntryExtensions::default(),
                 }],
                 directories: vec![],
             })),
@@ -253,7 +274,8 @@ mod tests {
             p("/new.md"),
             ChangeType::CreateFile {
                 content: "new".to_string(),
-                meta: FileMetadata::default(),
+                meta: blank_meta(),
+                extensions: EntryExtensions::default(),
             },
         );
         let unstaged = p("/draft.md");
@@ -261,7 +283,8 @@ mod tests {
             unstaged.clone(),
             ChangeType::CreateFile {
                 content: "draft".to_string(),
-                meta: FileMetadata::default(),
+                meta: blank_meta(),
+                extensions: EntryExtensions::default(),
             },
         );
         changes.unstage(&unstaged);
@@ -301,7 +324,8 @@ mod tests {
             p("/other/new.md"),
             ChangeType::CreateFile {
                 content: "db".to_string(),
-                meta: FileMetadata::default(),
+                meta: blank_meta(),
+                extensions: EntryExtensions::default(),
             },
         );
 
@@ -326,18 +350,18 @@ mod tests {
                 files: vec![
                     ScannedFile {
                         path: "docs/a.md".to_string(),
-                        description: "A".to_string(),
-                        meta: FileMetadata::default(),
+                        meta: blank_meta(),
+                        extensions: EntryExtensions::default(),
                     },
                     ScannedFile {
                         path: "docs/deep/b.md".to_string(),
-                        description: "B".to_string(),
-                        meta: FileMetadata::default(),
+                        meta: blank_meta(),
+                        extensions: EntryExtensions::default(),
                     },
                     ScannedFile {
                         path: "keep.md".to_string(),
-                        description: "Keep".to_string(),
-                        meta: FileMetadata::default(),
+                        meta: blank_meta(),
+                        extensions: EntryExtensions::default(),
                     },
                 ],
                 directories: vec![],
@@ -372,8 +396,8 @@ mod tests {
             scan: Mutex::new(Some(ScannedSubtree {
                 files: vec![ScannedFile {
                     path: "docs/a.md".to_string(),
-                    description: "A".to_string(),
-                    meta: FileMetadata::default(),
+                    meta: blank_meta(),
+                    extensions: EntryExtensions::default(),
                 }],
                 directories: vec![],
             })),
@@ -383,7 +407,8 @@ mod tests {
             p("/docs/a.md"),
             ChangeType::UpdateFile {
                 content: "new".to_string(),
-                description: None,
+                meta: None,
+                extensions: None,
             },
         );
         changes.upsert(p("/docs"), ChangeType::DeleteDirectory);
@@ -403,5 +428,163 @@ mod tests {
         assert_eq!(request.delta.deletions, vec![p("/docs/a.md")]);
         assert_eq!(request.cleanup_paths, vec![p("/docs"), p("/docs/a.md")]);
         assert!(request.merged_snapshot.files.is_empty());
+    }
+
+    fn meta_with_title(title: &str) -> NodeMetadata {
+        NodeMetadata {
+            schema: SCHEMA_VERSION,
+            kind: NodeKind::Page,
+            authored: Fields {
+                title: Some(title.to_string()),
+                ..Fields::default()
+            },
+            derived: Fields::default(),
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn update_file_change_propagates_meta_into_exported_snapshot() {
+        let backend: Arc<dyn StorageBackend> = Arc::new(PrepareBackend {
+            scan: Mutex::new(Some(ScannedSubtree {
+                files: vec![ScannedFile {
+                    path: "a.md".to_string(),
+                    meta: meta_with_title("old"),
+                    extensions: EntryExtensions::default(),
+                }],
+                directories: vec![],
+            })),
+        });
+        let mut changes = ChangeSet::new();
+        changes.upsert(
+            p("/a.md"),
+            ChangeType::UpdateFile {
+                content: "new body".to_string(),
+                meta: Some(meta_with_title("new")),
+                extensions: None,
+            },
+        );
+
+        let request = prepare_commit(
+            &backend,
+            &VirtualPath::root(),
+            &changes,
+            "msg".to_string(),
+            Some("old".to_string()),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let updated = request
+            .merged_snapshot
+            .files
+            .iter()
+            .find(|f| f.path == "a.md")
+            .expect("exported file");
+        assert_eq!(updated.meta.authored.title.as_deref(), Some("new"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn update_file_change_propagates_extensions_into_exported_snapshot() {
+        use crate::models::{MempoolFields, MempoolStatus};
+
+        let backend: Arc<dyn StorageBackend> = Arc::new(PrepareBackend {
+            scan: Mutex::new(Some(ScannedSubtree {
+                files: vec![ScannedFile {
+                    path: "mempool/foo.md".to_string(),
+                    meta: blank_meta(),
+                    extensions: EntryExtensions {
+                        mempool: Some(MempoolFields {
+                            status: MempoolStatus::Draft,
+                            priority: None,
+                            category: Some("writing".to_string()),
+                        }),
+                    },
+                }],
+                directories: vec![],
+            })),
+        });
+        let new_ext = EntryExtensions {
+            mempool: Some(MempoolFields {
+                status: MempoolStatus::Review,
+                priority: None,
+                category: Some("writing".to_string()),
+            }),
+        };
+        let mut changes = ChangeSet::new();
+        changes.upsert(
+            p("/mempool/foo.md"),
+            ChangeType::UpdateFile {
+                content: "body".to_string(),
+                meta: None,
+                extensions: Some(new_ext.clone()),
+            },
+        );
+
+        let request = prepare_commit(
+            &backend,
+            &VirtualPath::root(),
+            &changes,
+            "msg".to_string(),
+            Some("old".to_string()),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let updated = request
+            .merged_snapshot
+            .files
+            .iter()
+            .find(|f| f.path == "mempool/foo.md")
+            .expect("exported file");
+        let mp = updated
+            .extensions
+            .mempool
+            .as_ref()
+            .expect("mempool extensions");
+        assert_eq!(mp.status, MempoolStatus::Review);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn update_file_with_none_meta_preserves_base_scan_meta() {
+        let backend: Arc<dyn StorageBackend> = Arc::new(PrepareBackend {
+            scan: Mutex::new(Some(ScannedSubtree {
+                files: vec![ScannedFile {
+                    path: "a.md".to_string(),
+                    meta: meta_with_title("preserved"),
+                    extensions: EntryExtensions::default(),
+                }],
+                directories: vec![],
+            })),
+        });
+        let mut changes = ChangeSet::new();
+        changes.upsert(
+            p("/a.md"),
+            ChangeType::UpdateFile {
+                content: "new body".to_string(),
+                meta: None,
+                extensions: None,
+            },
+        );
+
+        let request = prepare_commit(
+            &backend,
+            &VirtualPath::root(),
+            &changes,
+            "msg".to_string(),
+            Some("old".to_string()),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let updated = request
+            .merged_snapshot
+            .files
+            .iter()
+            .find(|f| f.path == "a.md")
+            .expect("exported file");
+        assert_eq!(updated.meta.authored.title.as_deref(), Some("preserved"));
     }
 }

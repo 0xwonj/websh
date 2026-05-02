@@ -1,19 +1,36 @@
 //! Integration tests for the mempool model builder. Exercises the same code
 //! paths the runtime would, with synthesized inputs.
 
-use websh::components::mempool::{
-    LedgerFilterShape, LoadedMempoolFile, build_mempool_model, parse_mempool_frontmatter,
+use websh::components::mempool::{LedgerFilterShape, LoadedMempoolFile, build_mempool_model};
+use websh::models::{
+    Fields, MempoolFields, MempoolStatus, NodeKind, NodeMetadata, Priority, SCHEMA_VERSION,
+    VirtualPath,
 };
-use websh::models::VirtualPath;
 
-fn loaded(path: &str, body: &str) -> LoadedMempoolFile {
-    let meta = parse_mempool_frontmatter(body).unwrap_or_default();
+fn loaded(
+    path: &str,
+    title: &str,
+    date: &str,
+    status: MempoolStatus,
+    priority: Option<Priority>,
+) -> LoadedMempoolFile {
     LoadedMempoolFile {
         path: VirtualPath::from_absolute(path).unwrap(),
-        meta,
-        body: body.to_string(),
-        byte_len: body.len(),
-        is_markdown: true,
+        meta: NodeMetadata {
+            schema: SCHEMA_VERSION,
+            kind: NodeKind::Page,
+            authored: Fields {
+                title: Some(title.to_string()),
+                date: Some(date.to_string()),
+                ..Fields::default()
+            },
+            derived: Fields::default(),
+        },
+        mempool: MempoolFields {
+            status,
+            priority,
+            category: None,
+        },
     }
 }
 
@@ -23,15 +40,24 @@ fn end_to_end_build_renders_mixed_categories() {
     let files = vec![
         loaded(
             "/mempool/writing/foo.md",
-            "---\ntitle: foo\nstatus: draft\nmodified: 2026-04-01\n---\n# foo\n\nfoo body.\n",
+            "foo",
+            "2026-04-01",
+            MempoolStatus::Draft,
+            None,
         ),
         loaded(
             "/mempool/papers/bar.md",
-            "---\ntitle: bar\nstatus: review\npriority: high\nmodified: 2026-04-02\n---\n# bar\n\nbar body.\n",
+            "bar",
+            "2026-04-02",
+            MempoolStatus::Review,
+            Some(Priority::High),
         ),
         loaded(
             "/mempool/talks/baz.md",
-            "---\ntitle: baz\nstatus: draft\nmodified: 2026-03-10\n---\n# baz\n\nbaz body.\n",
+            "baz",
+            "2026-03-10",
+            MempoolStatus::Draft,
+            None,
         ),
     ];
 
@@ -48,11 +74,17 @@ fn end_to_end_build_renders_mixed_categories() {
         vec![
             loaded(
                 "/mempool/writing/foo.md",
-                "---\ntitle: foo\nstatus: draft\nmodified: 2026-04-01\n---\n# foo\n",
+                "foo",
+                "2026-04-01",
+                MempoolStatus::Draft,
+                None,
             ),
             loaded(
                 "/mempool/papers/bar.md",
-                "---\ntitle: bar\nstatus: review\nmodified: 2026-04-02\n---\n# bar\n",
+                "bar",
+                "2026-04-02",
+                MempoolStatus::Review,
+                None,
             ),
         ],
         &LedgerFilterShape::Category("writing".to_string()),

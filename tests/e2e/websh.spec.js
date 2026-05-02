@@ -4,33 +4,73 @@ const crypto = require('crypto');
 const baseUrl = process.env.WEBSH_E2E_BASE_URL || 'http://127.0.0.1:4173';
 const admin = '0x2c4b04a4aeb6e18c2f8a5c8b4a3f62c0cf33795a';
 const expectedHead = '1111111111111111111111111111111111111111';
+const themeStorageKey = 'user.THEME';
 
-const siteManifest = {
-  files: [
-    { path: 'index.html', title: 'Home', size: null, modified: null, tags: [], access: null },
-    { path: 'docs/old.md', title: 'Old', size: null, modified: null, tags: [], access: null },
-    { path: 'docs/deep/old.md', title: 'Deep Old', size: null, modified: null, tags: [], access: null },
-    { path: '.websh/site.json', title: 'Site', size: null, modified: null, tags: [], access: null },
-    { path: '.websh/index.json', title: 'Index', size: null, modified: null, tags: [], access: null },
-    { path: '.websh/mounts/db.mount.json', title: 'DB mount', size: null, modified: null, tags: [], access: null }
-  ],
-  directories: [
-    { path: '', title: 'Home', tags: [], description: null, icon: null, thumbnail: null },
-    { path: 'docs', title: 'docs', tags: [], description: null, icon: null, thumbnail: null },
-    { path: 'docs/deep', title: 'deep', tags: [], description: null, icon: null, thumbnail: null },
-    { path: '.websh', title: '.websh', tags: [], description: null, icon: null, thumbnail: null },
-    { path: '.websh/mounts', title: 'mounts', tags: [], description: null, icon: null, thumbnail: null }
-  ]
-};
+function nodeMetadata(kind, { title, description = null, date = null, tags = [], size = null, modified = null, access = null, renderer = null } = {}) {
+  const authored = {};
+  if (title !== undefined && title !== null) authored.title = title;
+  if (description !== null) authored.description = description;
+  if (date !== null) authored.date = date;
+  if (tags.length > 0) authored.tags = tags;
+  if (access !== null) authored.access = access;
 
-const dbManifest = {
-  files: [
-    { path: 'fresh.md', title: 'Fresh', size: null, modified: null, tags: [], access: null }
-  ],
-  directories: [
-    { path: '', title: 'DB', tags: [], description: null, icon: null, thumbnail: null }
-  ]
-};
+  const derived = {};
+  if (renderer !== null) derived.renderer = renderer;
+  if (size !== null) derived.size_bytes = size;
+  if (modified !== null) derived.modified_at = modified;
+
+  return {
+    schema: 1,
+    kind,
+    authored,
+    derived
+  };
+}
+
+function fileEntry(path, title, options = {}) {
+  const ext = path.split('.').pop();
+  const kind = options.kind || (ext === 'md' || ext === 'html' ? 'page' : ext === 'pdf' ? 'document' : 'data');
+  return {
+    path,
+    metadata: nodeMetadata(kind, {
+      title,
+      renderer: kind === 'page' && ext === 'html' ? 'html_page' : kind === 'page' && ext === 'md' ? 'markdown_page' : kind === 'document' && ext === 'pdf' ? 'pdf' : null,
+      ...options
+    })
+  };
+}
+
+function dirEntry(path, title, options = {}) {
+  return {
+    path,
+    metadata: nodeMetadata('directory', { title, ...options })
+  };
+}
+
+function manifestDocument(entries) {
+  return { entries };
+}
+
+const siteEntries = [
+  dirEntry('', 'Home'),
+  dirEntry('.websh', '.websh'),
+  dirEntry('.websh/mounts', 'mounts'),
+  dirEntry('docs', 'docs'),
+  dirEntry('docs/deep', 'deep'),
+  fileEntry('.websh/index.json', 'Index', { kind: 'data' }),
+  fileEntry('.websh/mounts/db.mount.json', 'DB mount', { kind: 'data' }),
+  fileEntry('.websh/site.json', 'Site', { kind: 'data' }),
+  fileEntry('docs/deep/old.md', 'Deep Old'),
+  fileEntry('docs/old.md', 'Old'),
+  fileEntry('index.html', 'Home')
+];
+
+const siteManifest = manifestDocument(siteEntries);
+
+const dbManifest = manifestDocument([
+  dirEntry('', 'DB'),
+  fileEntry('fresh.md', 'Fresh')
+]);
 
 let rawResponses;
 
@@ -42,44 +82,70 @@ function normalizedSha(ch) {
   return `0x${ch.repeat(64)}`;
 }
 
-function makeLedgerEntry({ route, path, files }) {
-  const content = { hash: 'sha256', files };
-  const content_sha256 = sha256Json(content);
+const genesisHash = normalizedSha('0');
+
+function categoryForPath(path) {
+  const category = path.replace(/^\/+/, '').split('/')[0] || '';
+  return ['writing', 'projects', 'papers', 'talks'].includes(category) ? category : 'misc';
+}
+
+function makeLedgerEntry({ route, path, files, date = null }) {
+  const content_sha256 = sha256Json(files);
   const entry = {
     id: `route:${route}`,
     route,
     path,
-    content,
-    content_sha256,
-    entry_sha256: ''
+    category: categoryForPath(path),
+    content_files: files,
+    content_sha256
   };
-  entry.entry_sha256 = sha256Json({
-    id: entry.id,
-    route: entry.route,
-    path: entry.path,
-    content: entry.content,
-    content_sha256: entry.content_sha256
-  });
-  return entry;
+  return {
+    sort_key: { date, path },
+    entry
+  };
 }
 
-function makeLedger(entries) {
-  const ledger = {
+function makeLedger(inputs) {
+  const blocks = [...inputs].sort((left, right) => {
+    const leftDate = left.sort_key.date;
+    const rightDate = right.sort_key.date;
+    if (leftDate === null && rightDate !== null) return -1;
+    if (leftDate !== null && rightDate === null) return 1;
+    if (leftDate !== rightDate) return leftDate < rightDate ? -1 : 1;
+    if (left.sort_key.path !== right.sort_key.path) {
+      return left.sort_key.path < right.sort_key.path ? -1 : 1;
+    }
+    return 0;
+  }).map((input, index) => ({
+    height: index + 1,
+    sort_key: input.sort_key,
+    prev_block_sha256: index === 0 ? genesisHash : '',
+    block_sha256: '',
+    entry: input.entry
+  }));
+
+  for (let index = 0; index < blocks.length; index += 1) {
+    if (index > 0) {
+      blocks[index].prev_block_sha256 = blocks[index - 1].block_sha256;
+    }
+    const block = blocks[index];
+    block.block_sha256 = sha256Json({
+      height: block.height,
+      sort_key: block.sort_key,
+      prev_block_sha256: block.prev_block_sha256,
+      entry: block.entry
+    });
+  }
+
+  return {
     version: 1,
     scheme: 'websh.content-ledger.v1',
     hash: 'sha256',
-    entries,
-    entry_count: entries.length,
-    ledger_sha256: ''
+    genesis_hash: genesisHash,
+    blocks,
+    block_count: blocks.length,
+    chain_head: blocks.length === 0 ? genesisHash : blocks[blocks.length - 1].block_sha256
   };
-  ledger.ledger_sha256 = sha256Json({
-    version: ledger.version,
-    scheme: ledger.scheme,
-    hash: ledger.hash,
-    entries: ledger.entries,
-    entry_count: ledger.entry_count
-  });
-  return ledger;
 }
 
 function freshRawResponses() {
@@ -163,7 +229,7 @@ test.beforeEach(async ({ page }) => {
 async function collectBrowserErrors(page) {
   const pageErrors = [];
   const consoleErrors = [];
-  page.on('pageerror', (error) => pageErrors.push(error.message));
+  page.on('pageerror', (error) => pageErrors.push(`${page.url()}: ${error.stack || error.message}`));
   page.on('console', (message) => {
     if (message.type() === 'error') {
       consoleErrors.push(message.text());
@@ -250,12 +316,7 @@ test('official root loads built-in homepage', async ({ page }) => {
 
 test('official root does not require an index file in the mounted filesystem', async ({ page }) => {
   rawResponses = new Map([
-    ['/content/manifest.json', JSON.stringify({
-      files: [],
-      directories: [
-        { path: '', title: 'Home', tags: [], description: null, icon: null, thumbnail: null }
-      ]
-    })]
+    ['/content/manifest.json', JSON.stringify(manifestDocument([dirEntry('', 'Home')]))]
   ]);
 
   const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
@@ -281,19 +342,16 @@ for (const [hashPath, expectedText] of directLoadCases) {
 }
 
 test('pdf content renders through a blob-backed iframe', async ({ page }) => {
-  const manifest = {
-    files: [
-      ...siteManifest.files,
-      { path: 'docs/sample.pdf', title: 'Sample PDF', size: null, modified: null, tags: [], access: null }
-    ],
-    directories: siteManifest.directories
-  };
+  const manifest = manifestDocument([
+    ...siteManifest.entries,
+    fileEntry('docs/sample.pdf', 'Sample PDF', { kind: 'document' })
+  ]);
   rawResponses.set('/content/manifest.json', JSON.stringify(manifest));
   rawResponses.set('/content/docs/sample.pdf', Buffer.from('%PDF-1.4\n%%EOF\n'));
 
   const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
   await page.goto(`${baseUrl}/#/docs/sample.pdf`, { waitUntil: 'networkidle' });
-  await expect(page.locator('iframe[title="sample.pdf"]')).toHaveAttribute('src', /^blob:/, {
+  await expect(page.locator('iframe')).toHaveAttribute('src', /^blob:/, {
     timeout: 10000
   });
 
@@ -302,32 +360,12 @@ test('pdf content renders through a blob-backed iframe', async ({ page }) => {
 });
 
 test('attested renderer page shows the route sigchip', async ({ page }) => {
-  const manifest = {
-    files: [
-      ...siteManifest.files,
-      {
-        path: '.websh/ledger.json',
-        title: 'ledger',
-        size: null,
-        modified: null,
-        date: null,
-        tags: [],
-        access: null
-      },
-      {
-        path: 'writing/content-backed-homepage.md',
-        title: 'content-backed homepage',
-        size: null,
-        modified: null,
-        tags: [],
-        access: null
-      }
-    ],
-    directories: [
-      ...siteManifest.directories,
-      { path: 'writing', title: 'writing', tags: [], description: null, icon: null, thumbnail: null }
-    ]
-  };
+  const manifest = manifestDocument([
+    ...siteManifest.entries,
+    dirEntry('writing', 'writing'),
+    fileEntry('.websh/ledger.json', 'ledger', { kind: 'data' }),
+    fileEntry('writing/content-backed-homepage.md', 'content-backed homepage')
+  ]);
   rawResponses.set('/content/manifest.json', JSON.stringify(manifest));
   rawResponses.set('/content/writing/content-backed-homepage.md', '# content-backed homepage');
 
@@ -344,39 +382,26 @@ test('attested renderer page shows the route sigchip', async ({ page }) => {
 });
 
 test('content directories render as filtered ledger pages', async ({ page }) => {
-  const manifest = {
-    files: [
-      ...siteManifest.files,
-      {
-        path: 'writing/content-backed-homepage.md',
-        title: 'content-backed homepage',
-        size: 913,
-        modified: null,
-        date: '2026-04-20',
-        tags: ['notes'],
-        access: null
-      },
-      {
-        path: 'projects/websh.md',
-        title: 'websh',
-        size: 148,
-        modified: null,
-        date: '2026-04-22',
-        tags: ['rust'],
-        access: null
-      }
-    ],
-    directories: [
-      ...siteManifest.directories,
-      { path: 'writing', title: 'writing', tags: [], description: null, icon: null, thumbnail: null },
-      { path: 'projects', title: 'projects', tags: [], description: null, icon: null, thumbnail: null }
-    ]
-  };
-  rawResponses.set('/content/manifest.json', JSON.stringify(manifest));
-  rawResponses.set('/content/.websh/ledger.json', JSON.stringify(makeLedger([
+  const manifest = manifestDocument([
+    ...siteManifest.entries,
+    dirEntry('projects', 'projects'),
+    dirEntry('writing', 'writing'),
+    fileEntry('projects/websh.md', 'websh', {
+      size: 148,
+      date: '2026-04-22',
+      tags: ['rust']
+    }),
+    fileEntry('writing/content-backed-homepage.md', 'content-backed homepage', {
+      size: 913,
+      date: '2026-04-20',
+      tags: ['notes']
+    })
+  ]);
+  const ledger = makeLedger([
     makeLedgerEntry({
       route: '/projects/websh',
       path: 'projects/websh.md',
+      date: '2026-04-22',
       files: [
         {
           path: 'content/projects/websh.md',
@@ -388,6 +413,7 @@ test('content directories render as filtered ledger pages', async ({ page }) => 
     makeLedgerEntry({
       route: '/writing/content-backed-homepage',
       path: 'writing/content-backed-homepage.md',
+      date: '2026-04-20',
       files: [
         {
           path: 'content/writing/content-backed-homepage.md',
@@ -396,31 +422,43 @@ test('content directories render as filtered ledger pages', async ({ page }) => 
         }
       ]
     })
-  ])));
+  ]);
+  const projectBlock = ledger.blocks.find((block) => block.entry.path === 'projects/websh.md');
+  const writingBlock = ledger.blocks.find((block) => block.entry.path === 'writing/content-backed-homepage.md');
+
+  rawResponses.set('/content/manifest.json', JSON.stringify(manifest));
+  rawResponses.set('/content/.websh/ledger.json', JSON.stringify(ledger));
 
   const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
   await page.goto(`${baseUrl}/#/writing`, { waitUntil: 'networkidle' });
   await expect(page.locator('body')).toContainText('~/writing', { timeout: 10000 });
+  await expect(page.getByRole('link', { name: /^writing 1$/ })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('region', { name: 'Ledger metadata' }).locator(`[aria-label="chain head ${ledger.chain_head}"]`)).toHaveCount(1);
   await expect(page.locator('article')).toHaveCount(1);
   const writingArticle = page.locator('article').first();
   await expect(writingArticle).toContainText('content-backed homepage');
-  await expect(writingArticle).toContainText('block 0002');
-  await expect(writingArticle).toContainText('hash ok');
+  await expect(writingArticle).toContainText('block 0001');
+  await expect(writingArticle.locator(`[aria-label="previous block hash ${writingBlock.prev_block_sha256}"]`)).toHaveCount(1);
+  await expect(writingArticle.locator(`[aria-label="block hash ${writingBlock.block_sha256}"]`)).toHaveCount(1);
+  await expect(writingArticle.locator('[aria-label="hash ok"]')).toHaveCount(1);
   await expect(page.locator('article').first()).not.toContainText('websh');
 
   await page.goto(`${baseUrl}/#/ledger`, { waitUntil: 'networkidle' });
   await expect(page.locator('body')).not.toContainText('/home/j/ledger');
   await expect(page.locator('body')).not.toContainText('ledger A');
-  await expect(page.getByRole('region', { name: 'Ledger metadata' })).toContainText('hash ok');
+  await expect(page.getByRole('link', { name: /^all 2$/ })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('region', { name: 'Ledger metadata' }).locator('[aria-label="hash ok"]')).toHaveCount(1);
+  await expect(page.getByRole('region', { name: 'Ledger metadata' }).locator(`[aria-label="chain head ${ledger.chain_head}"]`)).toHaveCount(1);
   await expect(page.getByRole('region', { name: 'Ledger metadata' })).not.toContainText('verified');
-  await expect(page.locator('article').first()).toContainText('content-backed homepage');
+  await expect(page.locator('article').first()).toContainText('websh');
   await expect(page.locator('article').first()).toContainText('block 0002');
+  await expect(page.locator('article').first().locator(`[aria-label="block hash ${projectBlock.block_sha256}"]`)).toHaveCount(1);
   await expect(page.locator('article').filter({ hasText: 'content-backed homepage' })).toHaveCount(1);
   await expect(page.locator('article').filter({ hasText: 'websh' })).toHaveCount(1);
 
   await page.goto(`${baseUrl}/#/misc`, { waitUntil: 'networkidle' });
   await expect(page.locator('body')).toContainText('~/misc');
-  await expect(page.locator('body')).toContainText('no entries match this ledger filter');
+  await expect(page.locator('body')).toContainText('no blocks match this ledger filter');
   await expect(page.locator('body')).not.toContainText('No route matched');
 
   expect(pageErrors).toEqual([]);
@@ -431,12 +469,12 @@ test('theme selection applies globally and persists', async ({ page }) => {
   const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
   await page.goto(`${baseUrl}/#/websh`, { waitUntil: 'networkidle' });
   await expect(page.locator('body')).toContainText('guest@wonjae.eth:~', { timeout: 10000 });
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'sepia-dark');
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'kanagawa-wave');
 
   await page.getByRole('button', { name: /palette/i }).click();
   await page.getByRole('option', { name: /Black Ink/i }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'black-ink');
-  await expect.poll(() => page.evaluate(() => localStorage.getItem('websh.theme'))).toBe('black-ink');
+  await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), themeStorageKey)).toBe('black-ink');
 
   await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
   await expect(page.locator('body')).toContainText('A Homepage, Formalised', { timeout: 10000 });
@@ -445,7 +483,7 @@ test('theme selection applies globally and persists', async ({ page }) => {
   await page.getByRole('button', { name: /palette/i }).click();
   await page.getByRole('option', { name: /Sepia Dark/i }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'sepia-dark');
-  await expect.poll(() => page.evaluate(() => localStorage.getItem('websh.theme'))).toBe('sepia-dark');
+  await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), themeStorageKey)).toBe('sepia-dark');
 
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);

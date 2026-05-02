@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "kind": "document",
+  "authored": {
+    "description": "What I'm working on right now — short status feed.",
+    "date": "2026-04-30"
+  },
+  "derived": {
+    "title": "now",
+    "kind": "document",
+    "size_bytes": 308,
+    "content_sha256": "0x11e2367bdc46ec6dfc52c2a97a0e62425ca1953b35989fa861827b03b8022e37"
+  }
+}

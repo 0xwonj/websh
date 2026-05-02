@@ -14,6 +14,8 @@
 use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
+use crate::models::EntryExtensions;
+
 use crate::app::AppContext;
 use crate::core::SideEffect;
 use crate::core::changes::ChangeType;
@@ -60,17 +62,22 @@ pub fn EditModal() -> impl IntoView {
             let change = if is_existing {
                 ChangeType::UpdateFile {
                     content: body,
-                    description: None,
+                    meta: None,
+                    extensions: None,
                 }
             } else {
                 ChangeType::CreateFile {
                     content: body,
                     meta: Default::default(),
+                    extensions: EntryExtensions::default(),
                 }
             };
             crate::components::terminal::dispatch_side_effect(
                 &ctx,
-                SideEffect::ApplyChange { path, change },
+                SideEffect::ApplyChange {
+                    path,
+                    change: Box::new(change),
+                },
             );
             ctx.editor_open.set(None);
         }

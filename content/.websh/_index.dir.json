@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "kind": "directory",
+  "authored": {},
+  "derived": {
+    "title": ".websh",
+    "kind": "directory",
+    "child_count": 2
+  }
+}
