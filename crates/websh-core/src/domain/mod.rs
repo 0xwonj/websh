@@ -1,5 +1,6 @@
 //! Data models and types for the application.
 
+pub mod changes;
 mod explorer;
 mod filesystem;
 pub mod manifest;
