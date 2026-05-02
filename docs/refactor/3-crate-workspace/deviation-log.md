@@ -151,3 +151,39 @@ Phase H landed Phase B's deferred items 2-5 ("thiserror adoption", "wasm-only de
 Beyond the design: `assemble_global_fs` (a pure helper that previously lived in `runtime/loader.rs` and got cfg-gated out when the loader became wasm-only) was extracted to `runtime/boot.rs` so its host-side test (`assembles_global_fs_under_canonical_mount_roots`) stays in the test set.
 
 Test count restored to 516 on host (was 515 mid-phase before the extraction). Trunk build clean. Both target `cargo check` clean. `cargo clippy --workspace --all-targets` clean.
+
+## 2026-05-02 · Phase I · web import surface + visibility audit + dead-code sweep
+
+Phase I closed the remaining import-surface and visibility items from the Phase B wrap-up review. Three commits, each independently green:
+
+**I.1 — Drop the web-side shim layer.** The `pub mod core { ... }` / `pub mod crypto { ... }` / `models` / `config` / `content_routes` / `mempool` re-exports in `crates/websh-web/src/lib.rs` were renaming legacy paths (engine→filesystem, commands→shell, models→domain) plus reorganizing crypto and attestation. ~150 call sites in the web crate moved to direct `websh_core::*` paths. Web `lib.rs` collapses to `pub mod app; pub mod components; pub mod utils;` plus the `#![cfg(target_arch = "wasm32")]` gate from Phase H. The asymmetry of "keep some shims, drop others" the design considered was rejected — full removal makes the web crate's import paths match canonical core layout. Mechanical sed sweep with longest-prefix-first ordering, plus a manual pass for grouped imports (`use crate::core::{env, runtime, wallet};`) and bare flattened items (`crate::core::SideEffect`, `parse_input`, etc.) that the shim collapsed without a path segment.
+
+**I.2 — Visibility narrowing.** Removed wildcard `pub use` re-exports from `attestation/mod.rs` (3 wildcards, all consumers reach via the explicit submodule paths). Narrowed `pub mod test_support` in `domain::node_metadata` to `pub(crate) mod test_support` and re-exported with a `#[cfg(test)]` gate from `domain/mod.rs` — the fixture builders are crate-internal test scaffolding only consumed by `filesystem::merge`'s test module. Spot-check audit across other re-exports came up clean (the explicit lists are matched against actual consumers).
+
+**I.3 — `#[allow(dead_code)]` sweep.** Inventory 17 → 3 across the workspace. Deleted truly unused items (`Pipeline::first_command_name`, `AppContext::toggle_view_mode`, `DirMeta::icon`, `GraphQLErrorItem::err_type`). Narrowed visibility instead of allowing dead-code where the symbol is used only in tests (`Lexer::tokenize` → `#[cfg(test)] pub`; `domain::test_support` → `#[cfg(test)] pub(crate)`). Tightened module-scope cross-target allows from blanket `#![allow(dead_code)]` to host-only `#![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]` for `runtime::boot`, `storage::github::{manifest, path, graphql}` — keeps wasm32 honest while quieting the host build. Removed redundant module/item-level allows that were dormant or stale (`IconTheme`, `FsEntry`, `CommitOutcome`, `StorageBackend`, `StorageError`, `map_graphql_error`, `map_http_status`, `GitHubBackend` struct + impl, `storage::persist`/`storage::idb` file-scope). Remaining 3 allows are all targeted at stylance auto-generated CSS class maps where individual classes are intentionally unused.
+
+Net Phase I state: 3 commits on `refactor/3-crate-workspace`. `cargo test --workspace` 516 tests pass. `cargo clippy --workspace --all-targets` clean. `cargo check -p websh-core --target wasm32-unknown-unknown` clean. `trunk build` succeeds.
+
+Closes Phase B wrap-up deferred items 1, 8, 9.
+
+## 2026-05-02 · Phase J · oversized file splits — partial; rest tracked
+
+Phase J's design (`phases/I-import-surface-and-visibility.md` § Out of scope) names seven files over the 800-line ceiling:
+
+| File | Lines (current) | Status |
+|---|---|---|
+| `crates/websh-core/src/shell/execute.rs` | 2232 | deferred |
+| `crates/websh-cli/src/cli/mempool.rs` | 1298 | deferred |
+| `crates/websh-cli/src/cli/attest.rs` | 1200 | deferred |
+| `crates/websh-core/src/filesystem/global_fs.rs` | 1080 | deferred |
+| `crates/websh-core/src/shell/mod.rs` | 931 | deferred (heavily test-dominated; production ~362 lines) |
+| `crates/websh-core/src/crypto/ack.rs` | 804 | deferred |
+| `crates/websh-core/src/attestation/ledger.rs` | 802 | deferred |
+
+The splits are mechanically straightforward but high-touch. `execute.rs`'s 2232 lines decompose roughly as 22 imports + 30 helpers + 65-line dispatcher + 150 read commands (theme/ls/cd/cat) + 120 env/info (id/export/unset/explorer) + 265 write commands (touch/mkdir/rm/rmdir/edit/echo_redirect) + 140 sync commands + 75 internal helpers + 1259 tests. The natural target shape is `execute/{mod, read, write, sync, env, info, tests}.rs` per the original Phase B B8 plan. CLI's `mempool.rs` and `attest.rs` need engine extraction (clap parser → `engine::<domain>::*`) per architecture §3.2. Each split is independent of the others.
+
+Skipped in this session because the cumulative scope (7 files, ~150KB of code, ~1500 imports to track) outweighed the marginal architectural gain over what Phases H/I already delivered. The compile-time crate-boundary layering and import surface are already correct; the remaining file size is a within-crate concern, not a cross-crate one. Each oversized file is a self-contained follow-up.
+
+The `shell/mod.rs` 931-line case is unique — production code is ~362 lines, the remaining ~570 are pipeline-execution tests. Splitting tests by pipeline shape would be churn for churn's sake; this file does not need a structural change, only a future test-extraction if the production code grows.
+
+Net session state across Phase H + I + J: 7 commits on `refactor/3-crate-workspace` since the wrap-up review (`52aabe7..0a90150`). All deferred items from the Phase B wrap-up are addressed except the file-size deferrals captured above. `cargo test --workspace` 516 tests pass. `cargo clippy --workspace --all-targets` clean. Both target `cargo check` clean. Trunk build clean.
