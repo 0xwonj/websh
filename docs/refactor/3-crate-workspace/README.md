@@ -24,20 +24,21 @@ The migration is a **breaking change**. No legacy paths, no backwards-compatibil
 2. **[workflow.md](./workflow.md)** — how we execute. Phase breakdown, per-task loop, decision rules, stop/escalate conditions, agent usage. The "how."
 3. **[conventions.md](./conventions.md)** — commit message format, comment policy, naming, error handling, file size limits, versioning. Mechanical rules that apply to every change.
 4. **[principles.md](./principles.md)** — design patterns and idioms we apply (and avoid). Leptos best practices, Rust idioms, hexagonal where it earns its keep.
-5. **[adrs/](./adrs/)** — Architecture Decision Records. One ADR per phase (and per material deviation). [Template here.](./adrs/0000-template.md)
-6. **[deviation-log.md](./deviation-log.md)** — append-only running log of every place execution diverged from the architecture, with rationale and ADR pointer.
+5. **[phases/](./phases/)** — per-phase artifacts. Each phase produces `<letter>-<name>.md` (design), `<letter>-review.md` (consensus + wrap-up review), `<letter>-tasks.md` (task breakdown).
+6. **[adrs/](./adrs/)** — Architecture Decision Records. One ADR per phase (and per material deviation). [Template here.](./adrs/0000-template.md)
+7. **[deviation-log.md](./deviation-log.md)** — append-only running log of every place execution diverged from the architecture, with rationale and ADR pointer.
 
 ## Status
 
-| Phase | Description | Status |
-|---|---|---|
-| A | Workspace skeleton | complete |
-| B | `websh-core` populated | pending |
-| C | `websh-cli` populated + engine extraction | pending |
-| D | `websh-web` populated + UI consolidation | pending |
-| E | Trunk + asset paths working | pending |
-| F | Docs + repository hygiene | pending |
-| G | Browser PGP verification (held — separate branch later) | held |
+| Phase | Description | Status | Phase artifacts |
+|---|---|---|---|
+| A | Workspace skeleton | complete | (skipped — minimal scope; ADR 0001) |
+| B | `websh-core` populated | in design | [phases/B-websh-core.md](./phases/B-websh-core.md) |
+| C | `websh-cli` populated + engine extraction | pending | — |
+| D | `websh-web` populated + UI consolidation | pending | — |
+| E | Trunk + asset paths working | pending | — |
+| F | Docs + repository hygiene | pending | — |
+| G | Browser PGP verification (held — separate branch later) | held | — |
 
 Status is updated in this table at every phase boundary commit.
 

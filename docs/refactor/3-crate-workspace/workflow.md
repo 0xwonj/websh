@@ -2,6 +2,20 @@
 
 Defines the execution loop. Every change during the migration goes through this loop.
 
+## Per-phase artifacts
+
+Each phase produces three documents in addition to its commits and ADR:
+
+```
+docs/refactor/3-crate-workspace/
+├── phases/
+│   ├── B-websh-core.md      design doc — the "what" for this phase, post-recon
+│   ├── B-review.md          multi-perspective review consolidation
+│   └── B-tasks.md           agreed task breakdown driving the per-task loop
+```
+
+Phase letters: `A`, `B`, `C`, `D`, `E`, `F`. The design doc is written **after recon and Plan-agent findings**, **before** any code moves. The review doc captures the multi-perspective review that validates the design. The tasks doc decomposes the agreed design into the concrete units the execution loop walks.
+
 ## Phase structure
 
 Six phases (G is held):
@@ -20,15 +34,42 @@ Each phase ends with at least one commit on `refactor/3-crate-workspace`. Granul
 ## Per-phase loop
 
 ```
-1. KICKOFF
+1. RECON
    • Read the relevant section of architecture.md.
    • Re-read conventions.md and principles.md (they apply to every change).
-   • If the phase scope is uncertain, dispatch an Explore agent to map files.
-   • Decompose the phase into concrete sub-tasks; record them via TaskCreate.
+   • Dispatch an Explore or Plan agent to map files and surface gotchas
+     against the architecture's plan for this phase.
+   • Read the agent's report. Note hard blockers, plan corrections, and
+     things that compile cleanly as written.
 
-2. PER-TASK LOOP — repeat until phase tasks done
+2. DESIGN
+   • Write phases/<letter>-<name>.md — the phase design doc.
+     Captures: target layout for this phase, file moves with sources,
+     pre-move refactoring needed, deps that must be wired, deviations from
+     architecture.md, decisions left for implementation.
+   • Cross-reference architecture.md sections; note where this design
+     refines or corrects the architecture.
+
+3. CONSENSUS REVIEW (multi-perspective)
+   • Dispatch ≥3 review agents in parallel on the phase design doc, each
+     with a distinct lens (e.g., architecture/layering, Rust idioms,
+     Leptos best practice, code quality, conventions adherence).
+   • Read every report.
+   • Reconcile conflicts: if reviewers disagree, pick the option that best
+     respects the principles in principles.md and document the choice.
+   • Update the phase design doc with the agreed adjustments.
+   • Write phases/<letter>-review.md summarising the review and
+     consolidation outcome.
+
+4. TASK PLAN
+   • Decompose the agreed design into concrete sub-tasks.
+   • Write phases/<letter>-tasks.md — ordered list, one task per intended
+     commit.
+   • Mirror to TaskCreate so progress is observable via TaskList.
+
+5. PER-TASK LOOP — repeat until phase tasks done
    a. RECON       Read the touched files. Confirm assumptions still hold.
-   b. DECISION    Does architecture.md's prescription still look optimal?
+   b. DECISION    Does the phase design still look optimal?
                   → YES               proceed.
                   → BETTER ALTERNATIVE  weigh, choose, record (see § Deviation rules).
                   → BLOCKED            see § Stop / escalate.
@@ -38,21 +79,29 @@ Each phase ends with at least one commit on `refactor/3-crate-workspace`. Granul
    e. SELF-REVIEW Read the diff. Look for over-extraction, missed pieces,
                   stale comments, dead exports.
    f. COMMIT      Granular, focused commit. Conventional Commits format
-                  (see conventions.md). No internal jargon ("Phase B step 2",
-                  "Task 3.1") in the message.
+                  (see conventions.md). No internal jargon in the message.
    g. MARK DONE   TaskUpdate completed.
 
-3. WRAP-UP
+6. WRAP-UP REVIEW (multi-perspective; re-run consensus shape)
    • Full verification (see § Wrap-up checklist).
-   • Architecture review with code-reviewer agent (see § Agent usage).
-   • Quality review covering correctness, architecture, and code quality
-     — not just "tests pass."
+   • Dispatch ≥3 review agents in parallel on the phase's cumulative diff,
+     each with a distinct lens. Required perspectives:
+       (a) Goal achievement — does this phase deliver what architecture.md
+           and the phase design doc promised?
+       (b) Principles adherence — every pattern in principles.md applied
+           where applicable; every anti-pattern absent.
+       (c) Conventions adherence — commit messages, comments, naming,
+           file size, error handling per conventions.md.
+       (d) Correctness — tests, types, no UB regressions.
+   • Reconcile findings; fix anything HIGH or CRITICAL before proceeding.
+   • Append to phases/<letter>-review.md (post-implementation section).
    • Update Status table in README.md.
    • Append to deviation-log.md if anything diverged.
    • Write the phase ADR (see § ADRs).
-   • Single phase-summary commit if multiple deviations need consolidation;
-     otherwise commits stay granular.
-   • Brief status note ("Phase X done. M commits. All checks pass.").
+   • Single wrap-up commit if reviewer fixes need consolidation; otherwise
+     commits stay granular.
+   • Brief status note ("<phase> done. N commits. All checks pass.
+     M deviations. K reviewer findings addressed.").
 ```
 
 ## Deviation rules
@@ -123,14 +172,28 @@ Specialized agents are explicitly part of the workflow.
 
 | Agent | When |
 |---|---|
-| **Explore** (read-only search) | Recon when scope is uncertain (>3 file searches expected). Phase A kickoff, parts of B, parts of D. |
-| **Plan** (architect) | At the start of Phase B (the largest phase) to validate the file-move plan against the actual codebase. Optional at C / D start. |
-| **general-purpose** (research) | When a non-trivial unknown surfaces mid-phase (e.g., a crate's wasm compatibility changed, a Leptos API behaves differently than docs suggest). Dispatch with a focused prompt; do not over-delegate. |
-| **code-reviewer** | At every phase wrap-up before the wrap-up commit. The agent reviews the cumulative diff for the phase against `architecture.md`, `conventions.md`, and `principles.md`. Three-axis review (correctness / architecture / code quality). |
+| **Explore** (read-only search) | Phase recon. Map files and trace cross-module dependencies. |
+| **Plan** (architect) | Phase recon companion. Validate the architecture's plan for this phase against the actual codebase; surface hard blockers and plan corrections. |
+| **general-purpose** (research) | When a non-trivial unknown surfaces mid-phase (a crate's wasm compatibility changed, a Leptos API behaves differently than docs suggest). Dispatch with a focused prompt; do not over-delegate. |
+| **code-reviewer** | At consensus review (step 3) and wrap-up review (step 6). At least 3 instances per review, each with a distinct lens (architecture / Rust idioms / Leptos / code quality / conventions). |
 | **codex:codex-rescue** | Only when stuck (3+ failed attempts) and an outside perspective might unblock. Sparingly. |
-| **advisor()** | At Phase B and Phase E wrap-ups. Once when stuck. Once before declaring the migration done. |
+| **advisor()** | At Phase B and Phase E wrap-ups, after multi-perspective review consolidation. Once when stuck. Once before declaring the migration done. |
 
-When dispatching, give the agent the architecture/conventions/principles paths and the specific concern. Don't ask agents to "review the code" — give them a structured question.
+When dispatching, give the agent the architecture/conventions/principles paths and the specific concern. Don't ask agents to "review the code" — give them a structured question and the lens they should apply.
+
+### Multi-perspective review template
+
+Every consensus review (step 3) and wrap-up review (step 6) dispatches at least 3 review agents in parallel. Required lenses:
+
+1. **Goal-achievement / architecture lens** — does this phase deliver against `architecture.md` and the phase design doc? Layering invariants intact? Cross-crate boundaries respected?
+2. **Principles + idioms lens** — every pattern from `principles.md` applied where applicable; every anti-pattern absent. Rust + Leptos idioms correct.
+3. **Conventions + code-quality lens** — commit messages, comments, naming, file size, error handling per `conventions.md`. Readability, dead code, over-extraction.
+
+Optional fourth lens for high-risk phases:
+
+4. **Correctness lens** — tests, types, no UB regressions, error-path coverage.
+
+Each agent's prompt names the lens explicitly. Reviewers report findings as `CRITICAL` / `HIGH` / `MEDIUM` / `LOW` with file:line references. The orchestrator (you) reconciles conflicts. A `CRITICAL` or `HIGH` finding blocks the phase wrap-up until addressed; `MEDIUM` is fixed when cheap; `LOW` is logged and deferred.
 
 ## Pause points (natural handoff opportunities)
 
