@@ -21,7 +21,6 @@ pub use result::{CommandResult, SideEffect};
 
 use std::fmt;
 
-use crate::app::TerminalState;
 use crate::core::changes::ChangeSet;
 use crate::core::engine::GlobalFs;
 use crate::core::parser::Pipeline;
@@ -322,7 +321,6 @@ impl Command {
 #[allow(clippy::too_many_arguments)]
 pub fn execute_pipeline(
     pipeline: &Pipeline,
-    state: &TerminalState,
     wallet_state: &WalletState,
     runtime_mounts: &[RuntimeMount],
     fs: &GlobalFs,
@@ -343,7 +341,6 @@ pub fn execute_pipeline(
     let cmd = Command::parse(&first.name, &first.args);
     let mut result = execute_command(
         cmd,
-        state,
         wallet_state,
         runtime_mounts,
         fs,
@@ -547,13 +544,11 @@ mod tests {
     fn test_pipeline_no_filters_preserves_side_effect() {
         // execute_pipeline should preserve SideEffect from first command
         // when there are no filters.
-        use crate::app::TerminalState;
         use crate::core::changes::ChangeSet;
         use crate::core::engine::GlobalFs;
         use crate::core::parser::parse_input;
         use crate::models::{VirtualPath, WalletState};
 
-        let state = TerminalState::new();
         let wallet = WalletState::Disconnected;
         let fs = GlobalFs::empty();
         let cwd = VirtualPath::root();
@@ -562,7 +557,6 @@ mod tests {
         let pipeline = parse_input("login", &[]);
         let result = execute_pipeline(
             &pipeline,
-            &state,
             &wallet,
             &[crate::core::storage::boot::bootstrap_runtime_mount()],
             &fs,
@@ -576,13 +570,11 @@ mod tests {
     #[test]
     fn test_pipeline_drops_side_effect_when_piped() {
         // When a command has filters attached, side effects are discarded.
-        use crate::app::TerminalState;
         use crate::core::changes::ChangeSet;
         use crate::core::engine::GlobalFs;
         use crate::core::parser::parse_input;
         use crate::models::{VirtualPath, WalletState};
 
-        let state = TerminalState::new();
         let wallet = WalletState::Disconnected;
         let fs = GlobalFs::empty();
         let cwd = VirtualPath::root();
@@ -591,7 +583,6 @@ mod tests {
         let pipeline = parse_input("help | head -1", &[]);
         let result = execute_pipeline(
             &pipeline,
-            &state,
             &wallet,
             &[crate::core::storage::boot::bootstrap_runtime_mount()],
             &fs,
@@ -604,13 +595,11 @@ mod tests {
 
     #[test]
     fn test_pipeline_exit_code_is_last_stage() {
-        use crate::app::TerminalState;
         use crate::core::changes::ChangeSet;
         use crate::core::engine::GlobalFs;
         use crate::core::parser::parse_input;
         use crate::models::{VirtualPath, WalletState};
 
-        let state = TerminalState::new();
         let wallet = WalletState::Disconnected;
         let fs = GlobalFs::empty();
         let cwd = VirtualPath::root();
@@ -620,7 +609,6 @@ mod tests {
         let pipeline = parse_input("help | grep xyzzy", &[]);
         let result = execute_pipeline(
             &pipeline,
-            &state,
             &wallet,
             &[crate::core::storage::boot::bootstrap_runtime_mount()],
             &fs,
@@ -933,13 +921,11 @@ mod tests {
 
     #[test]
     fn test_parser_error_exit_2() {
-        use crate::app::TerminalState;
         use crate::core::changes::ChangeSet;
         use crate::core::engine::GlobalFs;
         use crate::core::parser::parse_input;
         use crate::models::{VirtualPath, WalletState};
 
-        let state = TerminalState::new();
         let wallet = WalletState::Disconnected;
         let fs = GlobalFs::empty();
         let cwd = VirtualPath::root();
@@ -949,7 +935,6 @@ mod tests {
         let pipeline = parse_input("ls |", &[]);
         let result = execute_pipeline(
             &pipeline,
-            &state,
             &wallet,
             &[crate::core::storage::boot::bootstrap_runtime_mount()],
             &fs,

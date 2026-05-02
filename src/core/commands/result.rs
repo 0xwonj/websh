@@ -24,6 +24,8 @@ pub enum SideEffect {
     SetTheme {
         theme: String,
     },
+    /// Reset the terminal output ring buffer.
+    ClearHistory,
 
     // Filesystem mutations
     ApplyChange {

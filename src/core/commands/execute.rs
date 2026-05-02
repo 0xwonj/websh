@@ -3,7 +3,6 @@
 //! Contains the `execute_command` function that runs parsed commands
 //! against the canonical filesystem and returns results.
 
-use crate::app::TerminalState;
 use crate::config::{ASCII_PROFILE, HELP_TEXT};
 use crate::core::admin::can_write_to;
 use crate::core::changes::{ChangeSet, ChangeType};
@@ -55,7 +54,6 @@ fn blank_dir_meta() -> NodeMetadata {
 #[allow(clippy::too_many_arguments)]
 pub fn execute_command(
     cmd: Command,
-    state: &TerminalState,
     wallet_state: &WalletState,
     runtime_mounts: &[RuntimeMount],
     fs: &GlobalFs,
@@ -77,10 +75,11 @@ pub fn execute_command(
         Command::Id => execute_id(wallet_state),
         Command::Help => CommandResult::output(HELP_TEXT.lines().map(OutputLine::text).collect()),
         Command::Theme(requested) => execute_theme(requested),
-        Command::Clear => {
-            state.clear_history();
-            CommandResult::empty()
-        }
+        Command::Clear => CommandResult {
+            output: vec![],
+            exit_code: 0,
+            side_effect: Some(SideEffect::ClearHistory),
+        },
         Command::Echo(text) => CommandResult::output(vec![OutputLine::text(text)]),
         Command::Export(assignments) => execute_export(assignments),
         Command::Unset(key) => match key {
@@ -981,17 +980,12 @@ fn sync_mount_root(
 mod tests {
     use super::super::SideEffect;
     use super::*;
-    use crate::app::TerminalState;
     use crate::core::changes::ChangeSet;
     use crate::core::engine::GlobalFs;
     use crate::models::WalletState;
 
-    fn empty_state() -> (TerminalState, WalletState, GlobalFs) {
-        (
-            TerminalState::new(),
-            WalletState::Disconnected,
-            GlobalFs::empty(),
-        )
+    fn empty_state() -> (WalletState, GlobalFs) {
+        (WalletState::Disconnected, GlobalFs::empty())
     }
 
     /// Admin wallet constructor for write-path tests.
@@ -1019,7 +1013,6 @@ mod tests {
 
     fn execute_command(
         cmd: Command,
-        state: &TerminalState,
         wallet_state: &WalletState,
         fs: &GlobalFs,
         cwd: &VirtualPath,
@@ -1028,7 +1021,6 @@ mod tests {
     ) -> CommandResult {
         super::execute_command(
             cmd,
-            state,
             wallet_state,
             &[crate::core::storage::boot::bootstrap_runtime_mount()],
             fs,
@@ -1040,26 +1032,26 @@ mod tests {
 
     #[test]
     fn test_login_returns_login_side_effect() {
-        let (ts, ws, fs) = empty_state();
+        let (ws, fs) = empty_state();
         let cs = ChangeSet::new();
-        let result = execute_command(Command::Login, &ts, &ws, &fs, &root_cwd(), &cs, None);
+        let result = execute_command(Command::Login, &ws, &fs, &root_cwd(), &cs, None);
         assert_eq!(result.side_effect, Some(SideEffect::Login));
         assert_eq!(result.exit_code, 0);
     }
 
     #[test]
     fn test_logout_returns_logout_side_effect() {
-        let (ts, ws, fs) = empty_state();
+        let (ws, fs) = empty_state();
         let cs = ChangeSet::new();
-        let result = execute_command(Command::Logout, &ts, &ws, &fs, &root_cwd(), &cs, None);
+        let result = execute_command(Command::Logout, &ws, &fs, &root_cwd(), &cs, None);
         assert_eq!(result.side_effect, Some(SideEffect::Logout));
     }
 
     #[test]
     fn test_theme_lists_available_palettes() {
-        let (ts, ws, fs) = empty_state();
+        let (ws, fs) = empty_state();
         let cs = ChangeSet::new();
-        let result = execute_command(Command::Theme(None), &ts, &ws, &fs, &root_cwd(), &cs, None);
+        let result = execute_command(Command::Theme(None), &ws, &fs, &root_cwd(), &cs, None);
         let rendered = result
             .output
             .iter()
@@ -1073,11 +1065,10 @@ mod tests {
 
     #[test]
     fn test_theme_sets_known_palette() {
-        let (ts, ws, fs) = empty_state();
+        let (ws, fs) = empty_state();
         let cs = ChangeSet::new();
         let result = execute_command(
             Command::Theme(Some("black-ink".to_string())),
-            &ts,
             &ws,
             &fs,
             &root_cwd(),
@@ -1094,17 +1085,9 @@ mod tests {
 
     #[test]
     fn test_explorer_no_arg_switches_view() {
-        let (ts, ws, fs) = empty_state();
+        let (ws, fs) = empty_state();
         let cs = ChangeSet::new();
-        let result = execute_command(
-            Command::Explorer(None),
-            &ts,
-            &ws,
-            &fs,
-            &root_cwd(),
-            &cs,
-            None,
-        );
+        let result = execute_command(Command::Explorer(None), &ws, &fs, &root_cwd(), &cs, None);
         assert_eq!(
             result.side_effect,
             Some(SideEffect::Navigate(RouteRequest::new("/explorer")))
@@ -1115,13 +1098,11 @@ mod tests {
     fn test_cd_navigates_shell_surface() {
         let mut fs = GlobalFs::empty();
         fs.upsert_directory(VirtualPath::from_absolute("/db").unwrap(), blank_dir_meta());
-        let ts = TerminalState::new();
         let ws = WalletState::Disconnected;
         let cs = ChangeSet::new();
 
         let result = execute_command(
             Command::Cd(PathArg::new("/db")),
-            &ts,
             &ws,
             &fs,
             &root_cwd(),
@@ -1139,13 +1120,11 @@ mod tests {
     fn test_explorer_path_navigates_explorer_surface() {
         let mut fs = GlobalFs::empty();
         fs.upsert_directory(VirtualPath::from_absolute("/db").unwrap(), blank_dir_meta());
-        let ts = TerminalState::new();
         let ws = WalletState::Disconnected;
         let cs = ChangeSet::new();
 
         let result = execute_command(
             Command::Explorer(Some(PathArg::new("/db"))),
-            &ts,
             &ws,
             &fs,
             &root_cwd(),
@@ -1168,13 +1147,11 @@ mod tests {
             blank_file_meta(NodeKind::Asset),
             EntryExtensions::default(),
         );
-        let ts = TerminalState::new();
         let ws = WalletState::Disconnected;
         let cs = ChangeSet::new();
 
         let result = execute_command(
             Command::Cat(Some(PathArg::new("/blog/hello.md"))),
-            &ts,
             &ws,
             &fs,
             &root_cwd(),
@@ -1190,11 +1167,10 @@ mod tests {
 
     #[test]
     fn test_unknown_command_exit_127() {
-        let (ts, ws, fs) = empty_state();
+        let (ws, fs) = empty_state();
         let cs = ChangeSet::new();
         let result = execute_command(
             Command::Unknown("foobar".into()),
-            &ts,
             &ws,
             &fs,
             &root_cwd(),
@@ -1206,14 +1182,13 @@ mod tests {
 
     #[test]
     fn test_ls_nonexistent_exit_1() {
-        let (ts, ws, fs) = empty_state();
+        let (ws, fs) = empty_state();
         let cs = ChangeSet::new();
         let result = execute_command(
             Command::Ls {
                 path: Some(super::super::PathArg::new("nonexistent")),
                 long: false,
             },
-            &ts,
             &ws,
             &fs,
             &root_cwd(),
@@ -1226,9 +1201,9 @@ mod tests {
 
     #[test]
     fn test_cat_missing_operand_exit_1() {
-        let (ts, ws, fs) = empty_state();
+        let (ws, fs) = empty_state();
         let cs = ChangeSet::new();
-        let result = execute_command(Command::Cat(None), &ts, &ws, &fs, &root_cwd(), &cs, None);
+        let result = execute_command(Command::Cat(None), &ws, &fs, &root_cwd(), &cs, None);
         assert_eq!(result.exit_code, 1);
         assert!(
             result
@@ -1240,9 +1215,9 @@ mod tests {
 
     #[test]
     fn test_unset_missing_operand_exit_1() {
-        let (ts, ws, fs) = empty_state();
+        let (ws, fs) = empty_state();
         let cs = ChangeSet::new();
-        let result = execute_command(Command::Unset(None), &ts, &ws, &fs, &root_cwd(), &cs, None);
+        let result = execute_command(Command::Unset(None), &ws, &fs, &root_cwd(), &cs, None);
         assert_eq!(result.exit_code, 1);
     }
 
@@ -1253,14 +1228,13 @@ mod tests {
         //   - exit code is non-zero (at least one assignment errored)
         //   - there is one error line per assignment
         // This confirms the loop iterates per arg rather than joining them.
-        let (ts, ws, fs) = empty_state();
+        let (ws, fs) = empty_state();
         let cs = ChangeSet::new();
         let result = execute_command(
             Command::Export(vec![
                 "FOO_P2_A=alpha".to_string(),
                 "BAR_P2_A=beta".to_string(),
             ]),
-            &ts,
             &ws,
             &fs,
             &root_cwd(),
@@ -1295,12 +1269,11 @@ mod tests {
         // POSIX bash: `cd ""` errors with "cd: : No such file or directory".
         // Must exercise a non-Root route so the early `at_root` branch doesn't
         // short-circuit to the generic mount-alias error.
-        let (ts, ws, fs) = empty_state();
+        let (ws, fs) = empty_state();
         let cs = ChangeSet::new();
         let browse_route = home_cwd("");
         let result = execute_command(
             Command::Cd(super::super::PathArg::new("")),
-            &ts,
             &ws,
             &fs,
             &browse_route,
@@ -1325,13 +1298,12 @@ mod tests {
 
     #[test]
     fn test_touch_requires_admin() {
-        let (ts, ws, fs) = empty_state();
+        let (ws, fs) = empty_state();
         let cs = ChangeSet::new();
         let result = execute_command(
             Command::Touch {
                 path: PathArg::new("new.md"),
             },
-            &ts,
             &ws,
             &fs,
             &home_cwd(""),
@@ -1344,14 +1316,13 @@ mod tests {
 
     #[test]
     fn test_write_rejects_runtime_state_tree() {
-        let (ts, _ws, fs) = empty_state();
+        let (_ws, fs) = empty_state();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
             Command::Touch {
                 path: PathArg::new("/.websh/state/new.md"),
             },
-            &ts,
             &ws,
             &fs,
             &home_cwd(""),
@@ -1372,14 +1343,13 @@ mod tests {
 
     #[test]
     fn test_touch_creates_apply_change_side_effect() {
-        let (ts, _ws, fs) = empty_state();
+        let (_ws, fs) = empty_state();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
             Command::Touch {
                 path: PathArg::new("new.md"),
             },
-            &ts,
             &ws,
             &fs,
             &home_cwd(""),
@@ -1409,14 +1379,12 @@ mod tests {
             blank_file_meta(NodeKind::Asset),
             EntryExtensions::default(),
         );
-        let ts = TerminalState::new();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
             Command::Touch {
                 path: PathArg::new("new.md"),
             },
-            &ts,
             &ws,
             &fs,
             &home_cwd(""),
@@ -1428,14 +1396,13 @@ mod tests {
 
     #[test]
     fn test_mkdir_creates_apply_change_side_effect() {
-        let (ts, _ws, fs) = empty_state();
+        let (_ws, fs) = empty_state();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
             Command::Mkdir {
                 path: PathArg::new("newdir"),
             },
-            &ts,
             &ws,
             &fs,
             &home_cwd(""),
@@ -1462,14 +1429,12 @@ mod tests {
     fn test_mkdir_errors_when_path_exists() {
         let mut fs = GlobalFs::empty();
         fs.upsert_directory(home_vpath("dir"), blank_dir_meta());
-        let ts = TerminalState::new();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
             Command::Mkdir {
                 path: PathArg::new("dir"),
             },
-            &ts,
             &ws,
             &fs,
             &home_cwd(""),
@@ -1488,7 +1453,6 @@ mod tests {
             blank_file_meta(NodeKind::Asset),
             EntryExtensions::default(),
         );
-        let ts = TerminalState::new();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
@@ -1496,7 +1460,6 @@ mod tests {
                 path: PathArg::new("doomed.md"),
                 recursive: false,
             },
-            &ts,
             &ws,
             &fs,
             &home_cwd(""),
@@ -1520,7 +1483,6 @@ mod tests {
     fn test_rm_directory_without_r_errors() {
         let mut fs = GlobalFs::empty();
         fs.upsert_directory(home_vpath("dir"), blank_dir_meta());
-        let ts = TerminalState::new();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
@@ -1528,7 +1490,6 @@ mod tests {
                 path: PathArg::new("dir"),
                 recursive: false,
             },
-            &ts,
             &ws,
             &fs,
             &home_cwd(""),
@@ -1542,7 +1503,6 @@ mod tests {
     fn test_rm_directory_recursive_side_effect() {
         let mut fs = GlobalFs::empty();
         fs.upsert_directory(home_vpath("dir"), blank_dir_meta());
-        let ts = TerminalState::new();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
@@ -1550,7 +1510,6 @@ mod tests {
                 path: PathArg::new("dir"),
                 recursive: true,
             },
-            &ts,
             &ws,
             &fs,
             &home_cwd(""),
@@ -1572,7 +1531,7 @@ mod tests {
 
     #[test]
     fn test_rm_nonexistent_path_errors() {
-        let (ts, _ws, fs) = empty_state();
+        let (_ws, fs) = empty_state();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
@@ -1580,7 +1539,6 @@ mod tests {
                 path: PathArg::new("ghost.md"),
                 recursive: false,
             },
-            &ts,
             &ws,
             &fs,
             &home_cwd(""),
@@ -1594,14 +1552,12 @@ mod tests {
     fn test_rmdir_empty_directory_side_effect() {
         let mut fs = GlobalFs::empty();
         fs.upsert_directory(home_vpath("empty"), blank_dir_meta());
-        let ts = TerminalState::new();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
             Command::Rmdir {
                 path: PathArg::new("empty"),
             },
-            &ts,
             &ws,
             &fs,
             &home_cwd(""),
@@ -1627,14 +1583,12 @@ mod tests {
             blank_file_meta(NodeKind::Asset),
             EntryExtensions::default(),
         );
-        let ts = TerminalState::new();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
             Command::Rmdir {
                 path: PathArg::new("dir"),
             },
-            &ts,
             &ws,
             &fs,
             &home_cwd(""),
@@ -1653,14 +1607,12 @@ mod tests {
             blank_file_meta(NodeKind::Asset),
             EntryExtensions::default(),
         );
-        let ts = TerminalState::new();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
             Command::Rmdir {
                 path: PathArg::new("file.md"),
             },
-            &ts,
             &ws,
             &fs,
             &home_cwd(""),
@@ -1679,14 +1631,12 @@ mod tests {
             blank_file_meta(NodeKind::Asset),
             EntryExtensions::default(),
         );
-        let ts = TerminalState::new();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
             Command::Edit {
                 path: PathArg::new("note.md"),
             },
-            &ts,
             &ws,
             &fs,
             &home_cwd(""),
@@ -1705,14 +1655,13 @@ mod tests {
     #[test]
     fn test_edit_on_missing_file_opens_editor() {
         // Create-on-save: `edit` on a non-existent path still yields OpenEditor.
-        let (ts, _ws, fs) = empty_state();
+        let (_ws, fs) = empty_state();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
             Command::Edit {
                 path: PathArg::new("fresh.md"),
             },
-            &ts,
             &ws,
             &fs,
             &home_cwd(""),
@@ -1730,14 +1679,12 @@ mod tests {
     fn test_edit_on_directory_errors() {
         let mut fs = GlobalFs::empty();
         fs.upsert_directory(home_vpath("dir"), blank_dir_meta());
-        let ts = TerminalState::new();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
             Command::Edit {
                 path: PathArg::new("dir"),
             },
-            &ts,
             &ws,
             &fs,
             &home_cwd(""),
@@ -1749,7 +1696,7 @@ mod tests {
 
     #[test]
     fn test_echo_redirect_writes_content() {
-        let (ts, _ws, fs) = empty_state();
+        let (_ws, fs) = empty_state();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
@@ -1757,7 +1704,6 @@ mod tests {
                 body: "hello".to_string(),
                 path: PathArg::new("greeting.md"),
             },
-            &ts,
             &ws,
             &fs,
             &home_cwd(""),
@@ -1789,7 +1735,6 @@ mod tests {
             blank_file_meta(NodeKind::Asset),
             EntryExtensions::default(),
         );
-        let ts = TerminalState::new();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
@@ -1797,7 +1742,6 @@ mod tests {
                 body: "new".to_string(),
                 path: PathArg::new("greet.md"),
             },
-            &ts,
             &ws,
             &fs,
             &home_cwd(""),
@@ -1816,14 +1760,13 @@ mod tests {
 
     #[test]
     fn test_echo_redirect_requires_admin() {
-        let (ts, ws, fs) = empty_state();
+        let (ws, fs) = empty_state();
         let cs = ChangeSet::new();
         let result = execute_command(
             Command::EchoRedirect {
                 body: "x".to_string(),
                 path: PathArg::new("a.md"),
             },
-            &ts,
             &ws,
             &fs,
             &home_cwd(""),
@@ -1835,12 +1778,11 @@ mod tests {
 
     #[test]
     fn test_sync_status_clean_tree() {
-        let (ts, _ws, fs) = empty_state();
+        let (_ws, fs) = empty_state();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
             Command::Sync(SyncSubcommand::Status),
-            &ts,
             &ws,
             &fs,
             &home_cwd(""),
@@ -1866,12 +1808,11 @@ mod tests {
 
     #[test]
     fn test_sync_status_with_remote_head() {
-        let (ts, _ws, fs) = empty_state();
+        let (_ws, fs) = empty_state();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
             Command::Sync(SyncSubcommand::Status),
-            &ts,
             &ws,
             &fs,
             &home_cwd(""),
@@ -1887,7 +1828,7 @@ mod tests {
 
     #[test]
     fn test_sync_status_reports_entries() {
-        let (ts, _ws, fs) = empty_state();
+        let (_ws, fs) = empty_state();
         let ws = admin_wallet();
         let mut cs = ChangeSet::new();
         cs.upsert(
@@ -1902,7 +1843,6 @@ mod tests {
         cs.unstage(&home_vpath("del.md"));
         let result = execute_command(
             Command::Sync(SyncSubcommand::Status),
-            &ts,
             &ws,
             &fs,
             &home_cwd(""),
@@ -1933,7 +1873,7 @@ mod tests {
 
     #[test]
     fn test_sync_commit_side_effect() {
-        let (ts, _ws, fs) = empty_state();
+        let (_ws, fs) = empty_state();
         let ws = admin_wallet();
         let mut cs = ChangeSet::new();
         cs.upsert(
@@ -1948,7 +1888,6 @@ mod tests {
             Command::Sync(SyncSubcommand::Commit {
                 message: "feat: x".to_string(),
             }),
-            &ts,
             &ws,
             &fs,
             &home_cwd(""),
@@ -1970,14 +1909,13 @@ mod tests {
 
     #[test]
     fn test_sync_commit_requires_staged_changes() {
-        let (ts, _ws, fs) = empty_state();
+        let (_ws, fs) = empty_state();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
             Command::Sync(SyncSubcommand::Commit {
                 message: "msg".to_string(),
             }),
-            &ts,
             &ws,
             &fs,
             &home_cwd(""),
@@ -2023,12 +1961,11 @@ mod tests {
 
     #[test]
     fn test_sync_refresh_side_effect() {
-        let (ts, _ws, fs) = empty_state();
+        let (_ws, fs) = empty_state();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
             Command::Sync(SyncSubcommand::Refresh),
-            &ts,
             &ws,
             &fs,
             &home_cwd(""),
@@ -2046,14 +1983,13 @@ mod tests {
 
     #[test]
     fn test_sync_auth_set_side_effect() {
-        let (ts, _ws, fs) = empty_state();
+        let (_ws, fs) = empty_state();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
             Command::Sync(SyncSubcommand::Auth(AuthAction::Set {
                 token: "ghp_abc".to_string(),
             })),
-            &ts,
             &ws,
             &fs,
             &home_cwd(""),
@@ -2069,12 +2005,11 @@ mod tests {
 
     #[test]
     fn test_sync_auth_clear_side_effect() {
-        let (ts, _ws, fs) = empty_state();
+        let (_ws, fs) = empty_state();
         let ws = admin_wallet();
         let cs = ChangeSet::new();
         let result = execute_command(
             Command::Sync(SyncSubcommand::Auth(AuthAction::Clear)),
-            &ts,
             &ws,
             &fs,
             &home_cwd(""),
@@ -2152,14 +2087,12 @@ mod tests {
         );
         let merged = view(&base, &cs);
 
-        let ts = TerminalState::new();
         let ws = admin_wallet();
         let result = execute_command(
             Command::Rm {
                 path: PathArg::new("a.md"),
                 recursive: false,
             },
-            &ts,
             &ws,
             &merged,
             &home_cwd(""),
@@ -2187,14 +2120,12 @@ mod tests {
         );
         let merged = view(&base, &cs);
 
-        let ts = TerminalState::new();
         let ws = admin_wallet();
         let result = execute_command(
             Command::Rm {
                 path: PathArg::new("d"),
                 recursive: true,
             },
-            &ts,
             &ws,
             &merged,
             &home_cwd(""),
@@ -2222,13 +2153,11 @@ mod tests {
         );
         let merged = view(&base, &cs);
 
-        let ts = TerminalState::new();
         let ws = admin_wallet();
         let result = execute_command(
             Command::Rmdir {
                 path: PathArg::new("d"),
             },
-            &ts,
             &ws,
             &merged,
             &home_cwd(""),
@@ -2257,14 +2186,12 @@ mod tests {
         let cs = ChangeSet::new();
         let merged = view(&base, &cs);
 
-        let ts = TerminalState::new();
         let ws = admin_wallet();
         let result = execute_command(
             Command::Rm {
                 path: PathArg::new("existing.md"),
                 recursive: false,
             },
-            &ts,
             &ws,
             &merged,
             &home_cwd(""),
@@ -2301,13 +2228,11 @@ mod tests {
         );
         let merged = view(&base, &cs);
 
-        let ts = TerminalState::new();
         let ws = admin_wallet();
         let result = execute_command(
             Command::Touch {
                 path: PathArg::new("a.md"),
             },
-            &ts,
             &ws,
             &merged,
             &home_cwd(""),

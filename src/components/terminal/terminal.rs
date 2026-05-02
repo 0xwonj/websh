@@ -152,7 +152,6 @@ fn create_submit_callback(ctx: AppContext, route_ctx: RouteContext) -> Callback<
             ctx.view_global_fs.with(|current_fs| {
                 execute_pipeline(
                     &pipeline,
-                    &ctx.terminal,
                     &wallet_state,
                     &runtime_mounts,
                     current_fs,
@@ -182,6 +181,7 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
             route.push();
             ctx.view_mode.set(mode);
         }
+        SideEffect::ClearHistory => ctx.terminal.clear_history(),
         SideEffect::SetTheme { theme } => match crate::utils::theme::apply_theme(&theme) {
             Ok(theme_id) => {
                 ctx.theme.set(theme_id);
