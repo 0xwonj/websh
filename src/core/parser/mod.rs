@@ -14,10 +14,6 @@ pub use lexer::{Lexer, Token};
 use expand::expand_tokens;
 use std::fmt;
 
-// =============================================================================
-// Parse Error
-// =============================================================================
-
 /// Structured error type for parsing failures
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParseError {
@@ -69,10 +65,6 @@ impl fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
-// =============================================================================
-// Pipeline Representation
-// =============================================================================
-
 /// A single command in a pipeline
 #[derive(Debug, Clone)]
 pub struct ParsedCommand {
@@ -106,10 +98,6 @@ impl Pipeline {
         self.error.is_some()
     }
 }
-
-// =============================================================================
-// Parser
-// =============================================================================
 
 /// Parse input with variable and history expansion, then build pipeline
 pub fn parse_input(input: &str, history: &[String]) -> Pipeline {
@@ -186,10 +174,6 @@ fn words_to_command(words: &[String]) -> ParsedCommand {
         args: words.iter().skip(1).cloned().collect(),
     }
 }
-
-// =============================================================================
-// Tests
-// =============================================================================
 
 #[cfg(test)]
 mod tests {

@@ -25,10 +25,6 @@ use crate::models::{
 use crate::utils::RingBuffer;
 
 stylance::import_crate_style!(err_css, "src/components/error_boundary.module.css");
-
-// ============================================================================
-// Convention: `#[derive(Clone, Copy)]` on signal containers
-// ============================================================================
 //
 // The state container structs in this module — `AppContext`, `TerminalState`,
 // and `ExplorerState` — all derive `Clone` and `Copy`. This is intentional:
@@ -46,10 +42,6 @@ stylance::import_crate_style!(err_css, "src/components/error_boundary.module.css
 // itself `Copy` (i.e. another signal-like handle). The moment a non-signal
 // field (e.g. an owned `String`, `Vec`, or `Rc`) is added, drop the `Copy`
 // derive — otherwise you silently duplicate owned data per closure capture.
-
-// ============================================================================
-// TerminalState
-// ============================================================================
 
 /// Terminal state managed with Leptos signals.
 ///
@@ -158,10 +150,6 @@ impl Default for TerminalState {
     }
 }
 
-// ============================================================================
-// ExplorerState
-// ============================================================================
-
 /// Explorer state for the file browser UI.
 ///
 /// # Note
@@ -217,10 +205,6 @@ impl Default for ExplorerState {
         Self::new()
     }
 }
-
-// ============================================================================
-// AppContext
-// ============================================================================
 
 /// Application-wide reactive context.
 ///

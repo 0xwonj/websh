@@ -12,10 +12,6 @@ use web_sys::{Request, RequestInit, RequestMode, Response};
 use crate::config::FETCH_TIMEOUT_MS;
 use crate::core::error::FetchError;
 
-// =============================================================================
-// Promise Racing Utilities
-// =============================================================================
-
 /// Result of a promise race with timeout.
 #[derive(Debug)]
 pub enum RaceResult {
@@ -67,10 +63,6 @@ pub async fn race_with_timeout(promise: Promise, timeout_ms: i32) -> RaceResult 
         Err(e) => RaceResult::Error(e.as_string().unwrap_or_else(|| "Unknown error".to_string())),
     }
 }
-
-// =============================================================================
-// Fetch Functions
-// =============================================================================
 
 /// Fetch and parse JSON from a URL.
 pub async fn fetch_json<T: DeserializeOwned>(url: &str) -> Result<T, FetchError> {

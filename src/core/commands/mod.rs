@@ -26,10 +26,6 @@ use crate::core::engine::GlobalFs;
 use crate::core::parser::Pipeline;
 use crate::models::{RuntimeMount, VirtualPath, WalletState};
 
-// =============================================================================
-// Path Argument Type
-// =============================================================================
-
 /// A path argument passed to a command (e.g., `cd foo`, `cat bar.md`).
 ///
 /// This newtype distinguishes path arguments from general strings,
@@ -80,10 +76,6 @@ impl PartialEq<&str> for PathArg {
         self.0 == *other
     }
 }
-
-// =============================================================================
-// Command Enum
-// =============================================================================
 
 /// Parsed terminal command
 #[derive(Clone, Debug)]
@@ -310,10 +302,6 @@ impl Command {
     }
 }
 
-// =============================================================================
-// Pipeline Execution
-// =============================================================================
-
 /// Execute a pipeline of commands with pipe filtering.
 ///
 /// A pipeline consists of a main command followed by optional filter commands
@@ -366,10 +354,6 @@ pub fn execute_pipeline(
 
     CommandResult::output(current_lines).with_exit_code(current_exit)
 }
-
-// =============================================================================
-// Tests
-// =============================================================================
 
 #[cfg(test)]
 mod tests {

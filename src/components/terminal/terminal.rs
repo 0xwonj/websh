@@ -15,10 +15,6 @@ use crate::utils::dom::focus_terminal_input;
 
 stylance::import_crate_style!(css, "src/components/terminal/terminal.module.css");
 
-// ============================================================================
-// Wallet Handlers
-// ============================================================================
-
 /// Execute wallet login command asynchronously.
 fn handle_login(ctx: AppContext) {
     wasm_bindgen_futures::spawn_local(async move {
@@ -72,10 +68,6 @@ fn handle_logout(ctx: &AppContext) {
     }
 }
 
-// ============================================================================
-// Terminal Component
-// ============================================================================
-
 #[component]
 pub fn Terminal(output_ref: NodeRef<leptos::html::Div>) -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided at root");
@@ -118,10 +110,6 @@ pub fn Terminal(output_ref: NodeRef<leptos::html::Div>) -> impl IntoView {
         </div>
     }
 }
-
-// ============================================================================
-// Callback Factories
-// ============================================================================
 
 fn create_submit_callback(ctx: AppContext, route_ctx: RouteContext) -> Callback<String> {
     Callback::new(move |input: String| {

@@ -14,10 +14,6 @@ use crate::core::engine::{GlobalFs, canonicalize_user_path};
 use crate::core::{Command, DirEntry};
 use crate::models::VirtualPath;
 
-// ============================================================================
-// Public Types
-// ============================================================================
-
 /// Result of an autocomplete attempt.
 #[derive(Clone, Debug, PartialEq)]
 pub enum AutocompleteResult {
@@ -28,10 +24,6 @@ pub enum AutocompleteResult {
     /// No matches found.
     None,
 }
-
-// ============================================================================
-// Configuration
-// ============================================================================
 
 /// Commands that accept directory paths as arguments.
 const DIR_COMMANDS: &[&str] = &["cd", "ls", "mkdir", "rmdir"];
@@ -48,10 +40,6 @@ const SYNC_SUBCOMMANDS: &[&str] = &["status", "commit", "refresh", "auth"];
 
 /// Subcommands for `sync auth` (second positional arg).
 const SYNC_AUTH_SUBCOMMANDS: &[&str] = &["set", "clear"];
-
-// ============================================================================
-// Completion Context
-// ============================================================================
 
 /// Determines what type of completion is needed for a command.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -93,10 +81,6 @@ impl CompletionMode {
     }
 }
 
-// ============================================================================
-// Path Parsing
-// ============================================================================
-
 /// Parsed path components for autocomplete.
 struct ParsedPath<'a> {
     /// Directory prefix (e.g., "projects/" or "").
@@ -128,10 +112,6 @@ impl<'a> ParsedPath<'a> {
         })
     }
 }
-
-// ============================================================================
-// Public API
-// ============================================================================
 
 /// Perform autocomplete on Tab press.
 ///
@@ -183,10 +163,6 @@ pub fn get_hint(input: &str, cwd: &VirtualPath, fs: &GlobalFs) -> Option<String>
     }
 }
 
-// ============================================================================
-// Command Completion
-// ============================================================================
-
 /// Complete command name.
 fn complete_command(partial: &str) -> AutocompleteResult {
     let partial_lower = partial.to_lowercase();
@@ -214,10 +190,6 @@ fn get_command_hint(partial: &str) -> Option<String> {
         .find(|cmd| cmd.starts_with(&partial_lower) && **cmd != partial_lower)
         .map(|cmd| cmd[partial.len()..].to_string())
 }
-
-// ============================================================================
-// Sync Subcommand Completion
-// ============================================================================
 
 /// Complete `sync` subcommands.
 ///
@@ -282,10 +254,6 @@ fn subcommand_hint(partial: &str, options: &[&str]) -> Option<String> {
         .find(|opt| opt.starts_with(&partial_lower) && **opt != partial_lower)
         .map(|opt| opt[partial.len()..].to_string())
 }
-
-// ============================================================================
-// Path Completion
-// ============================================================================
 
 /// Complete file/directory path.
 fn complete_path(
@@ -392,10 +360,6 @@ fn build_path_result(
     }
 }
 
-// ============================================================================
-// Utilities
-// ============================================================================
-
 /// Find the common prefix of multiple strings (case-insensitive).
 ///
 /// Operates on Unicode codepoints (chars), not bytes — safe for multi-byte UTF-8.
@@ -425,10 +389,6 @@ fn find_common_prefix(strings: &[String]) -> String {
 
     first.chars().take(prefix_chars).collect()
 }
-
-// ============================================================================
-// Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {

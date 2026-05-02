@@ -7,10 +7,6 @@ use icondata::Icon;
 
 use crate::config::IconTheme;
 
-// =============================================================================
-// Theme Imports
-// =============================================================================
-
 mod lucide {
     pub use icondata::{
         LuAArrowDown as FontDecrease, LuAArrowUp as FontIncrease, LuBookOpen as FilePdf,
@@ -38,10 +34,6 @@ mod bootstrap {
         BsTypeBold as FontIncrease, BsXLg as Close,
     };
 }
-
-// =============================================================================
-// Icon Constants (selected based on theme)
-// =============================================================================
 
 macro_rules! themed_icon {
     ($name:ident, $theme_name:ident) => {

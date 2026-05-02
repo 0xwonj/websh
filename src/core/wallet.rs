@@ -231,10 +231,6 @@ pub async fn connect_with_session(
     })
 }
 
-// ============================================================================
-// Event Listeners
-// ============================================================================
-
 /// Register a callback for when the connected account changes.
 ///
 /// The callback receives `Some(address)` when an account is connected,

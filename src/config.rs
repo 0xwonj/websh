@@ -3,10 +3,6 @@
 //! Centralizes all configuration constants used throughout the application.
 //! Text assets are loaded at compile time using `include_str!`.
 
-// =============================================================================
-// Text Assets (loaded at compile time)
-// =============================================================================
-
 /// ASCII banner displayed after boot sequence.
 pub const ASCII_BANNER: &str = include_str!("../assets/text/banner.txt");
 
@@ -16,10 +12,6 @@ pub const ASCII_PROFILE: &str = include_str!("../assets/text/profile.txt");
 /// Help text for `help` command.
 pub const HELP_TEXT: &str = include_str!("../assets/text/help.txt");
 
-// =============================================================================
-// Application Metadata
-// =============================================================================
-
 /// Application name displayed in terminal.
 pub const APP_NAME: &str = "wonjae.eth";
 
@@ -28,10 +20,6 @@ pub const APP_VERSION: &str = "0.1.0";
 
 /// User tagline displayed after boot.
 pub const APP_TAGLINE: &str = "Zero-Knowledge Proofs | Compiler Design | Ethereum";
-
-// =============================================================================
-// Network Configuration
-// =============================================================================
 
 /// Fetch request timeout in milliseconds.
 pub const FETCH_TIMEOUT_MS: i32 = 10000;
@@ -57,19 +45,11 @@ pub const ALLOWED_REDIRECT_DOMAINS: &[&str] = &[
     "youtu.be",
 ];
 
-// =============================================================================
-// Wallet Configuration
-// =============================================================================
-
 /// localStorage key for wallet session persistence.
 pub const WALLET_SESSION_KEY: &str = "websh.wallet_session";
 
 /// Wallet connection timeout in milliseconds.
 pub const WALLET_TIMEOUT_MS: i32 = 2000;
-
-// =============================================================================
-// Environment Variables
-// =============================================================================
 
 /// Prefix for user environment variables in localStorage.
 pub const USER_VAR_PREFIX: &str = "user.";
@@ -77,10 +57,6 @@ pub const USER_VAR_PREFIX: &str = "user.";
 /// Default user variables initialized on first visit.
 /// THEME is omitted: the theme system writes `user.THEME` directly via `apply_theme`.
 pub const DEFAULT_USER_VARS: &[(&str, &str)] = &[("LANG", "en"), ("EDITOR", "vim")];
-
-// =============================================================================
-// Terminal Configuration
-// =============================================================================
 
 /// Maximum number of terminal output lines to keep in history.
 pub const MAX_TERMINAL_HISTORY: usize = 1000;
@@ -104,10 +80,6 @@ pub mod display {
     pub const TRUNCATED_PREVIEW_LEN: usize = 57;
 }
 
-// =============================================================================
-// Boot Sequence Configuration
-// =============================================================================
-
 /// Boot sequence animation delay constants (milliseconds).
 pub mod boot_delays {
     /// Delay after kernel init message.
@@ -118,16 +90,8 @@ pub mod boot_delays {
     pub const BOOT_COMPLETE: i32 = 40;
 }
 
-// =============================================================================
-// Time Constants
-// =============================================================================
-
 /// Milliseconds per second for time formatting.
 pub const MS_PER_SECOND: f64 = 1000.0;
-
-// =============================================================================
-// UI Configuration
-// =============================================================================
 
 /// Icon theme selection.
 ///
@@ -145,10 +109,6 @@ pub enum IconTheme {
 /// Current icon theme used throughout the application.
 /// Change this value to switch icon styles globally.
 pub const ICON_THEME: IconTheme = IconTheme::Bootstrap;
-
-// =============================================================================
-// Bootstrap Source Configuration
-// =============================================================================
 
 use crate::models::BootstrapSiteSource;
 

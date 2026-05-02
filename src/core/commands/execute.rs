@@ -424,10 +424,6 @@ fn execute_explorer(
     )))
 }
 
-// =============================================================================
-// Write / Sync execution arms
-// =============================================================================
-
 /// Resolve an admin + mount preflight for write commands. Returns the write
 /// target mount when the caller may write to `current_route`, or a
 /// `CommandResult` error otherwise.

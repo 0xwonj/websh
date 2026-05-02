@@ -9,10 +9,6 @@
 
 use crate::core::env;
 
-// =============================================================================
-// Token Types
-// =============================================================================
-
 /// Token types produced by the lexer.
 ///
 /// Variable expansion is performed inline by the lexer while building
@@ -38,10 +34,6 @@ enum VariableRead {
     /// Unclosed brace `${...` without closing `}`
     UnclosedBrace(String),
 }
-
-// =============================================================================
-// Lexer
-// =============================================================================
 
 /// Lexer for tokenizing shell input
 pub struct Lexer<'a> {
@@ -365,10 +357,6 @@ impl Iterator for Lexer<'_> {
         }
     }
 }
-
-// =============================================================================
-// Tests
-// =============================================================================
 
 #[cfg(test)]
 mod tests {

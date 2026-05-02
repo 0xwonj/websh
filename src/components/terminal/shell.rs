@@ -18,20 +18,12 @@ use crate::models::{OutputLine, ViewMode, WalletState};
 
 stylance::import_crate_style!(css, "src/components/terminal/shell.module.css");
 
-// ============================================================================
-// Route Context
-// ============================================================================
-
 /// Context for accessing the current route from any component.
 ///
 /// This allows child components (Terminal and Explorer) to access the current
 /// route without prop drilling.
 #[derive(Clone, Copy)]
 pub struct RouteContext(pub Memo<RouteFrame>);
-
-// ============================================================================
-// Effect Setup Functions
-// ============================================================================
 
 /// Auto-scroll output to bottom when history changes.
 fn setup_autoscroll_effect(
@@ -77,10 +69,6 @@ fn setup_wallet_events(ctx: AppContext) {
         });
     });
 }
-
-// ============================================================================
-// Shell Component
-// ============================================================================
 
 /// Shell component managing Terminal/Explorer views.
 ///

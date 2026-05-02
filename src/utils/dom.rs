@@ -57,10 +57,6 @@ pub fn focus_terminal_input() {
     focus_element("input");
 }
 
-// =============================================================================
-// Browser Navigation
-// =============================================================================
-
 /// Get the current URL hash (without the '#' prefix).
 pub fn get_hash() -> String {
     window()

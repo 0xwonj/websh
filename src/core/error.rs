@@ -109,4 +109,3 @@ impl fmt::Display for FetchError {
 }
 
 impl std::error::Error for FetchError {}
-

@@ -64,10 +64,6 @@ use crate::core::engine::{
 use crate::models::VirtualPath;
 use crate::utils::dom::focus_terminal_input;
 
-// ============================================================================
-// Main Router
-// ============================================================================
-
 /// Main application router.
 ///
 /// Sets up hash-based routing with the following structure:

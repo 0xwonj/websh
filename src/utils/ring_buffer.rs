@@ -2,10 +2,6 @@
 
 use std::iter::FusedIterator;
 
-// ============================================================================
-// RingBuffer
-// ============================================================================
-
 /// A fixed-capacity circular buffer with O(1) push operations.
 ///
 /// When the buffer reaches capacity, new elements overwrite the oldest ones.
@@ -125,10 +121,6 @@ impl<T: std::fmt::Debug> std::fmt::Debug for RingBuffer<T> {
     }
 }
 
-// ============================================================================
-// Iterator Implementation
-// ============================================================================
-
 /// An iterator over references to elements in a `RingBuffer`.
 pub struct Iter<'a, T> {
     buffer: &'a RingBuffer<T>,
@@ -176,10 +168,6 @@ impl<'a, T> IntoIterator for &'a RingBuffer<T> {
     }
 }
 
-// ============================================================================
-// IntoIterator for owned iteration
-// ============================================================================
-
 /// An owning iterator over elements in a `RingBuffer`.
 pub struct IntoIter<T> {
     buffer: RingBuffer<T>,
@@ -218,10 +206,6 @@ impl<T> IntoIterator for RingBuffer<T> {
         }
     }
 }
-
-// ============================================================================
-// Tests
-// ============================================================================
 
 #[cfg(test)]
 mod tests {
