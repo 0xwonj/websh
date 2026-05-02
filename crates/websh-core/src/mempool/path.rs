@@ -3,7 +3,7 @@
 
 use std::sync::LazyLock;
 
-use crate::models::VirtualPath;
+use crate::domain::VirtualPath;
 
 use super::categories::LEDGER_CATEGORIES;
 use super::parse::parse_mempool_frontmatter;

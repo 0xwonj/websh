@@ -14,7 +14,7 @@ use std::str::FromStr;
 
 use sha2::{Digest, Sha256};
 
-use crate::models::{
+use crate::domain::{
     EntryExtensions, Fields, MempoolFields, MempoolStatus, NodeKind, NodeMetadata, Priority,
     SCHEMA_VERSION, VirtualPath,
 };

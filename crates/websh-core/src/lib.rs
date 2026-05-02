@@ -9,6 +9,7 @@ pub mod config;
 pub mod content_routes;
 pub mod crypto;
 pub mod domain;
+pub mod mempool;
 pub mod theme;
 pub mod utils;
 

@@ -15,7 +15,7 @@ pub mod crypto {
 }
 
 pub mod core;
-pub mod mempool;
+pub use websh_core::mempool;
 pub mod utils;
 
 #[cfg(not(target_arch = "wasm32"))]

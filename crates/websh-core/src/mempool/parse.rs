@@ -7,7 +7,7 @@
 //! show up, the entry was hand-edited and the user should re-author via
 //! the compose flow.
 
-use crate::models::VirtualPath;
+use crate::domain::VirtualPath;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RawMempoolMeta {
