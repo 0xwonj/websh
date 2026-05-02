@@ -272,7 +272,6 @@ fn execute_cat(file: super::PathArg, fs: &GlobalFs, cwd: &VirtualPath) -> Comman
 fn execute_id(wallet_state: &WalletState) -> CommandResult {
     let mut lines = vec![OutputLine::empty()];
 
-    // User identity
     match wallet_state {
         WalletState::Connected {
             address, ens_name, ..
@@ -296,7 +295,6 @@ fn execute_id(wallet_state: &WalletState) -> CommandResult {
         }
     }
 
-    // Network info
     if let Some(chain_id) = wallet_state.chain_id() {
         lines.push(OutputLine::text(format!(
             "network={}",
@@ -307,13 +305,11 @@ fn execute_id(wallet_state: &WalletState) -> CommandResult {
         lines.push(OutputLine::text("network=none"));
     }
 
-    // Session uptime
     if let Some(uptime) = sysinfo::get_uptime() {
         lines.push(OutputLine::text(format!("uptime={}", uptime)));
     }
 
-    // Browser info
-    if let Some(window) = web_sys::window()
+    if let Some(window) = crate::utils::dom::window()
         && let Ok(ua) = window.navigator().user_agent()
     {
         lines.push(OutputLine::text(format!("user_agent={}", ua)));
