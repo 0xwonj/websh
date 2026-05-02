@@ -31,7 +31,7 @@ The migration is a **breaking change**. No legacy paths, no backwards-compatibil
 
 | Phase | Description | Status |
 |---|---|---|
-| A | Workspace skeleton | pending |
+| A | Workspace skeleton | complete |
 | B | `websh-core` populated | pending |
 | C | `websh-cli` populated + engine extraction | pending |
 | D | `websh-web` populated + UI consolidation | pending |

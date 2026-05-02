@@ -4898,6 +4898,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "websh-cli"
+version = "0.1.0"
+
+[[package]]
+name = "websh-core"
+version = "0.1.0"
+
+[[package]]
+name = "websh-web"
+version = "0.1.0"
+
+[[package]]
 name = "weezl"
 version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -1,7 +1,27 @@
-[package]
-name = "websh"
+[workspace]
+members = ["crates/websh-core", "crates/websh-cli", "crates/websh-web"]
+resolver = "2"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+alloy-primitives = { version = "1", features = ["k256", "serde"] }
+unicode-normalization = "0.1"
+regex = { version = "1", default-features = false, features = ["std", "perf"] }
+thiserror = "2"
+
+[package]
+name = "websh"
+version.workspace = true
+edition.workspace = true
 
 [dependencies]
 leptos = { version = "0.8", features = ["csr"] }
