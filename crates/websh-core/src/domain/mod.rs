@@ -16,7 +16,8 @@ pub use explorer::{ExplorerViewType, Selection, ViewMode};
 pub use filesystem::{DirEntry, DisplayPermissions, EntryExtensions, FileType, FsEntry};
 pub use mempool::{MempoolFields, MempoolStatus, Priority};
 pub use mount::{BootstrapSiteSource, RuntimeBackendKind, RuntimeMount};
-pub use node_metadata::test_support;
+#[cfg(test)]
+pub(crate) use node_metadata::test_support;
 pub use node_metadata::{
     AccessFilter, Fields, ImageDim, NodeKind, NodeMetadata, PageSize, Recipient, RendererKind,
     SCHEMA_VERSION, TrustLevel,

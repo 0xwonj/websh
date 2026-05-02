@@ -315,7 +315,7 @@ pub struct ImageDim {
 /// Builders for minimal `NodeMetadata` fixtures used by sibling tests
 /// across the crate.
 #[allow(dead_code)]
-pub mod test_support {
+pub(crate) mod test_support {
     use super::*;
 
     pub fn blank_meta(kind: NodeKind) -> NodeMetadata {
