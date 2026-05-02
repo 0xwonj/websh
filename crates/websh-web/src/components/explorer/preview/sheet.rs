@@ -8,7 +8,7 @@ use leptos_icons::Icon;
 
 use super::{PreviewBody, PreviewData, PreviewStyles};
 use crate::components::icons as ic;
-use crate::core::engine::{RouteSurface, push_request_path, request_path_for_canonical_path};
+use websh_core::filesystem::{RouteSurface, push_request_path, request_path_for_canonical_path};
 
 stylance::import_crate_style!(css, "src/components/explorer/sheet.module.css");
 stylance::import_crate_style!(md_css, "src/components/explorer/markdown.module.css");

@@ -7,7 +7,7 @@ use leptos::prelude::*;
 
 use crate::app::AppContext;
 use crate::components::shared::{FileMeta, file_meta_for_path};
-use crate::models::{FileType, NodeMetadata, Selection};
+use websh_core::domain::{FileType, NodeMetadata, Selection};
 use crate::utils::{RenderedMarkdown, data_url_for_bytes, media_type_for_path, render_markdown};
 
 /// Fetched content for preview.

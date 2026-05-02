@@ -14,9 +14,9 @@ use crate::components::shared::{
     IdentifierStrip, MetaRow as SharedMetaRow, MetaTable as SharedMetaTable, SiteContentFrame,
     SiteSurface,
 };
-use crate::core::engine::{GlobalFs, RouteFrame};
-use crate::crypto::attestation::AttestationArtifact;
-use crate::models::VirtualPath;
+use websh_core::filesystem::{GlobalFs, RouteFrame};
+use websh_core::attestation::artifact::AttestationArtifact;
+use websh_core::domain::VirtualPath;
 use crate::utils::content_routes::content_href_for_path;
 use crate::utils::render_inline_markdown;
 
@@ -404,8 +404,8 @@ text = "also ignored"
 
     #[test]
     fn recent_items_use_folder_category_metadata_and_content_route() {
-        use crate::core::storage::{ScannedFile, ScannedSubtree};
-        use crate::models::{EntryExtensions, Fields, NodeKind, NodeMetadata, SCHEMA_VERSION};
+        use websh_core::storage::{ScannedFile, ScannedSubtree};
+        use websh_core::domain::{EntryExtensions, Fields, NodeKind, NodeMetadata, SCHEMA_VERSION};
 
         let make_meta = |date: &str, tags: &[&str]| NodeMetadata {
             schema: SCHEMA_VERSION,
@@ -447,8 +447,8 @@ text = "also ignored"
 
     #[test]
     fn toc_counts_visible_content_files_under_each_directory() {
-        use crate::core::storage::{ScannedFile, ScannedSubtree};
-        use crate::models::{EntryExtensions, Fields, NodeKind, NodeMetadata, SCHEMA_VERSION};
+        use websh_core::storage::{ScannedFile, ScannedSubtree};
+        use websh_core::domain::{EntryExtensions, Fields, NodeKind, NodeMetadata, SCHEMA_VERSION};
 
         let blank = || NodeMetadata {
             schema: SCHEMA_VERSION,

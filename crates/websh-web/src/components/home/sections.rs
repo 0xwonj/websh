@@ -10,12 +10,12 @@ use crate::components::chrome::{
 };
 use crate::components::markdown::InlineMarkdownView;
 use crate::components::shared::{AttestationSigFooter, MonoOverflow, MonoTone, MonoValue};
-use crate::config::{APP_NAME, APP_VERSION};
-use crate::crypto::ack::{
+use websh_core::config::{APP_NAME, APP_VERSION};
+use websh_core::crypto::ack::{
     AckArtifact, AckMembershipProof, AckReceipt, normalize_ack_name, public_proof_for_name,
     short_hash, verify_private_receipt,
 };
-use crate::crypto::pgp::{EXPECTED_PGP_FINGERPRINT, pretty_fingerprint};
+use websh_core::crypto::pgp::{EXPECTED_PGP_FINGERPRINT, pretty_fingerprint};
 use crate::utils::breakpoints::{BP_SM, use_min_width};
 use crate::utils::render_inline_markdown;
 

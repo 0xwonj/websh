@@ -1,7 +1,7 @@
 //! Routing helpers for `/ledger` and its category-filter sub-routes.
 //!
 //! `LEDGER_FILTER_ROUTES` is `["ledger", *LEDGER_CATEGORIES]`. Category
-//! values themselves live at `crate::mempool::categories` (canonical home).
+//! values themselves live at `websh_core::mempool::categories` (canonical home).
 
 pub const LEDGER_ROUTE: &str = "ledger";
 pub const LEDGER_FILTER_ROUTES: &[&str] =
@@ -14,7 +14,7 @@ pub fn is_ledger_filter_route_segment(segment: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mempool::LEDGER_CATEGORIES;
+    use websh_core::mempool::LEDGER_CATEGORIES;
 
     #[test]
     fn filter_routes_contain_ledger_then_each_category() {

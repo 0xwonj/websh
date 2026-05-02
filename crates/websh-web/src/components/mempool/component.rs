@@ -4,9 +4,9 @@ use leptos::prelude::*;
 
 use super::model::{LedgerFilterShape, MempoolEntry, MempoolModel};
 use crate::app::AppContext;
-use crate::core::runtime::{self, MountFailure};
-use crate::mempool::mempool_root;
-use crate::models::{MempoolStatus, Priority};
+use websh_core::runtime::{self, MountFailure};
+use websh_core::mempool::mempool_root;
+use websh_core::domain::{MempoolStatus, Priority};
 use crate::utils::content_routes::content_href_for_path;
 
 stylance::import_crate_style!(css, "src/components/mempool/mempool.module.css");

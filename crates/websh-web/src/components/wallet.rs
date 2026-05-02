@@ -5,16 +5,16 @@
 use leptos::prelude::Set;
 
 use crate::app::AppContext;
-use crate::core::runtime::state::EnvironmentError;
-use crate::core::wallet::{
+use websh_core::runtime::state::EnvironmentError;
+use websh_core::runtime::wallet::{
     ConnectOutcome, WalletError, connect, get_chain_id, is_available, resolve_ens, save_session,
 };
-use crate::models::WalletState;
+use websh_core::domain::WalletState;
 
 /// Disconnect the wallet: clear the stored session and reset
 /// `AppContext.wallet` to `Disconnected`.
 pub fn disconnect(ctx: &AppContext) -> Result<(), EnvironmentError> {
-    let snapshot = crate::core::wallet::clear_session()?;
+    let snapshot = websh_core::runtime::wallet::clear_session()?;
     ctx.wallet.set(WalletState::Disconnected);
     ctx.runtime_state.set(snapshot);
     Ok(())

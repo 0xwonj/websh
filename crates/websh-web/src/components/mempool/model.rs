@@ -2,8 +2,8 @@
 
 use std::collections::BTreeMap;
 
-use crate::mempool::{LEDGER_CATEGORIES, category_for_mempool_path};
-use crate::models::{MempoolFields, MempoolStatus, NodeMetadata, Priority, VirtualPath};
+use websh_core::mempool::{LEDGER_CATEGORIES, category_for_mempool_path};
+use websh_core::domain::{MempoolFields, MempoolStatus, NodeMetadata, Priority, VirtualPath};
 use crate::utils::format::{format_size, format_thousands_u32, iso_date_prefix};
 
 const DEFAULT_TITLE_FALLBACK: &str = "untitled";
@@ -168,7 +168,7 @@ fn sort_entries(entries: &mut [MempoolEntry]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{Fields, NodeKind, SCHEMA_VERSION};
+    use websh_core::domain::{Fields, NodeKind, SCHEMA_VERSION};
 
     fn loaded(
         path: &str,

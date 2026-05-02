@@ -24,9 +24,9 @@ use wasm_bindgen_futures::spawn_local;
 
 use crate::app::AppContext;
 use crate::components::mempool::save_raw;
-use crate::core::engine::{RouteFrame, push_request_path, replace_request_path};
-use crate::mempool::{derive_new_path, placeholder_frontmatter};
-use crate::models::VirtualPath;
+use websh_core::filesystem::{RouteFrame, push_request_path, replace_request_path};
+use websh_core::mempool::{derive_new_path, placeholder_frontmatter};
+use websh_core::domain::VirtualPath;
 use crate::utils::content_routes::{attestation_route_for_node_path, content_route_for_path};
 use crate::utils::current_timestamp;
 use crate::utils::format::format_date_iso;

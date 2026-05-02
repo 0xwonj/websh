@@ -5,7 +5,7 @@
 
 use icondata::Icon;
 
-use crate::config::IconTheme;
+use websh_core::config::IconTheme;
 
 mod lucide {
     pub use icondata::{
@@ -37,7 +37,7 @@ mod bootstrap {
 
 macro_rules! themed_icon {
     ($name:ident, $theme_name:ident) => {
-        pub const $name: Icon = match crate::config::ICON_THEME {
+        pub const $name: Icon = match websh_core::config::ICON_THEME {
             IconTheme::Lucide => lucide::$theme_name,
             IconTheme::Bootstrap => bootstrap::$theme_name,
         };

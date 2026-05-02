@@ -9,8 +9,8 @@
 //! boundary at the router (router → ReaderFrame) and the SiteChrome adapter
 //! (ReaderFrame → RouteFrame).
 
-use crate::core::engine::{RenderIntent, RouteFrame, RouteRequest, RouteResolution};
-use crate::models::VirtualPath;
+use websh_core::filesystem::{RenderIntent, RouteFrame, RouteRequest, RouteResolution};
+use websh_core::domain::VirtualPath;
 
 /// Reader-bound subset of [`RenderIntent`]. Constructed by the router; carries
 /// only the variants `Reader` can render.
@@ -152,9 +152,9 @@ mod tests {
             request: RouteRequest::new(request_path),
             resolution: RouteResolution {
                 request_path: request_path.to_string(),
-                surface: crate::core::engine::RouteSurface::Content,
+                surface: websh_core::filesystem::RouteSurface::Content,
                 node_path: VirtualPath::from_absolute(request_path).unwrap(),
-                kind: crate::core::engine::ResolvedKind::Document,
+                kind: websh_core::filesystem::ResolvedKind::Document,
                 params: std::collections::BTreeMap::new(),
             },
             intent,
@@ -258,9 +258,9 @@ mod tests {
             request: RouteRequest::new("/blog"),
             resolution: RouteResolution {
                 request_path: "/blog".to_string(),
-                surface: crate::core::engine::RouteSurface::Content,
+                surface: websh_core::filesystem::RouteSurface::Content,
                 node_path: VirtualPath::from_absolute("/blog").unwrap(),
-                kind: crate::core::engine::ResolvedKind::Directory,
+                kind: websh_core::filesystem::ResolvedKind::Directory,
                 params: std::collections::BTreeMap::new(),
             },
             intent: RenderIntent::DirectoryListing {

@@ -2,7 +2,7 @@
 //!
 //! UI-coupled surface only. Pure mempool logic (parsing, serialization,
 //! form validation, paths, manifest-entry shape) lives in
-//! `crate::mempool::*`.
+//! `websh_core::mempool::*`.
 
 mod commit;
 mod component;

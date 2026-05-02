@@ -56,12 +56,12 @@ impl BuiltinRoute {
     }
 }
 #[cfg(target_arch = "wasm32")]
-use crate::core::engine::FsEngine;
-use crate::core::engine::{
+use websh_core::filesystem::FsEngine;
+use websh_core::filesystem::{
     RenderIntent, ResolvedKind, RouteFrame, RouteRequest, RouteResolution, RouteSurface,
     is_new_request_path,
 };
-use crate::models::VirtualPath;
+use websh_core::domain::VirtualPath;
 use crate::utils::dom::focus_terminal_input;
 
 /// Main application router.

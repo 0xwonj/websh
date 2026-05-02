@@ -8,7 +8,7 @@
 //! page seeds the textarea with on `/new`.
 
 use crate::components::ledger_routes::LEDGER_CATEGORIES;
-use crate::models::VirtualPath;
+use websh_core::domain::VirtualPath;
 
 use super::parse::parse_mempool_frontmatter;
 use super::serialize::slug_from_title;

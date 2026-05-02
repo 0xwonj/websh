@@ -3,7 +3,7 @@
 use leptos::prelude::*;
 
 use crate::components::reader::css;
-use crate::models::PageSize;
+use websh_core::domain::PageSize;
 
 #[component]
 pub fn PdfReaderView(

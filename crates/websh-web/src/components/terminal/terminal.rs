@@ -6,11 +6,12 @@ use leptos::prelude::*;
 
 use crate::app::AppContext;
 use crate::components::terminal::{Input, Output, RouteContext};
-use crate::core::engine::route_cwd;
-use crate::core::{
-    SideEffect, autocomplete, execute_pipeline, get_hint, parse_input, runtime,
+use websh_core::filesystem::route_cwd;
+use websh_core::runtime;
+use websh_core::shell::{
+    SideEffect, autocomplete, execute_pipeline, get_hint, parse_input,
 };
-use crate::models::OutputLine;
+use websh_core::domain::OutputLine;
 use crate::utils::dom::focus_terminal_input;
 
 stylance::import_crate_style!(css, "src/components/terminal/terminal.module.css");
@@ -35,7 +36,7 @@ fn handle_login(ctx: AppContext) {
                 if let Some(id) = outcome.chain_id {
                     ctx.terminal.push_output(OutputLine::info(format!(
                         "Network: {} (chain_id={})",
-                        crate::models::chain_name(id),
+                        websh_core::domain::chain_name(id),
                         id
                     )));
                 }
@@ -174,7 +175,7 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
             Ok(theme_id) => {
                 ctx.theme.set(theme_id);
                 ctx.runtime_state
-                    .set(crate::core::runtime::state::snapshot());
+                    .set(websh_core::runtime::state::snapshot());
             }
             Err(error) => ctx.terminal.push_output(OutputLine::error(error)),
         },
@@ -197,14 +198,14 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
             ctx.changes.update(|cs| cs.unstage_all());
         }
         SideEffect::SetAuthToken { token } => {
-            match crate::core::runtime::state::set_github_token(&token) {
+            match websh_core::runtime::state::set_github_token(&token) {
                 Ok(snapshot) => ctx.runtime_state.set(snapshot),
                 Err(error) => ctx.terminal.push_output(OutputLine::error(format!(
                     "sync auth: failed to persist token: {error}"
                 ))),
             }
         }
-        SideEffect::ClearAuthToken => match crate::core::runtime::state::clear_github_token() {
+        SideEffect::ClearAuthToken => match websh_core::runtime::state::clear_github_token() {
             Ok(snapshot) => ctx.runtime_state.set(snapshot),
             Err(error) => ctx.terminal.push_output(OutputLine::error(format!(
                 "sync auth: failed to clear token: {error}"
@@ -212,7 +213,7 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
         },
         SideEffect::InvalidateRuntimeState => {
             ctx.runtime_state
-                .set(crate::core::runtime::state::snapshot());
+                .set(websh_core::runtime::state::snapshot());
         }
         SideEffect::OpenEditor { path } => {
             ctx.editor_open.set(Some(path));
@@ -223,7 +224,7 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
         } => {
             let Some(backend) = ctx.backend_for_mount_root(&mount_root) else {
                 ctx.terminal
-                    .push_output(crate::models::OutputLine::error(format!(
+                    .push_output(websh_core::domain::OutputLine::error(format!(
                         "sync: no backend registered at mount root {}",
                         mount_root.as_str()
                     )));
@@ -258,8 +259,8 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
                             .map(|mount| mount.storage_id())
                             .unwrap_or_else(|| mount_id_for_root(&mount_root_for_commit));
                         let head_val = outcome.new_head.clone();
-                        if let Ok(db) = crate::core::storage::idb::open_db().await {
-                            let _ = crate::core::storage::idb::save_metadata(
+                        if let Ok(db) = websh_core::storage::idb::open_db().await {
+                            let _ = websh_core::storage::idb::save_metadata(
                                 &db,
                                 &format!("remote_head.{mount_storage_id}"),
                                 &head_val,
@@ -271,7 +272,7 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
                             Ok(load) => {
                                 app_ctx.apply_runtime_load(load);
                             }
-                            Err(error) => terminal.push_output(crate::models::OutputLine::info(
+                            Err(error) => terminal.push_output(websh_core::domain::OutputLine::info(
                                 format!("sync: commit ok, runtime reload failed: {error}"),
                             )),
                         }
@@ -283,7 +284,7 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
                             }
                         });
 
-                        terminal.push_output(crate::models::OutputLine::info(format!(
+                        terminal.push_output(websh_core::domain::OutputLine::info(format!(
                             "sync: committed {} files (HEAD now {}).",
                             outcome.committed_paths.len(),
                             &outcome.new_head[..outcome.new_head.len().min(8)]
@@ -291,7 +292,7 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
                     }
                     Err(e) => {
                         terminal
-                            .push_output(crate::models::OutputLine::error(format!("sync: {e}")));
+                            .push_output(websh_core::domain::OutputLine::error(format!("sync: {e}")));
                     }
                 }
             });
@@ -303,11 +304,11 @@ pub fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
                 match runtime::reload_runtime().await {
                     Ok(load) => {
                         app_ctx.apply_runtime_load(load);
-                        terminal.push_output(crate::models::OutputLine::info(
+                        terminal.push_output(websh_core::domain::OutputLine::info(
                             "sync: runtime reloaded.".to_string(),
                         ));
                     }
-                    Err(error) => terminal.push_output(crate::models::OutputLine::error(format!(
+                    Err(error) => terminal.push_output(websh_core::domain::OutputLine::error(format!(
                         "sync refresh: {error}"
                     ))),
                 }
@@ -338,7 +339,7 @@ fn is_sync_auth_set(input: &str) -> bool {
     )
 }
 
-fn mount_id_for_root(root: &crate::models::VirtualPath) -> String {
+fn mount_id_for_root(root: &websh_core::domain::VirtualPath) -> String {
     if root.is_root() {
         "~".to_string()
     } else {
@@ -355,7 +356,7 @@ fn create_history_nav_callback(ctx: AppContext) -> Callback<i32, Option<String>>
 fn create_autocomplete_callback(
     ctx: AppContext,
     route_ctx: RouteContext,
-) -> Callback<String, crate::core::AutocompleteResult> {
+) -> Callback<String, websh_core::shell::AutocompleteResult> {
     Callback::new(move |input: String| {
         let cwd = route_cwd(&route_ctx.0.get());
         ctx.view_global_fs

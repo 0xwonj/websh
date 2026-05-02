@@ -6,9 +6,9 @@ use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
 use crate::app::AppContext;
-use crate::config::{APP_NAME, APP_TAGLINE, APP_VERSION, ASCII_BANNER, boot_delays};
-use crate::core::{env, runtime, wallet};
-use crate::models::{OutputLine, ViewMode, WalletState};
+use websh_core::config::{APP_NAME, APP_TAGLINE, APP_VERSION, ASCII_BANNER, boot_delays};
+use websh_core::runtime::{self, env, wallet};
+use websh_core::domain::{OutputLine, ViewMode, WalletState};
 use crate::utils::format::{format_elapsed, format_eth_address};
 
 /// Delay helper using setTimeout
@@ -103,7 +103,7 @@ pub fn run(ctx: AppContext) {
                         ctx.terminal.push_output(OutputLine::info(format!(
                             "{} Network: {} (chain_id={})",
                             format_elapsed(elapsed()),
-                            crate::models::chain_name(id),
+                            websh_core::domain::chain_name(id),
                             id
                         )));
                     }

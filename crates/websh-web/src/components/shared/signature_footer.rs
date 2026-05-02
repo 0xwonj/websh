@@ -2,8 +2,8 @@ use leptos::ev;
 use leptos::prelude::*;
 
 use crate::components::shared::{MonoOverflow, MonoTone, MonoValue};
-use crate::crypto::attestation::{Attestation, AttestationArtifact, Subject};
-use crate::crypto::pgp::pretty_fingerprint;
+use websh_core::attestation::artifact::{Attestation, AttestationArtifact, Subject};
+use websh_core::crypto::pgp::pretty_fingerprint;
 
 stylance::import_crate_style!(css, "src/components/shared/signature_footer.module.css");
 

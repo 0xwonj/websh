@@ -12,13 +12,13 @@
 use leptos::prelude::*;
 
 use crate::app::AppContext;
-use crate::core::changes::{ChangeSet, ChangeType};
-use crate::core::runtime::commit_backend;
-use crate::core::runtime::state::github_token_for_commit;
-use crate::core::storage::CommitOutcome;
-use crate::mempool::manifest_entry::{MempoolManifestState, build_mempool_manifest_state};
-use crate::mempool::path::mempool_root;
-use crate::models::{RuntimeMount, VirtualPath};
+use websh_core::domain::changes::{ChangeSet, ChangeType};
+use websh_core::runtime::commit_backend;
+use websh_core::runtime::state::github_token_for_commit;
+use websh_core::storage::CommitOutcome;
+use websh_core::mempool::manifest_entry::{MempoolManifestState, build_mempool_manifest_state};
+use websh_core::mempool::path::mempool_root;
+use websh_core::domain::{RuntimeMount, VirtualPath};
 
 /// Save raw markdown bytes (frontmatter included) to the mempool repo.
 ///
@@ -86,7 +86,7 @@ pub async fn save_raw(
     .map_err(|err| err.to_string())?;
     apply_commit_outcome(&ctx, root, &outcome).await;
 
-    match crate::core::runtime::reload_runtime().await {
+    match websh_core::runtime::reload_runtime().await {
         Ok(load) => ctx.apply_runtime_load(load),
         Err(error) => {
             leptos::logging::warn!("mempool: runtime reload after save failed: {error}")
@@ -115,8 +115,8 @@ async fn apply_commit_outcome(ctx: &AppContext, mount_root: &VirtualPath, outcom
         })
         .unwrap_or_else(|| mount_id_fallback(mount_root));
 
-    if let Ok(db) = crate::core::storage::idb::open_db().await
-        && let Err(error) = crate::core::storage::idb::save_metadata(
+    if let Ok(db) = websh_core::storage::idb::open_db().await
+        && let Err(error) = websh_core::storage::idb::save_metadata(
             &db,
             &format!("remote_head.{storage_id}"),
             &outcome.new_head,

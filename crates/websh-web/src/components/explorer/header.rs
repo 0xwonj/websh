@@ -8,8 +8,8 @@ use leptos_icons::Icon;
 use crate::app::AppContext;
 use crate::components::icons as ic;
 use crate::components::terminal::RouteContext;
-use crate::core::engine::push_request_path;
-use crate::models::ExplorerViewType;
+use websh_core::filesystem::push_request_path;
+use websh_core::domain::ExplorerViewType;
 
 stylance::import_crate_style!(css, "src/components/explorer/header.module.css");
 

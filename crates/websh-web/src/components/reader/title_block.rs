@@ -13,7 +13,7 @@
 use leptos::prelude::*;
 
 use crate::components::shared::{IdentifierStrip, MetaRow, MetaTable};
-use crate::models::NodeKind;
+use websh_core::domain::NodeKind;
 use crate::utils::format::format_date_compact;
 
 use super::css;
@@ -231,7 +231,7 @@ fn render_row(spec: RowSpec) -> AnyView {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::VirtualPath;
+    use websh_core::domain::VirtualPath;
 
     fn vp(path: &str) -> VirtualPath {
         VirtualPath::from_absolute(path).expect("test path")
@@ -247,7 +247,7 @@ mod tests {
             tags: vec![],
             description: String::new(),
             media_type_hint: Some("UTF-8 · CommonMark"),
-            kind: crate::models::NodeKind::Page,
+            kind: websh_core::domain::NodeKind::Page,
             page_size: None,
             page_count: None,
             image_dimensions: None,

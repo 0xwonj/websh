@@ -10,11 +10,11 @@ use super::terminal::Terminal;
 use crate::app::AppContext;
 use crate::components::chrome::SiteChrome;
 use crate::components::explorer::Explorer;
-use crate::core::engine::{
+use websh_core::filesystem::{
     RenderIntent, RouteFrame, RouteSurface, request_path_for_canonical_path, route_cwd,
 };
-use crate::core::wallet;
-use crate::models::{OutputLine, ViewMode, WalletState};
+use websh_core::runtime::wallet;
+use websh_core::domain::{OutputLine, ViewMode, WalletState};
 
 stylance::import_crate_style!(css, "src/components/terminal/shell.module.css");
 
@@ -97,7 +97,7 @@ pub fn Shell(route: Memo<RouteFrame>) -> impl IntoView {
                 let canonical =
                     request_path_for_canonical_path(&route_cwd(&frame), RouteSurface::Shell);
                 if frame.request.url_path != canonical {
-                    crate::core::engine::RouteRequest::new(canonical).replace();
+                    websh_core::filesystem::RouteRequest::new(canonical).replace();
                 }
                 ctx.view_mode.set(ViewMode::Terminal);
             }

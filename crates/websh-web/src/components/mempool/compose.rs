@@ -16,11 +16,11 @@ use leptos::prelude::*;
 
 use crate::app::AppContext;
 use crate::components::ledger_routes::LEDGER_CATEGORIES;
-use crate::core::changes::{ChangeSet, ChangeType};
-use crate::core::runtime::commit_backend;
-use crate::core::runtime::state::github_token_for_commit;
-use crate::core::storage::CommitOutcome;
-use crate::models::{FileMetadata, RuntimeMount, VirtualPath};
+use websh_core::domain::changes::{ChangeSet, ChangeType};
+use websh_core::runtime::commit_backend;
+use websh_core::runtime::state::github_token_for_commit;
+use websh_core::storage::CommitOutcome;
+use websh_core::domain::{FileMetadata, RuntimeMount, VirtualPath};
 use crate::utils::format::iso_date_prefix;
 
 use super::loader::mempool_root;
@@ -303,7 +303,7 @@ pub async fn save_compose(
     // tree it had before the commit and the new entry never appears.
     // Best-effort: a reload failure logs but does not poison the
     // already-successful commit.
-    match crate::core::runtime::reload_runtime().await {
+    match websh_core::runtime::reload_runtime().await {
         Ok(load) => ctx.apply_runtime_load(load),
         Err(error) => {
             leptos::logging::warn!("compose: runtime reload after commit failed: {error}")
@@ -380,7 +380,7 @@ pub async fn save_raw(
     .map_err(|err| err.to_string())?;
     apply_commit_outcome(&ctx, &root, &outcome).await;
 
-    match crate::core::runtime::reload_runtime().await {
+    match websh_core::runtime::reload_runtime().await {
         Ok(load) => ctx.apply_runtime_load(load),
         Err(error) => {
             leptos::logging::warn!("compose: runtime reload after raw save failed: {error}")
@@ -417,8 +417,8 @@ pub(super) async fn apply_commit_outcome(
         })
         .unwrap_or_else(|| mount_id_fallback(mount_root));
 
-    if let Ok(db) = crate::core::storage::idb::open_db().await
-        && let Err(error) = crate::core::storage::idb::save_metadata(
+    if let Ok(db) = websh_core::storage::idb::open_db().await
+        && let Err(error) = websh_core::storage::idb::save_metadata(
             &db,
             &format!("remote_head.{storage_id}"),
             &outcome.new_head,

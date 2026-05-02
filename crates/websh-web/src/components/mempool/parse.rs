@@ -1,6 +1,6 @@
 //! Frontmatter parsing and auto-derivation helpers for mempool entries.
 
-use crate::models::VirtualPath;
+use websh_core::domain::VirtualPath;
 use crate::utils::format::format_size;
 
 use super::model::{MempoolStatus, Priority};
@@ -308,7 +308,7 @@ mod tests {
 
     #[test]
     fn category_for_path_uses_first_segment_under_mempool() {
-        use crate::models::VirtualPath;
+        use websh_core::domain::VirtualPath;
         let path = VirtualPath::from_absolute("/mempool/writing/foo.md").unwrap();
         let mempool_root = VirtualPath::from_absolute("/mempool").unwrap();
         assert_eq!(category_for_mempool_path(&path, &mempool_root), "writing");
@@ -316,7 +316,7 @@ mod tests {
 
     #[test]
     fn category_for_path_handles_root_level_files() {
-        use crate::models::VirtualPath;
+        use websh_core::domain::VirtualPath;
         let path = VirtualPath::from_absolute("/mempool/loose.md").unwrap();
         let mempool_root = VirtualPath::from_absolute("/mempool").unwrap();
         assert_eq!(category_for_mempool_path(&path, &mempool_root), "misc");
@@ -324,7 +324,7 @@ mod tests {
 
     #[test]
     fn category_for_path_handles_nested_paths() {
-        use crate::models::VirtualPath;
+        use websh_core::domain::VirtualPath;
         let path = VirtualPath::from_absolute("/mempool/papers/series/foo.md").unwrap();
         let mempool_root = VirtualPath::from_absolute("/mempool").unwrap();
         assert_eq!(category_for_mempool_path(&path, &mempool_root), "papers");

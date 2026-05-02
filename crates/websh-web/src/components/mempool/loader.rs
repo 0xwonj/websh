@@ -3,9 +3,9 @@
 use leptos::prelude::With;
 
 use crate::app::AppContext;
-use crate::core::engine::GlobalFs;
-use crate::mempool::mempool_root;
-use crate::models::{FsEntry, VirtualPath};
+use websh_core::filesystem::GlobalFs;
+use websh_core::mempool::mempool_root;
+use websh_core::domain::{FsEntry, VirtualPath};
 
 use super::model::LoadedMempoolFile;
 

@@ -8,8 +8,8 @@ use leptos_icons::Icon;
 
 use crate::components::icons as ic;
 use crate::components::terminal::RouteContext;
-use crate::core::engine::{RouteRequest, RouteSurface, request_path_for_canonical_path};
-use crate::models::VirtualPath;
+use websh_core::filesystem::{RouteRequest, RouteSurface, request_path_for_canonical_path};
+use websh_core::domain::VirtualPath;
 
 stylance::import_crate_style!(css, "src/components/breadcrumb.module.css");
 

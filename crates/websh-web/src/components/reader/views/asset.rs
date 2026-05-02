@@ -10,7 +10,7 @@
 use leptos::prelude::*;
 
 use crate::components::reader::css;
-use crate::models::ImageDim;
+use websh_core::domain::ImageDim;
 
 #[component]
 pub fn AssetReaderView(url: String, alt: String, dimensions: Option<ImageDim>) -> impl IntoView {

@@ -14,7 +14,7 @@ use leptos::prelude::*;
 
 use crate::components::chrome::SiteChrome;
 use crate::components::shared::AttestationSigFooter;
-use crate::core::engine::RouteFrame;
+use websh_core::filesystem::RouteFrame;
 
 use super::ReaderMode;
 use super::css;

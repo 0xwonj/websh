@@ -10,7 +10,7 @@
 use leptos::prelude::*;
 
 use crate::app::AppContext;
-use crate::models::{FsEntry, ImageDim, NodeKind, PageSize, VirtualPath};
+use websh_core::domain::{FsEntry, ImageDim, NodeKind, PageSize, VirtualPath};
 use crate::utils::format::{format_thousands_u32, reading_time_minutes};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

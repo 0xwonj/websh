@@ -14,11 +14,11 @@
 use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
-use crate::models::EntryExtensions;
+use websh_core::domain::EntryExtensions;
 
 use crate::app::AppContext;
-use crate::core::SideEffect;
-use crate::core::changes::ChangeType;
+use websh_core::shell::SideEffect;
+use websh_core::domain::changes::ChangeType;
 
 stylance::import_crate_style!(css, "src/components/editor/modal.module.css");
 

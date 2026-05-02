@@ -12,12 +12,12 @@ use leptos_icons::Icon;
 use crate::app::AppContext;
 use crate::components::icons as ic;
 use crate::components::terminal::RouteContext;
-use crate::core::DirEntry;
-use crate::core::admin::can_write_to;
-use crate::core::engine::{
+use websh_core::domain::DirEntry;
+use websh_core::admin::can_write_to;
+use websh_core::filesystem::{
     RouteSurface, push_request_path, request_path_for_canonical_path, route_cwd,
 };
-use crate::models::{DisplayPermissions, FileType};
+use websh_core::domain::{DisplayPermissions, FileType};
 use crate::utils::format::{format_date_iso, format_size};
 
 stylance::import_crate_style!(css, "src/components/explorer/file_list.module.css");

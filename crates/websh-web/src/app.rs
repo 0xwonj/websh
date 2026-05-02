@@ -11,14 +11,14 @@ use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
 use crate::components::RouterView;
-use crate::config::{APP_NAME, MAX_COMMAND_HISTORY, MAX_TERMINAL_HISTORY};
-use crate::core::changes::ChangeSet;
-use crate::core::engine::{FetchError, GlobalFs, display_path_for};
-use crate::core::runtime;
-use crate::core::runtime::RuntimeStateSnapshot;
-use crate::core::storage::StorageBackend;
-use crate::core::storage::persist::{DraftPersister, GLOBAL_DRAFT_ID};
-use crate::models::{
+use websh_core::config::{APP_NAME, MAX_COMMAND_HISTORY, MAX_TERMINAL_HISTORY};
+use websh_core::domain::changes::ChangeSet;
+use websh_core::filesystem::{FetchError, GlobalFs, display_path_for};
+use websh_core::runtime;
+use websh_core::runtime::RuntimeStateSnapshot;
+use websh_core::storage::StorageBackend;
+use websh_core::storage::persist::{DraftPersister, GLOBAL_DRAFT_ID};
+use websh_core::domain::{
     ExplorerViewType, OutputLine, RuntimeMount, Selection, ViewMode, VirtualPath, WalletState,
 };
 use crate::utils::RingBuffer;
@@ -259,7 +259,7 @@ pub struct AppContext {
     pub mount_errors: RwSignal<Vec<runtime::MountFailure>>,
 
     /// When `Some(path)`, the `EditModal` is open editing that path. `None` = closed.
-    pub editor_open: RwSignal<Option<crate::models::VirtualPath>>,
+    pub editor_open: RwSignal<Option<websh_core::domain::VirtualPath>>,
 }
 
 impl AppContext {
@@ -272,11 +272,11 @@ impl AppContext {
     /// - Filesystem: Empty
     /// - View: Terminal mode
     pub fn new() -> Self {
-        let initial_load = crate::core::runtime::bootstrap_runtime_load();
+        let initial_load = websh_core::runtime::bootstrap_runtime_load();
         let global_fs = RwSignal::new(initial_load.global_fs);
         let changes = RwSignal::new(ChangeSet::new());
         let wallet = RwSignal::new(WalletState::default());
-        let runtime_state = RwSignal::new(crate::core::runtime::state::snapshot());
+        let runtime_state = RwSignal::new(websh_core::runtime::state::snapshot());
         let view_global_fs = Signal::derive_local(move || {
             Rc::new(global_fs.with(|base| {
                 changes.with(|cs| {
@@ -372,13 +372,13 @@ impl AppContext {
     pub async fn read_text(&self, path: &VirtualPath) -> Result<String, FetchError> {
         let fs = self.view_global_fs.get();
         let backends = self.backends.with_value(|map| map.clone());
-        crate::core::engine::read_text(&fs, &backends, path).await
+        websh_core::filesystem::read_text(&fs, &backends, path).await
     }
 
     pub async fn read_bytes(&self, path: &VirtualPath) -> Result<Vec<u8>, FetchError> {
         let fs = self.view_global_fs.get();
         let backends = self.backends.with_value(|map| map.clone());
-        crate::core::engine::read_bytes(&fs, &backends, path).await
+        websh_core::filesystem::read_bytes(&fs, &backends, path).await
     }
 
     pub fn runtime_mount_for_path(&self, path: &VirtualPath) -> Option<RuntimeMount> {
@@ -445,13 +445,13 @@ pub fn App() -> impl IntoView {
     Effect::new(move |_| {
         let theme = theme_signal.get();
         if crate::utils::theme::apply_theme(theme).is_ok() {
-            runtime_state_signal.set(crate::core::runtime::state::snapshot());
+            runtime_state_signal.set(websh_core::runtime::state::snapshot());
         }
     });
 
     let changes_signal = ctx.changes;
     spawn_local(async move {
-        match crate::core::storage::boot::hydrate_drafts(GLOBAL_DRAFT_ID).await {
+        match websh_core::storage::boot::hydrate_drafts(GLOBAL_DRAFT_ID).await {
             Ok(cs) if !cs.is_empty() => changes_signal.set(cs),
             Ok(_) => {}
             Err(e) => web_sys::console::error_1(&format!("hydrate drafts: {e}").into()),

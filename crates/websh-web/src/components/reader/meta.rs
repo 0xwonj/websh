@@ -5,7 +5,7 @@
 
 use crate::app::AppContext;
 use crate::components::shared::{FileMeta, file_meta_for_path, size_summary_parts};
-use crate::models::{ImageDim, NodeKind, PageSize, VirtualPath};
+use websh_core::domain::{ImageDim, NodeKind, PageSize, VirtualPath};
 use crate::utils::format::{format_date_iso, format_size};
 
 use super::intent::ReaderIntent;

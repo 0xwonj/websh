@@ -167,7 +167,7 @@ pub fn apply_theme(id: &str) -> Result<&'static str, String> {
 
         // Persist via the runtime env adapter so `user.THEME` mirrors here,
         // `/.websh/state/env/THEME`, and `$THEME` stay in sync from one write.
-        let _ = crate::core::runtime::state::set_env_var("THEME", theme_id);
+        let _ = websh_core::runtime::state::set_env_var("THEME", theme_id);
     }
 
     Ok(theme_id)

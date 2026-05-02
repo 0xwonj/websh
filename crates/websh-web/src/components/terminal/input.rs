@@ -5,7 +5,7 @@ use leptos::{ev, prelude::*};
 use wasm_bindgen::JsCast;
 
 use super::hooks::{HintState, TabCycleState};
-use crate::core::AutocompleteResult;
+use websh_core::shell::AutocompleteResult;
 
 stylance::import_crate_style!(css, "src/components/terminal/input.module.css");
 

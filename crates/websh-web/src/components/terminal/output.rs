@@ -1,5 +1,5 @@
 use crate::components::icons as ic;
-use crate::models::{ListFormat, OutputLine, OutputLineData, TextStyle};
+use websh_core::domain::{ListFormat, OutputLine, OutputLineData, TextStyle};
 use crate::utils::format::{format_date_short, format_size};
 use leptos::prelude::*;
 use leptos_icons::Icon;

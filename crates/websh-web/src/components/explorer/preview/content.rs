@@ -10,8 +10,8 @@ use super::{DirMeta, PreviewContent, PreviewData};
 use crate::components::icons as ic;
 use crate::components::markdown::MarkdownView;
 use crate::components::shared::{FileMeta, FileMetaStrip};
-use crate::core::engine::{RouteSurface, push_request_path, request_path_for_canonical_path};
-use crate::models::{FileType, Selection};
+use websh_core::filesystem::{RouteSurface, push_request_path, request_path_for_canonical_path};
+use websh_core::domain::{FileType, Selection};
 use crate::utils::format::format_size;
 
 /// CSS class names for preview components.
