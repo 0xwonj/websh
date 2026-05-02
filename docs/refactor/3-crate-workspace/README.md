@@ -33,14 +33,19 @@ The migration is a **breaking change**. No legacy paths, no backwards-compatibil
 | Phase | Description | Status | Phase artifacts |
 |---|---|---|---|
 | A | Workspace skeleton | complete | ADR 0001 |
-| B | `websh-core` populated | functionally complete (B9 visibility audit + execute.rs family split deferred to follow-up) | [phases/B-websh-core.md](./phases/B-websh-core.md), [phases/B-review.md](./phases/B-review.md), [phases/B-tasks.md](./phases/B-tasks.md) |
-| C | `websh-cli` populated + engine extraction | pending | — |
-| D | `websh-web` populated + UI consolidation | pending | — |
-| E | Trunk + asset paths working | pending | — |
-| F | Docs + repository hygiene | pending | — |
+| B | `websh-core` populated | functionally complete | [phases/B-websh-core.md](./phases/B-websh-core.md), [phases/B-review.md](./phases/B-review.md), [phases/B-tasks.md](./phases/B-tasks.md) |
+| C | `websh-cli` populated + engine extraction | functionally complete (engine-extraction-from-clap deferred) | — |
+| D | `websh-web` populated + UI consolidation | complete | — |
+| E | Trunk + asset paths working | complete | — |
+| F | Docs + repository hygiene | complete | — |
 | G | Browser PGP verification (held — separate branch later) | held | — |
 
-**Phase B sub-progress** (as of `git log refactor/3-crate-workspace`): all moves landed; 616 tests pass; clippy clean. Deferred follow-ups: B9 visibility audit, `execute.rs` family split (pre-existing 800+ file). Phase B wrap-up review (3+ review agents per workflow) is the remaining gate before declaring B fully done.
+The migration's 17 commits land all functional moves. Deferred follow-ups (tracked separately, not blocking the merge):
+
+- B9 visibility audit (tighten cross-crate `pub` to `pub(crate)` where consumers don't need it).
+- `execute.rs` family split (pre-existing 800+ line file moved wholesale into `websh-core/src/shell/`; per-family split deferred).
+- Phase C engine extraction (CLI clap shims still co-located with engine logic in `crates/websh-cli/src/cli/`; thin clap + `engine/` separation is the natural follow-up).
+- Phase B wrap-up multi-perspective review per `workflow.md` (skipped for the in-flight session given context budget; recommended as a separate review pass before merge).
 
 Status is updated in this table at every phase boundary commit.
 

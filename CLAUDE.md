@@ -2,9 +2,13 @@
 
 This file provides guidance to Claude Code when working with this repository.
 
-## In-flight migration: 3-crate workspace
+## Workspace layout
 
-The branch `refactor/3-crate-workspace` is migrating this repo from a single crate to a Cargo workspace. If you are working on that branch, read `docs/refactor/3-crate-workspace/README.md` first — it is the entry point for the migration's architecture, workflow, conventions, and decision log. Migration-specific rules override the conventions in this file for migration commits only.
+Three crates under `crates/`:
+
+- `websh-core` — pure-Rust shared library. Domain types, engines, and the storage hexagonal port. Compiles for both `wasm32-unknown-unknown` and the host triple.
+- `websh-cli` — native build-time binary. Clap dispatchers + engine modules for content sync, attestation building, mempool subcommands.
+- `websh-web` — Leptos UI compiled to wasm32-unknown-unknown. Trunk's target.
 
 ## Build Commands
 
@@ -15,11 +19,19 @@ trunk serve
 # Production build
 trunk build --release
 
-# Rust tests
-cargo test
+# All Rust tests across the workspace
+cargo test --workspace
 
-# Mock commit integration
-cargo test --features mock --test commit_integration
+# Mock commit integration (websh-core + mock feature)
+cargo test -p websh-core --features mock --test commit_integration
+
+# Native CLI
+cargo run -p websh-cli -- <subcommand> [args...]
+
+# Per-crate target compile checks
+cargo check -p websh-core
+cargo check -p websh-core --target wasm32-unknown-unknown
+cargo check -p websh-web --target wasm32-unknown-unknown
 
 # Browser QA after starting release Trunk on 4173
 WEBSH_E2E_BASE_URL=http://127.0.0.1:4173 NODE_PATH=target/qa/node_modules target/qa/node_modules/.bin/playwright test tests/e2e --reporter=line --workers=1
@@ -49,15 +61,29 @@ The UI should render engine output. It should not assemble filesystems or resolv
 
 ## Module Structure
 
-- `src/app.rs`: root component, `AppContext`, terminal/explorer state.
-- `src/core/engine/`: canonical filesystem, routing, content reads, render intents.
-- `src/core/runtime/`: runtime assembly, runtime state projection, commit coordination.
-- `src/core/storage/`: backend-neutral storage trait plus GitHub/IDB implementations.
-- `src/core/commands/`: parsing and pure command execution.
-- `src/components/`: Leptos UI components.
-- `src/models/`: shared data structures.
-- `src/utils/`: DOM, fetch, markdown/HTML sanitization, URL validation, formatting.
-- `src/config.rs`: bootstrap source and app constants.
+`websh-core` (cross-target shared library):
+
+- `crates/websh-core/src/domain/`: pure data types (filesystem, manifest, mempool, changes, virtual_path, etc.).
+- `crates/websh-core/src/filesystem/`: canonical filesystem engine, routing, content reads, render intents, change-merge.
+- `crates/websh-core/src/runtime/`: runtime assembly, state projection, commit coordination, env/wallet adapters.
+- `crates/websh-core/src/storage/`: `StorageBackend` trait + GitHub/IDB/persist/mock adapters (cfg-gated to wasm32 where applicable).
+- `crates/websh-core/src/shell/`: command parser + executor (shell ran in the browser via the terminal UI).
+- `crates/websh-core/src/mempool/`: pure mempool helpers (parse, serialize, form, manifest_entry).
+- `crates/websh-core/src/attestation/`: artifact, ledger, subject (verification surface).
+- `crates/websh-core/src/crypto/`: ack, eth, pgp primitives.
+- `crates/websh-core/src/utils/`: format, time, ring_buffer, asset, dom, fetch, sysinfo, url.
+- `crates/websh-core/src/{config,theme,content_routes,admin,error}.rs`: top-level shared constants and helpers.
+
+`websh-cli` (native build-time binary):
+
+- `crates/websh-cli/src/cli/`: clap dispatchers + engine logic for `attest`, `content`, `mempool`, `mount`, `ledger`, `crypto`, `pgp`, `ack`, `deploy`. (Engine extraction from clap shims is tracked as a follow-up.)
+
+`websh-web` (Leptos cdylib):
+
+- `crates/websh-web/src/app.rs`: root component, `AppContext`, terminal/explorer state.
+- `crates/websh-web/src/components/`: Leptos UI components.
+- `crates/websh-web/src/utils/`: DOM utilities, breakpoints (leptos-use), markdown rendering (comrak/ammonia), wasm_cleanup, theme application, fetch.
+- `crates/websh-web/src/main.rs`: trunk's wasm entrypoint.
 
 ## State Model
 
