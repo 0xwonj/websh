@@ -5,14 +5,30 @@
 
 use js_sys::{Array, Function, Object, Promise, Reflect};
 use serde::Deserialize;
+use thiserror::Error;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use wasm_bindgen::prelude::Closure;
 use wasm_bindgen_futures::JsFuture;
 
 use crate::config::WALLET_TIMEOUT_MS;
-use crate::error::{EnvironmentError, WalletError};
+use crate::runtime::state::EnvironmentError;
 use crate::utils::{RaceResult, dom, fetch_json, race_with_timeout};
+
+/// Wallet-related errors for EIP-1193 integration.
+#[derive(Debug, Clone, Error)]
+pub enum WalletError {
+    #[error("browser window not available")]
+    NoWindow,
+    #[error("no wallet provider detected; install a browser wallet extension")]
+    NotInstalled,
+    #[error("failed to create wallet request")]
+    RequestCreationFailed,
+    #[error("wallet request rejected: {0}")]
+    RequestRejected(String),
+    #[error("no account returned from wallet")]
+    NoAccount,
+}
 
 /// Get the `window.ethereum` object injected by an EIP-1193 wallet.
 fn get_ethereum() -> Result<Object, WalletError> {
@@ -59,25 +75,6 @@ pub async fn get_chain_id() -> Option<u64> {
     let result = ethereum_request("eth_chainId").await.ok()?;
     let hex_str = result.as_string()?;
     u64::from_str_radix(hex_str.trim_start_matches("0x"), 16).ok()
-}
-
-/// Convert chain ID to network name
-pub fn chain_name(chain_id: u64) -> &'static str {
-    match chain_id {
-        1 => "Ethereum",
-        11155111 => "Sepolia",
-        17000 => "Holesky",
-        42161 => "Arbitrum",
-        10 => "Optimism",
-        8453 => "Base",
-        137 => "Polygon",
-        56 => "BNB Chain",
-        43114 => "Avalanche",
-        324 => "zkSync Era",
-        59144 => "Linea",
-        534352 => "Scroll",
-        _ => "Unknown",
-    }
 }
 
 /// Request wallet connection (shows the wallet approval popup).
@@ -132,14 +129,14 @@ pub fn has_session() -> bool {
 }
 
 /// Save login session.
-pub fn save_session() -> Result<crate::runtime::RuntimeStateSnapshot, crate::error::EnvironmentError>
+pub fn save_session() -> Result<crate::runtime::RuntimeStateSnapshot, crate::runtime::state::EnvironmentError>
 {
     crate::runtime::state::set_wallet_session(true)
 }
 
 /// Clear login session.
 pub fn clear_session()
--> Result<crate::runtime::RuntimeStateSnapshot, crate::error::EnvironmentError> {
+-> Result<crate::runtime::RuntimeStateSnapshot, crate::runtime::state::EnvironmentError> {
     crate::runtime::state::set_wallet_session(false)
 }
 

@@ -137,3 +137,17 @@ The reviewers correctly identified these as material but consistent with the mig
 Reviewer consensus: **PROCEED WITH FOLLOW-UPS**. Three of four reviewers said FIX FIRST initially; their CRITICALs were the in-session fixes already landed (`web-sys` features, `mock` feature placement, doc-comment scrub, banner blocks). Remaining items are tracked deferrals with concrete trigger-points.
 
 The migration's foundational invariants — compile-time crate-boundary layering, hexagonal port, two-target compile, `AppContext` preservation, `SideEffect`-based command logic — are all intact. Branch is ready for review by a human.
+
+## 2026-05-02 · Phase H · cross-target cfg discipline + thiserror sweep
+
+Phase H landed Phase B's deferred items 2-5 ("thiserror adoption", "wasm-only deps in plain `[dependencies]`", "storage adapters cfg-gating", "`storage::boot` reaches up into engine"). Three deviations from `phases/H-cross-target-cfg.md` worth recording:
+
+- **`FetchError` lives in `filesystem/content.rs`, not `utils/fetch.rs`.** The design's placement was wasm-only and broke portable callers (`filesystem::content::read_text` returns `Result<_, FetchError>` and is host+wasm). Resolved by placing the error type in the portable consumer; `utils/fetch` imports it back. Captured in ADR 0002.
+
+- **`StorageError` keeps a hand-rolled `Display`** — the design proposed thiserror's literal-arg formatter (`#[error("…", short_sha(remote_head))]`), but two variants (`Conflict` SHA-truncation, `RateLimited::retry_after` switch) format dynamically. The cleanest end state was to keep `Display` manual for this one type with a comment naming the reason; the remaining seven types convert cleanly to `thiserror::Error`.
+
+- **Web crate becomes wasm-only at the lib level** (`#![cfg(target_arch = "wasm32")]` on `crates/websh-web/src/lib.rs` + `main.rs`) rather than empty-on-host through dependency cfg-gating. This means `cargo test -p websh-web` runs zero tests on host, forever. Web tests must live in `crates/websh-web/tests/` with their own wasm32 gates, or run via `wasm-bindgen-test`. Acceptable trade-off — the web crate is genuinely wasm-only at runtime (Trunk only builds wasm32) and the alternative cfg'd-deps approach produces noisy macro errors deep inside Leptos. Captured in ADR 0002.
+
+Beyond the design: `assemble_global_fs` (a pure helper that previously lived in `runtime/loader.rs` and got cfg-gated out when the loader became wasm-only) was extracted to `runtime/boot.rs` so its host-side test (`assembles_global_fs_under_canonical_mount_roots`) stays in the test set.
+
+Test count restored to 516 on host (was 515 mid-phase before the extraction). Trunk build clean. Both target `cargo check` clean. `cargo clippy --workspace --all-targets` clean.

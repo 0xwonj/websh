@@ -9,7 +9,6 @@ pub mod config;
 pub mod content_routes;
 pub mod crypto;
 pub mod domain;
-pub mod error;
 pub mod filesystem;
 pub mod mempool;
 pub mod runtime;

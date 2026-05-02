@@ -7,13 +7,17 @@ use crate::domain::{
 };
 use crate::filesystem::GlobalFs;
 
+pub(crate) mod boot;
 mod commit;
 pub mod env;
+#[cfg(target_arch = "wasm32")]
 mod loader;
 pub mod state;
+#[cfg(target_arch = "wasm32")]
 pub mod wallet;
 
 pub use commit::commit_backend;
+#[cfg(target_arch = "wasm32")]
 pub use loader::{MountFailure, RuntimeLoad, bootstrap_runtime_load, load_runtime, reload_runtime};
 pub use state::RuntimeStateSnapshot;
 

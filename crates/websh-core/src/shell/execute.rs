@@ -13,8 +13,9 @@ use crate::domain::{
 use crate::filesystem::{
     GlobalFs, RouteRequest, RouteSurface, canonicalize_user_path, request_path_for_canonical_path,
 };
-use crate::runtime::{env, wallet};
+use crate::runtime::env;
 use crate::theme::{THEMES, normalize_theme_id, theme_ids, theme_label};
+#[cfg(target_arch = "wasm32")]
 use crate::utils::sysinfo;
 
 use super::{AuthAction, Command, CommandResult, PathArg, SideEffect, SyncSubcommand};
@@ -298,17 +299,19 @@ fn execute_id(wallet_state: &WalletState) -> CommandResult {
     if let Some(chain_id) = wallet_state.chain_id() {
         lines.push(OutputLine::text(format!(
             "network={}",
-            wallet::chain_name(chain_id)
+            crate::domain::chain_name(chain_id)
         )));
         lines.push(OutputLine::text(format!("chain_id={}", chain_id)));
     } else {
         lines.push(OutputLine::text("network=none"));
     }
 
+    #[cfg(target_arch = "wasm32")]
     if let Some(uptime) = sysinfo::get_uptime() {
         lines.push(OutputLine::text(format!("uptime={}", uptime)));
     }
 
+    #[cfg(target_arch = "wasm32")]
     if let Some(window) = crate::utils::dom::window()
         && let Ok(ua) = window.navigator().user_agent()
     {
@@ -1014,7 +1017,7 @@ mod tests {
         super::execute_command(
             cmd,
             wallet_state,
-            &[crate::storage::boot::bootstrap_runtime_mount()],
+            &[crate::runtime::boot::bootstrap_runtime_mount()],
             fs,
             cwd,
             changes,
@@ -1916,7 +1919,7 @@ mod tests {
     #[test]
     fn test_sync_commit_rejects_changes_across_multiple_mounts() {
         let runtime_mounts = vec![
-            crate::storage::boot::bootstrap_runtime_mount(),
+            crate::runtime::boot::bootstrap_runtime_mount(),
             crate::domain::RuntimeMount::new(
                 VirtualPath::from_absolute("/db").unwrap(),
                 "db",

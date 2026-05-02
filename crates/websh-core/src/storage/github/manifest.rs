@@ -1,3 +1,9 @@
+// Manifest snapshot parse/serialize. Used by the wasm-only GitHub client and
+// by a host-side roundtrip test in `filesystem::global_fs`. The lib build on
+// host therefore sees these helpers as dead code; the allow keeps the build
+// quiet without lying about reachability on wasm32.
+#![allow(dead_code)]
+
 use crate::domain::EntryExtensions;
 use crate::domain::NodeKind;
 use crate::domain::manifest::{ContentManifestDocument, ContentManifestEntry};

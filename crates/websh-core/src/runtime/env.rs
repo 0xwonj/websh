@@ -1,8 +1,8 @@
 //! Environment variable management backed by the runtime `/.websh/state` model.
 
 use crate::config::{DEFAULT_USER_VARS, USER_VAR_PREFIX};
-use crate::error::EnvironmentError;
-use crate::runtime::{RuntimeStateSnapshot, state};
+use crate::runtime::state::{self, EnvironmentError};
+use crate::runtime::RuntimeStateSnapshot;
 
 /// Check if a variable name is valid.
 ///

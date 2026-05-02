@@ -12,58 +12,27 @@ mod lexer;
 pub use lexer::{Lexer, Token};
 
 use expand::expand_tokens;
-use std::fmt;
+use thiserror::Error;
 
-/// Structured error type for parsing failures
-#[derive(Debug, Clone, PartialEq)]
-pub enum ParseError {
+/// Structured error type for shell pipeline parsing failures.
+#[derive(Debug, Clone, PartialEq, Error)]
+pub enum ShellParseError {
     /// Pipe at the beginning of input: `| grep foo`
+    #[error("syntax error near token {}: unexpected '|'", position + 1)]
     UnexpectedPipe { position: usize },
     /// Empty stage between pipes: `ls | | grep`
+    #[error("syntax error near token {}: empty pipe stage", position + 1)]
     EmptyPipeStage { position: usize },
     /// Pipe at the end with no following command: `ls |`
+    #[error("syntax error near token {}: unexpected end after '|'", position + 1)]
     TrailingPipe { position: usize },
     /// Unclosed single or double quote starting at `position`.
+    #[error(
+        "syntax error: unclosed {} quote starting at position {position}",
+        if *kind == '"' { "double" } else { "single" }
+    )]
     UnclosedQuote { kind: char, position: usize },
 }
-
-impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::UnexpectedPipe { position } => {
-                write!(
-                    f,
-                    "syntax error near token {}: unexpected '|'",
-                    position + 1
-                )
-            }
-            Self::EmptyPipeStage { position } => {
-                write!(
-                    f,
-                    "syntax error near token {}: empty pipe stage",
-                    position + 1
-                )
-            }
-            Self::TrailingPipe { position } => {
-                write!(
-                    f,
-                    "syntax error near token {}: unexpected end after '|'",
-                    position + 1
-                )
-            }
-            Self::UnclosedQuote { kind, position } => {
-                write!(
-                    f,
-                    "syntax error: unclosed {} quote starting at position {}",
-                    if *kind == '"' { "double" } else { "single" },
-                    position
-                )
-            }
-        }
-    }
-}
-
-impl std::error::Error for ParseError {}
 
 /// A single command in a pipeline
 #[derive(Debug, Clone)]
@@ -77,7 +46,7 @@ pub struct ParsedCommand {
 pub struct Pipeline {
     pub commands: Vec<ParsedCommand>,
     /// Syntax error (e.g., empty pipe stage)
-    pub error: Option<ParseError>,
+    pub error: Option<ShellParseError>,
 }
 
 impl Pipeline {
@@ -121,7 +90,7 @@ pub fn parse_input(input: &str, history: &[String]) -> Pipeline {
 fn parse_pipeline(tokens: Vec<Token>) -> Pipeline {
     let mut commands = Vec::new();
     let mut current_words = Vec::new();
-    let mut error: Option<ParseError> = None;
+    let mut error: Option<ShellParseError> = None;
     let mut expect_command = false; // true after seeing a pipe
     let mut last_pipe_pos = 0;
 
@@ -139,9 +108,9 @@ fn parse_pipeline(tokens: Vec<Token>) -> Pipeline {
                 if current_words.is_empty() {
                     // Empty stage before pipe (e.g., "| grep" or "ls | | grep")
                     if commands.is_empty() {
-                        error = Some(ParseError::UnexpectedPipe { position: idx });
+                        error = Some(ShellParseError::UnexpectedPipe { position: idx });
                     } else {
-                        error = Some(ParseError::EmptyPipeStage { position: idx });
+                        error = Some(ShellParseError::EmptyPipeStage { position: idx });
                     }
                     break;
                 }
@@ -156,7 +125,7 @@ fn parse_pipeline(tokens: Vec<Token>) -> Pipeline {
 
     // Check for trailing pipe (e.g., "ls |")
     if error.is_none() && expect_command && current_words.is_empty() {
-        error = Some(ParseError::TrailingPipe {
+        error = Some(ShellParseError::TrailingPipe {
             position: last_pipe_pos,
         });
     }
@@ -213,7 +182,7 @@ mod tests {
         assert!(pipeline.has_error());
         assert_eq!(
             pipeline.error,
-            Some(ParseError::UnexpectedPipe { position: 0 })
+            Some(ShellParseError::UnexpectedPipe { position: 0 })
         );
     }
 
@@ -224,7 +193,7 @@ mod tests {
         // tokens: ["ls", "|", "|", "grep", "foo"], second pipe at index 2
         assert_eq!(
             pipeline.error,
-            Some(ParseError::EmptyPipeStage { position: 2 })
+            Some(ShellParseError::EmptyPipeStage { position: 2 })
         );
     }
 
@@ -235,7 +204,7 @@ mod tests {
         // tokens: ["ls", "|"], pipe at index 1
         assert_eq!(
             pipeline.error,
-            Some(ParseError::TrailingPipe { position: 1 })
+            Some(ShellParseError::TrailingPipe { position: 1 })
         );
     }
 
@@ -252,7 +221,7 @@ mod tests {
         assert!(pipeline.has_error());
         assert!(matches!(
             pipeline.error,
-            Some(ParseError::UnclosedQuote { kind: '\'', .. })
+            Some(ShellParseError::UnclosedQuote { kind: '\'', .. })
         ));
     }
 
@@ -262,7 +231,7 @@ mod tests {
         assert!(pipeline.has_error());
         assert!(matches!(
             pipeline.error,
-            Some(ParseError::UnclosedQuote { kind: '"', .. })
+            Some(ShellParseError::UnclosedQuote { kind: '"', .. })
         ));
     }
 

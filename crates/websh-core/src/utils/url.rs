@@ -2,6 +2,8 @@
 //!
 //! Provides URL validation with domain whitelisting for safe redirects.
 
+use thiserror::Error;
+
 use crate::config::ALLOWED_REDIRECT_DOMAINS;
 
 /// Result of URL validation
@@ -14,27 +16,16 @@ pub enum UrlValidation {
 }
 
 /// Errors that can occur during URL validation.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Error)]
 pub enum UrlValidationError {
-    /// URL is empty
+    #[error("URL is empty")]
     Empty,
-    /// URL doesn't start with http:// or https://
+    #[error("URL must start with http:// or https://")]
     InvalidProtocol,
-    /// URL has no host/domain
+    #[error("URL has no host")]
     NoHost,
-    /// Domain is not in the allowed list
+    #[error("Domain '{0}' is not allowed")]
     DomainNotAllowed(String),
-}
-
-impl std::fmt::Display for UrlValidationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Empty => write!(f, "URL is empty"),
-            Self::InvalidProtocol => write!(f, "URL must start with http:// or https://"),
-            Self::NoHost => write!(f, "URL has no host"),
-            Self::DomainNotAllowed(domain) => write!(f, "Domain '{}' is not allowed", domain),
-        }
-    }
 }
 
 /// Validate a URL for safe redirect

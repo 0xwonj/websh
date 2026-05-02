@@ -1,14 +1,15 @@
-//! One-shot boot helpers: construct backends, load persisted draft ChangeSets,
-//! and seed bootstrap runtime defaults.
+//! Wasm-only storage boot helpers: GitHub backend constructors and IDB
+//! hydration. The pure runtime scaffolding (bootstrap mount, empty global
+//! filesystem) lives in `runtime::boot` so it compiles on every target.
+
+#![cfg(target_arch = "wasm32")]
 
 use std::sync::Arc;
 
-use crate::config::BOOTSTRAP_SITE;
 use crate::domain::changes::ChangeSet;
 use crate::domain::{
     BootstrapSiteSource, MountDeclaration, RuntimeBackendKind, RuntimeMount, VirtualPath,
 };
-use crate::filesystem::GlobalFs;
 use crate::storage::{StorageBackend, StorageResult};
 
 use super::github::GitHubBackend;
@@ -16,15 +17,6 @@ use super::github::path::normalize_repo_prefix;
 use super::idb;
 
 type DeclaredBackend = (RuntimeMount, Arc<dyn StorageBackend>);
-
-pub(crate) fn bootstrap_runtime_mount() -> RuntimeMount {
-    RuntimeMount::new(
-        BOOTSTRAP_SITE.mount_root(),
-        BOOTSTRAP_SITE.label(),
-        RuntimeBackendKind::GitHub,
-        BOOTSTRAP_SITE.writable,
-    )
-}
 
 pub(crate) fn build_backend_for_bootstrap_site(
     source: &BootstrapSiteSource,
@@ -108,14 +100,6 @@ fn is_canonical_mount_root(path: &VirtualPath) -> bool {
     format!("/{}", segments.join("/")) == path.as_str()
 }
 
-pub(crate) fn bootstrap_global_fs() -> GlobalFs {
-    GlobalFs::empty()
-}
-
-pub(crate) fn seed_bootstrap_routes(_global: &mut GlobalFs) {
-    // Shell and explorer are reserved code routes, not filesystem app nodes.
-}
-
 pub async fn hydrate_drafts(draft_id: &str) -> StorageResult<ChangeSet> {
     let db = idb::open_db().await?;
     Ok(idb::load_draft(&db, draft_id).await?.unwrap_or_default())
@@ -162,21 +146,5 @@ mod tests {
         };
 
         assert!(build_backend_for_declaration(&declaration).is_err());
-    }
-
-    #[test]
-    fn bootstrap_global_fs_has_root_directory_without_app_routes() {
-        let global = bootstrap_global_fs();
-        assert!(global.exists(&VirtualPath::root()));
-        assert!(!global.exists(&VirtualPath::from_absolute("/shell.app").unwrap()));
-        assert!(!global.exists(&VirtualPath::from_absolute("/fs.app").unwrap()));
-    }
-
-    #[test]
-    fn bootstrap_runtime_mount_is_root() {
-        let mount = bootstrap_runtime_mount();
-        assert_eq!(mount.root.as_str(), "/");
-        assert_eq!(mount.label, "~");
-        assert!(mount.writable);
     }
 }

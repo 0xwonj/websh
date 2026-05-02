@@ -24,4 +24,4 @@ pub use node_metadata::{
 pub use site::{DerivedIndex, MountDeclaration, RouteIndexEntry};
 pub use terminal::{ListFormat, OutputLine, OutputLineData, OutputLineId, TextStyle};
 pub use virtual_path::VirtualPath;
-pub use wallet::WalletState;
+pub use wallet::{WalletState, chain_name};

@@ -103,7 +103,7 @@ pub fn run(ctx: AppContext) {
                         ctx.terminal.push_output(OutputLine::info(format!(
                             "{} Network: {} (chain_id={})",
                             format_elapsed(elapsed()),
-                            wallet::chain_name(id),
+                            crate::models::chain_name(id),
                             id
                         )));
                     }

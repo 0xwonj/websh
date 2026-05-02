@@ -10,7 +10,7 @@ use wasm_bindgen_futures::JsFuture;
 use web_sys::{Request, RequestInit, RequestMode, Response};
 
 use crate::config::FETCH_TIMEOUT_MS;
-use crate::error::FetchError;
+use crate::filesystem::FetchError;
 
 /// Result of a promise race with timeout.
 #[derive(Debug)]

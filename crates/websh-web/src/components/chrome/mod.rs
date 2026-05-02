@@ -13,7 +13,6 @@ use crate::components::ledger_routes::is_ledger_filter_route_segment;
 use crate::components::shared::{MonoOverflow, MonoValue};
 use crate::config::APP_NAME;
 use crate::core::engine::{RouteFrame, RouteSurface, request_path_for_canonical_path, route_cwd};
-use crate::core::wallet;
 use crate::models::{VirtualPath, WalletState};
 use crate::utils::theme::{THEMES, apply_theme};
 
@@ -277,7 +276,7 @@ pub fn SiteChromeWalletButton() -> impl IntoView {
         ctx.wallet.with(|wallet| {
             wallet
                 .chain_id()
-                .map(|id| wallet::chain_name(id).to_ascii_lowercase())
+                .map(|id| crate::models::chain_name(id).to_ascii_lowercase())
                 .unwrap_or_else(|| "offline".to_string())
         })
     });
@@ -363,7 +362,7 @@ fn SiteChromeWalletMenu(set_open: WriteSignal<bool>) -> impl IntoView {
                     let address_full = address.clone();
                     let ens = ens_name.clone();
                     let chain = chain_id
-                        .map(|id| format!("{} · chain {}", wallet::chain_name(id).to_ascii_lowercase(), id))
+                        .map(|id| format!("{} · chain {}", crate::models::chain_name(id).to_ascii_lowercase(), id))
                         .unwrap_or_else(|| "no chain".to_string());
                     view! {
                         <div class=css::walletMenuRow>

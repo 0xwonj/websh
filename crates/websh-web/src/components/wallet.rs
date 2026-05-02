@@ -5,9 +5,9 @@
 use leptos::prelude::Set;
 
 use crate::app::AppContext;
-use crate::core::error::{EnvironmentError, WalletError};
+use crate::core::runtime::state::EnvironmentError;
 use crate::core::wallet::{
-    ConnectOutcome, connect, get_chain_id, is_available, resolve_ens, save_session,
+    ConnectOutcome, WalletError, connect, get_chain_id, is_available, resolve_ens, save_session,
 };
 use crate::models::WalletState;
 

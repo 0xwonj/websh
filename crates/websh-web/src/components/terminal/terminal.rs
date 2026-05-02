@@ -8,7 +8,7 @@ use crate::app::AppContext;
 use crate::components::terminal::{Input, Output, RouteContext};
 use crate::core::engine::route_cwd;
 use crate::core::{
-    SideEffect, autocomplete, execute_pipeline, get_hint, parse_input, runtime, wallet,
+    SideEffect, autocomplete, execute_pipeline, get_hint, parse_input, runtime,
 };
 use crate::models::OutputLine;
 use crate::utils::dom::focus_terminal_input;
@@ -35,7 +35,7 @@ fn handle_login(ctx: AppContext) {
                 if let Some(id) = outcome.chain_id {
                     ctx.terminal.push_output(OutputLine::info(format!(
                         "Network: {} (chain_id={})",
-                        wallet::chain_name(id),
+                        crate::models::chain_name(id),
                         id
                     )));
                 }

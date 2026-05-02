@@ -39,7 +39,7 @@ enum VariableRead {
 pub struct Lexer<'a> {
     input: &'a str,
     pos: usize,
-    error: Option<super::ParseError>,
+    error: Option<super::ShellParseError>,
 }
 
 impl<'a> Lexer<'a> {
@@ -66,7 +66,7 @@ impl<'a> Lexer<'a> {
     /// Returns a parse error if one was encountered during tokenization
     /// (e.g., an unclosed quote). Callers that need to surface lexer errors
     /// should iterate via `(&mut lexer).collect()` and then check `.error()`.
-    pub fn error(&self) -> Option<&super::ParseError> {
+    pub fn error(&self) -> Option<&super::ShellParseError> {
         self.error.as_ref()
     }
 
@@ -223,7 +223,7 @@ impl<'a> Lexer<'a> {
                         self.pos += cc.len_utf8();
                     }
                     if !closed {
-                        self.error = Some(super::ParseError::UnclosedQuote {
+                        self.error = Some(super::ShellParseError::UnclosedQuote {
                             kind: '\'',
                             position: quote_start,
                         });
@@ -273,7 +273,7 @@ impl<'a> Lexer<'a> {
                         }
                     }
                     if !closed {
-                        self.error = Some(super::ParseError::UnclosedQuote {
+                        self.error = Some(super::ShellParseError::UnclosedQuote {
                             kind: '"',
                             position: quote_start,
                         });

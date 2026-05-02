@@ -546,7 +546,7 @@ mod tests {
         let result = execute_pipeline(
             &pipeline,
             &wallet,
-            &[crate::storage::boot::bootstrap_runtime_mount()],
+            &[crate::runtime::boot::bootstrap_runtime_mount()],
             &fs,
             &cwd,
             &changes,
@@ -572,7 +572,7 @@ mod tests {
         let result = execute_pipeline(
             &pipeline,
             &wallet,
-            &[crate::storage::boot::bootstrap_runtime_mount()],
+            &[crate::runtime::boot::bootstrap_runtime_mount()],
             &fs,
             &cwd,
             &changes,
@@ -598,7 +598,7 @@ mod tests {
         let result = execute_pipeline(
             &pipeline,
             &wallet,
-            &[crate::storage::boot::bootstrap_runtime_mount()],
+            &[crate::runtime::boot::bootstrap_runtime_mount()],
             &fs,
             &cwd,
             &changes,
@@ -920,7 +920,7 @@ mod tests {
         let result = execute_pipeline(
             &pipeline,
             &wallet,
-            &[crate::storage::boot::bootstrap_runtime_mount()],
+            &[crate::runtime::boot::bootstrap_runtime_mount()],
             &fs,
             &cwd,
             &changes,

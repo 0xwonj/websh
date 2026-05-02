@@ -1,10 +1,27 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
+use thiserror::Error;
+
+#[cfg(target_arch = "wasm32")]
 use crate::config::{USER_VAR_PREFIX, WALLET_SESSION_KEY};
-use crate::error::EnvironmentError;
+#[cfg(target_arch = "wasm32")]
 use crate::utils::dom;
 
+/// Environment variable errors for localStorage operations.
+#[derive(Debug, Clone, Error)]
+pub enum EnvironmentError {
+    #[error("localStorage not available")]
+    StorageUnavailable,
+    #[error("invalid variable name (use letters, numbers, underscores)")]
+    InvalidVariableName,
+    #[error("failed to save to localStorage")]
+    SaveFailed,
+    #[error("failed to remove from localStorage")]
+    RemoveFailed,
+}
+
+#[cfg(target_arch = "wasm32")]
 const GITHUB_TOKEN_KEY: &str = "websh.gh_token";
 
 #[derive(Clone, Default, PartialEq, Eq)]
@@ -43,6 +60,7 @@ fn with_state<R>(f: impl FnOnce(&mut RuntimeState) -> R) -> R {
     })
 }
 
+#[cfg(target_arch = "wasm32")]
 fn load_from_browser_storage() -> RuntimeState {
     let mut state = RuntimeState::default();
 
@@ -74,6 +92,11 @@ fn load_from_browser_storage() -> RuntimeState {
     state
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn load_from_browser_storage() -> RuntimeState {
+    RuntimeState::default()
+}
+
 pub fn snapshot() -> RuntimeStateSnapshot {
     with_state(|state| state.snapshot())
 }
@@ -87,6 +110,7 @@ pub fn set_env_var(key: &str, value: &str) -> Result<RuntimeStateSnapshot, Envir
         state.env.insert(key.to_string(), value.to_string());
     });
 
+    #[cfg(target_arch = "wasm32")]
     if let Some(storage) = dom::local_storage() {
         storage
             .set_item(&format!("{USER_VAR_PREFIX}{key}"), value)
@@ -101,6 +125,7 @@ pub fn unset_env_var(key: &str) -> Result<RuntimeStateSnapshot, EnvironmentError
         state.env.remove(key);
     });
 
+    #[cfg(target_arch = "wasm32")]
     if let Some(storage) = dom::local_storage() {
         storage
             .remove_item(&format!("{USER_VAR_PREFIX}{key}"))
@@ -125,10 +150,13 @@ pub fn github_token_for_commit() -> Option<String> {
 }
 
 pub fn set_github_token(token: &str) -> Result<RuntimeStateSnapshot, EnvironmentError> {
-    let storage = dom::session_storage().ok_or(EnvironmentError::StorageUnavailable)?;
-    storage
-        .set_item(GITHUB_TOKEN_KEY, token)
-        .map_err(|_| EnvironmentError::SaveFailed)?;
+    #[cfg(target_arch = "wasm32")]
+    {
+        let storage = dom::session_storage().ok_or(EnvironmentError::StorageUnavailable)?;
+        storage
+            .set_item(GITHUB_TOKEN_KEY, token)
+            .map_err(|_| EnvironmentError::SaveFailed)?;
+    }
 
     with_state(|state| {
         state.github_token = Some(token.to_string());
@@ -137,10 +165,13 @@ pub fn set_github_token(token: &str) -> Result<RuntimeStateSnapshot, Environment
 }
 
 pub fn clear_github_token() -> Result<RuntimeStateSnapshot, EnvironmentError> {
-    let storage = dom::session_storage().ok_or(EnvironmentError::StorageUnavailable)?;
-    storage
-        .remove_item(GITHUB_TOKEN_KEY)
-        .map_err(|_| EnvironmentError::RemoveFailed)?;
+    #[cfg(target_arch = "wasm32")]
+    {
+        let storage = dom::session_storage().ok_or(EnvironmentError::StorageUnavailable)?;
+        storage
+            .remove_item(GITHUB_TOKEN_KEY)
+            .map_err(|_| EnvironmentError::RemoveFailed)?;
+    }
 
     with_state(|state| {
         state.github_token = None;
@@ -153,15 +184,18 @@ pub fn has_wallet_session() -> bool {
 }
 
 pub fn set_wallet_session(active: bool) -> Result<RuntimeStateSnapshot, EnvironmentError> {
-    let storage = dom::local_storage().ok_or(EnvironmentError::StorageUnavailable)?;
-    if active {
-        storage
-            .set_item(WALLET_SESSION_KEY, "1")
-            .map_err(|_| EnvironmentError::SaveFailed)?;
-    } else {
-        storage
-            .remove_item(WALLET_SESSION_KEY)
-            .map_err(|_| EnvironmentError::RemoveFailed)?;
+    #[cfg(target_arch = "wasm32")]
+    {
+        let storage = dom::local_storage().ok_or(EnvironmentError::StorageUnavailable)?;
+        if active {
+            storage
+                .set_item(WALLET_SESSION_KEY, "1")
+                .map_err(|_| EnvironmentError::SaveFailed)?;
+        } else {
+            storage
+                .remove_item(WALLET_SESSION_KEY)
+                .map_err(|_| EnvironmentError::RemoveFailed)?;
+        }
     }
 
     with_state(|state| {

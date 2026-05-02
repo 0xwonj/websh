@@ -1,98 +1,115 @@
-//! DOM and Web API utility functions.
+//! DOM and Web API helpers. Public functions degrade to `None` / no-ops
+//! on non-wasm targets so callers can write target-agnostic code.
 //!
-//! Provides safe, consistent access to browser APIs with proper error handling.
+//! `Window` and `Storage` re-export wasm types only on wasm32; callers
+//! that need to invoke methods on those types must themselves be inside
+//! `#[cfg(target_arch = "wasm32")]` blocks.
 
+#[cfg(target_arch = "wasm32")]
+pub use web_sys::{Storage, Window};
+
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
-use web_sys::{Storage, Window};
 
-/// Get the browser window object.
-///
-/// On non-wasm targets (e.g. cargo test on host), the underlying
-/// `web_sys::window()` tries to touch imported JS statics and panics.
-/// Return `None` there so callers gracefully degrade.
+/// Return the browser window. Always `None` on non-wasm targets.
+#[cfg(target_arch = "wasm32")]
 #[inline]
 pub fn window() -> Option<Window> {
-    #[cfg(target_arch = "wasm32")]
-    {
-        web_sys::window()
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        None
-    }
+    web_sys::window()
+}
+#[cfg(not(target_arch = "wasm32"))]
+#[inline]
+pub fn window() -> Option<()> {
+    None
 }
 
-/// Get localStorage.
+/// Return localStorage. Always `None` on non-wasm targets.
+#[cfg(target_arch = "wasm32")]
 #[inline]
 pub fn local_storage() -> Option<Storage> {
     window()?.local_storage().ok()?
 }
+#[cfg(not(target_arch = "wasm32"))]
+#[inline]
+pub fn local_storage() -> Option<()> {
+    None
+}
 
-/// Get sessionStorage.
+/// Return sessionStorage. Always `None` on non-wasm targets.
+#[cfg(target_arch = "wasm32")]
 #[inline]
 pub fn session_storage() -> Option<Storage> {
     window()?.session_storage().ok()?
 }
+#[cfg(not(target_arch = "wasm32"))]
+#[inline]
+pub fn session_storage() -> Option<()> {
+    None
+}
 
-/// Focus an element by CSS selector.
-///
-/// Returns `true` if the element was found and focused successfully.
-pub fn focus_element(selector: &str) -> bool {
-    if let Some(window) = window()
-        && let Some(document) = window.document()
-        && let Some(element) = document.query_selector(selector).ok().flatten()
-        && let Ok(html_element) = element.dyn_into::<web_sys::HtmlElement>()
+/// Focus an element by CSS selector. Returns `true` on success.
+pub fn focus_element(_selector: &str) -> bool {
+    #[cfg(target_arch = "wasm32")]
     {
-        html_element.focus().is_ok()
-    } else {
+        if let Some(window) = window()
+            && let Some(document) = window.document()
+            && let Some(element) = document.query_selector(_selector).ok().flatten()
+            && let Ok(html_element) = element.dyn_into::<web_sys::HtmlElement>()
+        {
+            html_element.focus().is_ok()
+        } else {
+            false
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
         false
     }
 }
 
-/// Focus the terminal input element.
-///
-/// Convenience wrapper around `focus_element("input")`.
 #[inline]
 pub fn focus_terminal_input() {
     focus_element("input");
 }
 
-/// Get the current URL hash (without the '#' prefix).
+/// Current URL hash without the leading `#`.
 pub fn get_hash() -> String {
-    window()
-        .and_then(|w| w.location().hash().ok())
-        .unwrap_or_default()
-        .trim_start_matches('#')
-        .to_string()
+    #[cfg(target_arch = "wasm32")]
+    {
+        window()
+            .and_then(|w| w.location().hash().ok())
+            .unwrap_or_default()
+            .trim_start_matches('#')
+            .to_string()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        String::new()
+    }
 }
 
-/// Set the URL hash (adds to browser history).
-///
-/// The hash should include the '#' prefix.
-pub fn set_hash(hash: &str) {
+/// Set the URL hash (adds a history entry).
+pub fn set_hash(_hash: &str) {
+    #[cfg(target_arch = "wasm32")]
     if let Some(window) = window() {
-        let _ = window.location().set_hash(hash);
+        let _ = window.location().set_hash(_hash);
     }
 }
 
 /// Replace the URL hash without adding to browser history.
-///
-/// The hash should include the '#' prefix.
-/// Useful for redirects that shouldn't appear in back button history.
-pub fn replace_hash(hash: &str) {
+pub fn replace_hash(_hash: &str) {
+    #[cfg(target_arch = "wasm32")]
     if let Some(window) = window()
         && let Ok(history) = window.history()
     {
-        let _ = history.replace_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some(hash));
+        let _ = history.replace_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some(_hash));
     }
 }
 
-/// Dispatch a synthetic `hashchange` event on the window.
-///
-/// `history.replaceState` does not fire `hashchange` per the HTML spec, so a
-/// route-changing redirect that uses `replace_hash` must dispatch this manually
-/// to wake up `hashchange` listeners (notably the router).
+/// Dispatch a synthetic `hashchange` event. `history.replaceState` does
+/// not fire one per the HTML spec.
 pub fn dispatch_hashchange() {
+    #[cfg(target_arch = "wasm32")]
     if let Some(window) = window()
         && let Ok(event) = web_sys::Event::new("hashchange")
     {

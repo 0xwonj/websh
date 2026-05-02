@@ -10,26 +10,19 @@
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 #[derive(Clone, Debug, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 pub struct VirtualPath(String);
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum ParseError {
+#[derive(Debug, PartialEq, Eq, Error)]
+pub enum VirtualPathParseError {
+    #[error("path is empty")]
     Empty,
+    #[error("path is not absolute: {0}")]
     NotAbsolute(String),
 }
 
-impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ParseError::Empty => write!(f, "path is empty"),
-            ParseError::NotAbsolute(s) => write!(f, "path is not absolute: {}", s),
-        }
-    }
-}
-
-impl std::error::Error for ParseError {}
 
 impl VirtualPath {
     /// Return the canonical filesystem root path.
@@ -37,13 +30,13 @@ impl VirtualPath {
         Self("/".to_string())
     }
 
-    pub fn from_absolute(s: impl Into<String>) -> Result<Self, ParseError> {
+    pub fn from_absolute(s: impl Into<String>) -> Result<Self, VirtualPathParseError> {
         let s = s.into();
         if s.is_empty() {
-            return Err(ParseError::Empty);
+            return Err(VirtualPathParseError::Empty);
         }
         if !s.starts_with('/') {
-            return Err(ParseError::NotAbsolute(s));
+            return Err(VirtualPathParseError::NotAbsolute(s));
         }
         Ok(Self(s))
     }
@@ -144,13 +137,13 @@ mod tests {
 
     #[test]
     fn rejects_empty() {
-        assert_eq!(VirtualPath::from_absolute(""), Err(ParseError::Empty));
+        assert_eq!(VirtualPath::from_absolute(""), Err(VirtualPathParseError::Empty));
     }
 
     #[test]
     fn rejects_relative() {
         match VirtualPath::from_absolute("foo/bar") {
-            Err(ParseError::NotAbsolute(s)) => assert_eq!(s, "foo/bar"),
+            Err(VirtualPathParseError::NotAbsolute(s)) => assert_eq!(s, "foo/bar"),
             other => panic!("expected NotAbsolute, got {:?}", other),
         }
     }

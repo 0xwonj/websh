@@ -1,4 +1,8 @@
-//! Browser app: Leptos UI compiled to wasm32-unknown-unknown.
+//! Browser app: Leptos UI compiled to wasm32-unknown-unknown. The crate
+//! is wasm-only — its public surface is gated to `target_arch = "wasm32"`
+//! so `cargo check --workspace` on a host triple sees an empty crate.
+
+#![cfg(target_arch = "wasm32")]
 
 pub mod app;
 pub mod components;
@@ -14,7 +18,6 @@ pub mod core {
     pub use websh_core::admin;
     pub use websh_core::domain::DirEntry;
     pub use websh_core::domain::changes;
-    pub use websh_core::error;
     pub use websh_core::filesystem as engine;
     pub use websh_core::filesystem::merge;
     pub use websh_core::runtime;

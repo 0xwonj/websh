@@ -6,7 +6,8 @@ use serde_json::Value;
 use crate::config::BOOTSTRAP_SITE;
 use crate::domain::{DerivedIndex, MountDeclaration, RuntimeMount, VirtualPath};
 use crate::filesystem::{BackendRegistry, GlobalFs};
-use crate::storage::{ScannedSubtree, StorageBackend, boot as storage_boot};
+use crate::runtime::boot as runtime_boot;
+use crate::storage::{StorageBackend, boot as storage_boot};
 
 #[derive(Clone)]
 pub struct RuntimeLoad {
@@ -31,12 +32,12 @@ pub struct MountFailure {
 }
 
 fn bootstrap_runtime_mounts() -> Vec<RuntimeMount> {
-    vec![storage_boot::bootstrap_runtime_mount()]
+    vec![runtime_boot::bootstrap_runtime_mount()]
 }
 
 fn bootstrap_backends() -> BackendRegistry {
     let mut backends = BTreeMap::new();
-    let mount = storage_boot::bootstrap_runtime_mount();
+    let mount = runtime_boot::bootstrap_runtime_mount();
     backends.insert(
         mount.root.clone(),
         storage_boot::build_backend_for_bootstrap_site(&BOOTSTRAP_SITE),
@@ -45,7 +46,7 @@ fn bootstrap_backends() -> BackendRegistry {
 }
 
 pub fn bootstrap_runtime_load() -> RuntimeLoad {
-    let global_fs = storage_boot::bootstrap_global_fs();
+    let global_fs = runtime_boot::bootstrap_global_fs();
     let total_files = count_files(&global_fs, &VirtualPath::root());
     RuntimeLoad {
         global_fs,
@@ -76,7 +77,7 @@ pub async fn load_runtime() -> Result<RuntimeLoad, String> {
         scans.push((root, scan));
     }
 
-    let mut global_fs = assemble_global_fs(&scans)
+    let mut global_fs = runtime_boot::assemble_global_fs(&scans)
         .map_err(|error| format!("assemble global filesystem: {error:?}"))?;
     let mount_errors =
         apply_runtime_conventions(&mut global_fs, &mut backends, &mut runtime_mounts).await?;
@@ -114,7 +115,7 @@ async fn apply_runtime_conventions(
     backends: &mut BackendRegistry,
     runtime_mounts: &mut Vec<RuntimeMount>,
 ) -> Result<Vec<MountFailure>, String> {
-    storage_boot::seed_bootstrap_routes(global);
+    runtime_boot::seed_bootstrap_routes(global);
     load_site_json_if_present(global, backends).await?;
 
     let bootstrap_roots = bootstrap_runtime_mounts()
@@ -179,18 +180,8 @@ async fn apply_runtime_conventions(
     runtime_mounts.sort_by(|left, right| left.root.cmp(&right.root));
 
     load_route_index(global, backends).await?;
-    storage_boot::seed_bootstrap_routes(global);
+    runtime_boot::seed_bootstrap_routes(global);
     Ok(mount_errors)
-}
-
-fn assemble_global_fs(
-    scans: &[(VirtualPath, ScannedSubtree)],
-) -> Result<GlobalFs, crate::filesystem::MountError> {
-    let mut global = GlobalFs::empty();
-    for (mount_root, scan) in scans {
-        global.mount_scanned_subtree(mount_root.clone(), scan)?;
-    }
-    Ok(global)
 }
 
 fn mount_label_for_root(root: &VirtualPath) -> String {
@@ -314,57 +305,3 @@ fn count_files(global: &GlobalFs, root: &VirtualPath) -> usize {
     collect_file_paths(global, root).len()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::domain::{EntryExtensions, Fields, NodeKind, NodeMetadata, SCHEMA_VERSION};
-    use crate::storage::{ScannedDirectory, ScannedFile};
-
-    fn file_meta(kind: NodeKind) -> NodeMetadata {
-        NodeMetadata {
-            schema: SCHEMA_VERSION,
-            kind,
-            authored: Fields::default(),
-            derived: Fields::default(),
-        }
-    }
-
-    fn dir_meta(name: &str) -> NodeMetadata {
-        NodeMetadata {
-            schema: SCHEMA_VERSION,
-            kind: NodeKind::Directory,
-            authored: Fields {
-                title: if name.is_empty() {
-                    None
-                } else {
-                    Some(name.to_string())
-                },
-                ..Fields::default()
-            },
-            derived: Fields::default(),
-        }
-    }
-
-    #[test]
-    fn assembles_global_fs_under_canonical_mount_roots() {
-        let scan = ScannedSubtree {
-            files: vec![ScannedFile {
-                path: "index.md".to_string(),
-                meta: file_meta(NodeKind::Page),
-                extensions: EntryExtensions::default(),
-            }],
-            directories: vec![ScannedDirectory {
-                path: "".to_string(),
-                meta: dir_meta("home"),
-            }],
-        };
-
-        let fs =
-            assemble_global_fs(&[(VirtualPath::root(), scan)]).expect("global fs should assemble");
-
-        assert!(
-            fs.get_entry(&VirtualPath::from_absolute("/index.md").unwrap())
-                .is_some()
-        );
-    }
-}

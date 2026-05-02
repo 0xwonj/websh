@@ -1,13 +1,35 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use thiserror::Error;
+
 use crate::domain::VirtualPath;
-use crate::error::FetchError;
 use crate::storage::{StorageBackend, StorageError};
 
 use super::GlobalFs;
 
 pub type BackendRegistry = BTreeMap<VirtualPath, Arc<dyn StorageBackend>>;
+
+/// Network/fetch-related errors for HTTP requests and content reads.
+#[derive(Debug, Clone, Error)]
+pub enum FetchError {
+    #[error("browser window not available")]
+    NoWindow,
+    #[error("failed to create request")]
+    RequestCreationFailed,
+    #[error("network error: {0}")]
+    NetworkError(String),
+    #[error("HTTP error: {0}")]
+    HttpError(u16),
+    #[error("failed to read response")]
+    ResponseReadFailed,
+    #[error("invalid response content")]
+    InvalidContent,
+    #[error("JSON parse error: {0}")]
+    JsonParseError(String),
+    #[error("request timed out")]
+    Timeout,
+}
 
 pub async fn read_text(
     fs: &GlobalFs,

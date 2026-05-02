@@ -1,10 +1,13 @@
 //! Storage abstraction for write operations. See spec §4.
 
 mod backend;
+#[cfg(target_arch = "wasm32")]
 pub mod boot;
 mod error;
 pub mod github;
+#[cfg(target_arch = "wasm32")]
 pub mod idb;
+#[cfg(target_arch = "wasm32")]
 pub mod persist;
 
 pub use backend::{

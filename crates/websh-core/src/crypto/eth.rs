@@ -1,9 +1,9 @@
 //! Ethereum EIP-191 personal-sign verification.
 
 use std::str::FromStr;
-use std::{error::Error, fmt};
 
 use alloy_primitives::{Address, Signature};
+use thiserror::Error;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EthVerification {
@@ -11,32 +11,17 @@ pub struct EthVerification {
     pub recovered_address: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Error)]
 pub enum EthVerifyError {
+    #[error("invalid address: {0}")]
     InvalidAddress(String),
+    #[error("invalid signature: {0}")]
     InvalidSignature(String),
+    #[error("signature recovery failed: {0}")]
     RecoveryFailed(String),
+    #[error("address mismatch: expected {expected}, recovered {recovered}")]
     AddressMismatch { expected: String, recovered: String },
 }
-
-impl fmt::Display for EthVerifyError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidAddress(message) => write!(f, "invalid address: {message}"),
-            Self::InvalidSignature(message) => write!(f, "invalid signature: {message}"),
-            Self::RecoveryFailed(message) => write!(f, "signature recovery failed: {message}"),
-            Self::AddressMismatch {
-                expected,
-                recovered,
-            } => write!(
-                f,
-                "address mismatch: expected {expected}, recovered {recovered}"
-            ),
-        }
-    }
-}
-
-impl Error for EthVerifyError {}
 
 pub fn verify_personal_sign(
     expected_address: &str,

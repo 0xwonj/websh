@@ -11,7 +11,7 @@ mod routing;
 
 pub use crate::domain::{NodeKind, RendererKind, TrustLevel};
 
-pub use content::{BackendRegistry, read_bytes, read_text};
+pub use content::{BackendRegistry, FetchError, read_bytes, read_text};
 pub use global_fs::{FsEngine, GlobalFs, MountError};
 pub use intent::{RenderIntent, build_render_intent};
 pub use routing::{

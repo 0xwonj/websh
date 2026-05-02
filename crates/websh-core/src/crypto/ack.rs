@@ -4,10 +4,10 @@
 //! verifiable only with a receipt that contains the private nonce and proof.
 
 use std::collections::HashSet;
-use std::fmt;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use thiserror::Error;
 use unicode_normalization::UnicodeNormalization;
 
 pub type Hash = [u8; 32];
@@ -119,28 +119,19 @@ pub struct AckReceiptVerification {
     pub combined_root: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Error)]
 pub enum AckError {
+    #[error("invalid ACK artifact: {0}")]
     InvalidArtifact(String),
+    #[error("invalid ACK source: {0}")]
     InvalidSource(String),
+    #[error("invalid ACK receipt: {0}")]
     InvalidReceipt(String),
+    #[error("invalid hex: {0}")]
     InvalidHex(String),
+    #[error("private ACK entry not found: {0}")]
     MissingPrivateEntry(String),
 }
-
-impl fmt::Display for AckError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidArtifact(message) => write!(f, "invalid ACK artifact: {message}"),
-            Self::InvalidSource(message) => write!(f, "invalid ACK source: {message}"),
-            Self::InvalidReceipt(message) => write!(f, "invalid ACK receipt: {message}"),
-            Self::InvalidHex(message) => write!(f, "invalid hex: {message}"),
-            Self::MissingPrivateEntry(name) => write!(f, "private ACK entry not found: {name}"),
-        }
-    }
-}
-
-impl std::error::Error for AckError {}
 
 impl Default for AckPrivateSource {
     fn default() -> Self {

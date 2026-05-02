@@ -1,6 +1,25 @@
 use crate::utils::format::format_eth_address;
 use serde::{Deserialize, Serialize};
 
+/// Convert an EIP-155 chain id to its network name.
+pub fn chain_name(chain_id: u64) -> &'static str {
+    match chain_id {
+        1 => "Ethereum",
+        11155111 => "Sepolia",
+        17000 => "Holesky",
+        42161 => "Arbitrum",
+        10 => "Optimism",
+        8453 => "Base",
+        137 => "Polygon",
+        56 => "BNB Chain",
+        43114 => "Avalanche",
+        324 => "zkSync Era",
+        59144 => "Linea",
+        534352 => "Scroll",
+        _ => "Unknown",
+    }
+}
+
 /// Wallet connection state
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub enum WalletState {
