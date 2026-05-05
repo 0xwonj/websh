@@ -8,10 +8,10 @@
     <!-- Primary Meta Tags -->
     <title>wonjae.eth</title>
     <meta name="title" content="wonjae.eth">
-    <meta name="description" content="Cryptographic Unix-like filesystem shell for GitHub-backed personal archives.">
+    <meta name="description" content="A verifiable personal archive built on a browser-native virtual filesystem.">
     <meta name="author" content="Wonjae Choi">
     <meta name="keywords"
-        content="cryptography, web3, ethereum, zero-knowledge, webassembly, rust, filesystem, unix-shell, terminal">
+        content="verifiable archive, personal archive, cryptography, web3, ethereum, zero-knowledge, webassembly, rust, virtual filesystem, content ledger, terminal">
     <meta name="theme-color" content="#1f1f28">
     <meta name="robots" content="index, follow">
 
@@ -35,17 +35,17 @@
     <!-- Open Graph / Facebook / Discord -->
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://wonjae.eth.limo/">
-    <meta property="og:title" content="wonjae.eth - Cryptographic Terminal">
+    <meta property="og:title" content="wonjae.eth">
     <meta property="og:description"
-        content="Cryptographic Unix-like filesystem shell for GitHub-backed personal archives.">
+        content="A verifiable personal archive built on a browser-native virtual filesystem.">
     <meta property="og:image" content="https://wonjae.eth.limo/assets/preview.png">
 
     <!-- Twitter -->
     <meta property="twitter:card" content="summary_large_image">
     <meta property="twitter:url" content="https://wonjae.eth.limo/">
-    <meta property="twitter:title" content="wonjae.eth - Cryptographic Terminal">
+    <meta property="twitter:title" content="wonjae.eth">
     <meta property="twitter:description"
-        content="Cryptographic Unix-like filesystem shell for GitHub-backed personal archives.">
+        content="A verifiable personal archive built on a browser-native virtual filesystem.">
     <meta property="twitter:image" content="https://wonjae.eth.limo/assets/preview.png">
 
     <!-- Performance Optimization -->
@@ -53,12 +53,30 @@
     <link rel="preconnect" href="https://raw.githubusercontent.com" crossorigin>
 
     <!-- PWA -->
-    <link rel="manifest" href="/assets/manifest.json">
+    <link rel="manifest" href="assets/manifest.json">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="wonjae.eth">
 
+    <script>
+        (() => {
+            const { pathname, search, hash } = window.location;
+            const segments = pathname.split("/").filter(Boolean);
+            const ipfsBase = segments[0] === "ipfs" && segments[1]
+                ? `/${segments[0]}/${segments[1]}`
+                : "";
+            const appBase = ipfsBase ? `${ipfsBase}/` : "/";
+            const pathInsideBase = ipfsBase
+                ? pathname.slice(ipfsBase.length) || "/"
+                : pathname;
+            const route = !pathInsideBase || pathInsideBase === "/" || pathInsideBase === "/index.html"
+                ? "/"
+                : pathInsideBase;
+
+            window.history.replaceState(null, "", `${appBase}${search}${hash || `#${route}`}`);
+        })();
+    </script>
     <base href="./">
     <script>
         (() => {
@@ -128,14 +146,14 @@
     <link data-trunk rel="css" href="assets/themes/black-ink.css">
     <link data-trunk rel="css" href="assets/themes/catppuccin-latte.css">
     <link data-trunk rel="css" href="assets/themes/solarized-light.css">
-    <link rel="stylesheet" href="assets/vendor/katex/katex.min.css">
     <link data-trunk rel="css" href="assets/base.css">
     <link data-trunk rel="css" href="assets/bundle.css">
-    <script defer src="assets/vendor/katex/katex.min.js"></script>
     <link data-trunk rel="icon" href="assets/favicon.svg">
     <link data-trunk rel="copy-dir" href="content" data-target-path="content">
     <link data-trunk rel="copy-dir" href="assets/fonts" data-target-path="assets/fonts">
     <link data-trunk rel="copy-dir" href="assets/vendor" data-target-path="assets/vendor">
+    <link data-trunk rel="copy-file" href="assets/manifest.json" data-target-path="assets">
+    <link data-trunk rel="copy-file" href="assets/favicon.svg" data-target-path="assets">
     <link data-trunk rel="copy-file" href="_headers">
     <link rel="apple-touch-icon" href="assets/favicon.svg">
 </head>

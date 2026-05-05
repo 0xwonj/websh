@@ -1,25 +1,27 @@
 //! End-to-end: staged changes → backend-private manifest regeneration.
 
-use websh_core::domain::changes::{ChangeSet, ChangeType};
-use websh_core::domain::{EntryExtensions, NodeMetadata, VirtualPath};
+use std::rc::Rc;
+
+use websh_core::domain::{ChangeSet, ChangeType, EntryExtensions, NodeMetadata, VirtualPath};
+use websh_core::ports::{MockBackend, ScannedSubtree};
 use websh_core::runtime;
-use websh_core::storage::{MockBackend, ScannedSubtree};
 
 #[tokio::test(flavor = "current_thread")]
 async fn commit_path_records_staged_paths_and_merged_snapshot() {
     let mut cs = ChangeSet::new();
     let site_root = VirtualPath::root();
     let p = site_root.join("a.md");
-    cs.upsert(
+    cs.upsert_at(
         p.clone(),
         ChangeType::CreateFile {
             content: "hello".into(),
             meta: NodeMetadata::default(),
             extensions: EntryExtensions::default(),
         },
+        1234,
     );
 
-    let backend = std::sync::Arc::new(MockBackend::with_success(
+    let backend = Rc::new(MockBackend::with_success(
         ScannedSubtree::default(),
         "sha-new",
     ));

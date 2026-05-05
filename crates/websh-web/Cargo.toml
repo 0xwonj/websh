@@ -3,19 +3,30 @@ name = "websh-web"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+publish.workspace = true
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = []
+debug-panic-hook = ["dep:console_error_panic_hook"]
+
 [dependencies]
-websh-core = { path = "../websh-core" }
-leptos = { version = "0.8", features = ["csr"] }
-console_error_panic_hook = "0.1"
-wasm-bindgen = "0.2"
-wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = [
+websh-core = { workspace = true }
+websh-site = { workspace = true }
+leptos = { workspace = true }
+leptos-use = { workspace = true }
+console_error_panic_hook = { workspace = true, optional = true }
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = { workspace = true }
+web-sys = { workspace = true, features = [
+    "AbortController",
+    "AbortSignal",
     "Blob",
     "BlobPropertyBag",
+    "Clipboard",
     "console",
     "Document",
     "FocusEvent",
@@ -30,6 +41,7 @@ web-sys = { version = "0.3", features = [
     "Node",
     "NodeList",
     "Request",
+    "RequestCache",
     "RequestInit",
     "RequestMode",
     "Response",
@@ -42,32 +54,23 @@ web-sys = { version = "0.3", features = [
     "Url",
     "Window",
 ] }
-js-sys = "0.3"
-comrak = { version = "0.52", default-features = false }
-ammonia = "4"
+js-sys = { workspace = true }
+base64 = { workspace = true }
+gloo-net = { workspace = true }
+futures-util = { workspace = true }
+comrak = { workspace = true }
+ammonia = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-toml = "0.8"
-stylance = "0.7"
-leptos_icons = "0.7"
-leptos-use = { version = "0.18", default-features = false, features = ["use_media_query"] }
-icondata = { version = "0.7", default-features = false, features = ["bootstrap-icons", "lucide"] }
-regex = { workspace = true }
-base64 = { workspace = true }
-gloo-net = "0.6"
-idb = "0.6"
-gloo-timers = { version = "0.3", features = ["futures"] }
-serde-wasm-bindgen = "0.6"
-sha2 = { workspace = true }
-hex = { workspace = true }
-alloy-primitives = { workspace = true }
-unicode-normalization = { workspace = true }
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-getrandom = { version = "0.2", features = ["js"] }
+toml = { workspace = true }
+thiserror = { workspace = true }
+stylance = { workspace = true }
+gloo-timers = { workspace = true }
+idb = { workspace = true }
+serde-wasm-bindgen = { workspace = true }
 
 [dev-dependencies]
-wasm-bindgen-test = "0.3"
+wasm-bindgen-test = { workspace = true }
 
 [package.metadata.stylance]
 output_file = "../../assets/bundle.css"

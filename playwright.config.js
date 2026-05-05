@@ -10,7 +10,7 @@ module.exports = defineConfig({
     : {
         command: 'env -u NO_COLOR CARGO_TARGET_DIR=target/e2e trunk serve --release --dist dist-e2e --address 127.0.0.1 --port 4173',
         url: 'http://127.0.0.1:4173',
-        reuseExistingServer: true,
+        reuseExistingServer: !process.env.CI,
         timeout: 120000
       }
 });

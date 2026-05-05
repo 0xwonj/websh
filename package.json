@@ -4,7 +4,12 @@
   "type": "commonjs",
   "scripts": {
     "e2e": "env -u NO_COLOR playwright test tests/e2e --reporter=line --workers=1",
-    "lint:css": "stylelint 'src/**/*.module.css' 'assets/tokens/*.css' 'assets/themes/*.css' 'assets/base.css'"
+    "docs:drift": "node scripts/check-docs-drift.cjs",
+    "lint:css": "node scripts/lint-css.cjs",
+    "perf:content": "node tests/perf/content-load.cjs",
+    "perf:budgets": "WEBSH_WASM_BROTLI_BUDGET=1.05MiB WEBSH_JS_BROTLI_BUDGET=90KiB WEBSH_CSS_BROTLI_BUDGET=45KiB WEBSH_FONT_BROTLI_BUDGET=850KiB WEBSH_VENDOR_BROTLI_BUDGET=900KiB WEBSH_TOTAL_BROTLI_BUDGET=1.9MiB node tests/perf/wasm-size.cjs",
+    "perf:wasm-size": "node tests/perf/wasm-size.cjs",
+    "perf:wasm-twiggy": "node tests/perf/wasm-twiggy.cjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.52.0",

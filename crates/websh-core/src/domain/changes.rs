@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::domain::EntryExtensions;
 use crate::domain::{NodeMetadata, VirtualPath};
-use crate::utils::current_timestamp;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ChangeType {
@@ -43,14 +42,14 @@ fn is_default_extensions(e: &EntryExtensions) -> bool {
     e == &EntryExtensions::default()
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
     pub change: ChangeType,
     pub staged: bool,
     pub timestamp: u64,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChangeSet {
     entries: BTreeMap<VirtualPath, Entry>,
 }
@@ -86,11 +85,11 @@ impl ChangeSet {
 
     /// Insert-or-replace a change at `path`. New entries default to staged so
     /// write commands are immediately eligible for `sync commit`.
-    pub fn upsert(&mut self, path: VirtualPath, change: ChangeType) {
+    pub fn upsert_at(&mut self, path: VirtualPath, change: ChangeType, timestamp_ms: u64) {
         let entry = Entry {
             change,
             staged: true,
-            timestamp: current_timestamp(),
+            timestamp: timestamp_ms,
         };
         self.entries.insert(path, entry);
     }
@@ -229,18 +228,23 @@ mod tests {
         }
     }
 
+    fn upsert(cs: &mut ChangeSet, path: &str, change: ChangeType) {
+        cs.upsert_at(p(path), change, 1234);
+    }
+
     #[test]
     fn upsert_defaults_staged_true() {
         let mut cs = ChangeSet::new();
-        cs.upsert(p("/a.md"), create_file("hi"));
+        upsert(&mut cs, "/a.md", create_file("hi"));
         assert!(cs.is_staged(&p("/a.md")));
         assert_eq!(cs.len(), 1);
+        assert_eq!(cs.get(&p("/a.md")).unwrap().timestamp, 1234);
     }
 
     #[test]
     fn unstage_then_stage_roundtrip() {
         let mut cs = ChangeSet::new();
-        cs.upsert(p("/a.md"), create_file("hi"));
+        upsert(&mut cs, "/a.md", create_file("hi"));
         cs.unstage(&p("/a.md"));
         assert!(!cs.is_staged(&p("/a.md")));
         cs.stage(&p("/a.md"));
@@ -250,7 +254,7 @@ mod tests {
     #[test]
     fn discard_removes_entry() {
         let mut cs = ChangeSet::new();
-        cs.upsert(p("/a.md"), create_file("hi"));
+        upsert(&mut cs, "/a.md", create_file("hi"));
         cs.discard(&p("/a.md"));
         assert!(cs.get(&p("/a.md")).is_none());
     }
@@ -258,8 +262,8 @@ mod tests {
     #[test]
     fn is_deleted_matches_delete_variants() {
         let mut cs = ChangeSet::new();
-        cs.upsert(p("/gone.md"), ChangeType::DeleteFile);
-        cs.upsert(p("/keep.md"), create_file("x"));
+        upsert(&mut cs, "/gone.md", ChangeType::DeleteFile);
+        upsert(&mut cs, "/keep.md", create_file("x"));
         assert!(cs.is_deleted(&p("/gone.md")));
         assert!(!cs.is_deleted(&p("/keep.md")));
     }
@@ -267,9 +271,9 @@ mod tests {
     #[test]
     fn iter_all_yields_sorted_order() {
         let mut cs = ChangeSet::new();
-        cs.upsert(p("/z.md"), create_file("z"));
-        cs.upsert(p("/a.md"), create_file("a"));
-        cs.upsert(p("/m.md"), create_file("m"));
+        upsert(&mut cs, "/z.md", create_file("z"));
+        upsert(&mut cs, "/a.md", create_file("a"));
+        upsert(&mut cs, "/m.md", create_file("m"));
         let paths: Vec<_> = cs.iter_all().map(|(p, _)| p.as_str().to_string()).collect();
         assert_eq!(paths, vec!["/a.md", "/m.md", "/z.md"]);
     }
@@ -277,8 +281,8 @@ mod tests {
     #[test]
     fn iter_staged_filters_unstaged() {
         let mut cs = ChangeSet::new();
-        cs.upsert(p("/a.md"), create_file("a"));
-        cs.upsert(p("/b.md"), create_file("b"));
+        upsert(&mut cs, "/a.md", create_file("a"));
+        upsert(&mut cs, "/b.md", create_file("b"));
         cs.unstage(&p("/b.md"));
         let staged: Vec<_> = cs
             .iter_staged()
@@ -290,16 +294,17 @@ mod tests {
     #[test]
     fn summary_counts_buckets() {
         let mut cs = ChangeSet::new();
-        cs.upsert(p("/new.md"), create_file("x"));
-        cs.upsert(
-            p("/upd.md"),
+        upsert(&mut cs, "/new.md", create_file("x"));
+        upsert(
+            &mut cs,
+            "/upd.md",
             ChangeType::UpdateFile {
                 content: "y".into(),
                 meta: None,
                 extensions: None,
             },
         );
-        cs.upsert(p("/del.md"), ChangeType::DeleteFile);
+        upsert(&mut cs, "/del.md", ChangeType::DeleteFile);
         cs.unstage(&p("/del.md"));
         let s = cs.summary();
         assert_eq!(s.creates_staged, 1);
@@ -307,5 +312,24 @@ mod tests {
         assert_eq!(s.deletes_unstaged, 1);
         assert_eq!(s.total(), 3);
         assert_eq!(s.total_staged(), 2);
+    }
+
+    #[test]
+    fn deserialization_rejects_non_canonical_entry_paths() {
+        let json = r#"{
+            "entries": {
+                "/a/../b.md": {
+                    "change": "DeleteFile",
+                    "staged": true,
+                    "timestamp": 1234
+                }
+            }
+        }"#;
+
+        let err = serde_json::from_str::<ChangeSet>(json).unwrap_err();
+        assert!(
+            err.to_string().contains("parent segment"),
+            "unexpected error: {err}"
+        );
     }
 }

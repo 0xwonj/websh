@@ -3,6 +3,8 @@ name = "websh-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+publish.workspace = true
 
 [lib]
 path = "src/lib.rs"
@@ -12,25 +14,23 @@ name = "websh-cli"
 path = "src/main.rs"
 
 [dependencies]
-websh-core = { path = "../websh-core" }
+websh-core = { workspace = true, features = ["eth-verify"] }
+websh-site = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
 base64 = { workspace = true }
-clap = { version = "4", features = ["derive"] }
-pgp = "0.19"
-rand = "0.8"
-serde_yaml = "0.9"
-lopdf = "0.34"
-imagesize = "0.13"
-tokio = { version = "1", features = ["rt", "macros"] }
+clap = { workspace = true }
+pgp = { workspace = true }
+getrandom = { workspace = true }
+serde_norway = { workspace = true }
+lopdf = { workspace = true }
+imagesize = { workspace = true }
 regex = { workspace = true }
-toml = "0.8"
 
 [dev-dependencies]
-websh-core = { path = "../websh-core", features = ["mock"] }
-k256 = { version = "0.13", features = ["ecdsa"] }
+websh-core = { workspace = true, features = ["mock", "eth-verify"] }
+k256 = { workspace = true }
 alloy-primitives = { workspace = true }
-hex = { workspace = true }
-sha2 = { workspace = true }
+rand08 = { workspace = true }

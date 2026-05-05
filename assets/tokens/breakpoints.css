@@ -1,10 +1,10 @@
 /* ============================================
    Canonical viewport breakpoints
 
-   Mirrors src/utils/breakpoints.rs. CSS @media rules cannot read
-   var(), so each module repeats the literal number. These tokens
-   exist for documentation, future @custom-media migration, and any
-   JS/Rust code that needs to reach into CSS for the value.
+   Mirrors crates/websh-web/src/platform/breakpoints.rs. CSS @media
+   rules cannot read var(), so each module repeats the literal number.
+   These tokens document the canonical viewport tiers and are available
+   to JS/Rust code that needs to reach into CSS for the value.
 
    Tiers:
    - sm  460px — chrome chip threshold (narrow phones)
@@ -13,9 +13,8 @@
    - lg  760px — chrome wide tier (tablet/desktop content)
    - xl 1080px — reader TOC sidebar (wide desktop)
 
-   Layout-driven exceptions (e.g. explorer's 768/1024 3-pane
-   thresholds) are NOT part of this canon — they are content-fit
-   thresholds for a specific layout, not viewport tiers.
+   Layout-driven exceptions are NOT part of this canon — they are
+   content-fit thresholds for a specific layout, not viewport tiers.
    ============================================ */
 
 :root {

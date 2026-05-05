@@ -5,11 +5,12 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use websh_core::attestation::artifact::{
-    ATTESTATIONS_PATH, Attestation, AttestationArtifact, Subject, compute_content_sha256,
+    Attestation, AttestationArtifact, Subject, compute_content_sha256,
 };
 use websh_core::attestation::ledger::{CONTENT_LEDGER_PATH, ContentLedger};
-use websh_core::crypto::ack::{ACK_ARTIFACT_PATH, ACK_RECEIPTS_DIR, AckArtifact, slugify_name};
+use websh_core::crypto::ack::{ACK_RECEIPTS_DIR, AckArtifact, slugify_name};
 use websh_core::crypto::pgp::normalize_fingerprint;
+use websh_site::{ACK_ARTIFACT_PATH, ACK_COMMITMENT_JSON, ATTESTATIONS_PATH};
 
 fn temp_root(name: &str) -> PathBuf {
     let stamp = SystemTime::now()
@@ -89,19 +90,28 @@ fn cli_fails(root: &Path, args: &[&str]) {
 fn write_ack_artifact(root: &Path) {
     let path = root.join(ACK_ARTIFACT_PATH);
     fs::create_dir_all(path.parent().unwrap()).unwrap();
-    fs::write(
-        path,
-        include_str!("../../../assets/crypto/ack.commitment.json"),
-    )
-    .unwrap();
+    fs::write(path, ACK_COMMITMENT_JSON).unwrap();
 }
 
 fn write_homepage_content(root: &Path) {
     write_ack_artifact(root);
-    fs::create_dir_all(root.join("src/components/home")).unwrap();
+    fs::create_dir_all(root.join("crates/websh-web/src/features/home")).unwrap();
     fs::create_dir_all(root.join("assets/themes")).unwrap();
-    fs::write(root.join("src/components/home/mod.rs"), "home").unwrap();
-    fs::write(root.join("src/components/home/home.module.css"), "home-css").unwrap();
+    fs::write(
+        root.join("crates/websh-web/src/features/home/mod.rs"),
+        "home",
+    )
+    .unwrap();
+    fs::write(
+        root.join("crates/websh-web/src/features/home/home.module.css"),
+        "home-css",
+    )
+    .unwrap();
+    fs::write(
+        root.join("crates/websh-web/src/features/home/sections.rs"),
+        "sections",
+    )
+    .unwrap();
     fs::write(root.join("assets/themes/dracula.css"), "theme").unwrap();
 }
 
@@ -644,7 +654,7 @@ fn write_pgp_fixture_set(root: &Path, messages: &[(&str, &str)]) -> (PathBuf, Pa
     use pgp::crypto::hash::HashAlgorithm;
     use pgp::types::{KeyDetails, Password};
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand08::thread_rng();
     let key_params = SecretKeyParamsBuilder::default()
         .key_type(KeyType::Ed25519Legacy)
         .can_certify(true)

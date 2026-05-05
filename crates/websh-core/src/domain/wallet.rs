@@ -1,4 +1,4 @@
-use crate::utils::format::format_eth_address;
+use crate::support::format::format_eth_address;
 use serde::{Deserialize, Serialize};
 
 /// Convert an EIP-155 chain id to its network name.

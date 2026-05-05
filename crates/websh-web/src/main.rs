@@ -1,11 +1,10 @@
-#![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-
 #[cfg(target_arch = "wasm32")]
 fn main() {
     use leptos::prelude::*;
     use wasm_bindgen::JsCast;
     use websh_web::app::App;
 
+    #[cfg(feature = "debug-panic-hook")]
     console_error_panic_hook::set_once();
 
     let root = document()

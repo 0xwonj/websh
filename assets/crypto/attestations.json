@@ -73,14 +73,24 @@
           "bytes": 640
         },
         {
-          "path": "src/components/home/home.module.css",
-          "sha256": "0x8022d0315a81b154c399bd0fc2f1548159a2a218468fd4558823567efe59fe64",
-          "bytes": 17261
+          "path": "crates/websh-web/src/features/home/home.module.css",
+          "sha256": "0x24b12a0914318677c94418cbd5560357ecef4eab96bd82f7c1543f3dd624a258",
+          "bytes": 17956
         },
         {
-          "path": "src/components/home/mod.rs",
-          "sha256": "0x5ff20018adc5be412ea9b5c8f90d0f164d9d05f037aff9205a22859f68c28c5f",
-          "bytes": 41274
+          "path": "crates/websh-web/src/features/home/mod.rs",
+          "sha256": "0xe6c81f76b44742ae2dd74495d9b7b47165a0c8abda973609a3416ebdb5abff70",
+          "bytes": 13138
+        },
+        {
+          "path": "crates/websh-web/src/features/home/model.rs",
+          "sha256": "0xac6262850feaad4fc59d6f16359a7d4f38397c8a9f01611c9892772fe40133f7",
+          "bytes": 12984
+        },
+        {
+          "path": "crates/websh-web/src/features/home/sections.rs",
+          "sha256": "0x821198d0f3133ea6b8c65dc24e5dcaf1c571b6362cb793ae0bd1c86afc867559",
+          "bytes": 21115
         }
       ],
       "attestations": [
@@ -89,9 +99,9 @@
           "signer": "Wonjae Choi <wonjae@snu.ac.kr>",
           "fingerprint": "6CA8E0E8E0F9B9EE2F92EE49BEE7501AEA7758AD",
           "key_path": "content/keys/wonjae.asc",
-          "signature": "-----BEGIN PGP SIGNATURE-----\n\niKMEABYKAEsWIQRsqODo4Pm57i+S7km+51Aa6ndYrQUCafUasBsUgAAAAAAEAA5t\nYW51MiwyLjUrMS4xMiwwLDMRHHdvbmphZUBzbnUuYWMua3IACgkQvudQGup3WK1q\n5gD/V9v2+sTThn2DGI+39fFnzVsMG4GycUjbxOl6HlFRLIUA/3N/y6g/qq9EEGLq\noApujnqeZrtEOKbfS2KgnAt311UO\n=28/i\n-----END PGP SIGNATURE-----\n",
+          "signature": "-----BEGIN PGP SIGNATURE-----\n\niKMEABYKAEsWIQRsqODo4Pm57i+S7km+51Aa6ndYrQUCafpUuxsUgAAAAAAEAA5t\nYW51MiwyLjUrMS4xMiwwLDMRHHdvbmphZUBzbnUuYWMua3IACgkQvudQGup3WK2B\nDQD+N6moKqcO8ksRrL1d/AbcUjNXFJ6vCQkYL+eFzjIf3vMA/1JYkhRARdAtlDqf\ni7CMPFUflCl2MAIdbP2AJAtcul8L\n=HBhV\n-----END PGP SIGNATURE-----\n",
           "signature_path": ".websh/local/crypto/attestations/root.sig.asc",
-          "message_sha256": "0xd5732766c133ba6c09127704b3527c4bd5193a064975e202eecc2d0bc693a19f",
+          "message_sha256": "0xebda4d02de73c8209be3d1e0dbf4266330897a35a39da59786c036a1e9346701",
           "verified": true
         }
       ],

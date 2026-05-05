@@ -1,126 +1,94 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code when working with this repository.
+This file gives coding agents the current repository map and operating rules. The authoritative architecture docs are under `docs/architecture/`.
 
-## Workspace layout
+## Workspace Layout
 
-Three crates under `crates/`:
+Four crates live under `crates/`:
 
-- `websh-core` — pure-Rust shared library. Domain types, engines, and the storage hexagonal port. Compiles for both `wasm32-unknown-unknown` and the host triple.
-- `websh-cli` — native build-time binary. Clap dispatchers + engine modules for content sync, attestation building, mempool subcommands.
-- `websh-web` — Leptos UI compiled to wasm32-unknown-unknown. Trunk's target.
+- `websh-core`: host + wasm shared library. Owns domain contracts, public facades, filesystem, shell, runtime coordination, mempool helpers, attestation primitives, storage ports, and support helpers.
+- `websh-site`: host + wasm site-policy crate. Owns deployed identity, public key constants, acknowledgement data, and site-specific copy/policy.
+- `websh-cli`: host binary. Owns Clap adapters, command workflows, process/filesystem/GitHub/GPG/Trunk adapters, deploy, mempool, mount, content, and attestation commands.
+- `websh-web`: wasm Leptos app. Owns `AppContext`, runtime services, browser storage adapters, wallet/DOM/fetch/object URL platform code, feature views, and CSS modules.
 
-## Build Commands
+`websh-cli` and `websh-web` must not depend on each other. Both depend on `websh-core` and may use `websh-site`.
+
+## Active Architecture Boundaries
+
+- `websh-core::engine` is private. External crates import from `websh_core::{domain, filesystem, runtime, shell, mempool, attestation, crypto, ports, support, errors}`.
+- `VirtualPath` is the only engine path type for canonical filesystem paths.
+- Runtime overlay paths are owned by `runtime_state_root()` and `is_runtime_overlay_path()`.
+- `StorageBackend` is a local, non-`Send` browser-friendly port using `Rc<dyn StorageBackend>`.
+- CLI command modules should parse arguments and delegate to `workflows`.
+- CLI `infra` owns process execution and typed wrappers around `git`, `gh`, `gpg`, and `trunk`.
+- Web feature code should use `AppContext` and `RuntimeServices`; browser storage belongs in `runtime`, browser APIs in `platform`.
+- Do not expose raw GitHub tokens through rendered runtime state.
+
+## Current Module Map
+
+`websh-core`:
+
+- `domain/`: stable data contracts, paths, manifests, metadata, mounts, wallet, changes.
+- `engine/`: private implementation modules.
+- `filesystem.rs`, `runtime.rs`, `shell.rs`, `mempool.rs`, `attestation.rs`, `crypto.rs`, `ports/`, `support/`, `errors.rs`: public facades.
+
+`websh-cli`:
+
+- `cli.rs`: top-level Clap dispatch.
+- `commands/`: thin adapters from args to workflow options.
+- `workflows/`: use-case logic.
+- `infra/`: process, GitHub, Git, JSON, and filesystem adapters.
+
+`websh-web`:
+
+- `app/`: root component, context, services, terminal state.
+- `runtime/`: loader, mounts, browser persistence, wallet, storage state, draft persistence.
+- `platform/`: DOM, fetch, object URL, redirect, time, breakpoint helpers.
+- `features/`: chrome, home, ledger, mempool, reader, router, terminal.
+- `shared/`: reusable UI components.
+- `render/`: markdown and theme rendering.
+
+## Commands
 
 ```bash
-# Development server
 trunk serve
-
-# Production build
 trunk build --release
-
-# All Rust tests across the workspace
+cargo check --workspace
 cargo test --workspace
-
-# Mock commit integration (websh-core + mock feature)
-cargo test -p websh-core --features mock --test commit_integration
-
-# Native CLI
-cargo run -p websh-cli -- <subcommand> [args...]
-
-# Per-crate target compile checks
-cargo check -p websh-core
+cargo clippy --workspace --all-targets -- -D warnings
 cargo check -p websh-core --target wasm32-unknown-unknown
 cargo check -p websh-web --target wasm32-unknown-unknown
-
-# Browser QA after starting release Trunk on 4173
-WEBSH_E2E_BASE_URL=http://127.0.0.1:4173 NODE_PATH=target/qa/node_modules target/qa/node_modules/.bin/playwright test tests/e2e --reporter=line --workers=1
+cargo test -p websh-core --features mock --test commit_integration
+cargo run -p websh-cli -- <subcommand> [args...]
+npm run lint:css
+npm run docs:drift
+npm run perf:budgets -- dist
+npm run e2e
+just verify
 ```
 
-## Prerequisites
+Use focused checks while developing, then run the relevant wider gate before finishing. Browser runtime changes should include `cargo check -p websh-web --target wasm32-unknown-unknown`; native `cargo check` can miss wasm-only imports.
 
-- Rust with `wasm32-unknown-unknown`: `rustup target add wasm32-unknown-unknown`
-- Trunk: `cargo install trunk`
-- Stylance CLI: `cargo install stylance-cli`
-- Playwright for browser QA
+## Trunk And Generated Artifacts
 
-## Architecture
+`Trunk.toml` pre-build hooks run:
 
-Websh is a client-side browser runtime over one canonical filesystem rooted at `/`.
-Runtime assembly flows through `config::BOOTSTRAP_SITE -> core::runtime::loader -> RuntimeLoad`.
+1. Stylance to regenerate `assets/bundle.css`.
+2. `cargo run --quiet -p websh-cli -- content manifest`.
+3. `cargo run --quiet -p websh-cli -- attest build`.
 
-Core filesystem concepts:
+Do not edit generated sidecars, `content/manifest.json`, `content/ledger.json`, `assets/bundle.css`, or `assets/crypto/attestations.json` as if they were hand-authored unless the task explicitly targets generated outputs. Prefer running the owning command.
 
-- `GlobalFs`: canonical tree for `/site`, `/mnt/<name>`, and `/state`.
-- `RuntimeMount`: mount ownership and write metadata.
-- `ScannedSubtree`: backend-neutral scan result.
-- `StorageBackend`: scan/read/commit contract.
-- `RouteRequest`, `RouteResolution`, `RouteFrame`, `RenderIntent`: route and render decision surface.
-
-The UI should render engine output. It should not assemble filesystems or resolve backend details directly.
-
-## Module Structure
-
-`websh-core` (cross-target shared library):
-
-- `crates/websh-core/src/domain/`: pure data types (filesystem, manifest, mempool, changes, virtual_path, etc.).
-- `crates/websh-core/src/filesystem/`: canonical filesystem engine, routing, content reads, render intents, change-merge.
-- `crates/websh-core/src/runtime/`: runtime assembly, state projection, commit coordination, env/wallet adapters.
-- `crates/websh-core/src/storage/`: `StorageBackend` trait + GitHub/IDB/persist/mock adapters (cfg-gated to wasm32 where applicable).
-- `crates/websh-core/src/shell/`: command parser + executor (shell ran in the browser via the terminal UI).
-- `crates/websh-core/src/mempool/`: pure mempool helpers (parse, serialize, form, manifest_entry).
-- `crates/websh-core/src/attestation/`: artifact, ledger, subject (verification surface).
-- `crates/websh-core/src/crypto/`: ack, eth, pgp primitives.
-- `crates/websh-core/src/utils/`: format, time, ring_buffer, asset, dom, fetch, sysinfo, url.
-- `crates/websh-core/src/{config,theme,content_routes,admin,error}.rs`: top-level shared constants and helpers.
-
-`websh-cli` (native build-time binary):
-
-- `crates/websh-cli/src/cli/`: clap dispatchers + engine logic for `attest`, `content`, `mempool`, `mount`, `ledger`, `crypto`, `pgp`, `ack`, `deploy`. (Engine extraction from clap shims is tracked as a follow-up.)
-
-`websh-web` (Leptos cdylib):
-
-- `crates/websh-web/src/app.rs`: root component, `AppContext`, terminal/explorer state.
-- `crates/websh-web/src/components/`: Leptos UI components.
-- `crates/websh-web/src/utils/`: DOM utilities, breakpoints (leptos-use), markdown rendering (comrak/ammonia), wasm_cleanup, theme application, fetch.
-- `crates/websh-web/src/main.rs`: trunk's wasm entrypoint.
-
-## State Model
-
-`AppContext` owns the safe runtime state snapshot used to render `/state`.
-Browser storage is a persistence adapter, not a feature-layer dependency.
-
-Important rules:
-
-- Do not read `localStorage` or `sessionStorage` from feature code.
-- Mutate runtime state through the runtime/state adapter and update `AppContext.runtime_state`.
-- Do not expose raw GitHub tokens under `/state`; expose only safe markers.
-- Commit code receives auth through a narrow runtime secret accessor and `CommitRequest`, not through `/state`.
-
-## Storage and Commit Rules
-
-- Backend scans return `ScannedSubtree`.
-- Runtime loader mounts scans directly into `GlobalFs`.
-- Commit preparation normalizes staged canonical changes into a backend-neutral `CommitDelta` and merged mount snapshot.
-- GitHub manifest JSON is private serialization inside `core::storage::github`.
-- GitHub commit paths must validate and respect the backend content prefix.
-- Recursive directory deletes must expand to concrete file deletions.
-- Empty directories must survive manifest export/import.
-
-## Command Patterns
-
-When adding commands:
-
-1. Add parser support in `crates/websh-core/src/shell/`.
-2. Keep execution pure and return `CommandResult`.
-3. Express UI mutations as `SideEffect`.
-4. Dispatch async/browser effects from the UI/runtime boundary.
-5. Add command parse and execution tests.
+`attest build` skips non-release Trunk profiles unless forced. `WEBSH_NO_SIGN=1` disables signing and leaves subjects pending.
 
 ## Security Notes
 
 - Treat mounted content as untrusted.
-- Render Markdown and HTML only after sanitization, or isolate richer HTML in a sandboxed iframe.
-- Access metadata is advisory UI filtering, not cryptographic access control.
-- GitHub tokens should use minimum scopes and be kept out of rendered filesystem content.
-- Anti-framing must be enforced by deployment headers, not HTML meta tags.
+- Markdown and HTML must be sanitized before rendering.
+- Access metadata is an advisory UI filter, not confidentiality.
+- Keep GitHub PATs out of command history, rendered filesystem state, logs, and docs.
+- Deployment anti-framing and CSP are header responsibilities.
+
+## Documentation Rule
+
+Current architecture lives in `docs/architecture/`. Historical refactor documents under `docs/refactor/3-crate-workspace/` are useful context but do not override the current docs.

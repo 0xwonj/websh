@@ -2,6 +2,8 @@ const { test, expect } = require('playwright/test');
 const crypto = require('crypto');
 
 const baseUrl = process.env.WEBSH_E2E_BASE_URL || 'http://127.0.0.1:4173';
+const appBaseUrl = baseUrl.replace(/\/+$/, '');
+const appOrigin = new URL(appBaseUrl).origin;
 const admin = '0x2c4b04a4aeb6e18c2f8a5c8b4a3f62c0cf33795a';
 const expectedHead = '1111111111111111111111111111111111111111';
 const themeStorageKey = 'user.THEME';
@@ -58,6 +60,7 @@ const siteEntries = [
   dirEntry('docs', 'docs'),
   dirEntry('docs/deep', 'deep'),
   fileEntry('.websh/index.json', 'Index', { kind: 'data' }),
+  fileEntry('.websh/ledger.json', 'Ledger', { kind: 'data' }),
   fileEntry('.websh/mounts/db.mount.json', 'DB mount', { kind: 'data' }),
   fileEntry('.websh/site.json', 'Site', { kind: 'data' }),
   fileEntry('docs/deep/old.md', 'Deep Old'),
@@ -73,6 +76,10 @@ const dbManifest = manifestDocument([
 ]);
 
 let rawResponses;
+
+function fixturePathname(url) {
+  return url.pathname.replace(/^\/ipfs\/[^/]+(?=\/)/, '');
+}
 
 function sha256Json(value) {
   return `0x${crypto.createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
@@ -148,6 +155,14 @@ function makeLedger(inputs) {
   };
 }
 
+function deferred() {
+  let resolve;
+  const promise = new Promise((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
+}
+
 function freshRawResponses() {
   return new Map([
     ['/content/manifest.json', JSON.stringify(siteManifest)],
@@ -160,6 +175,7 @@ function freshRawResponses() {
         { route: '/', node_path: '/index.html', kind: 'page', renderer: 'html_page' }
       ]
     })],
+    ['/content/.websh/ledger.json', JSON.stringify(makeLedger([]))],
     ['/content/.websh/mounts/db.mount.json', JSON.stringify({
       backend: 'github',
       mount_at: '/db',
@@ -197,7 +213,7 @@ test.beforeEach(async ({ page }) => {
 
   await page.route('**/content/**', async (route) => {
     const url = new URL(route.request().url());
-    const body = rawResponses.get(url.pathname);
+    const body = rawResponses.get(fixturePathname(url));
     if (body === undefined) {
       await route.fulfill({ status: 404, contentType: 'text/plain', body: `missing ${url.pathname}` });
       return;
@@ -212,7 +228,7 @@ test.beforeEach(async ({ page }) => {
 
   await page.route('https://raw.githubusercontent.com/**', async (route) => {
     const url = new URL(route.request().url());
-    const body = rawResponses.get(url.pathname);
+    const body = rawResponses.get(fixturePathname(url));
     if (body === undefined) {
       await route.fulfill({ status: 404, contentType: 'text/plain', body: `missing ${url.pathname}` });
       return;
@@ -238,6 +254,43 @@ async function collectBrowserErrors(page) {
   return { pageErrors, consoleErrors };
 }
 
+function collectNavigationNetwork(page) {
+  const mainDocumentRequests = [];
+  const wasmResponses = [];
+  const sameOriginFailures = [];
+
+  page.on('request', (request) => {
+    if (request.resourceType() === 'document' && request.frame() === page.mainFrame()) {
+      mainDocumentRequests.push(request.url());
+    }
+  });
+
+  page.on('response', (response) => {
+    const url = new URL(response.url());
+    if (url.origin === appOrigin && url.pathname.endsWith('_bg.wasm')) {
+      wasmResponses.push(response.url());
+    }
+    if (
+      url.origin === appOrigin &&
+      response.status() >= 400 &&
+      !url.pathname.startsWith('/.well-known/trunk/')
+    ) {
+      sameOriginFailures.push(`${response.status()} ${url.pathname}`);
+    }
+  });
+
+  return { mainDocumentRequests, wasmResponses, sameOriginFailures };
+}
+
+async function installIpfsBaseAlias(page, cid = 'fakecid') {
+  await page.route(`**/ipfs/${cid}/**`, async (route) => {
+    const url = new URL(route.request().url());
+    const targetPath = `/${url.pathname.replace(new RegExp(`^/ipfs/${cid}/?`), '')}`;
+    const response = await route.fetch({ url: `${appOrigin}${targetPath}${url.search}` });
+    await route.fulfill({ response });
+  });
+}
+
 async function runCommand(page, input, expectedText) {
   const body = page.locator('body');
   const before = (await body.textContent()) || '';
@@ -251,11 +304,14 @@ async function runCommand(page, input, expectedText) {
 
 async function putMetadata(page, key, value) {
   await page.evaluate(([metadataKey, metadataValue]) => new Promise((resolve, reject) => {
-    const request = indexedDB.open('websh-state', 1);
+    const request = indexedDB.open('websh-state', 3);
     request.onupgradeneeded = () => {
       const db = request.result;
-      if (!db.objectStoreNames.contains('drafts')) {
-        db.createObjectStore('drafts', { keyPath: 'mount_id' });
+      if (db.objectStoreNames.contains('drafts')) {
+        db.deleteObjectStore('drafts');
+      }
+      if (!db.objectStoreNames.contains('draft_changes')) {
+        db.createObjectStore('draft_changes', { keyPath: 'key' });
       }
       if (!db.objectStoreNames.contains('metadata')) {
         db.createObjectStore('metadata', { keyPath: 'key' });
@@ -278,17 +334,42 @@ async function putMetadata(page, key, value) {
 async function waitForDraftPath(page, path) {
   await expect(async () => {
     const serialized = await page.evaluate((draftPath) => new Promise((resolve, reject) => {
-      const request = indexedDB.open('websh-state', 1);
+      const request = indexedDB.open('websh-state', 3);
       request.onerror = () => reject(request.error);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (db.objectStoreNames.contains('drafts')) {
+          db.deleteObjectStore('drafts');
+        }
+        if (!db.objectStoreNames.contains('draft_changes')) {
+          db.createObjectStore('draft_changes', { keyPath: 'key' });
+        }
+        if (!db.objectStoreNames.contains('metadata')) {
+          db.createObjectStore('metadata', { keyPath: 'key' });
+        }
+      };
       request.onsuccess = () => {
         const db = request.result;
-        const tx = db.transaction(['drafts'], 'readonly');
-        const get = tx.objectStore('drafts').get('global');
-        get.onsuccess = () => {
-          db.close();
-          resolve(JSON.stringify(get.result || {}));
+        const tx = db.transaction(['metadata', 'draft_changes'], 'readonly');
+        let payload = '';
+        const metadata = tx.objectStore('metadata').get('draft_paths:global');
+        metadata.onsuccess = () => {
+          const paths = JSON.parse(metadata.result?.value || '[]');
+          if (!paths.includes(draftPath)) {
+            payload = JSON.stringify({ paths });
+            return;
+          }
+          const get = tx.objectStore('draft_changes').get(`global:${draftPath}`);
+          get.onsuccess = () => {
+            payload = JSON.stringify({ paths, record: get.result || null });
+          };
+          get.onerror = () => reject(get.error);
         };
-        get.onerror = () => reject(get.error);
+        tx.oncomplete = () => {
+          db.close();
+          resolve(payload);
+        };
+        tx.onerror = () => reject(tx.error);
       };
     }), path);
     expect(serialized).toContain(path);
@@ -305,13 +386,22 @@ const directLoadCases = [
 
 test('official root loads built-in homepage', async ({ page }) => {
   const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
+  const network = collectNavigationNetwork(page);
   await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
-  expect(new URL(page.url()).hash).toBe('');
+  expect(new URL(page.url()).hash).toBe('#/');
   await expect(page.locator('body')).toContainText('A Homepage, Formalised', { timeout: 10000 });
   await expect(page.getByRole('navigation', { name: 'path' })).toHaveText('~');
   await expect(page.locator('body')).not.toContainText('No route matched');
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);
+  expect(network.sameOriginFailures).toEqual([]);
+});
+
+test('pwa manifest and touch icon assets are available', async ({ request }) => {
+  for (const path of ['/assets/manifest.json', '/assets/favicon.svg']) {
+    const response = await request.get(`${appBaseUrl}${path}`);
+    expect(response.status(), path).toBe(200);
+  }
 });
 
 test('official root does not require an index file in the mounted filesystem', async ({ page }) => {
@@ -321,10 +411,192 @@ test('official root does not require an index file in the mounted filesystem', a
 
   const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
   await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
-  expect(new URL(page.url()).hash).toBe('');
+  expect(new URL(page.url()).hash).toBe('#/');
   await expect(page.locator('body')).toContainText('A Homepage, Formalised', { timeout: 10000 });
   await expect(page.getByRole('navigation', { name: 'path' })).toHaveText('~');
   await expect(page.locator('body')).not.toContainText('No route matched');
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});
+
+test('home renders static sections while the root manifest is still loading', async ({ page }) => {
+  const manifestRequested = deferred();
+  const releaseManifest = deferred();
+  const manifest = manifestDocument([
+    ...siteManifest.entries,
+    fileEntry('now.toml', 'Now', { kind: 'data' }),
+    dirEntry('writing', 'writing'),
+    dirEntry('projects', 'projects'),
+    fileEntry('writing/loaded.md', 'Loaded Writing', {
+      date: '2026-05-01',
+      tags: ['notes']
+    }),
+    fileEntry('projects/loaded.md', 'Loaded Project', {
+      date: '2026-05-02',
+      tags: ['rust']
+    })
+  ]);
+  rawResponses.set('/content/manifest.json', JSON.stringify(manifest));
+  rawResponses.set('/content/now.toml', '[[items]]\ndate = "2026-05-01"\ntext = "Loaded now item"\n');
+
+  await page.route('**/content/manifest.json', async (route) => {
+    manifestRequested.resolve();
+    await releaseManifest.promise;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: rawResponses.get('/content/manifest.json')
+    });
+  });
+
+  const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
+  await page.goto(`${baseUrl}/#/`, { waitUntil: 'domcontentloaded' });
+
+  await expect(page.locator('body')).toContainText('A Homepage, Formalised', { timeout: 10000 });
+  const toc = page.getByRole('navigation', { name: 'Site index' });
+  const writingLink = toc.getByRole('link', { name: /writing/ });
+  await expect(writingLink).toContainText('…');
+  await expect(page.locator('body')).not.toContainText('Loaded Project');
+  await expect(page.locator('body')).not.toContainText('Loaded now item');
+
+  await manifestRequested.promise;
+  releaseManifest.resolve();
+
+  await expect(writingLink).toContainText('1', { timeout: 10000 });
+  await expect(page.locator('body')).toContainText('Loaded Project', { timeout: 10000 });
+  await expect(page.locator('body')).toContainText('Loaded now item', { timeout: 10000 });
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});
+
+test('home stays quiet when the root manifest fails', async ({ page }) => {
+  let nowRequests = 0;
+  let ledgerRequests = 0;
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === '/content/now.toml') {
+      nowRequests += 1;
+    }
+    if (url.pathname === '/content/.websh/ledger.json') {
+      ledgerRequests += 1;
+    }
+  });
+
+  rawResponses.set('/content/now.toml', '[[items]]\ndate = "2026-05-01"\ntext = "should not load"\n');
+  rawResponses.set('/content/.websh/ledger.json', JSON.stringify(makeLedger([])));
+
+  await page.route('**/content/manifest.json', async (route) => {
+    await route.fulfill({
+      status: 404,
+      contentType: 'text/plain',
+      body: 'root manifest unavailable'
+    });
+  });
+
+  const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
+  await page.goto(`${baseUrl}/#/`, { waitUntil: 'domcontentloaded' });
+
+  await expect(page.locator('body')).toContainText('A Homepage, Formalised', { timeout: 10000 });
+  const writingLink = page
+    .getByRole('navigation', { name: 'Site index' })
+    .getByRole('link', { name: /writing/ });
+  await expect(writingLink).toContainText('—', { timeout: 10000 });
+  expect(nowRequests).toBe(0);
+  expect(ledgerRequests).toBe(0);
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors.filter((message) => !message.includes('status of 404'))).toEqual([]);
+});
+
+test('direct ledger waits for root manifest before reading the content ledger', async ({ page }) => {
+  const manifestRequested = deferred();
+  const releaseManifest = deferred();
+  let ledgerRequests = 0;
+
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === '/content/.websh/ledger.json') {
+      ledgerRequests += 1;
+    }
+  });
+
+  await page.route('**/content/manifest.json', async (route) => {
+    manifestRequested.resolve();
+    await releaseManifest.promise;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: rawResponses.get('/content/manifest.json')
+    });
+  });
+
+  const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
+  await page.goto(`${baseUrl}/#/ledger`, { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('body')).toContainText('ledger pending', { timeout: 10000 });
+
+  await manifestRequested.promise;
+  expect(ledgerRequests).toBe(0);
+  releaseManifest.resolve();
+
+  await expect.poll(() => ledgerRequests).toBe(1);
+  await expect(page.locator('body')).toContainText('appendable', { timeout: 10000 });
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});
+
+test('direct ledger with failed root manifest does not read the content ledger', async ({ page }) => {
+  let ledgerRequests = 0;
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === '/content/.websh/ledger.json') {
+      ledgerRequests += 1;
+    }
+  });
+
+  await page.route('**/content/manifest.json', async (route) => {
+    await route.fulfill({
+      status: 404,
+      contentType: 'text/plain',
+      body: 'root manifest unavailable'
+    });
+  });
+
+  const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
+  await page.goto(`${baseUrl}/#/ledger`, { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('body')).toContainText('root mount failed', { timeout: 10000 });
+  expect(ledgerRequests).toBe(0);
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors.filter((message) => !message.includes('status of 404'))).toEqual([]);
+});
+
+test('ledger navigation shares the home prefetch request', async ({ page }) => {
+  const ledgerRequested = deferred();
+  const releaseLedger = deferred();
+  let ledgerRequests = 0;
+
+  await page.route('**/content/.websh/ledger.json', async (route) => {
+    ledgerRequests += 1;
+    ledgerRequested.resolve();
+    await releaseLedger.promise;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: rawResponses.get('/content/.websh/ledger.json')
+    });
+  });
+
+  const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
+  await page.goto(`${baseUrl}/#/`, { waitUntil: 'domcontentloaded' });
+  await ledgerRequested.promise;
+  expect(ledgerRequests).toBe(1);
+
+  await page.getByRole('link', { name: 'ledger' }).first().click();
+  await page.waitForURL('**/#/ledger');
+  await expect(page.locator('body')).toContainText('ledger pending', { timeout: 10000 });
+  expect(ledgerRequests).toBe(1);
+  releaseLedger.resolve();
+
+  await expect(page.locator('body')).toContainText('appendable', { timeout: 10000 });
+  expect(ledgerRequests).toBe(1);
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);
 });
@@ -341,7 +613,60 @@ for (const [hashPath, expectedText] of directLoadCases) {
   });
 }
 
-test('pdf content renders through a blob-backed iframe', async ({ page }) => {
+test('home navigation stays inside the hash router', async ({ page }) => {
+  const pageErrors = [];
+  const network = collectNavigationNetwork(page);
+  page.on('pageerror', (error) => {
+    pageErrors.push(`${page.url()}: ${error.stack || error.message}`);
+  });
+
+  await page.goto(`${baseUrl}/#/ledger`, { waitUntil: 'networkidle' });
+  await expect(page.locator('body')).toContainText('ledger', { timeout: 10000 });
+
+  await page.getByRole('link', { name: 'home' }).first().click();
+  await page.waitForURL('**/#/');
+  await expect(page.locator('body')).toContainText('A Homepage, Formalised', { timeout: 10000 });
+
+  await page.getByRole('link', { name: 'ledger' }).first().click();
+  await page.waitForURL('**/#/ledger');
+  await page.getByRole('link', { name: 'home' }).first().click();
+  await page.waitForURL('**/#/');
+
+  expect(network.mainDocumentRequests).toHaveLength(1);
+  expect(network.wasmResponses).toHaveLength(1);
+  expect(network.sameOriginFailures).toEqual([]);
+  expect(pageErrors).toEqual([]);
+});
+
+test('ipfs base navigation preserves the hash-router base', async ({ page }) => {
+  await installIpfsBaseAlias(page);
+  const pageErrors = [];
+  const network = collectNavigationNetwork(page);
+  page.on('pageerror', (error) => {
+    pageErrors.push(`${page.url()}: ${error.stack || error.message}`);
+  });
+
+  await page.goto(`${appBaseUrl}/ipfs/fakecid/#/ledger`, { waitUntil: 'networkidle' });
+  await expect(page.locator('body')).toContainText('ledger', { timeout: 10000 });
+  expect(new URL(page.url()).pathname).toBe('/ipfs/fakecid/');
+  expect(new URL(page.url()).hash).toBe('#/ledger');
+
+  await page.getByRole('link', { name: 'home' }).first().click();
+  await page.waitForURL('**/ipfs/fakecid/#/');
+  await expect(page.locator('body')).toContainText('A Homepage, Formalised', { timeout: 10000 });
+  expect(new URL(page.url()).pathname).toBe('/ipfs/fakecid/');
+
+  await page.getByRole('link', { name: 'ledger' }).first().click();
+  await page.waitForURL('**/ipfs/fakecid/#/ledger');
+  expect(new URL(page.url()).pathname).toBe('/ipfs/fakecid/');
+
+  expect(network.mainDocumentRequests).toHaveLength(1);
+  expect(network.wasmResponses).toHaveLength(1);
+  expect(network.sameOriginFailures).toEqual([]);
+  expect(pageErrors).toEqual([]);
+});
+
+test('pdf content renders through a direct content iframe', async ({ page }) => {
   const manifest = manifestDocument([
     ...siteManifest.entries,
     fileEntry('docs/sample.pdf', 'Sample PDF', { kind: 'document' })
@@ -351,12 +676,121 @@ test('pdf content renders through a blob-backed iframe', async ({ page }) => {
 
   const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
   await page.goto(`${baseUrl}/#/docs/sample.pdf`, { waitUntil: 'networkidle' });
-  await expect(page.locator('iframe')).toHaveAttribute('src', /^blob:/, {
-    timeout: 10000
-  });
+  await expect(page.locator('iframe')).toHaveAttribute(
+    'src',
+    /content\/docs\/sample\.pdf#view=FitH&zoom=page-width$/,
+    { timeout: 10000 }
+  );
 
   expect(pageErrors).toEqual([]);
   expect(consoleErrors.filter((message) => message.includes('Content Security Policy'))).toEqual([]);
+});
+
+test('markdown reader fetches source once per route load', async ({ page }) => {
+  const manifest = manifestDocument([
+    ...siteManifest.entries,
+    dirEntry('writing', 'writing'),
+    fileEntry('writing/content-backed-homepage.md', 'content-backed homepage')
+  ]);
+  rawResponses.set('/content/manifest.json', JSON.stringify(manifest));
+  rawResponses.set('/content/writing/content-backed-homepage.md', '# content-backed homepage');
+
+  let markdownRequests = 0;
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === '/content/writing/content-backed-homepage.md') {
+      markdownRequests += 1;
+    }
+  });
+
+  const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
+  await page.goto(`${baseUrl}/#/writing/content-backed-homepage`, { waitUntil: 'networkidle' });
+  await expect(page.locator('body')).toContainText('content-backed homepage', { timeout: 10000 });
+
+  expect(markdownRequests).toBe(1);
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});
+
+test('root content renders before external mount scan resolves', async ({ page }) => {
+  let releaseDbManifest;
+  const dbManifestGate = new Promise((resolve) => {
+    releaseDbManifest = resolve;
+  });
+
+  await page.route('https://raw.githubusercontent.com/0xwonj/mount-db/main/manifest.json', async (route) => {
+    await dbManifestGate;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(dbManifest)
+    });
+  });
+
+  const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
+  await page.goto(`${baseUrl}/#/index.html`, { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('body')).toContainText('Home OK', { timeout: 10000 });
+
+  releaseDbManifest();
+  await page.goto(`${baseUrl}/#/db/fresh.md`, { waitUntil: 'networkidle' });
+  await expect(page.locator('body')).toContainText('Fresh', { timeout: 10000 });
+
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});
+
+test('non-math markdown does not request KaTeX assets', async ({ page }) => {
+  const katexRequests = [];
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (/\/assets\/vendor\/katex\/katex\.min\.(css|js)$/.test(url.pathname)) {
+      katexRequests.push(url.pathname);
+    }
+  });
+
+  const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
+  await page.goto(`${baseUrl}/#/docs/old.md`, { waitUntil: 'networkidle' });
+  await expect(page.locator('body')).toContainText('old', { timeout: 10000 });
+
+  expect(katexRequests).toEqual([]);
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});
+
+test('math markdown lazy-loads KaTeX once', async ({ page }) => {
+  const manifest = manifestDocument([
+    ...siteManifest.entries,
+    fileEntry('docs/math.md', 'Math')
+  ]);
+  rawResponses.set('/content/manifest.json', JSON.stringify(manifest));
+  rawResponses.set('/content/docs/math.md', '# Math\n\nInline $E = mc^2$.\n');
+
+  const katexRequests = [];
+  page.on('request', (request) => {
+    const url = new URL(request.url());
+    if (/\/assets\/vendor\/katex\/katex\.min\.(css|js)$/.test(url.pathname)) {
+      katexRequests.push(url.pathname);
+    }
+  });
+
+  const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
+  await page.goto(`${baseUrl}/#/docs/math.md`, { waitUntil: 'networkidle' });
+  await expect(page.locator('.katex')).toHaveCount(1, { timeout: 10000 });
+  expect(katexRequests.sort()).toEqual([
+    '/assets/vendor/katex/katex.min.css',
+    '/assets/vendor/katex/katex.min.js'
+  ]);
+
+  await page.goto(`${baseUrl}/#/docs/old.md`, { waitUntil: 'networkidle' });
+  await page.goto(`${baseUrl}/#/docs/math.md`, { waitUntil: 'networkidle' });
+  await expect(page.locator('.katex')).toHaveCount(1, { timeout: 10000 });
+  expect(katexRequests.sort()).toEqual([
+    '/assets/vendor/katex/katex.min.css',
+    '/assets/vendor/katex/katex.min.js'
+  ]);
+
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
 });
 
 test('attested renderer page shows the route sigchip', async ({ page }) => {
@@ -472,7 +906,7 @@ test('theme selection applies globally and persists', async ({ page }) => {
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'kanagawa-wave');
 
   await page.getByRole('button', { name: /palette/i }).click();
-  await page.getByRole('option', { name: /Black Ink/i }).click();
+  await page.getByRole('button', { name: /Black Ink/i }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'black-ink');
   await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), themeStorageKey)).toBe('black-ink');
 
@@ -481,7 +915,7 @@ test('theme selection applies globally and persists', async ({ page }) => {
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'black-ink');
 
   await page.getByRole('button', { name: /palette/i }).click();
-  await page.getByRole('option', { name: /Sepia Dark/i }).click();
+  await page.getByRole('button', { name: /Sepia Dark/i }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'sepia-dark');
   await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), themeStorageKey)).toBe('sepia-dark');
 
@@ -489,11 +923,27 @@ test('theme selection applies globally and persists', async ({ page }) => {
   expect(consoleErrors).toEqual([]);
 });
 
-test('legacy shell hash canonicalizes to websh', async ({ page }) => {
+test('new compose route seeds editor after reader route reuse', async ({ page }) => {
   const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
-  await page.goto(`${baseUrl}/#/shell/db`, { waitUntil: 'networkidle' });
-  await expect.poll(() => new URL(page.url()).hash).toBe('#/websh/db');
-  await expect(page.locator('body')).toContainText('~/websh/db', { timeout: 10000 });
+  await page.goto(`${baseUrl}/#/websh`, { waitUntil: 'networkidle' });
+  await expect(page.locator('body')).toContainText('guest@wonjae.eth:~', { timeout: 10000 });
+  await runCommand(page, 'sync auth set qa-token', 'sync auth set <redacted>');
+
+  await page.goto(`${baseUrl}/#/docs/old.md`, { waitUntil: 'networkidle' });
+  await expect(page.locator('body')).toContainText('old', { timeout: 10000 });
+
+  await page.goto(`${baseUrl}/#/new`, { waitUntil: 'networkidle' });
+  const editor = page.getByRole('textbox', { name: 'Markdown source' });
+  await expect(editor).toBeVisible({ timeout: 10000 });
+  await expect(editor).toHaveValue(/title: ""/);
+  await expect(editor).toHaveValue(/category: writing/);
+  await editor.fill('stale draft should not survive navigation');
+
+  await page.goto(`${baseUrl}/#/docs/old.md`, { waitUntil: 'networkidle' });
+  await expect(page.locator('body')).toContainText('old', { timeout: 10000 });
+  await page.goto(`${baseUrl}/#/new`, { waitUntil: 'networkidle' });
+  await expect(page.getByRole('textbox', { name: 'Markdown source' })).toHaveValue(/title: ""/);
+  await expect(page.getByRole('textbox', { name: 'Markdown source' })).not.toHaveValue(/stale draft/);
 
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);
@@ -541,34 +991,101 @@ test('github token is represented by marker, not raw state file', async ({ page 
 test('sync commit sends token and normalized GitHub file changes', async ({ page }) => {
   const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
   const graphqlRequests = [];
+  const freshCommitBaseManifest = manifestDocument([
+    ...siteManifest.entries,
+    fileEntry('remote-only.md', 'Remote Only')
+  ]);
+  let committedManifest;
 
   await page.route('https://api.github.com/graphql', async (route) => {
-    const request = route.request();
-    const body = JSON.parse(request.postData() || '{}');
-    const input = body.variables.input;
-    graphqlRequests.push({
-      authorization: request.headers().authorization,
-      input
-    });
+    let body = {};
+    try {
+      const request = route.request();
+      body = JSON.parse(request.postData() || '{}');
+      const authorization = request.headers().authorization;
 
-    const manifestAddition = input.fileChanges.additions.find((addition) => addition.path === 'content/manifest.json');
-    const updatedManifest = Buffer.from(manifestAddition.contents, 'base64').toString('utf8');
-    rawResponses.set('/content/manifest.json', updatedManifest);
-    rawResponses.set('/content/commit-new.md', 'commit-new');
-    rawResponses.delete('/content/docs/old.md');
-    rawResponses.delete('/content/docs/deep/old.md');
+      if (body.variables?.manifestExpression) {
+        graphqlRequests.push({
+          kind: 'manifest-base',
+          authorization,
+          variables: body.variables
+        });
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            data: {
+              repository: {
+                object: {
+                  __typename: 'Blob',
+                  text: JSON.stringify(freshCommitBaseManifest)
+                }
+              }
+            }
+          })
+        });
+        return;
+      }
 
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        data: {
-          createCommitOnBranch: {
-            commit: { oid: '2222222222222222222222222222222222222222' }
+      if (body.variables?.qualifiedName) {
+        graphqlRequests.push({
+          kind: 'head',
+          authorization,
+          variables: body.variables
+        });
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            data: {
+              repository: {
+                ref: {
+                  target: {
+                    oid: expectedHead
+                  }
+                }
+              }
+            }
+          })
+        });
+        return;
+      }
+
+      const input = body.variables.input;
+      graphqlRequests.push({
+        kind: 'commit',
+        authorization,
+        input
+      });
+
+      const manifestAddition = input.fileChanges.additions.find((addition) => addition.path === 'content/manifest.json');
+      const updatedManifest = Buffer.from(manifestAddition.contents, 'base64').toString('utf8');
+      committedManifest = JSON.parse(updatedManifest);
+      rawResponses.set('/content/manifest.json', updatedManifest);
+      rawResponses.set('/content/commit-new.md', 'commit-new');
+      rawResponses.delete('/content/docs/old.md');
+      rawResponses.delete('/content/docs/deep/old.md');
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            createCommitOnBranch: {
+              commit: { oid: '2222222222222222222222222222222222222222' }
+            }
           }
-        }
-      })
-    });
+        })
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      graphqlRequests.push({ kind: 'fixture-error', message, body });
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ errors: [{ message }] })
+      });
+    }
   });
 
   await page.goto(`${baseUrl}/#/websh`, { waitUntil: 'networkidle' });
@@ -587,8 +1104,16 @@ test('sync commit sends token and normalized GitHub file changes', async ({ page
   await runCommand(page, 'sync commit qa commit', 'sync: committed 3 files');
   await runCommand(page, 'sync status', 'working tree clean');
 
-  expect(graphqlRequests).toHaveLength(1);
-  const [{ authorization, input }] = graphqlRequests;
+  const baseQuery = graphqlRequests.find((request) => request.kind === 'manifest-base');
+  const commitMutation = graphqlRequests.find((request) => request.kind === 'commit');
+  expect(baseQuery).toBeTruthy();
+  expect(commitMutation).toBeTruthy();
+  expect(baseQuery.kind).toBe('manifest-base');
+  expect(baseQuery.authorization).toBe('bearer qa-token');
+  expect(baseQuery.variables.manifestExpression).toBe(`${expectedHead}:content/manifest.json`);
+
+  expect(commitMutation.kind).toBe('commit');
+  const { authorization, input } = commitMutation;
   expect(authorization).toBe('bearer qa-token');
   expect(input.branch.repositoryNameWithOwner).toBe('0xwonj/websh');
   expect(input.branch.branchName).toBe('main');
@@ -598,6 +1123,7 @@ test('sync commit sends token and normalized GitHub file changes', async ({ page
   const deletions = input.fileChanges.deletions.map((deletion) => deletion.path).sort();
   expect(additions).toEqual(['content/commit-new.md', 'content/manifest.json']);
   expect(deletions).toEqual(['content/docs/deep/old.md', 'content/docs/old.md']);
+  expect(committedManifest.entries.map((entry) => entry.path)).toContain('remote-only.md');
 
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);

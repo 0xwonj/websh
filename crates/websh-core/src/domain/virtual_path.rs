@@ -1,18 +1,15 @@
 //! Absolute Unix-style path newtype used as the key in `ChangeSet` and storage layers.
 //!
-//! Constructed via `from_absolute` which enforces:
-//! - non-empty
-//! - begins with `/`
-//!
-//! No normalization (`.` / `..` / duplicate slashes) — the caller must pass a canonical path.
+//! Constructed via `from_absolute` which enforces canonical absolute paths.
 //! String-based subtree lookups remain available internally where relative paths are required.
 
 use std::fmt;
 
-use serde::{Deserialize, Serialize};
+use serde::de::{Error as DeError, Visitor};
+use serde::{Deserialize, Deserializer, Serialize};
 use thiserror::Error;
 
-#[derive(Clone, Debug, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Ord, PartialOrd, Hash, Serialize)]
 pub struct VirtualPath(String);
 
 #[derive(Debug, PartialEq, Eq, Error)]
@@ -21,8 +18,17 @@ pub enum VirtualPathParseError {
     Empty,
     #[error("path is not absolute: {0}")]
     NotAbsolute(String),
+    #[error("path contains an empty segment: {0}")]
+    EmptySegment(String),
+    #[error("path contains a dot segment: {0}")]
+    DotSegment(String),
+    #[error("path contains a parent segment: {0}")]
+    ParentSegment(String),
+    #[error("path contains a backslash: {0}")]
+    Backslash(String),
+    #[error("path contains a control character: {0}")]
+    ControlCharacter(String),
 }
-
 
 impl VirtualPath {
     /// Return the canonical filesystem root path.
@@ -37,6 +43,28 @@ impl VirtualPath {
         }
         if !s.starts_with('/') {
             return Err(VirtualPathParseError::NotAbsolute(s));
+        }
+        if s == "/" {
+            return Ok(Self(s));
+        }
+        if s.len() > 1 && s.ends_with('/') {
+            return Err(VirtualPathParseError::EmptySegment(s));
+        }
+        if s.contains('\\') {
+            return Err(VirtualPathParseError::Backslash(s));
+        }
+        if s.chars().any(char::is_control) {
+            return Err(VirtualPathParseError::ControlCharacter(s));
+        }
+        for segment in s.split('/').skip(1) {
+            if segment.is_empty() {
+                return Err(VirtualPathParseError::EmptySegment(s));
+            }
+            match segment {
+                "." => return Err(VirtualPathParseError::DotSegment(s)),
+                ".." => return Err(VirtualPathParseError::ParentSegment(s)),
+                _ => {}
+            }
         }
         Ok(Self(s))
     }
@@ -76,19 +104,24 @@ impl VirtualPath {
         }
     }
 
-    /// Join a canonical relative suffix onto this absolute path.
-    ///
-    /// This is a structural join helper only; it does not normalize `.`, `..`,
-    /// or duplicate separators.
+    /// Join a relative suffix onto this absolute path and keep the result canonical.
     pub fn join(&self, suffix: &str) -> Self {
-        let suffix = suffix.trim_matches('/');
-        if suffix.is_empty() {
-            return self.clone();
+        let mut parts: Vec<&str> = self.segments().collect();
+        for segment in suffix.split('/') {
+            match segment {
+                "" | "." => {}
+                ".." => {
+                    parts.pop();
+                }
+                _ => parts.push(segment),
+            }
         }
-        if self.is_root() {
-            return Self(format!("/{}", suffix));
-        }
-        Self(format!("{}/{}", self.0, suffix))
+        let joined = if parts.is_empty() {
+            "/".to_string()
+        } else {
+            format!("/{}", parts.join("/"))
+        };
+        Self::from_absolute(joined).expect("join must produce a canonical absolute path")
     }
 
     /// Whether `self` is equal to or nested underneath `prefix`, respecting
@@ -125,6 +158,39 @@ impl fmt::Display for VirtualPath {
     }
 }
 
+impl<'de> Deserialize<'de> for VirtualPath {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct VirtualPathVisitor;
+
+        impl<'de> Visitor<'de> for VirtualPathVisitor {
+            type Value = VirtualPath;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a canonical absolute virtual path")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: DeError,
+            {
+                VirtualPath::from_absolute(value.to_string()).map_err(E::custom)
+            }
+
+            fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+            where
+                E: DeError,
+            {
+                VirtualPath::from_absolute(value).map_err(E::custom)
+            }
+        }
+
+        deserializer.deserialize_str(VirtualPathVisitor)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,7 +203,10 @@ mod tests {
 
     #[test]
     fn rejects_empty() {
-        assert_eq!(VirtualPath::from_absolute(""), Err(VirtualPathParseError::Empty));
+        assert_eq!(
+            VirtualPath::from_absolute(""),
+            Err(VirtualPathParseError::Empty)
+        );
     }
 
     #[test]
@@ -145,6 +214,46 @@ mod tests {
         match VirtualPath::from_absolute("foo/bar") {
             Err(VirtualPathParseError::NotAbsolute(s)) => assert_eq!(s, "foo/bar"),
             other => panic!("expected NotAbsolute, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn rejects_non_canonical_absolute_paths() {
+        assert!(matches!(
+            VirtualPath::from_absolute("/a//b"),
+            Err(VirtualPathParseError::EmptySegment(_))
+        ));
+        assert!(matches!(
+            VirtualPath::from_absolute("/a/."),
+            Err(VirtualPathParseError::DotSegment(_))
+        ));
+        assert!(matches!(
+            VirtualPath::from_absolute("/a/../b"),
+            Err(VirtualPathParseError::ParentSegment(_))
+        ));
+        assert!(matches!(
+            VirtualPath::from_absolute("/a\\b"),
+            Err(VirtualPathParseError::Backslash(_))
+        ));
+        assert!(matches!(
+            VirtualPath::from_absolute("/a/\u{7}"),
+            Err(VirtualPathParseError::ControlCharacter(_))
+        ));
+    }
+
+    #[test]
+    fn serde_rejects_non_canonical_absolute_paths() {
+        for raw in [
+            r#""/a//b""#,
+            r#""/a/.""#,
+            r#""/a/../b""#,
+            r#""/a\\b""#,
+            "\"/a/\u{7}\"",
+        ] {
+            assert!(
+                serde_json::from_str::<VirtualPath>(raw).is_err(),
+                "{raw} should fail"
+            );
         }
     }
 
@@ -179,6 +288,14 @@ mod tests {
         assert_eq!(path.as_str(), "/blog");
         assert_eq!(path.file_name(), Some("blog"));
         assert_eq!(path.parent().unwrap().as_str(), "/");
+    }
+
+    #[test]
+    fn join_normalizes_relative_suffix() {
+        let path = VirtualPath::from_absolute("/blog")
+            .unwrap()
+            .join("./posts//../index.md");
+        assert_eq!(path.as_str(), "/blog/index.md");
     }
 
     #[test]

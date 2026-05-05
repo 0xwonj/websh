@@ -1,6 +1,27 @@
 //! Runtime mount and bootstrap source models.
 
+use std::sync::LazyLock;
+
 use crate::domain::VirtualPath;
+
+static RUNTIME_STATE_ROOT: LazyLock<VirtualPath> = LazyLock::new(|| {
+    VirtualPath::from_absolute("/.websh/state").expect("runtime state root is canonical")
+});
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RuntimeMountKind {
+    Content,
+    External,
+    RuntimeOverlay,
+}
+
+pub fn runtime_state_root() -> &'static VirtualPath {
+    &RUNTIME_STATE_ROOT
+}
+
+pub fn is_runtime_overlay_path(path: &VirtualPath) -> bool {
+    path.starts_with(runtime_state_root())
+}
 
 /// The single code-declared bootstrap source used to discover the root site.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

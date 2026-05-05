@@ -1,7 +1,7 @@
 {
-  "name": "wonjae.eth - Cryptographic Terminal",
+  "name": "wonjae.eth",
   "short_name": "wonjae.eth",
-  "description": "Cryptographic Unix-like filesystem shell for GitHub-backed personal archives",
+  "description": "A verifiable personal archive built on a browser-native virtual filesystem.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#100f0f",

@@ -1,22 +1,67 @@
 [workspace]
-members = ["crates/websh-core", "crates/websh-cli", "crates/websh-web"]
+members = [
+    "crates/websh-core",
+    "crates/websh-site",
+    "crates/websh-cli",
+    "crates/websh-web",
+]
 resolver = "2"
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-license = "MIT OR Apache-2.0"
+license = "CC-BY-SA-4.0"
+repository = "https://github.com/0xwonj/websh"
+publish = false
 
 [workspace.dependencies]
+# Workspace crates.
+websh-core = { path = "crates/websh-core", version = "0.1.0", default-features = false }
+websh-site = { path = "crates/websh-site", version = "0.1.0" }
+
+# Shared data, hashing, parsing, and crypto primitives.
+alloy-primitives = { version = "1", features = ["k256", "serde"] }
+base64 = "0.22"
+hex = "0.4"
+regex = { version = "1", default-features = false, features = ["std", "perf"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
-hex = "0.4"
-base64 = "0.22"
-alloy-primitives = { version = "1", features = ["k256", "serde"] }
-unicode-normalization = "0.1"
-regex = { version = "1", default-features = false, features = ["std", "perf"] }
+sha2 = "0.11"
 thiserror = "2"
+toml = "1"
+unicode-normalization = "0.1"
+
+# Native CLI and build-time tooling.
+clap = { version = "4", features = ["derive"] }
+imagesize = { version = "0.14", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
+lopdf = "0.40"
+pgp = "0.19"
+serde_norway = "0.9"
+tokio = { version = "1", features = ["macros", "rt"] }
+
+# Browser / WASM runtime and UI.
+ammonia = "4"
+comrak = { version = "0.52", default-features = false }
+console_error_panic_hook = "0.1"
+getrandom = "0.4"
+getrandom02 = { package = "getrandom", version = "0.2", features = ["js"] }
+gloo-net = "0.7"
+gloo-timers = { version = "0.4", features = ["futures"] }
+futures-util = "0.3"
+idb = "0.6"
+js-sys = "0.3"
+leptos = { version = "0.8", features = ["csr"] }
+leptos-use = { version = "0.18", default-features = false, features = ["use_media_query"] }
+serde-wasm-bindgen = "0.6"
+stylance = "0.8"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = "0.3"
+
+# Test-only helpers.
+k256 = { version = "0.13", features = ["ecdsa"] }
+rand08 = { package = "rand", version = "0.8" }
+wasm-bindgen-test = "0.3"
 
 [profile.release]
 lto = true

@@ -19,16 +19,38 @@ qa-install:
 e2e:
     npm run e2e
 
+# Browser performance timing snapshot. Override target with
+# WEBSH_PERF_BASE_URL=https://example.invalid.
+perf-content:
+    npm run perf:content
+
+# Browser-owned wasm-bindgen tests.
+web-wasm-test:
+    node tests/web-wasm-test.cjs
+
 # CSS lint (token enforcement)
 lint-css:
     npm run lint:css
 
+# Rust dependency hygiene checks
+deps-check:
+    cargo deny check --hide-inclusion-graph
+    cargo machete --with-metadata --skip-target-dir
+
 # Full local verification gate
-verify: qa-install
-    cargo test
-    cargo test --features mock --test commit_integration
+verify: qa-install deps-check web-wasm-test
+    cargo fmt --check
+    cargo check --workspace
+    cargo clippy --workspace --all-targets -- -D warnings
+    cargo clippy -p websh-web --target wasm32-unknown-unknown --all-targets --all-features -- -D warnings
+    cargo test --workspace
+    cargo test -p websh-core --features mock --test commit_integration
+    cargo check -p websh-core --target wasm32-unknown-unknown
+    cargo check -p websh-web --target wasm32-unknown-unknown
     npm run lint:css
+    npm run docs:drift
     env -u NO_COLOR trunk build --release
+    npm run perf:budgets
     npm run e2e
 
 # Clean build artifacts

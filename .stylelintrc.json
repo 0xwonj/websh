@@ -30,7 +30,7 @@
   },
   "overrides": [
     {
-      "files": ["src/**/*.module.css"],
+      "files": ["crates/websh-web/src/**/*.module.css"],
       "rules": {
         "color-no-hex": true,
         "unit-allowed-list": [

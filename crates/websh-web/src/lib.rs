@@ -5,5 +5,9 @@
 #![cfg(target_arch = "wasm32")]
 
 pub mod app;
-pub mod components;
-pub mod utils;
+pub mod config;
+pub mod features;
+pub mod platform;
+pub mod render;
+pub mod runtime;
+pub mod shared;

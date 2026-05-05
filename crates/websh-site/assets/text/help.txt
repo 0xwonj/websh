@@ -1,0 +1,55 @@
+
+Available commands:
+
+  Navigation:
+    ls [dir]      List directory contents
+    cd <dir>      Change directory (supports `.`, `..`, `~`, absolute paths)
+    pwd           Print working directory
+    cat <file>    View file contents (opens reader)
+
+  Information:
+    whoami        Display user profile
+    id            Show current session info
+    help          Show this help message
+
+  System:
+    clear         Clear terminal screen
+    echo <text>   Display text
+    theme [name]  List or set palette
+
+  Filesystem (write, admin-only):
+    edit <path>       Open file in the editor (creates on save)
+    mkdir <path>      Create a directory
+    rm [-r] <path>    Remove a file or directory
+    rmdir <path>      Remove an empty directory
+    touch <path>      Create an empty file
+
+  Environment:
+    export                    Show all variables
+    export KEY=value [...]    Set one or more variables (localStorage)
+    unset KEY                 Remove variable
+    cat .profile              View all localStorage data
+
+  Wallet:
+    login         Connect MetaMask wallet
+    logout        Disconnect wallet
+
+  Sync:
+    sync                      Show working tree status (unstaged, staged)
+    sync commit <message>     Commit staged changes (admin-only)
+    sync refresh              Reload manifest from remote
+    sync auth set <token>     Set GitHub token
+    sync auth clear           Clear stored GitHub token
+
+  Pipe Filters:
+    grep [-i] [-v] [-F] <pattern>   Filter lines (regex by default; -i case-insensitive; -v invert; -F literal)
+    head -N | head -n N             First N lines (default: 10)
+    tail -N | tail -n N             Last N lines (default: 10)
+    wc                              Count non-empty lines
+
+  Tips:
+    - Use Tab for autocomplete
+    - Up/Down arrows navigate command history
+    - Chain commands with pipes: ls | grep -i md | head -5
+    - Press 'q' or 'Esc' to exit reader view
+    - grep is case-sensitive by default; pass -i for case-insensitive matching

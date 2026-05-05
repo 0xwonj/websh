@@ -42,9 +42,9 @@ impl FromStr for Priority {
     }
 }
 
-/// Mempool-only block. Forward-compat: no `deny_unknown_fields` so newer
-/// runtimes that add fields here don't trip older parsers.
+/// Mempool-only metadata block.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MempoolFields {
     pub status: MempoolStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]

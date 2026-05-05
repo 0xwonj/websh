@@ -1,18 +1,12 @@
-//! Pure-Rust shared library: domain types, engines, ports.
-//!
-//! Compiles for both `wasm32-unknown-unknown` and the host triple. Hosts
-//! everything the browser app and CLI both need.
-
-pub mod admin;
 pub mod attestation;
-pub mod config;
-pub mod content_routes;
 pub mod crypto;
 pub mod domain;
+pub mod errors;
 pub mod filesystem;
 pub mod mempool;
+pub mod ports;
 pub mod runtime;
 pub mod shell;
-pub mod storage;
-pub mod theme;
-pub mod utils;
+pub mod support;
+
+mod engine;
