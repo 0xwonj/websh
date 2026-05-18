@@ -23,6 +23,7 @@ use crate::features::ledger::LedgerPage;
 use crate::features::ledger::routes::{LEDGER_ROUTE, is_ledger_filter_route_segment};
 use crate::features::reader::{Reader, ReaderFrame};
 use crate::features::terminal::Shell;
+use crate::runtime::MountLoadStatus;
 
 /// URL patterns that bypass the engine and produce a synthetic [`RouteFrame`].
 ///
@@ -176,10 +177,22 @@ pub fn RouterView() -> impl IntoView {
                             .into_any()
                         }
                     },
-                    None => view! { <NotFound /> }.into_any(),
+                    None => unresolved_route_view(ctx, request),
                 }
             }
         }}
+    }
+}
+
+fn unresolved_route_view(ctx: AppContext, request: RouteRequest) -> AnyView {
+    match ctx.mount_status_for(&VirtualPath::root()) {
+        Some(MountLoadStatus::Loaded { .. }) => view! { <NotFound /> }.into_any(),
+        Some(MountLoadStatus::Failed { error, .. }) => {
+            view! { <RootMountFailed error=error /> }.into_any()
+        }
+        Some(MountLoadStatus::Loading { .. }) | None => {
+            view! { <RoutePending request=request /> }.into_any()
+        }
     }
 }
 
@@ -289,6 +302,26 @@ fn NotFound() -> impl IntoView {
         <div style="padding: 2rem; font-family: monospace;">
             <h1>"404"</h1>
             <p>"No route matched the current path."</p>
+        </div>
+    }
+}
+
+#[component]
+fn RoutePending(request: RouteRequest) -> impl IntoView {
+    view! {
+        <div style="padding: 2rem; font-family: monospace;">
+            <h1>"route pending"</h1>
+            <p>{request.url_path}</p>
+        </div>
+    }
+}
+
+#[component]
+fn RootMountFailed(error: String) -> impl IntoView {
+    view! {
+        <div style="padding: 2rem; font-family: monospace;">
+            <h1>"root mount failed"</h1>
+            <p>{error}</p>
         </div>
     }
 }

@@ -704,6 +704,84 @@ test('direct ledger with failed root manifest does not read the content ledger',
   expect(consoleErrors.filter((message) => !message.includes('status of 404'))).toEqual([]);
 });
 
+test('direct content hash route stays pending while root manifest loads', async ({ page }) => {
+  const manifestRequested = deferred();
+  const releaseManifest = deferred();
+
+  await page.route('**/content/manifest.json', async (route) => {
+    manifestRequested.resolve();
+    await releaseManifest.promise;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: rawResponses.get('/content/manifest.json')
+    });
+  });
+
+  const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
+  await page.goto(`${baseUrl}/#/docs/old.md`, { waitUntil: 'domcontentloaded' });
+  await manifestRequested.promise;
+
+  await expect(page.locator('body')).toContainText('route pending', { timeout: 10000 });
+  await expect(page.locator('body')).not.toContainText('404');
+  await expect(page.locator('body')).not.toContainText('No route matched');
+
+  releaseManifest.resolve();
+  await expect(page.locator('body')).toContainText('old', { timeout: 10000 });
+  await expect(page.locator('body')).not.toContainText('No route matched');
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});
+
+test('missing content hash route shows 404 only after root manifest loads', async ({ page }) => {
+  const manifestRequested = deferred();
+  const releaseManifest = deferred();
+
+  await page.route('**/content/manifest.json', async (route) => {
+    manifestRequested.resolve();
+    await releaseManifest.promise;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: rawResponses.get('/content/manifest.json')
+    });
+  });
+
+  const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
+  await page.goto(`${baseUrl}/#/docs/missing`, { waitUntil: 'domcontentloaded' });
+  await manifestRequested.promise;
+
+  await expect(page.locator('body')).toContainText('route pending', { timeout: 10000 });
+  await expect(page.locator('body')).not.toContainText('404');
+  await expect(page.locator('body')).not.toContainText('No route matched');
+
+  releaseManifest.resolve();
+  await expect(page.locator('body')).toContainText('404', { timeout: 10000 });
+  await expect(page.locator('body')).toContainText('No route matched');
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});
+
+test('direct content hash route reports root mount failure when manifest fails', async ({ page }) => {
+  await page.route('**/content/manifest.json', async (route) => {
+    await route.fulfill({
+      status: 404,
+      contentType: 'text/plain',
+      body: 'root manifest unavailable'
+    });
+  });
+
+  const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
+  await page.goto(`${baseUrl}/#/docs/old.md`, { waitUntil: 'domcontentloaded' });
+
+  await expect(page.locator('body')).toContainText('root mount failed', { timeout: 10000 });
+  await expect(page.locator('body')).toContainText('content/manifest.json');
+  await expect(page.locator('body')).not.toContainText('404');
+  await expect(page.locator('body')).not.toContainText('No route matched');
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors.filter((message) => !message.includes('status of 404'))).toEqual([]);
+});
+
 test('ledger navigation shares the home prefetch request', async ({ page }) => {
   const ledgerRequested = deferred();
   const releaseLedger = deferred();
