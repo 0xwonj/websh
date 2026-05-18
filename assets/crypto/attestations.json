@@ -5,7 +5,7 @@
     {
       "kind": "homepage",
       "route": "/",
-      "issued_at": "2026-05-17",
+      "issued_at": "2026-05-18",
       "content_files": [
         {
           "path": "assets/crypto/ack.commitment.json",
@@ -74,8 +74,8 @@
         },
         {
           "path": "crates/websh-web/src/features/home/home.module.css",
-          "sha256": "0x24b12a0914318677c94418cbd5560357ecef4eab96bd82f7c1543f3dd624a258",
-          "bytes": 17956
+          "sha256": "0xf7bffa9ec8d5c27966a82572ea0ef445e822e65056ff51e2f0ea5cc893ccb8f7",
+          "bytes": 16846
         },
         {
           "path": "crates/websh-web/src/features/home/mod.rs",
@@ -89,8 +89,8 @@
         },
         {
           "path": "crates/websh-web/src/features/home/sections.rs",
-          "sha256": "0xedcf33dd4e5f532e5191bbe0233adf8b6eed88beae0aff603351c0f8e44e11ec",
-          "bytes": 21344
+          "sha256": "0xb06f17791ba323f2c4b92b9ca26e9d1060d159f33432e66cb773aa80a1521a20",
+          "bytes": 21124
         }
       ],
       "attestations": [
@@ -99,9 +99,9 @@
           "signer": "Wonjae Choi <wonjae@snu.ac.kr>",
           "fingerprint": "6CA8E0E8E0F9B9EE2F92EE49BEE7501AEA7758AD",
           "key_path": "content/keys/wonjae.asc",
-          "signature": "-----BEGIN PGP SIGNATURE-----\n\niKMEABYKAEsWIQRsqODo4Pm57i+S7km+51Aa6ndYrQUCagn+ThsUgAAAAAAEAA5t\nYW51MiwyLjUrMS4xMiwwLDMRHHdvbmphZUBzbnUuYWMua3IACgkQvudQGup3WK0t\nXgEA+XniWzVp/a/lWZmkXITIJq2rp/d5S92k+HRJmj94SNgBALvcQhO1nOly11BY\nioQLK9Mb1wqQKtdoSKIgnsAqGGsK\n=/OnY\n-----END PGP SIGNATURE-----\n",
+          "signature": "-----BEGIN PGP SIGNATURE-----\n\niKMEABYKAEsWIQRsqODo4Pm57i+S7km+51Aa6ndYrQUCags4vxsUgAAAAAAEAA5t\nYW51MiwyLjUrMS4xMiwwLDMRHHdvbmphZUBzbnUuYWMua3IACgkQvudQGup3WK2U\nPwEA/d7Ex9Iiv2cqnyytImdl+TWP9Yxrap2k3iYTqGUlluIBAJ7Qw3M8zolPkNM5\nYO7vQSBLmTe4acK5HXzi8njKtl8J\n=y+/i\n-----END PGP SIGNATURE-----\n",
           "signature_path": ".websh/local/crypto/attestations/root.sig.asc",
-          "message_sha256": "0x6ed80c93fb09153017028f773ba4daa6f87f8b1d0bde01ef25efd3e9c9b50e48",
+          "message_sha256": "0xcc5a6e099c7ac6c2c71a27267bc6e008589e8d084ca35086d8f1d481db1d5d01",
           "verified": true
         }
       ],

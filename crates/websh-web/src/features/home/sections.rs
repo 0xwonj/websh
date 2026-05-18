@@ -7,7 +7,10 @@ use wasm_bindgen_futures::{JsFuture, spawn_local};
 
 use crate::config::{APP_NAME, APP_VERSION};
 use crate::platform::breakpoints::{BP_SM, use_min_width};
-use crate::shared::components::{AttestationSigFooter, MonoOverflow, MonoTone, MonoValue};
+use crate::shared::components::{
+    AttestationSigFooter, MonoOverflow, MonoTone, MonoValue, WindowFrame, WindowTrafficButton,
+    WindowTrafficLink, WindowTrafficTone,
+};
 use websh_core::crypto::ack::{
     AckMembershipProof, AckReceipt, normalize_ack_name, public_proof_for_name, short_hash,
     verify_private_receipt,
@@ -165,6 +168,32 @@ fn ShellAppendix() -> impl IntoView {
         .strip_prefix('\n')
         .unwrap_or(websh_site::ASCII_BANNER)
         .trim_end();
+    let transcript_expanded = Signal::derive(move || !term_collapsed.get());
+    let term_collapsed_signal = Signal::derive(move || term_collapsed.get());
+    let close_transcript = Callback::new(move |()| {
+        set_term_collapsed.update(|collapsed| *collapsed = !*collapsed);
+    });
+    let minimize_transcript = Callback::new(move |()| {
+        set_term_collapsed.update(|collapsed| *collapsed = !*collapsed);
+    });
+    let left_controls = view! {
+        <WindowTrafficButton
+            tone=WindowTrafficTone::Close
+            aria_label="Collapse transcript"
+            aria_controls="appendix-b-transcript"
+            aria_expanded=transcript_expanded
+            on_click=close_transcript
+        />
+        <WindowTrafficButton
+            tone=WindowTrafficTone::Minimize
+            aria_label="Minimize transcript"
+            aria_controls="appendix-b-transcript"
+            aria_expanded=transcript_expanded
+            on_click=minimize_transcript
+        />
+        <WindowTrafficLink href="#/websh" aria_label="Open websh" />
+    }
+    .into_any();
 
     view! {
         <details class=css::appendix id="appendix-b">
@@ -180,37 +209,13 @@ fn ShellAppendix() -> impl IntoView {
                 ", the browser-resident shell distributed alongside this preprint. The shell backs onto a virtual filesystem in which every section of this page is a file."
             </p>
             <div class=css::term>
-                <header class=css::termTopBar aria-label="websh transcript window">
-                    <span class=css::termTraffic>
-                        <button
-                            class=css::termLight
-                            data-tone="close"
-                            type="button"
-                            aria-label="Collapse transcript"
-                            aria-controls="appendix-b-transcript"
-                            aria-expanded=move || (!term_collapsed.get()).to_string()
-                            on:click=move |_| set_term_collapsed.update(|collapsed| *collapsed = !*collapsed)
-                        ></button>
-                        <button
-                            class=css::termLight
-                            data-tone="minimize"
-                            type="button"
-                            aria-label="Minimize transcript"
-                            aria-controls="appendix-b-transcript"
-                            aria-expanded=move || (!term_collapsed.get()).to_string()
-                            on:click=move |_| set_term_collapsed.update(|collapsed| *collapsed = !*collapsed)
-                        ></button>
-                        <a
-                            class=css::termLight
-                            data-tone="zoom"
-                            href="#/websh"
-                            aria-label="Open websh"
-                        ></a>
-                    </span>
-                    <span class=css::termTitle>{format!("websh v{APP_VERSION}")}</span>
-                </header>
-                <Show when=move || !term_collapsed.get()>
-                    <div class=css::termBody id="appendix-b-transcript">
+                <WindowFrame
+                    title=Signal::derive(|| format!("websh v{APP_VERSION}"))
+                    left_controls=left_controls
+                    collapsed=term_collapsed_signal
+                    body_id="appendix-b-transcript"
+                >
+                    <div class=css::termBody>
                         <div class=css::termLine><span class=css::out>{format!("[   0.000] Booting websh kernel v{APP_VERSION}")}</span></div>
                         <div class=css::termLine><span class=css::okOut>"[   0.030] WASM runtime initialized"</span></div>
                         <div class=css::termLine><span class=css::out>"[   0.053] Mounting filesystems..."</span></div>
@@ -251,7 +256,7 @@ fn ShellAppendix() -> impl IntoView {
                             <span class=css::cursor></span>
                         </div>
                     </div>
-                </Show>
+                </WindowFrame>
             </div>
         </details>
     }

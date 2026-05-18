@@ -4,6 +4,9 @@ use leptos::prelude::*;
 
 use crate::features::reader::css;
 use crate::platform::BrowserAssetUrl;
+use crate::shared::components::{
+    WindowActionLink, WindowFrame, WindowTrafficButton, WindowTrafficTone,
+};
 use websh_core::domain::PageSize;
 
 #[component]
@@ -16,8 +19,7 @@ pub fn PdfReaderView(
     page_count: Option<u32>,
 ) -> impl IntoView {
     let url = StoredValue::new_local(url);
-    let download_url = move || url.with_value(|url| url.as_str().to_string());
-    let open_url = move || url.with_value(|url| url.as_str().to_string());
+    let asset_url = Signal::derive(move || url.with_value(|url| url.as_str().to_string()));
     let aspect_style = page_size.map(|geom| {
         let padded_height = geom.height + (geom.height / 32);
         format!("aspect-ratio: {} / {padded_height};", geom.width)
@@ -28,6 +30,21 @@ pub fn PdfReaderView(
     // Fullscreen the outer div, not the iframe — keeps chrome visible.
     let frame_ref = NodeRef::<leptos::html::Div>::new();
     let is_fullscreen = RwSignal::new(false);
+    let pdf_collapsed = RwSignal::new(false);
+    let pdf_expanded = Signal::derive(move || !pdf_collapsed.get());
+    let pdf_collapsed_signal = Signal::derive(move || pdf_collapsed.get());
+    let title_label = Signal::derive(move || {
+        let mut label = title.get();
+        if let Some(page_count_label) = page_count_label.as_ref() {
+            label.push_str(" · ");
+            label.push_str(page_count_label);
+        }
+        if let Some(size_pretty) = size_pretty.as_ref() {
+            label.push_str(" · ");
+            label.push_str(size_pretty);
+        }
+        label
+    });
 
     // Built-in PDF viewers honor these fragments unevenly, but Chrome and
     // Firefox use them as non-network fit hints.
@@ -42,9 +59,46 @@ pub fn PdfReaderView(
 
     install_fullscreen_sync(frame_ref, is_fullscreen);
 
-    let on_toggle_fullscreen = move |_: leptos::ev::MouseEvent| {
+    let close_pdf = Callback::new(move |()| {
+        exit_fullscreen_or_collapse(is_fullscreen, pdf_collapsed);
+    });
+    let minimize_pdf = Callback::new(move |()| {
+        exit_fullscreen_or_collapse(is_fullscreen, pdf_collapsed);
+    });
+    let on_toggle_fullscreen = Callback::new(move |()| {
+        if pdf_collapsed.get_untracked() {
+            pdf_collapsed.set(false);
+        }
         toggle_fullscreen(frame_ref);
-    };
+    });
+    let left_controls = view! {
+        <WindowTrafficButton
+            tone=WindowTrafficTone::Close
+            aria_label="Collapse PDF"
+            aria_controls="pdf-document-viewer"
+            aria_expanded=pdf_expanded
+            on_click=close_pdf
+        />
+        <WindowTrafficButton
+            tone=WindowTrafficTone::Minimize
+            aria_label="Minimize PDF"
+            aria_controls="pdf-document-viewer"
+            aria_expanded=pdf_expanded
+            on_click=minimize_pdf
+        />
+        <WindowTrafficButton
+            tone=WindowTrafficTone::Zoom
+            aria_label="Toggle PDF fullscreen"
+            aria_controls="pdf-document-viewer"
+            on_click=on_toggle_fullscreen
+        />
+    }
+    .into_any();
+    let right_actions = view! {
+        <WindowActionLink href=asset_url aria_label="Download PDF" download=true>"⤓"</WindowActionLink>
+        <WindowActionLink href=asset_url aria_label="Open PDF" external=true>"↗"</WindowActionLink>
+    }
+    .into_any();
 
     view! {
         {(!abstract_text.is_empty()).then(|| view! {
@@ -53,33 +107,15 @@ pub fn PdfReaderView(
         })}
 
         <h2 class=css::sectionTitle data-n="">"Document"</h2>
-        <div class=css::pdfFrame node_ref=frame_ref>
-            <div class=css::pdfChrome>
-                <span class=css::pdfChromeDot></span>
-                <span class=css::pdfChromeTitle>
-                    {move || title.get()}
-                    {page_count_label.map(|label| view! {
-                        " · "{label}
-                    })}
-                    {size_pretty.map(|s| view! {
-                        " · "{s}
-                    })}
-                </span>
-                <button
-                    type="button"
-                    class=css::pdfChromeCtrl
-                    on:click=on_toggle_fullscreen
-                    aria-label=move || if is_fullscreen.get() {
-                        "Exit fullscreen"
-                    } else {
-                        "Enter fullscreen"
-                    }
-                >
-                    {move || if is_fullscreen.get() { "⛶ exit" } else { "⛶ full" }}
-                </button>
-                <a class=css::pdfChromeCtrl href=download_url download="">"⤓ pdf"</a>
-                <a class=css::pdfChromeCtrl href=open_url target="_blank" rel="noopener">"↗ open"</a>
-            </div>
+        <div class=css::pdfFrame>
+            <WindowFrame
+                title=title_label
+                left_controls=left_controls
+                right_actions=right_actions
+                collapsed=pdf_collapsed_signal
+                body_id="pdf-document-viewer"
+                node_ref=frame_ref
+            >
             <iframe
                 src=viewer_url
                 class=css::pdfViewer
@@ -87,6 +123,7 @@ pub fn PdfReaderView(
                 style=aspect_style
                 allow="fullscreen"
             />
+            </WindowFrame>
         </div>
     }
 }
@@ -133,6 +170,27 @@ fn install_fullscreen_sync(frame_ref: NodeRef<leptos::html::Div>, is_fullscreen:
 #[cfg(not(target_arch = "wasm32"))]
 fn install_fullscreen_sync(_frame_ref: NodeRef<leptos::html::Div>, _is_fullscreen: RwSignal<bool>) {
 }
+
+fn exit_fullscreen_or_collapse(is_fullscreen: RwSignal<bool>, collapsed: RwSignal<bool>) {
+    if is_fullscreen.get_untracked() {
+        exit_fullscreen();
+    } else {
+        collapsed.update(|collapsed| *collapsed = !*collapsed);
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn exit_fullscreen() {
+    let Some(document) = web_sys::window().and_then(|w| w.document()) else {
+        return;
+    };
+    if document.fullscreen_element().is_some() {
+        document.exit_fullscreen();
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn exit_fullscreen() {}
 
 #[cfg(target_arch = "wasm32")]
 fn toggle_fullscreen(frame_ref: NodeRef<leptos::html::Div>) {

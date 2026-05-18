@@ -641,63 +641,23 @@
 
 /* ─── PDF view ────────────────────────────────────────────────── */
 .pdfFrame {
-  border: 1px solid var(--border-subtle);
-  margin: 8px 0 12px;
-  background: var(--bg-inset);
-}
-
-.pdfFrame:fullscreen {
-  display: flex;
-  flex-direction: column;
-  width: 100vw;
-  height: 100vh;
-  margin: 0;
-  border: 0;
-}
-
-.pdfChrome {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--border-subtle);
-  font-size: 10.5px;
-  color: var(--text-dim);
-}
-
-.pdfChromeDot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--terminal-green);
-}
-
-.pdfChromeTitle {
-  flex: 1;
-  color: var(--text-primary);
-  font-size: 11px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.pdfChromeCtrl {
-  color: var(--text-dim);
-  border: 1px solid var(--border-subtle);
-  padding: 1px 6px;
-  font-size: 10px;
-  text-decoration: none;
-  /* Used by both `<a>` and `<button>` controls — reset the button
-     defaults so the two render identically. */
-  font-family: inherit;
-  background: transparent;
-  cursor: pointer;
-  line-height: inherit;
-}
-
-.pdfChromeCtrl:hover {
-  color: var(--accent);
-  border-color: var(--accent);
+  --window-border: var(--border-subtle);
+  --window-bar-border: var(--border-subtle);
+  --window-body-bg: var(--bg-inset);
+  --window-title-color: var(--text-primary);
+  --window-muted-color: var(--text-dim);
+  --window-action-color: var(--text-dim);
+  --window-action-border: var(--border-subtle);
+  --window-action-hover-color: var(--accent);
+  --window-action-hover-border: var(--accent);
+  --window-action-font-size: 14px;
+  --window-action-line-height: 1;
+  --window-action-padding: 0;
+  --window-action-size: 17px;
+  --window-margin: 8px 0 12px;
+  --window-traffic-size: 7px;
+  --window-title-font-size: 11px;
+  --window-title-reserve: 190px;
 }
 
 .pdfViewer {
@@ -713,7 +673,7 @@
   background: var(--bg-secondary);
 }
 
-.pdfFrame:fullscreen .pdfViewer {
+:fullscreen .pdfViewer {
   flex: 1 1 auto;
   min-height: 0;
   max-height: none;
