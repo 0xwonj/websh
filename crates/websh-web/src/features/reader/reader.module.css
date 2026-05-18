@@ -646,6 +646,15 @@
   background: var(--bg-inset);
 }
 
+.pdfFrame:fullscreen {
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  border: 0;
+}
+
 .pdfChrome {
   display: flex;
   align-items: center;
@@ -694,14 +703,21 @@
 .pdfViewer {
   display: block;
   width: 100%;
-  /* Default to US Letter portrait (8.5 × 11). The view component
+  /* Default to US Letter portrait with a little vertical slack. The view component
      overrides this inline with the document's actual MediaBox geometry
      when content sync provided one — landscape slide decks come out
      wide, portrait papers come out tall. */
-  aspect-ratio: 8.5 / 11;
+  aspect-ratio: 8.5 / 11.35;
   max-height: calc(100vh - 14rem);
   border: 0;
   background: var(--bg-secondary);
+}
+
+.pdfFrame:fullscreen .pdfViewer {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  aspect-ratio: auto !important;
 }
 
 /* ─── Image asset ─────────────────────────────────────────────── */

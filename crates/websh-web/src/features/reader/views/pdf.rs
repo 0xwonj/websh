@@ -18,18 +18,27 @@ pub fn PdfReaderView(
     let url = StoredValue::new_local(url);
     let download_url = move || url.with_value(|url| url.as_str().to_string());
     let open_url = move || url.with_value(|url| url.as_str().to_string());
-    // Fit-page-width hint for built-in viewers (Chrome/Firefox honor it,
-    // Safari ignores). Hash fragment, no network impact.
-    let viewer_url =
-        move || url.with_value(|url| format!("{}#view=FitH&zoom=page-width", url.as_str()));
-    let aspect_style =
-        page_size.map(|geom| format!("aspect-ratio: {} / {};", geom.width, geom.height));
+    let aspect_style = page_size.map(|geom| {
+        let padded_height = geom.height + (geom.height / 32);
+        format!("aspect-ratio: {} / {padded_height};", geom.width)
+    });
     let page_count_label =
         page_count.map(|n| format!("{n} {}", if n == 1 { "page" } else { "pages" }));
 
     // Fullscreen the outer div, not the iframe — keeps chrome visible.
     let frame_ref = NodeRef::<leptos::html::Div>::new();
     let is_fullscreen = RwSignal::new(false);
+
+    // Built-in PDF viewers honor these fragments unevenly, but Chrome and
+    // Firefox use them as non-network fit hints.
+    let viewer_url = move || {
+        let fragment = if is_fullscreen.get() {
+            "view=Fit&zoom=page-fit"
+        } else {
+            "view=FitH&zoom=page-width"
+        };
+        url.with_value(|url| format!("{}#{fragment}", url.as_str()))
+    };
 
     install_fullscreen_sync(frame_ref, is_fullscreen);
 
