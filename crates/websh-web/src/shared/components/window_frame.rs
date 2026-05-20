@@ -113,3 +113,22 @@ pub fn WindowActionLink(
         .into_any()
     }
 }
+
+#[component]
+pub fn WindowActionButton(
+    #[prop(optional)] aria_label: Option<&'static str>,
+    on_click: Callback<()>,
+    children: Children,
+) -> AnyView {
+    view! {
+        <button
+            class=css::actionLink
+            type="button"
+            aria-label=aria_label
+            on:click=move |_| on_click.run(())
+        >
+            {children()}
+        </button>
+    }
+    .into_any()
+}

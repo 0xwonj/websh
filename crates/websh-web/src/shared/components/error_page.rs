@@ -1,12 +1,12 @@
 use leptos::prelude::*;
 
+use crate::features::dino_game::DinoGame;
+
 use super::identifier_strip::IdentifierStrip;
 use super::meta_table::{MetaRow, MetaTable};
-use super::window_frame::WindowFrame;
+use super::window_frame::{WindowActionButton, WindowFrame};
 
 stylance::import_crate_style!(css, "src/shared/components/error_page.module.css");
-
-const ERROR_GAME_HREF: &str = "#/game";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ErrorActionCursor {
@@ -16,6 +16,9 @@ enum ErrorActionCursor {
 
 #[derive(Clone, Copy)]
 struct ErrorActionCursorState(RwSignal<ErrorActionCursor>);
+
+#[derive(Clone)]
+struct ErrorGameLauncher(Callback<()>);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ErrorPageTone {
@@ -126,7 +129,38 @@ pub fn ErrorPageBody(
         <span class=format!("{} {}", css::trafficDot, css::trafficZoom) aria-hidden="true"></span>
     }
     .into_any();
-    let frame_title = Signal::derive(move || window_title.to_string());
+    let game_active = RwSignal::new(false);
+    let game_menu_request = RwSignal::new(0_u64);
+    provide_context(ErrorGameLauncher(Callback::new(move |()| {
+        game_active.set(true);
+    })));
+
+    let frame_title = Signal::derive(move || {
+        if game_active.get() {
+            "dino-game".to_string()
+        } else {
+            window_title.to_string()
+        }
+    });
+    let screen_class = move || css::gameScreen.to_string();
+    let recovery_pane_class = move || {
+        if game_active.get() {
+            format!("{} {}", css::screenPane, css::screenPaneInactive)
+        } else {
+            css::screenPane.to_string()
+        }
+    };
+    let right_actions = view! {
+        <Show when=move || game_active.get()>
+            <WindowActionButton
+                aria_label="Open game menu"
+                on_click=Callback::new(move |()| game_menu_request.update(|request| *request += 1))
+            >
+                "☰"
+            </WindowActionButton>
+        </Show>
+    }
+    .into_any();
 
     view! {
         <section class=class role=tone.role() aria-live=tone.aria_live() aria-label=title>
@@ -179,13 +213,29 @@ pub fn ErrorPageBody(
                     <WindowFrame
                         title=frame_title
                         left_controls=left_controls
+                        right_actions=right_actions
                         collapsed=error_window_collapsed_signal
                         body_id="error-recovery-console"
                     >
                         <div class=css::windowBody>
-                            <div class=css::gameScreen aria-label="error recovery">
-                                <h3 class=css::gameTitle>{screen_title}</h3>
-                                {children()}
+                            <div
+                                class=screen_class
+                                aria-label=move || if game_active.get() { "dino game" } else { "error recovery" }
+                            >
+                                <div class=recovery_pane_class aria-hidden=move || game_active.get().to_string()>
+                                    <h3 class=css::gameTitle>{screen_title}</h3>
+                                    {children()}
+                                </div>
+                                <Show when=move || game_active.get()>
+                                    <div class=css::gamePane>
+                                        <DinoGame
+                                            autofocus=true
+                                            menu_request=Signal::derive(move || game_menu_request.get())
+                                            exit_label="EXIT"
+                                            on_exit=Callback::new(move |()| game_active.set(false))
+                                        />
+                                    </div>
+                                </Show>
                             </div>
                         </div>
                     </WindowFrame>
@@ -213,6 +263,7 @@ pub fn ErrorPageDetails(summary: &'static str, open: bool, children: Children) -
 pub fn ErrorPageActions(children: Children) -> impl IntoView {
     let selected = RwSignal::new(ErrorActionCursor::Primary);
     provide_context(ErrorActionCursorState(selected));
+    let launch_game = use_context::<ErrorGameLauncher>();
     let actions_class = move || {
         if selected.get() == ErrorActionCursor::Game {
             format!("{} {}", css::actions, css::actionsGameSelected)
@@ -225,14 +276,20 @@ pub fn ErrorPageActions(children: Children) -> impl IntoView {
         <div class=actions_class>
             <div class=css::actionPrompt>"CHOOSE NEXT STEP"</div>
             {children()}
-            <a
-                class=format!("{} {}", css::actionLink, css::gameAction)
-                href=ERROR_GAME_HREF
+            <button
+                class=format!("{} {}", css::actionButton, css::gameAction)
+                type="button"
                 on:pointerenter=move |_| selected.set(ErrorActionCursor::Game)
                 on:focus=move |_| selected.set(ErrorActionCursor::Game)
+                on:click=move |_| {
+                    selected.set(ErrorActionCursor::Game);
+                    if let Some(launcher) = launch_game.as_ref() {
+                        launcher.0.run(());
+                    }
+                }
             >
                 "Play game"
-            </a>
+            </button>
         </div>
     }
 }
@@ -240,14 +297,9 @@ pub fn ErrorPageActions(children: Children) -> impl IntoView {
 #[component]
 pub fn ErrorPageActionLink(href: &'static str, children: Children) -> impl IntoView {
     let cursor = use_context::<ErrorActionCursorState>();
-    let kind = if href == ERROR_GAME_HREF {
-        ErrorActionCursor::Game
-    } else {
-        ErrorActionCursor::Primary
-    };
     let select = move || {
         if let Some(cursor) = cursor {
-            cursor.0.set(kind);
+            cursor.0.set(ErrorActionCursor::Primary);
         }
     };
 

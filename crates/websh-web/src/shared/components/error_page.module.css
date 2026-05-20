@@ -157,8 +157,36 @@
 }
 
 .gameScreen {
-  padding: 52px 24px;
+  position: relative;
+  display: grid;
   color: var(--text-primary);
+}
+
+.screenPane,
+.gamePane {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+
+.screenPane {
+  padding: 52px 24px;
+}
+
+.screenPaneInactive {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.gamePane {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-self: stretch;
+  min-height: 0;
+}
+
+.gamePane > * {
+  flex: 1 1 auto;
 }
 
 .gameTitle {
@@ -327,7 +355,7 @@
     --window-title-reserve: 112px;
   }
 
-  .gameScreen {
+  .screenPane {
     padding: 24px 16px 20px;
   }
 

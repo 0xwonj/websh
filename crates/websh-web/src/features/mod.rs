@@ -1,6 +1,7 @@
 //! User-facing Leptos feature surfaces.
 
 pub mod chrome;
+pub mod dino_game;
 pub mod directory;
 pub mod home;
 pub mod ledger;

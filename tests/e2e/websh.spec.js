@@ -768,7 +768,7 @@ test('missing content hash route shows 404 only after root manifest loads', asyn
 
   releaseManifest.resolve();
   await expect(page.locator('body')).toContainText('404', { timeout: 10000 });
-  await expect(page.locator('body')).toContainText('No content route matched');
+  await expect(page.locator('body')).toContainText('Page not found');
   await page.getByRole('button', { name: 'Signature of this page' }).click();
   await expect(page.locator('body')).toContainText('/.site');
   expect(pageErrors).toEqual([]);
@@ -1205,10 +1205,10 @@ test('bundle locale article routes select variants without duplicate home entrie
   await expect(page.locator('body')).toContainText('English body.', { timeout: 10000 });
 
   await page.goto(`${baseUrl}/#/writing/foo/ko.md`, { waitUntil: 'networkidle' });
-  await expect(page.locator('body')).toContainText('Route not found', { timeout: 10000 });
+  await expect(page.locator('body')).toContainText('Page not found', { timeout: 10000 });
 
   await page.goto(`${baseUrl}/#/writing/foo/print_pdf`, { waitUntil: 'networkidle' });
-  await expect(page.locator('body')).toContainText('Route not found', { timeout: 10000 });
+  await expect(page.locator('body')).toContainText('Page not found', { timeout: 10000 });
 
   await page.goto(`${baseUrl}/#/writing/foo/ko`, { waitUntil: 'networkidle' });
   await page.getByRole('link', { name: 'Print PDF' }).click();

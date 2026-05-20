@@ -26,5 +26,6 @@ pub use mono_value::{MonoFont, MonoOverflow, MonoTone, MonoValue};
 pub use signature_footer::{AttestationSigFooter, nearest_attestation_route_for_content_path};
 pub use site_frame::{SiteContentFrame, SiteSurface};
 pub use window_frame::{
-    WindowActionLink, WindowFrame, WindowTrafficButton, WindowTrafficLink, WindowTrafficTone,
+    WindowActionButton, WindowActionLink, WindowFrame, WindowTrafficButton, WindowTrafficLink,
+    WindowTrafficTone,
 };
