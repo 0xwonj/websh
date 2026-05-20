@@ -2,9 +2,7 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-use websh_core::domain::{
-    DerivedIndex, MountDeclaration, RuntimeBackendKind, RuntimeMount, VirtualPath,
-};
+use websh_core::domain::{MountDeclaration, RuntimeBackendKind, RuntimeMount, VirtualPath};
 use websh_core::filesystem::{BackendRegistry, GlobalFs};
 use websh_core::ports::StorageBackendRef;
 use websh_core::runtime as core_runtime;
@@ -113,7 +111,6 @@ async fn apply_runtime_conventions(
     mounts: &mut MountLoadSet,
 ) -> Result<(), RuntimeLoadError> {
     core_runtime::seed_bootstrap_routes(global);
-    load_site_json_if_present(global, backends).await?;
 
     let bootstrap_roots = bootstrap_runtime_mounts()
         .into_iter()
@@ -141,7 +138,6 @@ async fn apply_runtime_conventions(
         &bootstrap_roots,
     );
 
-    load_route_index(global, backends).await?;
     core_runtime::seed_bootstrap_routes(global);
     Ok(())
 }
@@ -363,27 +359,6 @@ fn mount_label_for_root(root: &VirtualPath) -> String {
     }
 }
 
-async fn load_site_json_if_present(
-    global: &GlobalFs,
-    backends: &BackendRegistry,
-) -> Result<(), RuntimeLoadError> {
-    let path = VirtualPath::from_absolute("/.websh/site.json").expect("constant path");
-    if !global.exists(&path) {
-        return Ok(());
-    }
-
-    let site_root = BOOTSTRAP_SITE.mount_root();
-    let Some(site_backend) = backends.get(&site_root) else {
-        return Ok(());
-    };
-    let body = read_backend_text(site_backend, &site_root, &path).await?;
-    let _: Value = serde_json::from_str(&body).map_err(|source| RuntimeLoadError::ParseJson {
-        path: path.clone(),
-        source,
-    })?;
-    Ok(())
-}
-
 async fn load_mount_declarations(
     global: &GlobalFs,
     backends: &BackendRegistry,
@@ -478,31 +453,6 @@ fn recover_failed_mount_declaration(
 // it directly into each `FsEntry`. This eliminates the previous
 // per-file `.meta.json` fetches (and the rate-limit failures they were
 // prone to).
-
-async fn load_route_index(
-    global: &mut GlobalFs,
-    backends: &BackendRegistry,
-) -> Result<(), RuntimeLoadError> {
-    let site_root = BOOTSTRAP_SITE.mount_root();
-    let index_path = VirtualPath::from_absolute("/.websh/index.json").expect("constant path");
-    let Some(site_backend) = backends.get(&site_root) else {
-        global.replace_route_index(Vec::new());
-        return Ok(());
-    };
-    if !global.exists(&index_path) {
-        global.replace_route_index(Vec::new());
-        return Ok(());
-    }
-
-    let body = read_backend_text(site_backend, &site_root, &index_path).await?;
-    let index: DerivedIndex =
-        serde_json::from_str(&body).map_err(|source| RuntimeLoadError::ParseJson {
-            path: index_path.clone(),
-            source,
-        })?;
-    global.replace_route_index(index.routes);
-    Ok(())
-}
 
 async fn read_backend_text(
     backend: &StorageBackendRef,

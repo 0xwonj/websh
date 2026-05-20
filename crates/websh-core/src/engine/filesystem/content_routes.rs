@@ -1,4 +1,4 @@
-use crate::domain::VirtualPath;
+use crate::domain::{BundleMetadata, BundleVariant, VirtualPath};
 
 const READER_EXTENSIONS: &[&str] = &[".page.html", ".page.md", ".html", ".md", ".link", ".app"];
 
@@ -36,6 +36,17 @@ pub fn content_route_for_path(path: &str) -> String {
 
 pub fn content_href_for_path(path: &str) -> String {
     format!("#{}", content_route_for_path(path))
+}
+
+pub fn bundle_variant_href(
+    bundle_path: &VirtualPath,
+    bundle: &BundleMetadata,
+    variant: &BundleVariant,
+) -> String {
+    if bundle.is_static_default_variant(&variant.id) {
+        return content_href_for_path(bundle_path.as_str());
+    }
+    content_href_for_path(bundle_path.join(&variant.path).as_str())
 }
 
 pub fn attestation_route_for_node_path(path: &VirtualPath) -> String {
@@ -112,12 +123,102 @@ mod tests {
     }
 
     #[test]
+    fn bundle_variant_href_uses_root_for_default_variant() {
+        let bundle_path = VirtualPath::from_absolute("/writing/foo").unwrap();
+        let bundle = BundleMetadata {
+            default_variant: crate::domain::BundleDefaultVariant::Static {
+                id: "en".to_string(),
+            },
+            variants: vec![
+                BundleVariant {
+                    id: "en".to_string(),
+                    path: "en.md".to_string(),
+                    label: "English".to_string(),
+                    locale: Some("en".to_string()),
+                    media_type: None,
+                },
+                BundleVariant {
+                    id: "print_pdf".to_string(),
+                    path: "print.pdf".to_string(),
+                    label: "Print PDF".to_string(),
+                    locale: None,
+                    media_type: None,
+                },
+            ],
+        };
+
+        assert_eq!(
+            bundle_variant_href(&bundle_path, &bundle, &bundle.variants[0]),
+            "#/writing/foo"
+        );
+        assert_eq!(
+            bundle_variant_href(&bundle_path, &bundle, &bundle.variants[1]),
+            "#/writing/foo/print.pdf"
+        );
+    }
+
+    #[test]
+    fn locale_bundle_variant_href_uses_explicit_routes_for_all_variants() {
+        let bundle_path = VirtualPath::from_absolute("/writing/foo").unwrap();
+        let bundle = BundleMetadata {
+            default_variant: crate::domain::BundleDefaultVariant::Locale {
+                fallback: "en".to_string(),
+            },
+            variants: vec![
+                BundleVariant {
+                    id: "en".to_string(),
+                    path: "en.md".to_string(),
+                    label: "English".to_string(),
+                    locale: Some("en".to_string()),
+                    media_type: None,
+                },
+                BundleVariant {
+                    id: "ko".to_string(),
+                    path: "ko.md".to_string(),
+                    label: "Korean".to_string(),
+                    locale: Some("ko".to_string()),
+                    media_type: None,
+                },
+            ],
+        };
+
+        assert_eq!(
+            bundle_variant_href(&bundle_path, &bundle, &bundle.variants[0]),
+            "#/writing/foo/en"
+        );
+        assert_eq!(
+            bundle_variant_href(&bundle_path, &bundle, &bundle.variants[1]),
+            "#/writing/foo/ko"
+        );
+    }
+
+    #[test]
     fn attestation_route_matches_content_route() {
         assert_eq!(
             attestation_route_for_node_path(
                 &VirtualPath::from_absolute("/writing/hello.md").unwrap()
             ),
             "/writing/hello"
+        );
+    }
+
+    #[test]
+    fn attestation_route_matches_content_route_for_site_support_paths() {
+        assert_eq!(
+            attestation_route_for_node_path(&VirtualPath::from_absolute("/.site").unwrap()),
+            "/.site"
+        );
+        assert_eq!(
+            attestation_route_for_node_path(
+                &VirtualPath::from_absolute("/.site/errors/404.md").unwrap()
+            ),
+            "/.site/errors/404"
+        );
+        assert_eq!(
+            attestation_route_for_node_path(
+                &VirtualPath::from_absolute("/.site/keys/wonjae.asc").unwrap()
+            ),
+            "/.site/keys/wonjae.asc"
         );
     }
 }

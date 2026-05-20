@@ -5,6 +5,7 @@
   "derived": {
     "title": "mounts",
     "kind": "directory",
+    "renderer": "directory_listing",
     "child_count": 1
   }
 }

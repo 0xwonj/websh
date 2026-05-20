@@ -8,7 +8,7 @@ Use `websh-cli attest` after changing homepage source or files under
 `content/`. The command runs the same manifest builder as
 `websh-cli content manifest`, rebuilds all route subjects, and writes
 `assets/crypto/attestations.json`. If
-`content/keys/wonjae.asc` exists, it also asks local `gpg` to create detached PGP
+`content/.site/keys/wonjae.asc` exists, it also asks local `gpg` to create detached PGP
 signatures with `Wonjae Choi <wonjae@snu.ac.kr>` and stores the verified results
 in the same JSON file.
 

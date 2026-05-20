@@ -27,7 +27,7 @@ pub(super) fn scanned_subtree_root(snapshot: &ScannedSubtree) -> FsEntry {
     let root_meta = dir_meta_map
         .get("")
         .map(|dir| dir.meta.clone())
-        .unwrap_or_default();
+        .unwrap_or_else(|| directory_metadata(""));
 
     FsEntry::Directory {
         children,

@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "kind": "directory",
+  "authored": {
+    "description": "Public keys used to verify site identity and attestations."
+  },
+  "derived": {
+    "title": "keys",
+    "kind": "directory",
+    "renderer": "directory_listing",
+    "child_count": 1
+  }
+}

@@ -12,13 +12,12 @@ use super::sidecar::matching_file_sidecar;
 /// per-field: each field present in `frontmatter` wins; unmentioned
 /// fields are preserved from `prior`. This protects user edits to the
 /// sidecar that the markdown frontmatter doesn't speak to (e.g.
-/// `access`, `route`, `trust`).
+/// `access` or `trust`).
 pub(crate) fn merge_authored(prior: Fields, frontmatter: Fields) -> Fields {
     Fields {
         title: frontmatter.title.or(prior.title),
         kind: frontmatter.kind.or(prior.kind),
         renderer: frontmatter.renderer.or(prior.renderer),
-        route: frontmatter.route.or(prior.route),
         language: frontmatter.language.or(prior.language),
         description: frontmatter.description.or(prior.description),
         date: frontmatter.date.or(prior.date),

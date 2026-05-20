@@ -9,7 +9,63 @@
         "derived": {
           "title": "Home",
           "kind": "directory",
-          "child_count": 7
+          "renderer": "directory_listing",
+          "modified_at": 1779062096,
+          "child_count": 6
+        }
+      }
+    },
+    {
+      "path": ".site",
+      "metadata": {
+        "schema": 1,
+        "kind": "directory",
+        "authored": {
+          "title": "Site",
+          "description": "Runtime support and trust metadata for the site.",
+          "tags": [
+            "keys",
+            "errors",
+            "now"
+          ]
+        },
+        "derived": {
+          "title": ".site",
+          "kind": "directory",
+          "renderer": "directory_listing",
+          "child_count": 3
+        }
+      }
+    },
+    {
+      "path": ".site/errors",
+      "metadata": {
+        "schema": 1,
+        "kind": "directory",
+        "authored": {
+          "description": "Error response templates and route-failure policy."
+        },
+        "derived": {
+          "title": "errors",
+          "kind": "directory",
+          "renderer": "directory_listing",
+          "child_count": 1
+        }
+      }
+    },
+    {
+      "path": ".site/keys",
+      "metadata": {
+        "schema": 1,
+        "kind": "directory",
+        "authored": {
+          "description": "Public keys used to verify site identity and attestations."
+        },
+        "derived": {
+          "title": "keys",
+          "kind": "directory",
+          "renderer": "directory_listing",
+          "child_count": 1
         }
       }
     },
@@ -22,6 +78,7 @@
         "derived": {
           "title": ".websh",
           "kind": "directory",
+          "renderer": "directory_listing",
           "child_count": 2
         }
       }
@@ -35,19 +92,7 @@
         "derived": {
           "title": "mounts",
           "kind": "directory",
-          "child_count": 1
-        }
-      }
-    },
-    {
-      "path": "keys",
-      "metadata": {
-        "schema": 1,
-        "kind": "directory",
-        "authored": {},
-        "derived": {
-          "title": "keys",
-          "kind": "directory",
+          "renderer": "directory_listing",
           "child_count": 1
         }
       }
@@ -61,6 +106,7 @@
         "derived": {
           "title": "papers",
           "kind": "directory",
+          "renderer": "directory_listing",
           "child_count": 0
         }
       }
@@ -74,6 +120,7 @@
         "derived": {
           "title": "projects",
           "kind": "directory",
+          "renderer": "directory_listing",
           "child_count": 0
         }
       }
@@ -87,6 +134,8 @@
         "derived": {
           "title": "talks",
           "kind": "directory",
+          "renderer": "directory_listing",
+          "modified_at": 1778980325,
           "child_count": 1
         }
       }
@@ -100,6 +149,8 @@
         "derived": {
           "title": "writing",
           "kind": "directory",
+          "renderer": "directory_listing",
+          "modified_at": 1779062096,
           "child_count": 2
         }
       }
@@ -110,7 +161,10 @@
         "schema": 1,
         "kind": "bundle",
         "bundle": {
-          "default_variant": "en",
+          "default_variant": {
+            "strategy": "locale",
+            "fallback": "en"
+          },
           "variants": [
             {
               "id": "en",
@@ -148,6 +202,7 @@
         "derived": {
           "title": "zk-proofs-from-a-compiler-perspective",
           "kind": "bundle",
+          "modified_at": 1779061395,
           "child_count": 2
         }
       }
@@ -158,7 +213,10 @@
         "schema": 1,
         "kind": "bundle",
         "bundle": {
-          "default_variant": "en",
+          "default_variant": {
+            "strategy": "locale",
+            "fallback": "en"
+          },
           "variants": [
             {
               "id": "en",
@@ -200,38 +258,32 @@
         "derived": {
           "title": "zksummit14-review",
           "kind": "bundle",
+          "modified_at": 1779062096,
           "child_count": 2
         }
       }
     },
     {
-      "path": ".websh/ledger.json",
+      "path": ".site/errors/404.md",
       "metadata": {
         "schema": 1,
-        "kind": "data",
-        "authored": {},
+        "kind": "page",
+        "authored": {
+          "title": "404 response policy",
+          "description": "Canonical response policy for missing content routes."
+        },
         "derived": {
-          "title": "ledger",
-          "kind": "data",
-          "size_bytes": 7162
+          "title": "404",
+          "kind": "page",
+          "renderer": "markdown_page",
+          "size_bytes": 582,
+          "content_sha256": "0x0621834d4f48da42dcc8bd35bc8f940ab60cd865047e7af7e431732a7768d922",
+          "word_count": 79
         }
       }
     },
     {
-      "path": ".websh/mounts/mempool.mount.json",
-      "metadata": {
-        "schema": 1,
-        "kind": "data",
-        "authored": {},
-        "derived": {
-          "title": "mempool.mount",
-          "kind": "data",
-          "size_bytes": 161
-        }
-      }
-    },
-    {
-      "path": "keys/wonjae.asc",
+      "path": ".site/keys/wonjae.asc",
       "metadata": {
         "schema": 1,
         "kind": "document",
@@ -248,19 +300,44 @@
       }
     },
     {
-      "path": "now.toml",
+      "path": ".site/now.toml",
       "metadata": {
         "schema": 1,
         "kind": "document",
         "authored": {
-          "description": "What I'm working on right now — short status feed.",
-          "date": "2026-04-30"
+          "description": "What I'm working on right now — short status feed."
         },
         "derived": {
           "title": "now",
           "kind": "document",
           "size_bytes": 298,
           "content_sha256": "0x402f591372dc8f8a28265338f0a4ca7367656b5cac1000fd3f7adee608c4691a"
+        }
+      }
+    },
+    {
+      "path": ".websh/ledger.json",
+      "metadata": {
+        "schema": 1,
+        "kind": "data",
+        "authored": {},
+        "derived": {
+          "title": "ledger",
+          "kind": "data",
+          "size_bytes": 7546
+        }
+      }
+    },
+    {
+      "path": ".websh/mounts/mempool.mount.json",
+      "metadata": {
+        "schema": 1,
+        "kind": "data",
+        "authored": {},
+        "derived": {
+          "title": "mempool.mount",
+          "kind": "data",
+          "size_bytes": 161
         }
       }
     },
@@ -300,6 +377,7 @@
           "page_count": 31,
           "rotation": 0,
           "size_bytes": 3417199,
+          "modified_at": 1778980325,
           "content_sha256": "0x2652af4104e2138d8b449fe60ff09d0a35217fd8a76fef28478e4219e12583bb"
         }
       }
@@ -327,6 +405,7 @@
           "kind": "page",
           "renderer": "markdown_page",
           "size_bytes": 25411,
+          "modified_at": 1779061395,
           "content_sha256": "0x028d827981ab38991e1ae77626fc08877460e775cffda6f01f9dceea90e9f610",
           "word_count": 3951
         }
@@ -355,6 +434,7 @@
           "kind": "page",
           "renderer": "markdown_page",
           "size_bytes": 30288,
+          "modified_at": 1779061395,
           "content_sha256": "0x68c65139572943632cec6a612c3f6db68d73f194ee626636d40ee726326a2709",
           "word_count": 3080
         }
@@ -382,6 +462,7 @@
           "kind": "page",
           "renderer": "markdown_page",
           "size_bytes": 22295,
+          "modified_at": 1779062096,
           "content_sha256": "0xa82324c9153458e811d378115e6654f12a2633abe69264ed2e4a8bbcc7b5603e",
           "word_count": 3075
         }
@@ -409,6 +490,7 @@
           "kind": "page",
           "renderer": "markdown_page",
           "size_bytes": 24749,
+          "modified_at": 1779062096,
           "content_sha256": "0xe8a0ccf4e32c78d95834240af9049bab2fff14567e669416f7836411c401aeff",
           "word_count": 2528
         }

@@ -13,7 +13,7 @@
 use leptos::prelude::*;
 
 use crate::shared::components::{IdentifierStrip, MetaRow, MetaTable};
-use websh_core::domain::{FileType, LinkRef, NodeKind};
+use websh_core::domain::{LinkRef, NodeKind};
 use websh_core::support::format::format_date_compact;
 
 use super::actions::{ReaderActionsBindings, ReaderActionsMenu};
@@ -102,47 +102,22 @@ pub fn rows_for(intent: &ReaderIntent, meta: &ReaderMeta) -> Vec<RowSpec> {
 
 fn intent_is_markdown(intent: &ReaderIntent) -> bool {
     matches!(intent, ReaderIntent::Markdown { .. })
-        || matches!(
-            intent,
-            ReaderIntent::BundleVariant { variant_path, .. }
-                if FileType::from_path(variant_path.as_str()) == FileType::Markdown
-        )
 }
 
 fn intent_is_html(intent: &ReaderIntent) -> bool {
     matches!(intent, ReaderIntent::Html { .. })
-        || matches!(
-            intent,
-            ReaderIntent::BundleVariant { variant_path, .. }
-                if FileType::from_path(variant_path.as_str()) == FileType::Html
-        )
 }
 
 fn intent_is_redirect(intent: &ReaderIntent) -> bool {
     matches!(intent, ReaderIntent::Redirect { .. })
-        || matches!(
-            intent,
-            ReaderIntent::BundleVariant { variant_path, .. }
-                if FileType::from_path(variant_path.as_str()) == FileType::Link
-        )
 }
 
 fn intent_is_pdf(intent: &ReaderIntent) -> bool {
-    matches!(intent, ReaderIntent::Asset { media_type, .. } if media_type == "application/pdf")
-        || matches!(
-            intent,
-            ReaderIntent::BundleVariant { variant_path, .. }
-                if FileType::from_path(variant_path.as_str()) == FileType::Pdf
-        )
+    matches!(intent, ReaderIntent::Pdf { .. })
 }
 
 fn intent_is_image(intent: &ReaderIntent) -> bool {
-    matches!(intent, ReaderIntent::Asset { media_type, .. } if media_type.starts_with("image/"))
-        || matches!(
-            intent,
-            ReaderIntent::BundleVariant { variant_path, .. }
-                if FileType::from_path(variant_path.as_str()) == FileType::Image
-        )
+    matches!(intent, ReaderIntent::Image { .. })
 }
 
 /// Friendly display label for a [`NodeKind`]. Shorter than the enum
@@ -475,9 +450,8 @@ mod tests {
 
     #[wasm_bindgen_test]
     fn image_caption_appears_only_when_description_set() {
-        let intent = ReaderIntent::Asset {
+        let intent = ReaderIntent::Image {
             node_path: vp("/cover.png"),
-            media_type: "image/png".to_string(),
         };
         let mut m = meta_with(None, None);
         m.description = "Sunrise.".to_string();

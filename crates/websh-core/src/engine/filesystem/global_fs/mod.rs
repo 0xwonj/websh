@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use thiserror::Error;
 
-use crate::domain::{DirEntry, FsEntry, NodeMetadata, RouteIndexEntry, VirtualPath};
+use crate::domain::{DirEntry, FsEntry, NodeMetadata, VirtualPath};
 
 use super::intent::{RenderIntent, build_render_intent};
 use super::routing::{RouteRequest, RouteResolution, resolve_route};
@@ -54,7 +54,6 @@ pub struct GlobalFs {
     root: FsEntry,
     mount_points: BTreeSet<VirtualPath>,
     pending_text: BTreeMap<VirtualPath, String>,
-    route_index: BTreeMap<String, RouteIndexEntry>,
 }
 
 impl GlobalFs {
@@ -66,7 +65,6 @@ impl GlobalFs {
             },
             mount_points: BTreeSet::new(),
             pending_text: BTreeMap::new(),
-            route_index: BTreeMap::new(),
         }
     }
 
@@ -79,17 +77,6 @@ impl GlobalFs {
     /// lookup rather than a separate map.
     pub fn node_metadata(&self, path: &VirtualPath) -> Option<&NodeMetadata> {
         self.get_entry(path).map(|entry| entry.meta())
-    }
-
-    pub fn replace_route_index(&mut self, routes: impl IntoIterator<Item = RouteIndexEntry>) {
-        self.route_index = routes
-            .into_iter()
-            .map(|entry| (entry.route.clone(), entry))
-            .collect();
-    }
-
-    pub fn route_entry(&self, route: &str) -> Option<&RouteIndexEntry> {
-        self.route_index.get(route)
     }
 
     pub fn read_pending_text(&self, path: &VirtualPath) -> Option<String> {

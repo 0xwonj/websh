@@ -5,6 +5,7 @@
   "derived": {
     "title": "projects",
     "kind": "directory",
+    "renderer": "directory_listing",
     "child_count": 0
   }
 }

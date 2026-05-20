@@ -397,7 +397,7 @@ fn root_export_excludes_descendant_mounts_and_runtime_state() {
             &snapshot(
                 &[
                     "index.md",
-                    ".websh/site.json",
+                    ".websh/ledger.json",
                     ".websh/mounts/db.mount.json",
                 ],
                 &[".websh", ".websh/mounts"],
@@ -429,7 +429,7 @@ fn root_export_excludes_descendant_mounts_and_runtime_state() {
         .collect();
 
     assert!(files.contains(&"index.md"));
-    assert!(files.contains(&".websh/site.json"));
+    assert!(files.contains(&".websh/ledger.json"));
     assert!(files.contains(&".websh/mounts/db.mount.json"));
     assert!(!files.iter().any(|path| path.starts_with("db/")));
     assert!(!files.iter().any(|path| path.starts_with(".websh/state/")));

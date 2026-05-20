@@ -14,7 +14,7 @@ const tinyPng = Buffer.from(
   'base64'
 );
 
-function nodeMetadata(kind, { title, description = null, date = null, tags = [], size = null, modified = null, access = null, renderer = null, bundle = null } = {}) {
+function nodeMetadata(kind, { title, description = null, date = null, tags = [], size = null, modified = null, access = null, renderer = null, childCount = null, bundle = null } = {}) {
   const authored = {};
   if (title !== undefined && title !== null) authored.title = title;
   if (description !== null) authored.description = description;
@@ -26,6 +26,7 @@ function nodeMetadata(kind, { title, description = null, date = null, tags = [],
   if (renderer !== null) derived.renderer = renderer;
   if (size !== null) derived.size_bytes = size;
   if (modified !== null) derived.modified_at = modified;
+  if (childCount !== null) derived.child_count = childCount;
 
   const metadata = {
     schema: 1,
@@ -53,7 +54,7 @@ function fileEntry(path, title, options = {}) {
 function dirEntry(path, title, options = {}) {
   return {
     path,
-    metadata: nodeMetadata('directory', { title, ...options })
+    metadata: nodeMetadata('directory', { title, renderer: 'directory_listing', ...options })
   };
 }
 
@@ -70,17 +71,19 @@ function manifestDocument(entries) {
 
 const siteEntries = [
   dirEntry('', 'Home'),
+  dirEntry('.site', 'Site support', {
+    description: 'Runtime support and trust metadata for the site.',
+    tags: ['runtime', 'trust'],
+    childCount: 3
+  }),
   dirEntry('.websh', '.websh'),
   dirEntry('.websh/mounts', 'mounts'),
   dirEntry('docs', 'docs'),
   dirEntry('docs/deep', 'deep'),
-  fileEntry('.websh/index.json', 'Index', { kind: 'data' }),
   fileEntry('.websh/ledger.json', 'Ledger', { kind: 'data' }),
   fileEntry('.websh/mounts/db.mount.json', 'DB mount', { kind: 'data' }),
-  fileEntry('.websh/site.json', 'Site', { kind: 'data' }),
   fileEntry('docs/deep/old.md', 'Deep Old'),
-  fileEntry('docs/old.md', 'Old'),
-  fileEntry('index.html', 'Home')
+  fileEntry('docs/old.md', 'Old')
 ];
 
 const siteManifest = manifestDocument(siteEntries);
@@ -189,15 +192,8 @@ function deferred() {
 function freshRawResponses() {
   return new Map([
     ['/content/manifest.json', JSON.stringify(siteManifest)],
-    ['/content/index.html', '<main><h1>Home OK</h1></main>'],
     ['/content/docs/old.md', 'old'],
     ['/content/docs/deep/old.md', 'deep old'],
-    ['/content/.websh/site.json', '{}'],
-    ['/content/.websh/index.json', JSON.stringify({
-      routes: [
-        { route: '/', node_path: '/index.html', kind: 'page', renderer: 'html_page' }
-      ]
-    })],
     ['/content/.websh/ledger.json', JSON.stringify(makeLedger([]))],
     ['/content/.websh/mounts/db.mount.json', JSON.stringify({
       backend: 'github',
@@ -236,10 +232,12 @@ function installContentPage(path, title, body = '# Fixture page') {
 
 function installBundleArticleFixture() {
   const bundle = {
-    default_variant: 'en',
+    default_variant: { strategy: 'locale', fallback: 'en' },
     variants: [
       { id: 'en', path: 'en.md', label: 'English', locale: 'en' },
-      { id: 'ko', path: 'ko.md', label: '한국어', locale: 'ko' }
+      { id: 'ko', path: 'ko.md', label: '한국어', locale: 'ko' },
+      { id: 'print_pdf', path: 'print.pdf', label: 'Print PDF' },
+      { id: 'notes', path: 'notes', label: 'Notes' }
     ]
   };
   const manifest = manifestDocument([
@@ -260,6 +258,20 @@ function installBundleArticleFixture() {
       date: '2026-05-15',
       tags: ['zk'],
       description: '한국어 rendition.'
+    }),
+    fileEntry('writing/foo/print.pdf', 'Print PDF', {
+      kind: 'document',
+      date: '2026-05-15',
+      tags: ['zk']
+    }),
+    dirEntry('writing/foo/notes', 'Notes', {
+      date: '2026-05-15',
+      tags: ['zk'],
+      childCount: 1
+    }),
+    fileEntry('writing/foo/notes/readme.md', 'Notes Readme', {
+      date: '2026-05-15',
+      tags: ['zk']
     }),
     fileEntry('writing/foo/cover.png', 'Cover', { kind: 'asset' })
   ]);
@@ -512,10 +524,9 @@ async function waitForDraftPath(page, path) {
 
 const directLoadCases = [
   ['/#/', 'A Homepage, Formalised'],
-  ['/#/index.html', 'Home OK'],
   ['/#/websh', 'guest@wonjae.eth:~'],
   ['/#/websh/db', '~/websh/db'],
-  ['/#/db/fresh.md', 'Fresh']
+  ['/#/db/fresh', 'Fresh']
 ];
 
 test('official root loads built-in homepage', async ({ page }) => {
@@ -558,7 +569,7 @@ test('home renders static sections while the root manifest is still loading', as
   const releaseManifest = deferred();
   const manifest = manifestDocument([
     ...siteManifest.entries,
-    fileEntry('now.toml', 'Now', { kind: 'data' }),
+    fileEntry('.site/now.toml', 'Now', { kind: 'document' }),
     dirEntry('writing', 'writing'),
     dirEntry('projects', 'projects'),
     fileEntry('writing/loaded.md', 'Loaded Writing', {
@@ -571,7 +582,7 @@ test('home renders static sections while the root manifest is still loading', as
     })
   ]);
   rawResponses.set('/content/manifest.json', JSON.stringify(manifest));
-  rawResponses.set('/content/now.toml', '[[items]]\ndate = "2026-05-01"\ntext = "Loaded now item"\n');
+  rawResponses.set('/content/.site/now.toml', '[[items]]\ndate = "2026-05-01"\ntext = "Loaded now item"\n');
 
   await page.route('**/content/manifest.json', async (route) => {
     manifestRequested.resolve();
@@ -608,7 +619,7 @@ test('home stays quiet when the root manifest fails', async ({ page }) => {
   let ledgerRequests = 0;
   page.on('request', (request) => {
     const url = new URL(request.url());
-    if (url.pathname === '/content/now.toml') {
+    if (url.pathname === '/content/.site/now.toml') {
       nowRequests += 1;
     }
     if (url.pathname === '/content/.websh/ledger.json') {
@@ -616,7 +627,7 @@ test('home stays quiet when the root manifest fails', async ({ page }) => {
     }
   });
 
-  rawResponses.set('/content/now.toml', '[[items]]\ndate = "2026-05-01"\ntext = "should not load"\n');
+  rawResponses.set('/content/.site/now.toml', '[[items]]\ndate = "2026-05-01"\ntext = "should not load"\n');
   rawResponses.set('/content/.websh/ledger.json', JSON.stringify(makeLedger([])));
 
   await page.route('**/content/manifest.json', async (route) => {
@@ -697,7 +708,7 @@ test('direct ledger with failed root manifest does not read the content ledger',
 
   const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
   await page.goto(`${baseUrl}/#/ledger`, { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('body')).toContainText('root mount failed', { timeout: 10000 });
+  await expect(page.locator('body')).toContainText(/root mount failed/i, { timeout: 10000 });
   await expect(page.getByRole('navigation', { name: 'path' })).toHaveText('~/ledger');
   expect(ledgerRequests).toBe(0);
   expect(pageErrors).toEqual([]);
@@ -719,7 +730,7 @@ test('direct content hash route stays pending while root manifest loads', async 
   });
 
   const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
-  await page.goto(`${baseUrl}/#/docs/old.md`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${baseUrl}/#/docs/old`, { waitUntil: 'domcontentloaded' });
   await manifestRequested.promise;
 
   await expect(page.locator('body')).toContainText('route pending', { timeout: 10000 });
@@ -757,7 +768,9 @@ test('missing content hash route shows 404 only after root manifest loads', asyn
 
   releaseManifest.resolve();
   await expect(page.locator('body')).toContainText('404', { timeout: 10000 });
-  await expect(page.locator('body')).toContainText('No route matched');
+  await expect(page.locator('body')).toContainText('No content route matched');
+  await page.getByRole('button', { name: 'Signature of this page' }).click();
+  await expect(page.locator('body')).toContainText('/.site');
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);
 });
@@ -772,9 +785,9 @@ test('direct content hash route reports root mount failure when manifest fails',
   });
 
   const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
-  await page.goto(`${baseUrl}/#/docs/old.md`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${baseUrl}/#/docs/old`, { waitUntil: 'domcontentloaded' });
 
-  await expect(page.locator('body')).toContainText('root mount failed', { timeout: 10000 });
+  await expect(page.locator('body')).toContainText(/root mount failed/i, { timeout: 10000 });
   await expect(page.locator('body')).toContainText('content/manifest.json');
   await expect(page.locator('body')).not.toContainText('404');
   await expect(page.locator('body')).not.toContainText('No route matched');
@@ -833,7 +846,7 @@ test('site chrome breadcrumb ellipsizes current crumb without collapsing path', 
   await page.setViewportSize({ width: 560, height: 720 });
 
   const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
-  await page.goto(`${baseUrl}/#/${path}`, { waitUntil: 'networkidle' });
+  await page.goto(`${baseUrl}/#/${path.replace(/\.md$/, '')}`, { waitUntil: 'networkidle' });
   await expect(page.locator('body')).toContainText('Long current crumb', { timeout: 10000 });
 
   await expect(async () => {
@@ -869,14 +882,14 @@ test('site chrome breadcrumb ellipsizes crumbs with the same shrink policy', asy
     expect(layout.crumbChromeBlockerOverlaps).toEqual([]);
   }).toPass({ timeout: 10000 });
 
-  await page.goto(`${baseUrl}/#/${path}`, { waitUntil: 'networkidle' });
+  await page.goto(`${baseUrl}/#/${path.replace(/\.md$/, '')}`, { waitUntil: 'networkidle' });
   await expect(page.locator('body')).toContainText('ZK body', { timeout: 10000 });
 
   await expect(async () => {
     const layout = await readBreadcrumbLayout(page);
     expect(layout).not.toBeNull();
     expect(layout.visibleCrumbs.map((crumb) => crumb.type)).toEqual(['crumb', 'crumb', 'crumb', 'current']);
-    expect(layout.visibleCrumbs.map((crumb) => crumb.text)).toEqual(['~', 'writing', 'zk-proofs-from-a-compiler-perspective', 'ko.md']);
+    expect(layout.visibleCrumbs.map((crumb) => crumb.text)).toEqual(['~', 'writing', 'zk-proofs-from-a-compiler-perspective', 'ko']);
     const longMiddleCrumb = layout.visibleCrumbs[2];
     const currentCrumb = layout.visibleCrumbs[3];
     expect(longMiddleCrumb.scrollWidth).toBeGreaterThan(longMiddleCrumb.clientWidth);
@@ -903,7 +916,7 @@ test('site chrome breadcrumb ellipsizes long paths before colliding on narrow ne
 
   const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
   await page.setViewportSize({ width: 360, height: 720 });
-  await page.goto(`${baseUrl}/#/${path}`, { waitUntil: 'networkidle' });
+  await page.goto(`${baseUrl}/#/${path.replace(/\.md$/, '')}`, { waitUntil: 'networkidle' });
   await expect(page.locator('body')).toContainText('Nested long crumb', { timeout: 10000 });
 
   await expect(async () => {
@@ -1045,7 +1058,7 @@ test('reader actions menu controls text size and copies current link', async ({ 
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: appOrigin });
 
   const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
-  await page.goto(`${baseUrl}/#/docs/old.md`, { waitUntil: 'networkidle' });
+  await page.goto(`${baseUrl}/#/docs/old`, { waitUntil: 'networkidle' });
   await expect(page.locator('body')).toContainText('old', { timeout: 10000 });
   await expect(page.locator('[data-reader-body="true"]')).toHaveAttribute('data-text-scale', 'normal');
 
@@ -1057,7 +1070,7 @@ test('reader actions menu controls text size and copies current link', async ({ 
 
   await page.getByRole('button', { name: 'copy link' }).click();
   await expect(page.getByRole('button', { name: /copied/i })).toBeVisible();
-  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(`${appBaseUrl}/#/docs/old.md`);
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(`${appBaseUrl}/#/docs/old`);
 
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog', { name: 'Reader actions' })).toBeHidden();
@@ -1069,12 +1082,14 @@ test('reader actions menu controls text size and copies current link', async ({ 
   expect(consoleErrors).toEqual([]);
 });
 
-test('bundle article routes select variants without duplicate home entries', async ({ page }) => {
+test('bundle locale article routes select variants without duplicate home entries', async ({ page }) => {
   const bundle = {
-    default_variant: 'en',
+    default_variant: { strategy: 'locale', fallback: 'en' },
     variants: [
       { id: 'en', path: 'en.md', label: 'English', locale: 'en' },
-      { id: 'ko', path: 'ko.md', label: '한국어', locale: 'ko' }
+      { id: 'ko', path: 'ko.md', label: '한국어', locale: 'ko' },
+      { id: 'print_pdf', path: 'print.pdf', label: 'Print PDF' },
+      { id: 'notes', path: 'notes', label: 'Notes' }
     ]
   };
   const manifest = manifestDocument([
@@ -1095,6 +1110,20 @@ test('bundle article routes select variants without duplicate home entries', asy
       date: '2026-05-15',
       tags: ['zk'],
       description: '한국어 rendition.'
+    }),
+    fileEntry('writing/foo/print.pdf', 'Print PDF', {
+      kind: 'document',
+      date: '2026-05-15',
+      tags: ['zk']
+    }),
+    dirEntry('writing/foo/notes', 'Notes', {
+      date: '2026-05-15',
+      tags: ['zk'],
+      childCount: 1
+    }),
+    fileEntry('writing/foo/notes/readme.md', 'Notes Readme', {
+      date: '2026-05-15',
+      tags: ['zk']
     }),
     fileEntry('writing/foo/cover.png', 'Cover', { kind: 'asset' })
   ]);
@@ -1123,6 +1152,16 @@ test('bundle article routes select variants without duplicate home entries', asy
           path: 'content/writing/foo/ko.md',
           sha256: normalizedSha('c'),
           bytes: 24
+        },
+        {
+          path: 'content/writing/foo/print.pdf',
+          sha256: normalizedSha('e'),
+          bytes: 14
+        },
+        {
+          path: 'content/writing/foo/notes/readme.md',
+          sha256: normalizedSha('f'),
+          bytes: 14
         }
       ]
     })
@@ -1131,6 +1170,8 @@ test('bundle article routes select variants without duplicate home entries', asy
   rawResponses.set('/content/.websh/ledger.json', JSON.stringify(ledger));
   rawResponses.set('/content/writing/foo/en.md', '# English Foo\n\nEnglish body.');
   rawResponses.set('/content/writing/foo/ko.md', '# 한국어 Foo\n\n한국어 본문.');
+  rawResponses.set('/content/writing/foo/print.pdf', Buffer.from('%PDF-1.4\n%%EOF\n'));
+  rawResponses.set('/content/writing/foo/notes/readme.md', '# Notes\n\nNotes body.');
   rawResponses.set('/content/writing/foo/cover.png', tinyPng);
   await page.addInitScript((key) => {
     if (!localStorage.getItem(key)) localStorage.setItem(key, 'en');
@@ -1145,23 +1186,44 @@ test('bundle article routes select variants without duplicate home entries', asy
   await expect(page.getByRole('link', { name: 'Foo Bundle' })).toHaveCount(1);
 
   await page.goto(`${baseUrl}/#/writing/foo`, { waitUntil: 'networkidle' });
+  await page.waitForURL('**/#/writing/foo/en');
   await expect(page.locator('body')).toContainText('English body.', { timeout: 10000 });
   await expect(page.locator('body')).toContainText('Variants');
+  await expect(page.getByRole('link', { name: '한국어' })).toHaveAttribute('href', /#\/writing\/foo\/ko$/);
   await page.getByRole('link', { name: '한국어' }).click();
   await page.waitForURL('**/#/writing/foo/ko');
   await expect(page.locator('body')).toContainText('한국어 본문.', { timeout: 10000 });
+  await expect(page.getByRole('link', { name: 'English' })).toHaveAttribute('href', /#\/writing\/foo\/en$/);
   await expect(page.locator('[aria-current="true"]')).toContainText('한국어');
   await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), langStorageKey)).toBe('ko');
 
   await page.goto(`${baseUrl}/#/writing/foo`, { waitUntil: 'networkidle' });
+  await page.waitForURL('**/#/writing/foo/ko');
   await expect(page.locator('body')).toContainText('한국어 본문.', { timeout: 10000 });
 
   await page.goto(`${baseUrl}/#/writing/foo/en`, { waitUntil: 'networkidle' });
   await expect(page.locator('body')).toContainText('English body.', { timeout: 10000 });
 
   await page.goto(`${baseUrl}/#/writing/foo/ko.md`, { waitUntil: 'networkidle' });
-  await expect(page.locator('body')).toContainText('한국어 본문.', { timeout: 10000 });
-  await expect(page.locator('body')).not.toContainText('Variants');
+  await expect(page.locator('body')).toContainText('Route not found', { timeout: 10000 });
+
+  await page.goto(`${baseUrl}/#/writing/foo/print_pdf`, { waitUntil: 'networkidle' });
+  await expect(page.locator('body')).toContainText('Route not found', { timeout: 10000 });
+
+  await page.goto(`${baseUrl}/#/writing/foo/ko`, { waitUntil: 'networkidle' });
+  await page.getByRole('link', { name: 'Print PDF' }).click();
+  await page.waitForURL('**/#/writing/foo/print.pdf');
+  await expect(page.locator('iframe')).toHaveAttribute(
+    'src',
+    /content\/writing\/foo\/print\.pdf#view=FitH&zoom=page-width$/,
+    { timeout: 10000 }
+  );
+  await expect(page.locator('[aria-current="true"]')).toContainText('Print PDF');
+
+  await page.getByRole('link', { name: 'Notes' }).click();
+  await page.waitForURL('**/#/writing/foo/notes');
+  await expect(page.getByRole('navigation', { name: 'Directory entries' })).toContainText('readme');
+  await expect(page.locator('[aria-current="true"]')).toContainText('Notes');
 
   await page.goto(`${baseUrl}/#/writing/foo/cover.png`, { waitUntil: 'networkidle' });
   await expect(page.getByRole('img', { name: 'Cover' })).toHaveAttribute('src', /cover\.png/);
@@ -1170,7 +1232,7 @@ test('bundle article routes select variants without duplicate home entries', asy
   expect(consoleErrors).toEqual([]);
 });
 
-test('browser language initializes LANG for bundle default routes', async ({ page }) => {
+test('browser language initializes LANG and selects locale bundle route', async ({ page }) => {
   installBundleArticleFixture();
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'languages', {
@@ -1185,6 +1247,7 @@ test('browser language initializes LANG for bundle default routes', async ({ pag
 
   const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
   await page.goto(`${baseUrl}/#/writing/foo`, { waitUntil: 'networkidle' });
+  await page.waitForURL('**/#/writing/foo/ko');
   await expect(page.locator('body')).toContainText('한국어 본문.', { timeout: 10000 });
   await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), langStorageKey)).toBe('ko');
 
@@ -1192,7 +1255,7 @@ test('browser language initializes LANG for bundle default routes', async ({ pag
   expect(consoleErrors).toEqual([]);
 });
 
-test('shell LANG controls bundle default routes', async ({ page }) => {
+test('shell LANG selects locale bundle root', async ({ page }) => {
   installBundleArticleFixture();
   const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
 
@@ -1202,6 +1265,7 @@ test('shell LANG controls bundle default routes', async ({ page }) => {
   await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), langStorageKey)).toBe('ko');
 
   await page.goto(`${baseUrl}/#/writing/foo`, { waitUntil: 'networkidle' });
+  await page.waitForURL('**/#/writing/foo/ko');
   await expect(page.locator('body')).toContainText('한국어 본문.', { timeout: 10000 });
 
   expect(pageErrors).toEqual([]);
@@ -1224,11 +1288,11 @@ test('root content renders before external mount scan resolves', async ({ page }
   });
 
   const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
-  await page.goto(`${baseUrl}/#/index.html`, { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('body')).toContainText('Home OK', { timeout: 10000 });
+  await page.goto(`${baseUrl}/#/docs/old`, { waitUntil: 'domcontentloaded' });
+  await expect(page.locator('body')).toContainText('old', { timeout: 10000 });
 
   releaseDbManifest();
-  await page.goto(`${baseUrl}/#/db/fresh.md`, { waitUntil: 'networkidle' });
+  await page.goto(`${baseUrl}/#/db/fresh`, { waitUntil: 'networkidle' });
   await expect(page.locator('body')).toContainText('Fresh', { timeout: 10000 });
 
   expect(pageErrors).toEqual([]);
@@ -1245,7 +1309,7 @@ test('non-math markdown does not request KaTeX assets', async ({ page }) => {
   });
 
   const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
-  await page.goto(`${baseUrl}/#/docs/old.md`, { waitUntil: 'networkidle' });
+  await page.goto(`${baseUrl}/#/docs/old`, { waitUntil: 'networkidle' });
   await expect(page.locator('body')).toContainText('old', { timeout: 10000 });
 
   expect(katexRequests).toEqual([]);
@@ -1270,15 +1334,15 @@ test('math markdown lazy-loads KaTeX once', async ({ page }) => {
   });
 
   const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
-  await page.goto(`${baseUrl}/#/docs/math.md`, { waitUntil: 'networkidle' });
+  await page.goto(`${baseUrl}/#/docs/math`, { waitUntil: 'networkidle' });
   await expect(page.locator('.katex')).toHaveCount(1, { timeout: 10000 });
   expect(katexRequests.sort()).toEqual([
     '/assets/vendor/katex/katex.min.css',
     '/assets/vendor/katex/katex.min.js'
   ]);
 
-  await page.goto(`${baseUrl}/#/docs/old.md`, { waitUntil: 'networkidle' });
-  await page.goto(`${baseUrl}/#/docs/math.md`, { waitUntil: 'networkidle' });
+  await page.goto(`${baseUrl}/#/docs/old`, { waitUntil: 'networkidle' });
+  await page.goto(`${baseUrl}/#/docs/math`, { waitUntil: 'networkidle' });
   await expect(page.locator('.katex')).toHaveCount(1, { timeout: 10000 });
   expect(katexRequests.sort()).toEqual([
     '/assets/vendor/katex/katex.min.css',
@@ -1291,7 +1355,7 @@ test('math markdown lazy-loads KaTeX once', async ({ page }) => {
 
 test('attested renderer page shows the route sigchip', async ({ page }) => {
   const bundle = {
-    default_variant: 'en',
+    default_variant: { strategy: 'locale', fallback: 'en' },
     variants: [
       { id: 'en', path: 'en.md', label: 'English', locale: 'en' },
       { id: 'ko', path: 'ko.md', label: '한국어', locale: 'ko' }
@@ -1314,6 +1378,7 @@ test('attested renderer page shows the route sigchip', async ({ page }) => {
 
   const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
   await page.goto(`${baseUrl}/#/writing/zk-proofs-from-a-compiler-perspective`, { waitUntil: 'networkidle' });
+  await page.waitForURL('**/#/writing/zk-proofs-from-a-compiler-perspective/en');
   const sigchip = page.getByRole('button', { name: 'Signature of this page' });
   await expect(sigchip).toBeVisible({ timeout: 10000 });
   await sigchip.click();
@@ -1408,6 +1473,85 @@ test('content directories render as filtered ledger pages', async ({ page }) => 
   expect(consoleErrors).toEqual([]);
 });
 
+test('ledger links site support block to directory listing', async ({ page }) => {
+  const manifest = manifestDocument([
+    ...siteManifest.entries,
+    dirEntry('.site/errors', 'errors'),
+    dirEntry('.site/keys', 'keys'),
+    fileEntry('.site/errors/404.md', '404 response policy'),
+    fileEntry('.site/keys/wonjae.asc', 'wonjae', { kind: 'document' }),
+    fileEntry('.site/now.toml', 'now', { kind: 'document' })
+  ]);
+  const ledger = makeLedger([
+    makeLedgerEntry({
+      route: '/.site',
+      path: '.site',
+      date: null,
+      files: [
+        { path: 'content/.site/_index.dir.json', sha256: normalizedSha('a'), bytes: 300 },
+        { path: 'content/.site/errors/404.md', sha256: normalizedSha('b'), bytes: 600 },
+        { path: 'content/.site/errors/404.meta.json', sha256: normalizedSha('c'), bytes: 120 },
+        { path: 'content/.site/errors/_index.dir.json', sha256: normalizedSha('d'), bytes: 80 },
+        { path: 'content/.site/keys/_index.dir.json', sha256: normalizedSha('e'), bytes: 80 },
+        { path: 'content/.site/keys/wonjae.asc', sha256: normalizedSha('f'), bytes: 640 },
+        { path: 'content/.site/keys/wonjae.meta.json', sha256: normalizedSha('1'), bytes: 120 },
+        { path: 'content/.site/now.meta.json', sha256: normalizedSha('2'), bytes: 120 },
+        { path: 'content/.site/now.toml', sha256: normalizedSha('3'), bytes: 298 }
+      ]
+    })
+  ]);
+
+  rawResponses.set('/content/manifest.json', JSON.stringify(manifest));
+  rawResponses.set('/content/.websh/ledger.json', JSON.stringify(ledger));
+
+  const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
+  await page.goto(`${baseUrl}/#/ledger`, { waitUntil: 'networkidle' });
+
+  await expect(page.getByRole('link', { name: /^all 1$/ })).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('link', { name: /^misc 1$/ })).toHaveCount(1);
+  const siteBlock = page.locator('article').filter({ hasText: 'Site support' });
+  await expect(siteBlock).toHaveCount(1);
+  await expect(siteBlock.locator('[data-kind="directory"]')).toHaveText('directory');
+  await expect(siteBlock.locator('[aria-label="Bundle variants"]')).toHaveCount(0);
+  await expect(siteBlock).not.toContainText('browse payload');
+
+  await siteBlock.getByRole('link', { name: 'Site support' }).click();
+  await page.waitForURL('**/#/.site');
+  await expect(page.locator('body')).toContainText('~/.site');
+  await expect(page.locator('body')).toContainText('directory');
+  const metadata = page.locator('[aria-label="directory metadata"]');
+  await expect(metadata).not.toContainText('~/.site');
+  await expect(metadata).not.toContainText('directory_listing');
+  await expect(metadata).not.toContainText('Description');
+  await expect(metadata).toContainText('Tags');
+  await expect(metadata).toContainText('runtime');
+  await expect(metadata).toContainText('trust');
+  await expect(metadata).toContainText('3 items');
+  await expect(page.locator('body')).toContainText('Runtime support and trust metadata for the site.');
+  await expect(page.getByRole('navigation', { name: 'Directory entries' })).toContainText('now.toml');
+  await expect(page.getByRole('navigation', { name: 'Directory entries' })).toContainText('keys');
+  await expect(page.getByRole('navigation', { name: 'Directory entries' })).toContainText('errors');
+  await expect(page.locator('body')).not.toContainText('no blocks match this ledger filter');
+  await expect(page.locator('body')).not.toContainText('_index.dir.json');
+  await expect(page.locator('body')).not.toContainText('now.meta.json');
+
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});
+
+test('runtime state directory route renders the system filesystem listing', async ({ page }) => {
+  const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
+  await page.goto(`${baseUrl}/#/.websh/state`, { waitUntil: 'networkidle' });
+
+  await expect(page.locator('body')).toContainText('~/.websh/state', { timeout: 10000 });
+  await expect(page.getByRole('navigation', { name: 'Directory entries' })).toContainText('session');
+  await expect(page.getByRole('navigation', { name: 'Directory entries' })).toContainText('wallet');
+  await expect(page.getByRole('navigation', { name: 'Directory entries' })).toContainText('drafts');
+
+  expect(pageErrors).toEqual([]);
+  expect(consoleErrors).toEqual([]);
+});
+
 test('theme selection applies globally and persists', async ({ page }) => {
   const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
   await page.goto(`${baseUrl}/#/websh`, { waitUntil: 'networkidle' });
@@ -1438,7 +1582,7 @@ test('new compose route seeds editor after reader route reuse', async ({ page })
   await expect(page.locator('body')).toContainText('guest@wonjae.eth:~', { timeout: 10000 });
   await runCommand(page, 'sync auth set qa-token', 'sync auth set <redacted>');
 
-  await page.goto(`${baseUrl}/#/docs/old.md`, { waitUntil: 'networkidle' });
+  await page.goto(`${baseUrl}/#/docs/old`, { waitUntil: 'networkidle' });
   await expect(page.locator('body')).toContainText('old', { timeout: 10000 });
 
   await page.goto(`${baseUrl}/#/new`, { waitUntil: 'networkidle' });
@@ -1448,7 +1592,7 @@ test('new compose route seeds editor after reader route reuse', async ({ page })
   await expect(editor).toHaveValue(/category: writing/);
   await editor.fill('stale draft should not survive navigation');
 
-  await page.goto(`${baseUrl}/#/docs/old.md`, { waitUntil: 'networkidle' });
+  await page.goto(`${baseUrl}/#/docs/old`, { waitUntil: 'networkidle' });
   await expect(page.locator('body')).toContainText('old', { timeout: 10000 });
   await page.goto(`${baseUrl}/#/new`, { waitUntil: 'networkidle' });
   await expect(page.getByRole('textbox', { name: 'Markdown source' })).toHaveValue(/title: ""/);

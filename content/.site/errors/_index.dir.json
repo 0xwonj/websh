@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "kind": "directory",
+  "authored": {
+    "description": "Error response templates and route-failure policy."
+  },
+  "derived": {
+    "title": "errors",
+    "kind": "directory",
+    "renderer": "directory_listing",
+    "child_count": 1
+  }
+}

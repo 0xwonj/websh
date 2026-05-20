@@ -5,6 +5,8 @@
   "derived": {
     "title": "Home",
     "kind": "directory",
-    "child_count": 7
+    "renderer": "directory_listing",
+    "modified_at": 1779062096,
+    "child_count": 6
   }
 }

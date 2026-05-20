@@ -33,7 +33,8 @@ use crate::platform::current_timestamp;
 use crate::platform::dom::{
     absolute_hash_url_for_request_path, push_request_path, replace_request_path,
 };
-use websh_core::filesystem::{RouteFrame, attestation_route_for_node_path, content_route_for_path};
+use crate::shared::components::nearest_attestation_route_for_content_path;
+use websh_core::filesystem::{RouteFrame, content_route_for_path};
 use websh_core::mempool::{derive_new_path, placeholder_frontmatter};
 use websh_core::support::format::format_date_iso;
 use websh_core::support::normalize_locale_tag;
@@ -84,11 +85,18 @@ struct EditorSeed {
 pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
     let canonical_path = Memo::new(move |_| frame.get().resolution.node_path.clone());
-    let attestation_route =
-        Signal::derive(move || attestation_route_for_node_path(&canonical_path.get()));
+    let attestation_route = Signal::derive(move || {
+        let frame = frame.get();
+        frame
+            .resolution
+            .bundle_variant
+            .as_ref()
+            .map(|context| content_route_for_path(context.bundle_path.as_str()))
+            .unwrap_or_else(|| nearest_attestation_route_for_content_path(&canonical_path.get()))
+    });
 
     let intent_memo = Memo::new(move |_| frame.get().intent.clone());
-    let reader_meta_memo = Memo::new(move |_| reader_meta(ctx, &intent_memo.get()));
+    let reader_meta_memo = Memo::new(move |_| reader_meta(ctx, &frame.get()));
 
     let author_mode = Memo::new(move |_| ctx.runtime_state.with(|rs| rs.github_token_present));
     let is_new_route = Memo::new(move |_| frame.get().request.url_path == "/new");

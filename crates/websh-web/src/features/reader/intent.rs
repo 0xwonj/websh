@@ -16,27 +16,12 @@ use websh_core::filesystem::{RenderIntent, RouteFrame, RouteRequest, RouteResolu
 /// only the variants `Reader` can render.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ReaderIntent {
-    Html {
-        node_path: VirtualPath,
-    },
-    Markdown {
-        node_path: VirtualPath,
-    },
-    Plain {
-        node_path: VirtualPath,
-    },
-    Asset {
-        node_path: VirtualPath,
-        media_type: String,
-    },
-    BundleVariant {
-        bundle_path: VirtualPath,
-        variant_id: String,
-        variant_path: VirtualPath,
-    },
-    Redirect {
-        node_path: VirtualPath,
-    },
+    Html { node_path: VirtualPath },
+    Markdown { node_path: VirtualPath },
+    Plain { node_path: VirtualPath },
+    Pdf { node_path: VirtualPath },
+    Image { node_path: VirtualPath },
+    Redirect { node_path: VirtualPath },
 }
 
 /// Reader's narrowed equivalent of [`RouteFrame`].
@@ -53,22 +38,8 @@ impl From<ReaderIntent> for RenderIntent {
             ReaderIntent::Html { node_path } => RenderIntent::HtmlContent { node_path },
             ReaderIntent::Markdown { node_path } => RenderIntent::MarkdownContent { node_path },
             ReaderIntent::Plain { node_path } => RenderIntent::PlainContent { node_path },
-            ReaderIntent::Asset {
-                node_path,
-                media_type,
-            } => RenderIntent::Asset {
-                node_path,
-                media_type,
-            },
-            ReaderIntent::BundleVariant {
-                bundle_path,
-                variant_id,
-                variant_path,
-            } => RenderIntent::BundleVariant {
-                bundle_path,
-                variant_id,
-                variant_path,
-            },
+            ReaderIntent::Pdf { node_path } => RenderIntent::PdfContent { node_path },
+            ReaderIntent::Image { node_path } => RenderIntent::ImageContent { node_path },
             ReaderIntent::Redirect { node_path } => RenderIntent::Redirect { node_path },
         }
     }
@@ -99,28 +70,18 @@ impl TryFrom<RouteFrame> for ReaderFrame {
             RenderIntent::PlainContent { ref node_path } => ReaderIntent::Plain {
                 node_path: node_path.clone(),
             },
-            RenderIntent::Asset {
-                ref node_path,
-                ref media_type,
-            } => ReaderIntent::Asset {
+            RenderIntent::PdfContent { ref node_path } => ReaderIntent::Pdf {
                 node_path: node_path.clone(),
-                media_type: media_type.clone(),
             },
-            RenderIntent::BundleVariant {
-                ref bundle_path,
-                ref variant_id,
-                ref variant_path,
-            } => ReaderIntent::BundleVariant {
-                bundle_path: bundle_path.clone(),
-                variant_id: variant_id.clone(),
-                variant_path: variant_path.clone(),
+            RenderIntent::ImageContent { ref node_path } => ReaderIntent::Image {
+                node_path: node_path.clone(),
             },
             RenderIntent::Redirect { ref node_path } => ReaderIntent::Redirect {
                 node_path: node_path.clone(),
             },
-            RenderIntent::DirectoryListing { .. } | RenderIntent::TerminalApp { .. } => {
-                return Err(frame);
-            }
+            RenderIntent::DirectoryListing { .. }
+            | RenderIntent::TerminalApp { .. }
+            | RenderIntent::BundleLocaleSelector { .. } => return Err(frame),
         };
         Ok(ReaderFrame {
             request: frame.request,
@@ -149,13 +110,12 @@ mod tests {
     }
 
     #[wasm_bindgen_test]
-    fn reader_intent_round_trip_asset() {
-        let intent = ReaderIntent::Asset {
+    fn reader_intent_round_trip_image() {
+        let intent = ReaderIntent::Image {
             node_path: VirtualPath::from_absolute("/cover.png").unwrap(),
-            media_type: "image/png".to_string(),
         };
-        if let ReaderIntent::Asset { media_type, .. } = intent {
-            assert_eq!(media_type, "image/png");
+        if let ReaderIntent::Image { node_path } = intent {
+            assert_eq!(node_path.as_str(), "/cover.png");
         } else {
             panic!("unexpected variant");
         }
@@ -174,14 +134,19 @@ mod tests {
     }
 
     fn make_reader_frame(intent: ReaderIntent, request_path: &str) -> ReaderFrame {
+        let node_path = VirtualPath::from_absolute(request_path).unwrap();
         ReaderFrame {
             request: RouteRequest::new(request_path),
             resolution: RouteResolution {
                 request_path: request_path.to_string(),
+                route_path: request_path.to_string(),
                 surface: websh_core::filesystem::RouteSurface::Content,
-                node_path: VirtualPath::from_absolute(request_path).unwrap(),
+                route_owner_path: node_path.clone(),
+                node_path,
+                route_role: websh_core::filesystem::RouteRole::ContentNode,
                 kind: websh_core::filesystem::ResolvedKind::Document,
                 params: std::collections::BTreeMap::new(),
+                bundle_variant: None,
             },
             intent,
         }
@@ -228,11 +193,10 @@ mod tests {
     }
 
     #[wasm_bindgen_test]
-    fn reader_frame_round_trips_asset() {
+    fn reader_frame_round_trips_image() {
         round_trip(
-            ReaderIntent::Asset {
+            ReaderIntent::Image {
                 node_path: VirtualPath::from_absolute("/cover.png").unwrap(),
-                media_type: "image/png".to_string(),
             },
             "/cover.png",
         );
@@ -250,20 +214,15 @@ mod tests {
 
     #[wasm_bindgen_test]
     fn reader_intent_to_render_intent_preserves_fields() {
-        let asset = ReaderIntent::Asset {
+        let image = ReaderIntent::Image {
             node_path: VirtualPath::from_absolute("/cover.png").unwrap(),
-            media_type: "image/png".to_string(),
         };
-        let render: RenderIntent = asset.into();
+        let render: RenderIntent = image.into();
         match render {
-            RenderIntent::Asset {
-                node_path,
-                media_type,
-            } => {
+            RenderIntent::ImageContent { node_path } => {
                 assert_eq!(node_path.as_str(), "/cover.png");
-                assert_eq!(media_type, "image/png");
             }
-            other => panic!("expected Asset, got {other:?}"),
+            other => panic!("expected ImageContent, got {other:?}"),
         }
 
         let html = ReaderIntent::Html {
@@ -280,18 +239,21 @@ mod tests {
 
     #[wasm_bindgen_test]
     fn try_from_route_frame_rejects_directory_listing() {
+        let node_path = VirtualPath::from_absolute("/blog").unwrap();
         let frame = RouteFrame {
             request: RouteRequest::new("/blog"),
             resolution: RouteResolution {
                 request_path: "/blog".to_string(),
+                route_path: "/blog".to_string(),
                 surface: websh_core::filesystem::RouteSurface::Content,
-                node_path: VirtualPath::from_absolute("/blog").unwrap(),
+                route_owner_path: node_path.clone(),
+                node_path: node_path.clone(),
+                route_role: websh_core::filesystem::RouteRole::ContentNode,
                 kind: websh_core::filesystem::ResolvedKind::Directory,
                 params: std::collections::BTreeMap::new(),
+                bundle_variant: None,
             },
-            intent: RenderIntent::DirectoryListing {
-                node_path: VirtualPath::from_absolute("/blog").unwrap(),
-            },
+            intent: RenderIntent::DirectoryListing { node_path },
         };
         assert!(ReaderFrame::try_from(frame).is_err());
     }

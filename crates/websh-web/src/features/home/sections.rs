@@ -122,7 +122,7 @@ fn PublicKeyAppendix() -> impl IntoView {
                 {copy_live}
             </span>
             <p class=css::footnote>
-                "Also reachable via the virtual filesystem at "<a href="#/keys/wonjae.asc">"/keys/wonjae.asc"</a>"."
+                "Also reachable via the virtual filesystem at "<a href="#/.site/keys/wonjae.asc">"/.site/keys/wonjae.asc"</a>"."
             </p>
         </details>
     }
@@ -240,8 +240,8 @@ fn ShellAppendix() -> impl IntoView {
                         <div class=css::listEntry><span class=css::dir>"projects/"</span><span class=css::out>"projects"</span></div>
                         <div class=css::listEntry><span class=css::dir>"talks/"</span><span class=css::out>"talks"</span></div>
                         <div class=css::listEntry><span class=css::dir>"writing/"</span><span class=css::out>"writing"</span></div>
+                        <div class=css::listEntry><span class=css::dir>".site/"</span><span class=css::out>".site"</span></div>
                         <div class=css::listEntry><span class=css::dir>".websh/"</span><span class=css::out>".websh"</span></div>
-                        <div class=css::listEntry><span class=css::file>"now.toml"</span><span class=css::out>"now"</span></div>
                         <div class=css::termGap></div>
                         <div class=css::commandLine>
                             <span class=css::prompt>{format!("guest@{APP_NAME}:~")}</span>

@@ -97,6 +97,7 @@ fn write_homepage_content(root: &Path) {
     write_ack_artifact(root);
     fs::create_dir_all(root.join("crates/websh-web/src/features/home")).unwrap();
     fs::create_dir_all(root.join("assets/themes")).unwrap();
+    fs::create_dir_all(root.join("content/.site")).unwrap();
     fs::write(
         root.join("crates/websh-web/src/features/home/mod.rs"),
         "home",
@@ -113,6 +114,16 @@ fn write_homepage_content(root: &Path) {
     )
     .unwrap();
     fs::write(root.join("assets/themes/dracula.css"), "theme").unwrap();
+    fs::write(
+        root.join("content/.site/_index.dir.json"),
+        r#"{"schema":1,"kind":"directory","authored":{"title":"Site support"},"derived":{"kind":"directory"}}"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("content/.site/now.toml"),
+        "[[items]]\ndate = \"2026-04-26\"\ntext = \"Testing now data.\"\n",
+    )
+    .unwrap();
 }
 
 #[test]
@@ -484,9 +495,23 @@ fn cli_attest_default_discovers_content_dir_and_manifest() {
         serde_json::from_str(&fs::read_to_string(root.join(ATTESTATIONS_PATH)).unwrap()).unwrap();
     let ledger_subject = artifact.subject_for_route("/ledger").unwrap();
     assert!(matches!(ledger_subject, Subject::Ledger(_)));
+    let site_subject = artifact.subject_for_route("/.site").unwrap();
+    assert!(matches!(site_subject, Subject::Directory(_)));
+    assert!(
+        site_subject
+            .content_files()
+            .iter()
+            .any(|file| file.path == "content/.site/now.toml")
+    );
     let ledger: ContentLedger =
         serde_json::from_str(&fs::read_to_string(root.join(CONTENT_LEDGER_PATH)).unwrap()).unwrap();
     ledger.validate().unwrap();
+    assert!(
+        ledger
+            .blocks
+            .iter()
+            .any(|block| block.entry.path == ".site" && block.entry.route == "/.site")
+    );
     if let Subject::Ledger(ledger_subject) = ledger_subject {
         assert_eq!(ledger_subject.chain_head, ledger.chain_head);
     }
@@ -610,8 +635,19 @@ fn cli_attest_default_can_sign_with_local_gpg() {
         .unwrap()
         .canonical_message()
         .unwrap();
-    let (key_path, signature_dir, fingerprint) =
-        write_pgp_fixture_set(&root, &[("root", &message), ("ledger", &ledger_message)]);
+    let directory_message = artifact
+        .subject_for_route("/.site")
+        .unwrap()
+        .canonical_message()
+        .unwrap();
+    let (key_path, signature_dir, fingerprint) = write_pgp_fixture_set(
+        &root,
+        &[
+            ("root", &message),
+            ("site", &directory_message),
+            ("ledger", &ledger_message),
+        ],
+    );
 
     let fake_bin = root.join("fake-bin");
     fs::create_dir_all(&fake_bin).unwrap();

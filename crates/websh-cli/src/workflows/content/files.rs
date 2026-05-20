@@ -5,9 +5,11 @@ use std::path::{Component, Path, PathBuf};
 use anyhow::{Context, anyhow, bail};
 use websh_core::attestation::artifact::{ContentFile, sha256_hex};
 use websh_core::domain::{
-    NodeKind, NodeMetadata, validate_bundle_metadata_with_targets, validate_bundle_route_collisions,
+    BundleMetadata, Fields, NodeKind, NodeMetadata, SCHEMA_VERSION, VirtualPath,
+    validate_bundle_metadata_with_targets,
 };
 use websh_core::filesystem::content_route_for_path;
+use websh_core::filesystem::{RouteCatalog, RouteCatalogNode};
 use websh_core::ports::ManifestSnapshotError;
 
 use crate::CliResult;
@@ -16,6 +18,13 @@ pub(crate) const CONTENT_MANIFEST_FILE: &str = "manifest.json";
 
 #[derive(Clone, Debug)]
 pub(crate) struct BundleContentUnit {
+    pub(crate) rel_path: String,
+    pub(crate) metadata: NodeMetadata,
+    pub(crate) content_paths: Vec<PathBuf>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct DirectoryContentUnit {
     pub(crate) rel_path: String,
     pub(crate) metadata: NodeMetadata,
     pub(crate) content_paths: Vec<PathBuf>,
@@ -52,17 +61,30 @@ pub(crate) fn should_skip_content_file(rel_path: &str) -> bool {
     rel_path == CONTENT_MANIFEST_FILE
         || rel_path.ends_with(".meta.json")
         || rel_path.ends_with("_index.dir.json")
-        || rel_path
-            .split('/')
-            .any(|part| matches!(part, ".DS_Store" | ".gitkeep"))
+        || has_local_junk_component(rel_path)
 }
 
 pub(crate) fn should_skip_primary_content_file(rel_path: &str) -> bool {
     should_skip_content_file(rel_path) || rel_path.split('/').any(|part| part == ".websh")
 }
 
+fn has_local_junk_component(rel_path: &str) -> bool {
+    rel_path
+        .split('/')
+        .any(|part| matches!(part, ".DS_Store" | ".gitkeep"))
+}
+
 pub(crate) fn route_for_content_path(rel_path: &str) -> String {
     content_route_for_path(rel_path)
+}
+
+fn virtual_path_for_rel(rel_path: &str) -> VirtualPath {
+    if rel_path.is_empty() {
+        VirtualPath::root()
+    } else {
+        VirtualPath::from_absolute(format!("/{rel_path}"))
+            .expect("content relative paths are virtual-path safe")
+    }
 }
 
 pub(crate) fn kind_for_content_path(rel_path: &str) -> NodeKind {
@@ -149,6 +171,62 @@ pub(crate) fn discover_bundle_content_units(
     Ok(units)
 }
 
+pub(crate) fn discover_directory_content_units(
+    content_root: &Path,
+    all_files: &[PathBuf],
+    bundles: &[BundleContentUnit],
+) -> CliResult<Vec<DirectoryContentUnit>> {
+    let mut candidates = Vec::new();
+    for file_path in all_files {
+        let rel_path = relative_path_from(content_root, file_path)?;
+        if !rel_path.ends_with("_index.dir.json") {
+            continue;
+        }
+        let body = fs::read_to_string(file_path)
+            .with_context(|| format!("read {}", file_path.display()))?;
+        let metadata: NodeMetadata = serde_json::from_str(&body)
+            .with_context(|| format!("parse {}", file_path.display()))?;
+        if metadata.kind != NodeKind::Directory || !has_authored_metadata(&metadata.authored) {
+            continue;
+        }
+        let rel_path = directory_rel_from_sidecar_rel(&rel_path)?;
+        if rel_path.is_empty() || path_is_inside_bundle(&rel_path, bundles) {
+            continue;
+        }
+        candidates.push((rel_path, metadata));
+    }
+    candidates.sort_by(|left, right| left.0.cmp(&right.0));
+
+    let mut units: Vec<DirectoryContentUnit> = Vec::new();
+    for (rel_path, metadata) in candidates {
+        if units
+            .iter()
+            .any(|unit| path_is_inside_rel_dir(&rel_path, &unit.rel_path))
+        {
+            continue;
+        }
+        let mut content_paths = Vec::new();
+        for file_path in all_files {
+            let file_rel = relative_path_from(content_root, file_path)?;
+            if !path_is_inside_rel_dir(&file_rel, &rel_path) {
+                continue;
+            }
+            if has_local_junk_component(&file_rel) || path_is_inside_bundle(&file_rel, bundles) {
+                continue;
+            }
+            content_paths.push(file_path.clone());
+        }
+        content_paths.sort();
+        content_paths.dedup();
+        units.push(DirectoryContentUnit {
+            rel_path,
+            metadata,
+            content_paths,
+        });
+    }
+    Ok(units)
+}
+
 pub(crate) fn path_is_inside_bundle(rel_path: &str, bundles: &[BundleContentUnit]) -> bool {
     bundles.iter().any(|bundle| {
         bundle.rel_path.is_empty()
@@ -157,6 +235,15 @@ pub(crate) fn path_is_inside_bundle(rel_path: &str, bundles: &[BundleContentUnit
                 .strip_prefix(&bundle.rel_path)
                 .is_some_and(|rest| rest.starts_with('/'))
     })
+}
+
+pub(crate) fn path_is_inside_directory_unit(
+    rel_path: &str,
+    directories: &[DirectoryContentUnit],
+) -> bool {
+    directories
+        .iter()
+        .any(|directory| path_is_inside_rel_dir(rel_path, &directory.rel_path))
 }
 
 fn bundle_content_unit(
@@ -174,7 +261,7 @@ fn bundle_content_unit(
         let variant_rel = join_rel_path(&rel_path, &variant.path);
         declared_variant_rels.insert(variant_rel.clone());
         let target = content_root.join(&variant_rel);
-        if !target.is_file() {
+        if !target.exists() {
             return Err(ManifestSnapshotError::MissingBundleVariantTarget {
                 bundle_path: rel_path.clone(),
                 variant_id: variant.id.clone(),
@@ -188,12 +275,7 @@ fn bundle_content_unit(
     let mut content_paths = vec![content_root.join(directory_sidecar_rel_path(&rel_path))];
     for variant in &bundle.variants {
         let variant_rel = join_rel_path(&rel_path, &variant.path);
-        content_paths.push(content_root.join(&variant_rel));
-        let sidecar = file_sidecar_rel_path(&variant_rel);
-        let sidecar_path = content_root.join(sidecar);
-        if sidecar_path.exists() {
-            content_paths.push(sidecar_path);
-        }
+        append_variant_content_paths(content_root, all_files, &variant_rel, &mut content_paths)?;
     }
     for file_path in all_files {
         let support_rel = relative_path_from(content_root, file_path)?;
@@ -220,26 +302,102 @@ fn bundle_content_unit(
 fn validate_bundle_content_route_collisions(
     content_root: &Path,
     rel_path: &str,
-    bundle: &websh_core::domain::BundleMetadata,
+    bundle: &BundleMetadata,
     all_files: &[PathBuf],
 ) -> CliResult {
-    let mut candidate_rels = Vec::new();
+    let mut candidate_rels = BTreeSet::new();
     for file_path in all_files {
         let file_rel = relative_path_from(content_root, file_path)?;
         if !should_skip_bundle_route_collision_file(&file_rel) {
-            candidate_rels.push(file_rel);
+            candidate_rels.insert(file_rel.clone());
+            for parent in rel_path_parent_dirs(&file_rel) {
+                if parent != rel_path && !has_local_junk_component(&parent) {
+                    candidate_rels.insert(parent);
+                }
+            }
         }
     }
-    validate_bundle_route_collisions(
-        rel_path,
-        bundle,
-        candidate_rels.iter().map(String::as_str),
-        route_for_content_path,
-    )
-    .map_err(Into::into)
+    candidate_rels.remove(rel_path);
+    for variant in &bundle.variants {
+        candidate_rels.insert(join_rel_path(rel_path, &variant.path));
+    }
+
+    let mut nodes = vec![RouteCatalogNode::new(
+        virtual_path_for_rel(rel_path),
+        NodeMetadata {
+            schema: SCHEMA_VERSION,
+            kind: NodeKind::Bundle,
+            bundle: Some(bundle.clone()),
+            authored: Fields::default(),
+            derived: Fields::default(),
+        },
+        true,
+    )];
+    for candidate in candidate_rels {
+        if candidate == rel_path || should_skip_bundle_route_collision_file(&candidate) {
+            continue;
+        }
+        let path = content_root.join(&candidate);
+        let is_directory = path.is_dir();
+        nodes.push(RouteCatalogNode::new(
+            virtual_path_for_rel(&candidate),
+            NodeMetadata {
+                schema: SCHEMA_VERSION,
+                kind: if is_directory {
+                    NodeKind::Directory
+                } else {
+                    kind_for_content_path(&candidate)
+                },
+                bundle: None,
+                authored: Fields::default(),
+                derived: Fields::default(),
+            },
+            is_directory,
+        ));
+    }
+    RouteCatalog::validate_nodes(nodes).map_err(Into::into)
+}
+
+fn append_variant_content_paths(
+    content_root: &Path,
+    all_files: &[PathBuf],
+    variant_rel: &str,
+    content_paths: &mut Vec<PathBuf>,
+) -> CliResult {
+    let target = content_root.join(variant_rel);
+    if target.is_file() {
+        content_paths.push(target);
+        let sidecar = file_sidecar_rel_path(variant_rel);
+        let sidecar_path = content_root.join(sidecar);
+        if sidecar_path.exists() {
+            content_paths.push(sidecar_path);
+        }
+        return Ok(());
+    }
+
+    if target.is_dir() {
+        let sidecar_path = content_root.join(directory_sidecar_rel_path(variant_rel));
+        if sidecar_path.exists() {
+            content_paths.push(sidecar_path);
+        }
+        for file_path in all_files {
+            let file_rel = relative_path_from(content_root, file_path)?;
+            if path_is_inside_rel_dir(&file_rel, variant_rel)
+                && !should_skip_bundle_variant_directory_content_file(&file_rel)
+            {
+                content_paths.push(file_path.clone());
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn bundle_rel_from_sidecar_rel(sidecar_rel: &str) -> CliResult<String> {
+    directory_rel_from_sidecar_rel(sidecar_rel)
+}
+
+fn directory_rel_from_sidecar_rel(sidecar_rel: &str) -> CliResult<String> {
     if sidecar_rel == "_index.dir.json" {
         return Ok(String::new());
     }
@@ -272,12 +430,31 @@ fn file_sidecar_rel_path(rel_path: &str) -> String {
     }
 }
 
+fn rel_path_parent_dirs(rel_path: &str) -> Vec<String> {
+    let mut parts = rel_path.split('/').collect::<Vec<_>>();
+    parts.pop();
+    let mut out = Vec::new();
+    while !parts.is_empty() {
+        out.push(parts.join("/"));
+        parts.pop();
+    }
+    out
+}
+
 fn join_rel_path(base: &str, child: &str) -> String {
     if base.is_empty() {
         child.to_string()
     } else {
         format!("{base}/{child}")
     }
+}
+
+fn path_is_inside_rel_dir(rel_path: &str, dir_rel: &str) -> bool {
+    dir_rel.is_empty()
+        || rel_path == dir_rel
+        || rel_path
+            .strip_prefix(dir_rel)
+            .is_some_and(|rest| rest.starts_with('/'))
 }
 
 fn is_inside_rel_dir(rel_path: &str, dir_rel: &str) -> bool {
@@ -299,6 +476,18 @@ fn should_skip_bundle_signed_content_file(rel_path: &str) -> bool {
     should_skip_bundle_generated_or_system_file(rel_path)
 }
 
+fn should_skip_bundle_variant_directory_content_file(rel_path: &str) -> bool {
+    let name = Path::new(rel_path)
+        .file_name()
+        .map(|name| name.to_string_lossy())
+        .unwrap_or_default();
+
+    name == CONTENT_MANIFEST_FILE
+        || rel_path
+            .split('/')
+            .any(|part| matches!(part, ".websh" | ".git" | ".DS_Store" | ".gitkeep"))
+}
+
 fn should_skip_bundle_generated_or_system_file(rel_path: &str) -> bool {
     let name = Path::new(rel_path)
         .file_name()
@@ -310,6 +499,31 @@ fn should_skip_bundle_generated_or_system_file(rel_path: &str) -> bool {
         || rel_path
             .split('/')
             .any(|part| matches!(part, ".websh" | ".git" | ".DS_Store" | ".gitkeep"))
+}
+
+pub(crate) fn has_authored_metadata(fields: &Fields) -> bool {
+    fields.title.is_some()
+        || fields.kind.is_some()
+        || fields.renderer.is_some()
+        || fields.language.is_some()
+        || fields.description.is_some()
+        || fields.date.is_some()
+        || fields.tags.is_some()
+        || fields.links.is_some()
+        || fields.icon.is_some()
+        || fields.thumbnail.is_some()
+        || fields.sort.is_some()
+        || fields.trust.is_some()
+        || fields.access.is_some()
+        || fields.page_size.is_some()
+        || fields.page_count.is_some()
+        || fields.rotation.is_some()
+        || fields.image_dimensions.is_some()
+        || fields.size_bytes.is_some()
+        || fields.modified_at.is_some()
+        || fields.content_sha256.is_some()
+        || fields.word_count.is_some()
+        || fields.child_count.is_some()
 }
 
 pub(crate) fn artifact_path(root: &Path, path: &Path) -> CliResult<String> {

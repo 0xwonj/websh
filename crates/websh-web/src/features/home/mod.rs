@@ -1,8 +1,7 @@
 //! Built-in homepage.
 //!
 //! The root URL is an application surface, not a filesystem document reader.
-//! Content routes such as `/#/index.html` remain available through the
-//! filesystem router.
+//! Canonical content routes remain available through the filesystem router.
 
 use leptos::prelude::*;
 
@@ -187,7 +186,7 @@ fn NowSection() -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
     let now = LocalResource::new(move || {
         let readiness = root_content_readiness(ctx);
-        let path = VirtualPath::from_absolute("/now.toml").expect("constant path");
+        let path = VirtualPath::from_absolute("/.site/now.toml").expect("constant path");
         let should_read = readiness == RootContentReadiness::Loaded
             && ctx.view_global_fs.with(|fs| fs.exists(&path));
 

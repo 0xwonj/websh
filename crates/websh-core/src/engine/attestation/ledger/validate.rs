@@ -51,8 +51,6 @@ pub enum LedgerValidationError {
     CategoryMismatch { path: String },
     #[error("ledger content has no files for {id}")]
     EmptyContent { id: String },
-    #[error("empty content file {path}")]
-    EmptyContentFile { path: String },
     #[error("content files must be strictly sorted for {id}")]
     ContentFilesNotSorted { id: String },
     #[error("missing primary content file {path}")]
@@ -218,11 +216,6 @@ fn validate_entry_content(entry: &ContentLedgerEntry) -> LedgerValidationResult 
     for file in &entry.content_files {
         validate_artifact_file_path(&file.path)?;
         validate_sha256_field("content file sha256", &file.sha256)?;
-        if file.bytes == 0 {
-            return Err(LedgerValidationError::EmptyContentFile {
-                path: file.path.clone(),
-            });
-        }
         if file.path == primary_file || file.path == primary_bundle_sidecar {
             has_primary_file = true;
         }

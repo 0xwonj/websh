@@ -25,18 +25,12 @@ const fixtureResponses = new Map([
       { path: '', metadata: nodeMetadata('directory', { title: 'Home' }) },
       { path: '.websh', metadata: nodeMetadata('directory', { title: '.websh' }) },
       { path: '.websh/mounts', metadata: nodeMetadata('directory', { title: 'mounts' }) },
-      { path: '.websh/index.json', metadata: nodeMetadata('data', { title: 'Index' }) },
       { path: '.websh/ledger.json', metadata: nodeMetadata('data', { title: 'Ledger' }) },
       { path: '.websh/mounts/mempool.mount.json', metadata: nodeMetadata('data', { title: 'Mempool mount' }) },
       { path: 'index.html', metadata: nodeMetadata('page', { title: 'Home', renderer: 'html_page' }) }
     ]
   })],
   ['/content/index.html', '<main><h1>Home OK</h1></main>'],
-  ['/content/.websh/index.json', JSON.stringify({
-    routes: [
-      { route: '/', node_path: '/index.html', kind: 'page', renderer: 'html_page' }
-    ]
-  })],
   ['/content/.websh/ledger.json', JSON.stringify({
     version: 1,
     scheme: 'websh.content-ledger.v1',

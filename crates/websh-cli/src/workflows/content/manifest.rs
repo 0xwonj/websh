@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -9,9 +10,10 @@ use crate::CliResult;
 use crate::infra::json::write_json;
 
 use super::files::{
-    CONTENT_MANIFEST_FILE, collect_files_recursive, relative_path_from, resolve_path,
-    should_skip_content_file, should_skip_primary_content_file,
+    CONTENT_MANIFEST_FILE, collect_files_recursive, has_authored_metadata, relative_path_from,
+    resolve_path, should_skip_content_file, should_skip_primary_content_file,
 };
+use super::modified_at::GitModifiedAt;
 use super::sidecar::{
     default_directory_metadata, default_file_metadata, read_directory_sidecar, read_file_sidecar,
     sync_directory_sidecar, sync_file_sidecar,
@@ -37,6 +39,7 @@ pub(crate) fn sync_content(root: &Path, content_dir: &Path) -> CliResult<Content
 
     let mut all_files = Vec::new();
     collect_files_recursive(&content_root, &mut all_files)?;
+    let mut modified_at = GitModifiedAt::new(root)?;
 
     // First pass: refresh every primary file's sidecar.
     for file_path in &all_files {
@@ -44,13 +47,20 @@ pub(crate) fn sync_content(root: &Path, content_dir: &Path) -> CliResult<Content
         if should_skip_primary_content_file(&rel_path) {
             continue;
         }
-        sync_file_sidecar(&content_root, file_path, &rel_path)?;
+        let file_modified_at = modified_at.timestamp_for_path(file_path)?;
+        sync_file_sidecar(&content_root, file_path, &rel_path, file_modified_at)?;
     }
 
     // Second pass: refresh directory sidecars.
     let directories = enumerate_directories_from_files(&content_root, &all_files)?;
+    let directory_modified_at =
+        build_directory_modified_at(&content_root, &all_files, &mut modified_at)?;
     for dir_rel in &directories {
-        sync_directory_sidecar(&content_root, dir_rel)?;
+        sync_directory_sidecar(
+            &content_root,
+            dir_rel,
+            directory_modified_at.get(dir_rel).copied(),
+        )?;
     }
 
     // Third pass: build manifest from current sidecars + the file list
@@ -146,6 +156,83 @@ fn content_parent_dirs(rel_path: &str) -> Vec<String> {
     out
 }
 
+fn build_directory_modified_at(
+    content_root: &Path,
+    all_files: &[PathBuf],
+    modified_at: &mut GitModifiedAt,
+) -> CliResult<BTreeMap<String, u64>> {
+    let mut directory_modified_at = BTreeMap::new();
+    for file_path in all_files {
+        let rel_path = relative_path_from(content_root, file_path)?;
+        if !should_skip_primary_content_file(&rel_path) {
+            if let Some(timestamp) = modified_at.timestamp_for_path(file_path)? {
+                propagate_file_modified_at(&mut directory_modified_at, &rel_path, timestamp);
+            }
+            continue;
+        }
+
+        let Some(dir_rel) = directory_rel_from_sidecar_rel(&rel_path) else {
+            continue;
+        };
+        let authored = read_directory_sidecar(content_root, &dir_rel)?.is_some_and(|metadata| {
+            metadata.bundle.is_some() || has_authored_metadata(&metadata.authored)
+        });
+        if authored && let Some(timestamp) = modified_at.timestamp_for_path(file_path)? {
+            propagate_directory_modified_at(&mut directory_modified_at, &dir_rel, timestamp);
+        }
+    }
+    Ok(directory_modified_at)
+}
+
+fn directory_rel_from_sidecar_rel(rel_path: &str) -> Option<String> {
+    if rel_path == "_index.dir.json" {
+        return Some(String::new());
+    }
+    rel_path
+        .strip_suffix("/_index.dir.json")
+        .map(str::to_string)
+}
+
+fn propagate_file_modified_at(
+    directory_modified_at: &mut BTreeMap<String, u64>,
+    rel_path: &str,
+    timestamp: u64,
+) {
+    let parent = Path::new(rel_path)
+        .parent()
+        .map(slash_path)
+        .unwrap_or_default();
+    propagate_directory_modified_at(directory_modified_at, &parent, timestamp);
+}
+
+fn propagate_directory_modified_at(
+    directory_modified_at: &mut BTreeMap<String, u64>,
+    dir_rel: &str,
+    timestamp: u64,
+) {
+    let mut current = dir_rel.to_string();
+    loop {
+        directory_modified_at
+            .entry(current.clone())
+            .and_modify(|existing| *existing = (*existing).max(timestamp))
+            .or_insert(timestamp);
+        if current.is_empty() {
+            break;
+        }
+        current = Path::new(&current)
+            .parent()
+            .map(slash_path)
+            .unwrap_or_default();
+    }
+}
+
+fn slash_path(path: &Path) -> String {
+    path.components()
+        .map(|component| component.as_os_str().to_string_lossy().to_string())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
 /// Build the sorted directory list from a pre-walked file list. Caller
 /// passes `all_files` so the tree isn't walked twice during sync.
 fn enumerate_directories_from_files(
@@ -166,11 +253,12 @@ fn enumerate_directories_from_files(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
     use std::sync::atomic::{AtomicU64, Ordering};
     use websh_core::domain::{
-        AccessFilter, BundleValidationError, Fields, NodeKind, NodeMetadata, Recipient,
-        SCHEMA_VERSION,
+        AccessFilter, Fields, NodeKind, NodeMetadata, Recipient, SCHEMA_VERSION,
     };
+    use websh_core::filesystem::RouteCatalogError;
 
     fn tempdir() -> PathBuf {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -187,6 +275,52 @@ mod tests {
     fn read_sidecar(path: &Path) -> NodeMetadata {
         let body = fs::read_to_string(path).expect("sidecar exists");
         serde_json::from_str(&body).expect("sidecar parses")
+    }
+
+    fn git(dir: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .current_dir(dir)
+            .args(args)
+            .output()
+            .expect("run git");
+        assert!(
+            output.status.success(),
+            "git {args:?} failed\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn init_git(dir: &Path) {
+        git(dir, &["-c", "init.defaultBranch=main", "init"]);
+    }
+
+    fn git_add_commit_at(dir: &Path, timestamp: u64, message: &str) {
+        git(dir, &["add", "."]);
+        let date = format!("@{timestamp} +0000");
+        let output = Command::new("git")
+            .current_dir(dir)
+            .env("GIT_AUTHOR_DATE", &date)
+            .env("GIT_COMMITTER_DATE", &date)
+            .args([
+                "-c",
+                "user.name=websh test",
+                "-c",
+                "user.email=websh-test@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-m",
+                message,
+            ])
+            .output()
+            .expect("run git commit");
+        assert!(
+            output.status.success(),
+            "git commit failed\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     #[test]
@@ -215,6 +349,77 @@ mod tests {
             .expect("hello.md in manifest");
         assert_eq!(entry.metadata.authored.title.as_deref(), Some("Greeting"));
         assert_eq!(entry.metadata.kind, NodeKind::Page);
+    }
+
+    #[test]
+    fn populates_git_modified_at_for_files_and_parent_directories() {
+        let dir = tempdir();
+        init_git(&dir);
+        fs::create_dir_all(dir.join("docs")).unwrap();
+        fs::write(dir.join("docs/readme.md"), "hello").unwrap();
+        git_add_commit_at(&dir, 1_700_000_000, "add readme");
+
+        let manifest = sync_content(&dir, Path::new(".")).expect("sync ok");
+
+        let file_sidecar = read_sidecar(&dir.join("docs/readme.meta.json"));
+        assert_eq!(file_sidecar.derived.modified_at, Some(1_700_000_000));
+
+        let directory_sidecar = read_sidecar(&dir.join("docs/_index.dir.json"));
+        assert_eq!(directory_sidecar.derived.modified_at, Some(1_700_000_000));
+
+        let root_sidecar = read_sidecar(&dir.join("_index.dir.json"));
+        assert_eq!(root_sidecar.derived.modified_at, Some(1_700_000_000));
+
+        let entry = manifest
+            .entries
+            .iter()
+            .find(|entry| entry.path == "docs/readme.md")
+            .expect("manifest entry");
+        assert_eq!(entry.metadata.modified_at(), Some(1_700_000_000));
+    }
+
+    #[test]
+    fn authored_directory_sidecar_commit_can_drive_directory_modified_at() {
+        let dir = tempdir();
+        init_git(&dir);
+        fs::create_dir_all(dir.join("docs")).unwrap();
+        fs::write(dir.join("docs/readme.md"), "hello").unwrap();
+        git_add_commit_at(&dir, 1_700_000_000, "add readme");
+
+        fs::write(
+            dir.join("docs/_index.dir.json"),
+            r#"{
+              "schema":1,
+              "kind":"directory",
+              "authored":{"title":"Docs"},
+              "derived":{"kind":"directory"}
+            }"#,
+        )
+        .unwrap();
+        git_add_commit_at(&dir, 1_700_000_100, "describe docs");
+
+        sync_content(&dir, Path::new(".")).expect("sync ok");
+
+        let directory_sidecar = read_sidecar(&dir.join("docs/_index.dir.json"));
+        assert_eq!(directory_sidecar.derived.modified_at, Some(1_700_000_100));
+
+        let root_sidecar = read_sidecar(&dir.join("_index.dir.json"));
+        assert_eq!(root_sidecar.derived.modified_at, Some(1_700_000_100));
+    }
+
+    #[test]
+    fn untracked_content_omits_modified_at() {
+        let dir = tempdir();
+        init_git(&dir);
+        fs::write(dir.join("draft.md"), "untracked").unwrap();
+
+        sync_content(&dir, Path::new(".")).expect("sync ok");
+
+        let file_sidecar = read_sidecar(&dir.join("draft.meta.json"));
+        assert_eq!(file_sidecar.derived.modified_at, None);
+
+        let root_sidecar = read_sidecar(&dir.join("_index.dir.json"));
+        assert_eq!(root_sidecar.derived.modified_at, None);
     }
 
     #[test]
@@ -286,7 +491,7 @@ mod tests {
               "schema":1,
               "kind":"bundle",
               "bundle":{
-                "default_variant":"en",
+                "default_variant":{"strategy":"static","id":"en"},
                 "variants":[{"id":"en","path":"en.md","label":"English"}]
               },
               "authored":{"title":"Foo"},
@@ -303,10 +508,38 @@ mod tests {
             .expect("bundle route collision error");
         assert!(matches!(
             manifest_error,
-            websh_core::ports::ManifestSnapshotError::Bundle(
-                BundleValidationError::RootRouteCollision { file_path, .. }
+            websh_core::ports::ManifestSnapshotError::RouteCatalog(
+                RouteCatalogError::RouteCollision { route, .. }
             )
-                if file_path == "writing/foo.md"
+                if route == "/writing/foo"
         ));
+    }
+
+    #[test]
+    fn sync_creates_directory_sidecar_for_dot_site_root() {
+        let dir = tempdir();
+        fs::create_dir_all(dir.join(".site")).unwrap();
+        fs::write(dir.join(".site/now.toml"), b"[[items]]\n").unwrap();
+
+        sync_content(&dir, Path::new(".")).expect("sync ok");
+
+        let sidecar = read_sidecar(&dir.join(".site/_index.dir.json"));
+        assert_eq!(sidecar.kind, NodeKind::Directory);
+        assert_eq!(sidecar.derived.kind, Some(NodeKind::Directory));
+    }
+
+    #[test]
+    fn sync_rejects_legacy_site_sidecar_for_dot_site_root() {
+        let dir = tempdir();
+        fs::create_dir_all(dir.join(".site")).unwrap();
+        fs::write(
+            dir.join(".site/_index.dir.json"),
+            r#"{"schema":1,"kind":"site","authored":{"title":"Site"},"derived":{"kind":"site"}}"#,
+        )
+        .unwrap();
+        fs::write(dir.join(".site/now.toml"), b"[[items]]\n").unwrap();
+
+        let err = sync_content(&dir, Path::new(".")).unwrap_err();
+        assert!(err.to_string().contains("parse"));
     }
 }

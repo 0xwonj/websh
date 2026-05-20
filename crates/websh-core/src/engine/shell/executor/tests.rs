@@ -173,7 +173,7 @@ fn test_cat_navigates_content_surface() {
 
     assert_eq!(
         result.side_effects.first().cloned(),
-        Some(SideEffect::Navigate(RouteRequest::new("/blog/hello.md")))
+        Some(SideEffect::Navigate(RouteRequest::new("/blog/hello")))
     );
 }
 

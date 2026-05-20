@@ -21,6 +21,24 @@ fn entry(path: &str) -> ContentLedgerEntry {
     .unwrap()
 }
 
+#[test]
+fn dot_site_path_maps_to_misc() {
+    assert_eq!(
+        ContentLedgerCategory::for_path(".site"),
+        ContentLedgerCategory::Misc
+    );
+    assert_eq!(
+        serde_json::to_string(&ContentLedgerCategory::Misc).unwrap(),
+        "\"misc\""
+    );
+}
+
+#[test]
+fn legacy_site_category_is_not_accepted() {
+    let parsed = serde_json::from_str::<ContentLedgerCategory>(r#""site""#);
+    assert!(parsed.is_err());
+}
+
 fn input(date: Option<&str>, path: &str) -> ContentLedgerInput {
     ContentLedgerInput::new(
         ContentLedgerSortKey::new(date.map(str::to_string), path.to_string()),
@@ -67,6 +85,28 @@ fn ledger_validation_accepts_sidecar_in_primary_entry() {
     .unwrap()
     .validate()
     .unwrap();
+}
+
+#[test]
+fn ledger_validation_accepts_zero_byte_content_files() {
+    let ledger = ContentLedger::new(vec![ContentLedgerInput::new(
+        ContentLedgerSortKey::new(None, "writing/empty.md".to_string()),
+        ContentLedgerEntry::new(
+            "route:/writing/empty.md".to_string(),
+            "/writing/empty.md".to_string(),
+            "writing/empty.md".to_string(),
+            ContentLedgerCategory::Writing,
+            vec![ContentFile {
+                path: "content/writing/empty.md".to_string(),
+                sha256: sha('0'),
+                bytes: 0,
+            }],
+        )
+        .unwrap(),
+    )])
+    .unwrap();
+
+    ledger.validate().unwrap();
 }
 
 #[test]

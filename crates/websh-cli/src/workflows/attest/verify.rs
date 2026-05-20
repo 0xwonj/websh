@@ -66,7 +66,7 @@ fn verify_subject(root: &Path, subject: &Subject) -> CliResult {
                 bail!("chain_head mismatch for {}", subject.id());
             }
         }
-        Subject::Document(_) | Subject::Page(_) | Subject::Bundle(_) => {}
+        Subject::Document(_) | Subject::Page(_) | Subject::Bundle(_) | Subject::Directory(_) => {}
     }
 
     let message = subject.canonical_message()?;

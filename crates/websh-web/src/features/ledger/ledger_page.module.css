@@ -228,7 +228,14 @@
 
 .kind[data-kind="note"],
 .kind[data-kind="key"],
+.kind[data-kind="markdown"],
 .kind[data-kind="data"],
+.kind[data-kind="directory"],
+.kind[data-kind="document"],
+.kind[data-kind="image"],
+.kind[data-kind="app"],
+.kind[data-kind="asset"],
+.kind[data-kind="link"],
 .kind[data-kind="bundle"] {
   color: var(--ledger-dim);
 }

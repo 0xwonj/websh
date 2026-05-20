@@ -38,6 +38,11 @@ pub enum CommitPrepareError {
     },
     #[error("missing mount root {mount_root}")]
     MissingMountRoot { mount_root: VirtualPath },
+    #[error("route catalog invalid after staged changes: {source}")]
+    RouteCatalog {
+        #[from]
+        source: crate::filesystem::RouteCatalogError,
+    },
 }
 
 pub async fn commit_backend(

@@ -26,6 +26,7 @@ pub(crate) fn sync_file_sidecar(
     content_root: &Path,
     file_path: &Path,
     rel_path: &str,
+    modified_at: Option<u64>,
 ) -> CliResult {
     let metadata = fs::metadata(file_path)
         .with_context(|| format!("read metadata {}", file_path.display()))?;
@@ -39,11 +40,10 @@ pub(crate) fn sync_file_sidecar(
         .renderer
         .or_else(|| default_renderer_for_kind(kind, rel_path));
     derived.size_bytes = Some(metadata.len());
-    // `modified_at` is deliberately omitted for files: filesystem mtime
-    // is the checkout wall-clock under git, so it diverges across clones
-    // and breaks byte-stability of the sidecar (which feeds into signed
-    // attestations). `content_sha256` is the canonical change-detection
-    // signal.
+    // `modified_at` comes from Git history, not filesystem mtime. Checkout
+    // mtimes diverge across clones and sidecar writes, while commit times
+    // stay stable enough for manifest and attestation inputs.
+    derived.modified_at = modified_at;
     derived.content_sha256 = Some(format!("0x{}", hex::encode(Sha256::digest(&bytes))));
 
     let sidecar_path = sidecar_path_for(content_root, rel_path);
@@ -54,9 +54,8 @@ pub(crate) fn sync_file_sidecar(
         .unwrap_or_default();
 
     // For markdown files, frontmatter is the authoring source — but it
-    // wins per-field, not whole-cloth. Sidecar-only fields (e.g. `access`,
-    // `route`, `trust`) that the frontmatter doesn't mention are
-    // preserved.
+    // wins per-field, not whole-cloth. Sidecar-only fields (e.g. `access`
+    // or `trust`) that the frontmatter doesn't mention are preserved.
     let authored = if rel_path.ends_with(".md") {
         match parse_yaml_frontmatter(std::str::from_utf8(&bytes).unwrap_or_default())? {
             Some(frontmatter) => merge_authored(prior_authored, frontmatter),
@@ -76,7 +75,11 @@ pub(crate) fn sync_file_sidecar(
     write_json(&sidecar_path, &new_meta)
 }
 
-pub(crate) fn sync_directory_sidecar(content_root: &Path, dir_rel: &str) -> CliResult {
+pub(crate) fn sync_directory_sidecar(
+    content_root: &Path,
+    dir_rel: &str,
+    modified_at: Option<u64>,
+) -> CliResult {
     let sidecar_path = directory_sidecar_path_for(content_root, dir_rel);
     let existing = read_sidecar_metadata(&sidecar_path)?;
     let dir_path = if dir_rel.is_empty() {
@@ -85,17 +88,16 @@ pub(crate) fn sync_directory_sidecar(content_root: &Path, dir_rel: &str) -> CliR
         content_root.join(dir_rel)
     };
 
-    // Directory mtime is deliberately omitted. Writing sidecars during a
-    // sync bumps the directory's mtime, so storing it would make sidecars
-    // non-byte-stable across consecutive sync runs (and would invalidate
-    // attestations that signed the previous canonical content). The
-    // `child_count` field is the cheap "did membership change" indicator.
+    // Directory `modified_at` is derived from stable Git timestamps for
+    // authored directory metadata and recursive primary content. Filesystem
+    // mtime is still avoided because writing sidecars during sync bumps it.
+    let default_kind = default_directory_kind(dir_rel);
     let directory_kind = match existing.as_ref().map(|metadata| metadata.kind) {
         Some(kind) if kind.is_directory_like() => kind,
         Some(kind) => {
             bail!("directory sidecar {dir_rel} has non-directory top-level kind `{kind:?}`");
         }
-        None => NodeKind::Directory,
+        None => default_kind,
     };
     if existing
         .as_ref()
@@ -113,7 +115,7 @@ pub(crate) fn sync_directory_sidecar(content_root: &Path, dir_rel: &str) -> CliR
             })?;
         validate_bundle_metadata_with_targets(dir_rel, &bundle, |variant| {
             let target = dir_path.join(&variant.path);
-            if !target.is_file() {
+            if !target.exists() {
                 return Err(ManifestSnapshotError::MissingBundleVariantTarget {
                     bundle_path: dir_rel.to_string(),
                     variant_id: variant.id.clone(),
@@ -130,7 +132,9 @@ pub(crate) fn sync_directory_sidecar(content_root: &Path, dir_rel: &str) -> CliR
     let derived = Fields {
         title: Some(dir_title_fallback(dir_rel)),
         kind: Some(directory_kind),
+        renderer: default_renderer_for_kind(directory_kind, dir_rel),
         child_count: Some(count_children(&dir_path)?),
+        modified_at,
         ..Fields::default()
     };
 
@@ -239,17 +243,22 @@ pub(crate) fn default_file_metadata(file_path: &Path, rel_path: &str) -> NodeMet
 }
 
 pub(crate) fn default_directory_metadata(dir_rel: &str) -> NodeMetadata {
+    let kind = default_directory_kind(dir_rel);
     NodeMetadata {
         schema: SCHEMA_VERSION,
-        kind: NodeKind::Directory,
+        kind,
         bundle: None,
         authored: Fields::default(),
         derived: Fields {
             title: Some(dir_title_fallback(dir_rel)),
-            kind: Some(NodeKind::Directory),
+            kind: Some(kind),
             ..Fields::default()
         },
     }
+}
+
+fn default_directory_kind(_dir_rel: &str) -> NodeKind {
+    NodeKind::Directory
 }
 
 fn default_renderer_for_kind(kind: NodeKind, rel_path: &str) -> Option<RendererKind> {

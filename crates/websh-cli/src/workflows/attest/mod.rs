@@ -17,6 +17,7 @@ pub(crate) const DEFAULT_HOMEPAGE_CONTENT: &[&str] = &[
     "crates/websh-web/src/features/home",
     "assets/themes",
     ACK_ARTIFACT_PATH,
+    "content/.site/now.toml",
 ];
 pub(crate) const DEFAULT_SIGNATURE_DIR: &str = ".websh/local/crypto/attestations";
 pub(crate) const DEFAULT_GPG_SIGNER: &str = "Wonjae Choi <wonjae@snu.ac.kr>";

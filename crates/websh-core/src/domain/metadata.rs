@@ -68,8 +68,6 @@ pub struct Fields {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub renderer: Option<RendererKind>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub route: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
 
     // ── Authoring / display ────────────────────────────────────────────
@@ -193,7 +191,6 @@ resolve_str_accessors! {
     title,
     description,
     date,
-    route,
     language,
     icon,
     thumbnail,
@@ -386,10 +383,37 @@ mod tests {
     fn enums_round_trip_in_snake_case() {
         let kind = serde_json::to_string(&NodeKind::Page).unwrap();
         let bundle = serde_json::to_string(&NodeKind::Bundle).unwrap();
+        let directory = serde_json::to_string(&NodeKind::Directory).unwrap();
         let renderer = serde_json::to_string(&RendererKind::HtmlPage).unwrap();
         assert_eq!(kind, "\"page\"");
         assert_eq!(bundle, "\"bundle\"");
+        assert_eq!(directory, "\"directory\"");
         assert_eq!(renderer, "\"html_page\"");
+    }
+
+    #[test]
+    fn directory_kind_is_directory_like_but_not_bundle() {
+        let meta = NodeMetadata {
+            schema: SCHEMA_VERSION,
+            kind: NodeKind::Directory,
+            bundle: None,
+            authored: Fields::default(),
+            derived: Fields {
+                kind: Some(NodeKind::Directory),
+                ..Fields::default()
+            },
+        };
+
+        assert!(meta.effective_kind().is_directory_like());
+        assert!(!meta.is_bundle());
+    }
+
+    #[test]
+    fn site_kind_is_not_accepted() {
+        let parsed = serde_json::from_str::<NodeMetadata>(
+            r#"{"schema":1,"kind":"site","authored":{},"derived":{}}"#,
+        );
+        assert!(parsed.is_err());
     }
 
     #[test]
@@ -398,7 +422,9 @@ mod tests {
             schema: SCHEMA_VERSION,
             kind: NodeKind::Bundle,
             bundle: Some(BundleMetadata {
-                default_variant: "en".to_string(),
+                default_variant: crate::domain::BundleDefaultVariant::Static {
+                    id: "en".to_string(),
+                },
                 variants: vec![
                     BundleVariant {
                         id: "en".to_string(),

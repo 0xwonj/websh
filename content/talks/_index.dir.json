@@ -5,6 +5,8 @@
   "derived": {
     "title": "talks",
     "kind": "directory",
+    "renderer": "directory_listing",
+    "modified_at": 1778980325,
     "child_count": 1
   }
 }

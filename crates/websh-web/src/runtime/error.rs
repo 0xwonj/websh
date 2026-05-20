@@ -26,10 +26,4 @@ pub enum RuntimeLoadError {
         path: VirtualPath,
         mount_root: VirtualPath,
     },
-    #[error("parse {path}: {source}")]
-    ParseJson {
-        path: VirtualPath,
-        #[source]
-        source: serde_json::Error,
-    },
 }

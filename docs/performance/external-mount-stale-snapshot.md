@@ -59,7 +59,7 @@ When registering an external mount:
 
 ## Read-Only Behavior
 
-Stale mounts can satisfy reads through the canonical filesystem tree, route index, and metadata views. Writes must remain disabled:
+Stale mounts can satisfy reads through the canonical filesystem tree and metadata views. Writes must remain disabled:
 
 - Do not expose stale mounts as writable through `effective_mounts()`.
 - Reject commits whose target mount is `Stale`, even if the original declaration was writable.

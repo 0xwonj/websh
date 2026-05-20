@@ -2,7 +2,10 @@
   "schema": 1,
   "kind": "bundle",
   "bundle": {
-    "default_variant": "en",
+    "default_variant": {
+      "strategy": "locale",
+      "fallback": "en"
+    },
     "variants": [
       {
         "id": "en",
@@ -40,6 +43,7 @@
   "derived": {
     "title": "zk-proofs-from-a-compiler-perspective",
     "kind": "bundle",
+    "modified_at": 1779061395,
     "child_count": 2
   }
 }

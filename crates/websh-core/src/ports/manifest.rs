@@ -2,10 +2,9 @@ use std::collections::BTreeMap;
 
 use crate::domain::{
     BundleValidationError, ContentManifestDocument, ContentManifestEntry, EntryExtensions,
-    NodeKind, NodeMetadata, validate_bundle_metadata_with_targets,
-    validate_bundle_route_collisions,
+    NodeKind, NodeMetadata, validate_bundle_metadata,
 };
-use crate::filesystem::content_route_for_path;
+use crate::filesystem::{RouteCatalog, RouteCatalogError};
 
 use super::{ScannedDirectory, ScannedFile, ScannedSubtree};
 
@@ -47,8 +46,8 @@ pub enum ManifestSnapshotError {
     BundleDerivedKindMismatch { path: String },
     #[error("bundle {path} requires a bundle metadata block")]
     MissingBundleMetadata { path: String },
-    #[error("bundle {bundle_path} variant `{variant_id}` points to directory `{path}`")]
-    BundleVariantTargetIsDirectory {
+    #[error("bundle {bundle_path} variant `{variant_id}` points to nested bundle `{path}`")]
+    BundleVariantTargetIsBundle {
         bundle_path: String,
         variant_id: String,
         path: String,
@@ -59,6 +58,14 @@ pub enum ManifestSnapshotError {
         variant_id: String,
         path: String,
     },
+    #[error("content route `{route}` is claimed by both `{first_path}` and `{second_path}`")]
+    RouteCollision {
+        route: String,
+        first_path: String,
+        second_path: String,
+    },
+    #[error(transparent)]
+    RouteCatalog(#[from] RouteCatalogError),
     #[error(transparent)]
     Bundle(#[from] BundleValidationError),
 }
@@ -69,12 +76,15 @@ pub fn parse_manifest_snapshot(body: &str) -> ManifestSnapshotResult<ScannedSubt
     let mut files = Vec::new();
     let mut directories = Vec::new();
 
-    let entry_kinds = manifest_entry_kinds(&manifest.entries)?;
+    manifest_entry_kinds(&manifest.entries)?;
 
-    for entry in manifest.entries {
+    for entry in &manifest.entries {
         let is_dir = entry.metadata.kind.is_directory_like();
         validate_manifest_path(&entry.path, is_dir)?;
-        validate_manifest_metadata(&entry.path, &entry.metadata, &entry_kinds)?;
+        validate_manifest_metadata(&entry.path, &entry.metadata)?;
+    }
+    for entry in manifest.entries {
+        let is_dir = entry.metadata.kind.is_directory_like();
         if is_dir {
             directories.push(ScannedDirectory {
                 path: entry.path,
@@ -91,7 +101,9 @@ pub fn parse_manifest_snapshot(body: &str) -> ManifestSnapshotResult<ScannedSubt
         }
     }
 
-    Ok(ScannedSubtree { files, directories })
+    let snapshot = ScannedSubtree { files, directories };
+    RouteCatalog::validate_snapshot(&snapshot)?;
+    Ok(snapshot)
 }
 
 pub fn serialize_manifest_snapshot(snapshot: &ScannedSubtree) -> ManifestSnapshotResult<String> {
@@ -113,6 +125,7 @@ pub fn serialize_manifest_snapshot(snapshot: &ScannedSubtree) -> ManifestSnapsho
             mempool: file.extensions.mempool.clone(),
         });
     }
+    RouteCatalog::validate_snapshot(snapshot)?;
 
     let manifest = ContentManifestDocument { entries };
     serde_json::to_string_pretty(&manifest).map_err(Into::into)
@@ -135,11 +148,7 @@ fn manifest_entry_kinds(
     Ok(paths)
 }
 
-fn validate_manifest_metadata(
-    path: &str,
-    metadata: &NodeMetadata,
-    entry_kinds: &BTreeMap<String, NodeKind>,
-) -> ManifestSnapshotResult<()> {
+fn validate_manifest_metadata(path: &str, metadata: &NodeMetadata) -> ManifestSnapshotResult<()> {
     if metadata.bundle.is_some() && metadata.kind != NodeKind::Bundle {
         return Err(ManifestSnapshotError::BundleMetadataOnNonBundleKind {
             path: display_manifest_path(path).to_string(),
@@ -161,42 +170,10 @@ fn validate_manifest_metadata(
                 path: display_manifest_path(path).to_string(),
             }
         })?;
-        validate_bundle_metadata_with_targets(path, bundle, |variant| {
-            let target = join_manifest_path(path, &variant.path);
-            match entry_kinds.get(&target) {
-                Some(kind) if !kind.is_directory_like() => Ok(()),
-                Some(_) => Err(ManifestSnapshotError::BundleVariantTargetIsDirectory {
-                    bundle_path: display_manifest_path(path).to_string(),
-                    variant_id: variant.id.clone(),
-                    path: variant.path.clone(),
-                }),
-                None => Err(ManifestSnapshotError::MissingBundleVariantTarget {
-                    bundle_path: display_manifest_path(path).to_string(),
-                    variant_id: variant.id.clone(),
-                    path: variant.path.clone(),
-                }),
-            }
-        })?;
-        validate_bundle_route_collisions(
-            path,
-            bundle,
-            entry_kinds
-                .iter()
-                .filter(|(_, kind)| !kind.is_directory_like())
-                .map(|(entry_path, _)| entry_path.as_str()),
-            content_route_for_path,
-        )?;
+        validate_bundle_metadata(path, bundle)?;
     }
 
     Ok(())
-}
-
-fn join_manifest_path(base: &str, child: &str) -> String {
-    if base.is_empty() {
-        child.to_string()
-    } else {
-        format!("{base}/{child}")
-    }
 }
 
 fn display_manifest_path(path: &str) -> &str {
@@ -337,7 +314,7 @@ mod tests {
                         "schema":1,
                         "kind":"bundle",
                         "bundle":{
-                            "default_variant":"en",
+                            "default_variant":{"strategy":"static","id":"en"},
                             "variants":[
                                 {"id":"en","path":"en.md","label":"English"},
                                 {"id":"ko","path":"ko.md","label":"Korean"}
@@ -367,7 +344,7 @@ mod tests {
                     "metadata":{
                         "schema":1,
                         "kind":"directory",
-                        "bundle":{"default_variant":"en","variants":[]},
+                        "bundle":{"default_variant":{"strategy":"static","id":"en"},"variants":[]},
                         "authored":{},
                         "derived":{"kind":"directory"}
                     }
@@ -407,7 +384,7 @@ mod tests {
                         "schema":1,
                         "kind":"bundle",
                         "bundle":{
-                            "default_variant":"en",
+                            "default_variant":{"strategy":"static","id":"en"},
                             "variants":[{"id":"en","path":"en.md","label":"English"}]
                         },
                         "authored":{},
@@ -420,7 +397,77 @@ mod tests {
         let err = parse_manifest_snapshot(manifest).unwrap_err();
         assert!(matches!(
             err,
-            ManifestSnapshotError::MissingBundleVariantTarget { .. }
+            ManifestSnapshotError::RouteCatalog(
+                RouteCatalogError::MissingBundleVariantTarget { .. }
+            )
+        ));
+    }
+
+    #[test]
+    fn accepts_bundle_manifest_with_directory_variant_target() {
+        let manifest = r#"{
+            "entries": [
+                {
+                    "path":"writing/foo",
+                    "metadata":{
+                        "schema":1,
+                        "kind":"bundle",
+                        "bundle":{
+                            "default_variant":{"strategy":"static","id":"notes"},
+                            "variants":[{"id":"notes","path":"notes","label":"Notes"}]
+                        },
+                        "authored":{},
+                        "derived":{"kind":"bundle"}
+                    }
+                },
+                {"path":"writing/foo/notes","metadata":{"schema":1,"kind":"directory","authored":{},"derived":{"kind":"directory"}}}
+            ]
+        }"#;
+
+        let snapshot = parse_manifest_snapshot(manifest).expect("parse directory variant bundle");
+        assert_eq!(snapshot.directories.len(), 2);
+    }
+
+    #[test]
+    fn rejects_bundle_manifest_with_nested_bundle_variant_target() {
+        let manifest = r#"{
+            "entries": [
+                {
+                    "path":"writing/foo",
+                    "metadata":{
+                        "schema":1,
+                        "kind":"bundle",
+                        "bundle":{
+                            "default_variant":{"strategy":"static","id":"nested"},
+                            "variants":[{"id":"nested","path":"nested","label":"Nested"}]
+                        },
+                        "authored":{},
+                        "derived":{"kind":"bundle"}
+                    }
+                },
+                {
+                    "path":"writing/foo/nested",
+                    "metadata":{
+                        "schema":1,
+                        "kind":"bundle",
+                        "bundle":{
+                            "default_variant":{"strategy":"static","id":"en"},
+                            "variants":[{"id":"en","path":"en.md","label":"English"}]
+                        },
+                        "authored":{},
+                        "derived":{"kind":"bundle"}
+                    }
+                },
+                {"path":"writing/foo/nested/en.md","metadata":{"schema":1,"kind":"page","authored":{},"derived":{}}}
+            ]
+        }"#;
+
+        let err = parse_manifest_snapshot(manifest).unwrap_err();
+        assert!(matches!(
+            err,
+            ManifestSnapshotError::RouteCatalog(
+                RouteCatalogError::BundleVariantTargetIsBundle { .. }
+            )
         ));
     }
 
@@ -434,7 +481,7 @@ mod tests {
                         "schema":1,
                         "kind":"bundle",
                         "bundle":{
-                            "default_variant":"ko.md",
+                            "default_variant":{"strategy":"static","id":"ko.md"},
                             "variants":[{"id":"ko.md","path":"ko.md","label":"Korean"}]
                         },
                         "authored":{},
@@ -462,7 +509,7 @@ mod tests {
                         "schema":1,
                         "kind":"bundle",
                         "bundle":{
-                            "default_variant":"en",
+                            "default_variant":{"strategy":"static","id":"en"},
                             "variants":[{"id":"en","path":"en.md","label":"English"}]
                         },
                         "authored":{},
@@ -477,7 +524,145 @@ mod tests {
         let err = parse_manifest_snapshot(manifest).unwrap_err();
         assert!(matches!(
             err,
-            ManifestSnapshotError::Bundle(BundleValidationError::RootRouteCollision { .. })
+            ManifestSnapshotError::RouteCatalog(RouteCatalogError::RouteCollision { route, .. })
+                if route == "/writing/foo"
+        ));
+    }
+
+    #[test]
+    fn rejects_normal_content_route_collisions() {
+        let manifest = r#"{
+            "entries": [
+                {"path":"writing/foo/ko.md","metadata":{"schema":1,"kind":"page","authored":{},"derived":{}}},
+                {"path":"writing/foo/ko.html","metadata":{"schema":1,"kind":"page","authored":{},"derived":{}}}
+            ]
+        }"#;
+
+        let err = parse_manifest_snapshot(manifest).unwrap_err();
+        assert!(matches!(
+            err,
+            ManifestSnapshotError::RouteCatalog(RouteCatalogError::RouteCollision { route, .. })
+                if route == "/writing/foo/ko"
+        ));
+    }
+
+    #[test]
+    fn serialize_rejects_invalid_outgoing_snapshot() {
+        let snapshot = ScannedSubtree {
+            files: vec![
+                ScannedFile {
+                    path: "writing/foo/ko.md".to_string(),
+                    meta: NodeMetadata {
+                        schema: SCHEMA_VERSION,
+                        kind: NodeKind::Page,
+                        bundle: None,
+                        authored: Fields::default(),
+                        derived: Fields::default(),
+                    },
+                    extensions: EntryExtensions::default(),
+                },
+                ScannedFile {
+                    path: "writing/foo/ko.html".to_string(),
+                    meta: NodeMetadata {
+                        schema: SCHEMA_VERSION,
+                        kind: NodeKind::Page,
+                        bundle: None,
+                        authored: Fields::default(),
+                        derived: Fields::default(),
+                    },
+                    extensions: EntryExtensions::default(),
+                },
+            ],
+            directories: Vec::new(),
+        };
+
+        let err = serialize_manifest_snapshot(&snapshot).unwrap_err();
+
+        assert!(matches!(
+            err,
+            ManifestSnapshotError::RouteCatalog(RouteCatalogError::RouteCollision { route, .. })
+                if route == "/writing/foo/ko"
+        ));
+    }
+
+    #[test]
+    fn rejects_duplicate_bundle_variant_public_routes() {
+        let manifest = r#"{
+            "entries": [
+                {
+                    "path":"writing/foo",
+                    "metadata":{
+                        "schema":1,
+                        "kind":"bundle",
+                        "bundle":{
+                            "default_variant":{"strategy":"static","id":"en"},
+                            "variants":[
+                                {"id":"en","path":"en.md","label":"English"},
+                                {"id":"en_html","path":"en.html","label":"English HTML"}
+                            ]
+                        },
+                        "authored":{},
+                        "derived":{"kind":"bundle"}
+                    }
+                },
+                {"path":"writing/foo/en.md","metadata":{"schema":1,"kind":"page","authored":{},"derived":{}}},
+                {"path":"writing/foo/en.html","metadata":{"schema":1,"kind":"page","authored":{},"derived":{}}}
+            ]
+        }"#;
+
+        let err = parse_manifest_snapshot(manifest).unwrap_err();
+        assert!(matches!(
+            err,
+            ManifestSnapshotError::RouteCatalog(RouteCatalogError::RouteCollision { route, .. })
+                if route == "/writing/foo/en"
+        ));
+    }
+
+    #[test]
+    fn rejects_non_default_variant_target_collision() {
+        let manifest = r#"{
+            "entries": [
+                {
+                    "path":"writing/foo",
+                    "metadata":{
+                        "schema":1,
+                        "kind":"bundle",
+                        "bundle":{
+                            "default_variant":{"strategy":"static","id":"en"},
+                            "variants":[
+                                {"id":"en","path":"en.md","label":"English"},
+                                {"id":"print_pdf","path":"print.pdf","label":"Print"}
+                            ]
+                        },
+                        "authored":{},
+                        "derived":{"kind":"bundle"}
+                    }
+                },
+                {"path":"writing/foo/en.md","metadata":{"schema":1,"kind":"page","authored":{},"derived":{}}},
+                {"path":"writing/foo/print.pdf","metadata":{"schema":1,"kind":"document","authored":{},"derived":{}}},
+                {"path":"writing/foo/print.pdf.md","metadata":{"schema":1,"kind":"page","authored":{},"derived":{}}}
+            ]
+        }"#;
+
+        let err = parse_manifest_snapshot(manifest).unwrap_err();
+        assert!(matches!(
+            err,
+            ManifestSnapshotError::RouteCatalog(RouteCatalogError::RouteCollision { route, .. })
+                if route == "/writing/foo/print.pdf"
+        ));
+    }
+
+    #[test]
+    fn rejects_authored_route_fields() {
+        let manifest = r#"{
+            "entries": [
+                {"path":"about.md","metadata":{"schema":1,"kind":"page","authored":{"route":"/custom"},"derived":{}}}
+            ]
+        }"#;
+
+        assert!(matches!(
+            parse_manifest_snapshot(manifest).unwrap_err(),
+            ManifestSnapshotError::Json { .. }
         ));
     }
 }

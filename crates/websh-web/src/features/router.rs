@@ -18,12 +18,23 @@ use wasm_bindgen::prelude::Closure;
 
 #[cfg(target_arch = "wasm32")]
 use crate::app::AppContext;
+use crate::config::LANG_ENV_KEY;
+use crate::features::chrome::{HOME_HREF, SiteChrome};
+use crate::features::directory::DirectoryPage;
 use crate::features::home::HomePage;
 use crate::features::ledger::LedgerPage;
 use crate::features::ledger::routes::{LEDGER_ROUTE, is_ledger_filter_route_segment};
 use crate::features::reader::{Reader, ReaderFrame};
 use crate::features::terminal::Shell;
+use crate::platform::dom::{current_route_request, focus_terminal_input, replace_request_path};
 use crate::runtime::MountLoadStatus;
+use crate::shared::components::{
+    AttestationSigFooter, ErrorPageActionButton, ErrorPageActionLink, ErrorPageActions,
+    ErrorPageBody, ErrorPageDetails, ErrorPageTone, SiteContentFrame, SiteSurface,
+    nearest_attestation_route_for_content_path,
+};
+
+const NOT_FOUND_CONTENT_PATH: &str = "/.site/errors/404.md";
 
 /// URL patterns that bypass the engine and produce a synthetic [`RouteFrame`].
 ///
@@ -56,13 +67,11 @@ impl BuiltinRoute {
         None
     }
 }
-use crate::platform::dom::{current_route_request, focus_terminal_input};
 use websh_core::domain::VirtualPath;
-#[cfg(target_arch = "wasm32")]
-use websh_core::filesystem::FsEngine;
 use websh_core::filesystem::{
-    RenderIntent, ResolvedKind, RouteFrame, RouteRequest, RouteResolution, RouteSurface,
-    build_render_intent_with_preferred_locale, is_new_request_path,
+    GlobalFs, RenderIntent, ResolvedKind, RouteCatalogError, RouteFrame, RouteRequest,
+    RouteResolution, RouteRole, RouteSurface, build_render_intent, bundle_variant_href,
+    is_new_request_path, route_request_targets_runtime_overlay, try_resolve_route,
 };
 
 /// Main application router.
@@ -106,39 +115,43 @@ pub fn RouterView() -> impl IntoView {
     #[cfg(target_arch = "wasm32")]
     let route = Memo::new(move |_| {
         let request = _raw_request.get();
-        let fs = if route_request_needs_system_fs(&request) {
+        let fs = if route_request_targets_runtime_overlay(&request) {
             ctx.system_global_fs.get()
         } else {
             ctx.view_global_fs.get()
         };
-        let resolution = fs.resolve_route(&request)?;
-        let preferred_locale = ctx
-            .runtime_state
-            .with(|state| state.env.get(crate::config::LANG_ENV_KEY).cloned());
-        let intent = build_render_intent_with_preferred_locale(
-            &fs,
-            &resolution,
-            preferred_locale.as_deref(),
-        )?;
-        Some(RouteFrame {
+        let Some(resolution) = try_resolve_route(&fs, &request)? else {
+            return Ok(None);
+        };
+        let Some(intent) = build_render_intent(&fs, &resolution) else {
+            return Ok(None);
+        };
+        Ok(Some(RouteFrame {
             request,
             resolution,
             intent,
-        })
+        }))
     });
     #[cfg(not(target_arch = "wasm32"))]
-    let route = Memo::new(move |_| None::<RouteFrame>);
+    let route = Memo::new(move |_| Ok(None::<RouteFrame>));
 
     install_terminal_focus_effect(_raw_request, route);
+    #[cfg(target_arch = "wasm32")]
+    install_bundle_locale_selector_effect(ctx, route);
 
     view! {
         {move || {
             let request = _raw_request.get();
+            let route_state = route.get();
+            if let Err(error) = route_state.clone() {
+                return view! { <RouteCatalogInvalid request=request error=error /> }.into_any();
+            }
             match BuiltinRoute::detect(&request) {
                 Some(BuiltinRoute::Home) => view! {
                     <HomePage route=Memo::new(move |_| {
-                        route
-                            .get()
+                        route.get()
+                            .ok()
+                            .flatten()
                             .unwrap_or_else(|| home_frame(_raw_request.get()))
                     }) />
                 }
@@ -155,19 +168,22 @@ pub fn RouterView() -> impl IntoView {
                     }
                     .into_any()
                 }
-                None => match route.get() {
+                None => match route_state.ok().flatten() {
                     Some(frame) => match frame.intent {
                         RenderIntent::TerminalApp { .. } => {
                             view! { <Shell route=static_route_memo(frame.clone()) /> }.into_any()
                         }
                         RenderIntent::DirectoryListing { .. } => {
-                            view! { <LedgerPage route=static_route_memo(frame.clone()) /> }.into_any()
+                            view! { <DirectoryPage route=static_route_memo(frame.clone()) /> }.into_any()
+                        }
+                        RenderIntent::BundleLocaleSelector { .. } => {
+                            view! { <RoutePending request=frame.request.clone() /> }.into_any()
                         }
                         RenderIntent::HtmlContent { .. }
                         | RenderIntent::MarkdownContent { .. }
                         | RenderIntent::PlainContent { .. }
-                        | RenderIntent::Asset { .. }
-                        | RenderIntent::BundleVariant { .. }
+                        | RenderIntent::PdfContent { .. }
+                        | RenderIntent::ImageContent { .. }
                         | RenderIntent::Redirect { .. } => {
                             let reader_frame = ReaderFrame::try_from(frame)
                                 .expect("non-surface RenderIntent variants convert to ReaderFrame");
@@ -186,9 +202,9 @@ pub fn RouterView() -> impl IntoView {
 
 fn unresolved_route_view(ctx: AppContext, request: RouteRequest) -> AnyView {
     match ctx.mount_status_for(&VirtualPath::root()) {
-        Some(MountLoadStatus::Loaded { .. }) => view! { <NotFound /> }.into_any(),
+        Some(MountLoadStatus::Loaded { .. }) => view! { <NotFound request=request /> }.into_any(),
         Some(MountLoadStatus::Failed { error, .. }) => {
-            view! { <RootMountFailed error=error /> }.into_any()
+            view! { <RootMountFailed request=request error=error /> }.into_any()
         }
         Some(MountLoadStatus::Loading { .. }) | None => {
             view! { <RoutePending request=request /> }.into_any()
@@ -198,35 +214,27 @@ fn unresolved_route_view(ctx: AppContext, request: RouteRequest) -> AnyView {
 
 fn new_compose_frame() -> RouteFrame {
     let request = RouteRequest::new("/new");
+    let request_path = request.url_path.clone();
     let node_path = VirtualPath::root();
     RouteFrame {
         request: request.clone(),
         resolution: RouteResolution {
-            request_path: request.url_path,
+            request_path,
+            route_path: "/new".to_string(),
             surface: RouteSurface::Content,
+            route_owner_path: node_path.clone(),
             node_path: node_path.clone(),
+            route_role: RouteRole::ContentNode,
             kind: ResolvedKind::Document,
             params: BTreeMap::new(),
+            bundle_variant: None,
         },
         intent: RenderIntent::MarkdownContent { node_path },
     }
 }
 
-fn route_request_needs_system_fs(request: &RouteRequest) -> bool {
-    let trimmed = request.url_path.trim_matches('/');
-    if is_runtime_state_request(trimmed) {
-        return true;
-    }
-    trimmed
-        .strip_prefix("websh/")
-        .is_some_and(is_runtime_state_request)
-}
-
-fn is_runtime_state_request(path: &str) -> bool {
-    path == ".websh/state" || path.starts_with(".websh/state/")
-}
-
 fn ledger_filter_frame(request: RouteRequest) -> RouteFrame {
+    let request_path = request.url_path.clone();
     let node_path = if request.url_path.trim_matches('/') == LEDGER_ROUTE {
         VirtualPath::root()
     } else {
@@ -235,25 +243,55 @@ fn ledger_filter_frame(request: RouteRequest) -> RouteFrame {
     RouteFrame {
         request: request.clone(),
         resolution: RouteResolution {
-            request_path: request.url_path,
+            request_path,
+            route_path: node_path.to_string(),
             surface: RouteSurface::Content,
+            route_owner_path: node_path.clone(),
             node_path: node_path.clone(),
+            route_role: RouteRole::ContentNode,
             kind: ResolvedKind::Directory,
             params: BTreeMap::new(),
+            bundle_variant: None,
         },
         intent: RenderIntent::DirectoryListing { node_path },
     }
 }
 
 fn home_frame(request: RouteRequest) -> RouteFrame {
+    let request_path = request.url_path.clone();
     RouteFrame {
         request: request.clone(),
         resolution: RouteResolution {
-            request_path: request.url_path,
+            request_path,
+            route_path: "/".to_string(),
             surface: RouteSurface::Content,
+            route_owner_path: VirtualPath::root(),
             node_path: VirtualPath::root(),
+            route_role: RouteRole::ContentNode,
             kind: ResolvedKind::Directory,
             params: BTreeMap::new(),
+            bundle_variant: None,
+        },
+        intent: RenderIntent::DirectoryListing {
+            node_path: VirtualPath::root(),
+        },
+    }
+}
+
+fn unresolved_content_frame(request: RouteRequest) -> RouteFrame {
+    let request_path = request.url_path.clone();
+    RouteFrame {
+        request: request.clone(),
+        resolution: RouteResolution {
+            request_path,
+            route_path: "/".to_string(),
+            surface: RouteSurface::Content,
+            route_owner_path: VirtualPath::root(),
+            node_path: VirtualPath::root(),
+            route_role: RouteRole::ContentNode,
+            kind: ResolvedKind::Directory,
+            params: BTreeMap::new(),
+            bundle_variant: None,
         },
         intent: RenderIntent::DirectoryListing {
             node_path: VirtualPath::root(),
@@ -273,7 +311,7 @@ fn static_route_memo(frame: RouteFrame) -> Memo<RouteFrame> {
 /// carry the cross-cutting concern inline.
 fn install_terminal_focus_effect(
     raw_request: RwSignal<RouteRequest>,
-    route: Memo<Option<RouteFrame>>,
+    route: Memo<Result<Option<RouteFrame>, RouteCatalogError>>,
 ) {
     Effect::new(move |prev_was_reader: Option<bool>| {
         if matches!(
@@ -283,10 +321,12 @@ fn install_terminal_focus_effect(
             return false;
         }
 
-        let is_reader = route.get().is_some_and(|frame| {
+        let is_reader = route.get().ok().flatten().is_some_and(|frame| {
             !matches!(
                 frame.intent,
-                RenderIntent::TerminalApp { .. } | RenderIntent::DirectoryListing { .. }
+                RenderIntent::TerminalApp { .. }
+                    | RenderIntent::DirectoryListing { .. }
+                    | RenderIntent::BundleLocaleSelector { .. }
             )
         });
         if prev_was_reader == Some(true) && !is_reader {
@@ -296,33 +336,176 @@ fn install_terminal_focus_effect(
     });
 }
 
+#[cfg(target_arch = "wasm32")]
+fn install_bundle_locale_selector_effect(
+    ctx: AppContext,
+    route: Memo<Result<Option<RouteFrame>, RouteCatalogError>>,
+) {
+    Effect::new(move |_| {
+        let Ok(Some(frame)) = route.get() else {
+            return;
+        };
+        let RenderIntent::BundleLocaleSelector { bundle_path } = frame.intent else {
+            return;
+        };
+        let fs = ctx.view_global_fs.get();
+        let runtime_state = ctx.runtime_state.get();
+        let lang = runtime_state.env.get(LANG_ENV_KEY).map(String::as_str);
+        let Some(href) = locale_selected_bundle_variant_href(&fs, &bundle_path, lang) else {
+            return;
+        };
+        let target_path = href.strip_prefix('#').unwrap_or(&href);
+        let target_request = RouteRequest::new(target_path);
+        if target_request.url_path != frame.request.url_path {
+            replace_request_path(&target_request.url_path);
+        }
+    });
+}
+
+fn locale_selected_bundle_variant_href(
+    fs: &GlobalFs,
+    bundle_path: &VirtualPath,
+    lang: Option<&str>,
+) -> Option<String> {
+    let bundle = fs.node_metadata(bundle_path)?.bundle.as_ref()?;
+    let variant = bundle.selected_variant_for_locale(lang)?;
+    Some(bundle_variant_href(bundle_path, bundle, variant))
+}
+
 #[component]
-fn NotFound() -> impl IntoView {
+fn RouteErrorPage(request: RouteRequest, children: Children) -> impl IntoView {
+    let route = static_route_memo(unresolved_content_frame(request));
+
     view! {
-        <div style="padding: 2rem; font-family: monospace;">
-            <h1>"404"</h1>
-            <p>"No route matched the current path."</p>
-        </div>
+        <SiteSurface class="">
+            <SiteChrome route=route />
+            <SiteContentFrame class="">
+                {children()}
+            </SiteContentFrame>
+        </SiteSurface>
+    }
+}
+
+#[component]
+fn NotFound(request: RouteRequest) -> impl IntoView {
+    let request_path = request.url_path.clone();
+
+    view! {
+        <RouteErrorPage request=request>
+            <ErrorPageBody
+                tone=ErrorPageTone::Missing
+                code="404"
+                kicker="Route resolution"
+                title="Route not found"
+                message="No content route matched the current path."
+            >
+                <ErrorPageDetails summary="Request path" open=true>
+                    <code>{request_path}</code>
+                </ErrorPageDetails>
+                <ErrorPageActions>
+                    <ErrorPageActionLink href=HOME_HREF>"Go home"</ErrorPageActionLink>
+                </ErrorPageActions>
+            </ErrorPageBody>
+            <AttestationSigFooter
+                route=Signal::derive(|| {
+                    let path = VirtualPath::from_absolute(NOT_FOUND_CONTENT_PATH)
+                        .expect("404 attestation path is absolute");
+                    nearest_attestation_route_for_content_path(&path)
+                })
+                show_pending=Signal::derive(|| true)
+                colophon=true
+            />
+        </RouteErrorPage>
     }
 }
 
 #[component]
 fn RoutePending(request: RouteRequest) -> impl IntoView {
+    let request_path = request.url_path.clone();
+
     view! {
-        <div style="padding: 2rem; font-family: monospace;">
-            <h1>"route pending"</h1>
-            <p>{request.url_path}</p>
-        </div>
+        <RouteErrorPage request=request>
+            <ErrorPageBody
+                tone=ErrorPageTone::Pending
+                code="pending"
+                kicker="Route resolution"
+                title="Route pending"
+                message="The content mount is still loading. This route will resolve when the filesystem is ready."
+            >
+                <ErrorPageDetails summary="Request path" open=true>
+                    <code>{request_path}</code>
+                </ErrorPageDetails>
+            </ErrorPageBody>
+        </RouteErrorPage>
     }
 }
 
 #[component]
-fn RootMountFailed(error: String) -> impl IntoView {
+fn RootMountFailed(request: RouteRequest, error: String) -> impl IntoView {
+    let request_path = request.url_path.clone();
+
     view! {
-        <div style="padding: 2rem; font-family: monospace;">
-            <h1>"root mount failed"</h1>
-            <p>{error}</p>
-        </div>
+        <RouteErrorPage request=request>
+            <ErrorPageBody
+                tone=ErrorPageTone::Failure
+                code="mount"
+                kicker="Filesystem mount"
+                title="Root mount failed"
+                message="The content filesystem could not be mounted, so this route cannot be resolved."
+            >
+                <ErrorPageDetails summary="Request path" open=true>
+                    <code>{request_path}</code>
+                </ErrorPageDetails>
+                <ErrorPageDetails summary="Mount error" open=false>
+                    <code>{error}</code>
+                </ErrorPageDetails>
+                <ErrorPageActions>
+                    <ErrorPageActionButton on_click=Callback::new(move |()| {
+                        if let Some(window) = web_sys::window() {
+                            let _ = window.location().reload();
+                        }
+                    })>
+                        "Reload page"
+                    </ErrorPageActionButton>
+                    <ErrorPageActionLink href=HOME_HREF>"Go home"</ErrorPageActionLink>
+                </ErrorPageActions>
+            </ErrorPageBody>
+        </RouteErrorPage>
+    }
+}
+
+#[component]
+fn RouteCatalogInvalid(request: RouteRequest, error: RouteCatalogError) -> impl IntoView {
+    let request_path = request.url_path.clone();
+    let error = error.to_string();
+
+    view! {
+        <RouteErrorPage request=request>
+            <ErrorPageBody
+                tone=ErrorPageTone::Failure
+                code="catalog"
+                kicker="Route catalog"
+                title="Route catalog invalid"
+                message="The content filesystem has conflicting public routes, so this request cannot be resolved safely."
+            >
+                <ErrorPageDetails summary="Request path" open=true>
+                    <code>{request_path}</code>
+                </ErrorPageDetails>
+                <ErrorPageDetails summary="Catalog error" open=true>
+                    <code>{error}</code>
+                </ErrorPageDetails>
+                <ErrorPageActions>
+                    <ErrorPageActionButton on_click=Callback::new(move |()| {
+                        if let Some(window) = web_sys::window() {
+                            let _ = window.location().reload();
+                        }
+                    })>
+                        "Reload page"
+                    </ErrorPageActionButton>
+                    <ErrorPageActionLink href=HOME_HREF>"Go home"</ErrorPageActionLink>
+                </ErrorPageActions>
+            </ErrorPageBody>
+        </RouteErrorPage>
     }
 }
 
@@ -377,7 +560,7 @@ mod builtin_route_tests {
             "/websh/.websh/state/session",
         ] {
             assert!(
-                route_request_needs_system_fs(&RouteRequest::new(path)),
+                route_request_targets_runtime_overlay(&RouteRequest::new(path)),
                 "expected system fs for {path}"
             );
         }
@@ -387,7 +570,7 @@ mod builtin_route_tests {
     fn keeps_normal_routes_on_content_view() {
         for path in ["/", "/ledger", "/websh", "/writing/example"] {
             assert!(
-                !route_request_needs_system_fs(&RouteRequest::new(path)),
+                !route_request_targets_runtime_overlay(&RouteRequest::new(path)),
                 "expected content fs for {path}"
             );
         }

@@ -1,6 +1,6 @@
 use crate::domain::{ChangeSet, ChangeType, VirtualPath};
-use crate::engine::filesystem::GlobalFs;
 use crate::engine::filesystem::merge;
+use crate::engine::filesystem::{GlobalFs, RouteCatalog};
 use crate::ports::{CommitRequest, StorageBackendRef};
 
 use super::delta::{build_commit_delta, normalized_staged_changes, staged_cleanup_paths};
@@ -58,6 +58,7 @@ pub(super) async fn prepare_commit(
             mount_root: mount_root.clone(),
         })
     })?;
+    RouteCatalog::validate_snapshot(&merged_snapshot).map_err(CommitPrepareError::from)?;
 
     Ok(CommitRequest {
         delta,

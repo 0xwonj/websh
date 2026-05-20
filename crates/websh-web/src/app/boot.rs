@@ -5,8 +5,10 @@ use wasm_bindgen_futures::spawn_local;
 
 use super::{AppContext, AppEditModal, RuntimeServices};
 use crate::features::RouterView;
-
-stylance::import_crate_style!(err_css, "src/app/error_boundary.module.css");
+use crate::shared::components::{
+    ErrorPageActionButton, ErrorPageActionLink, ErrorPageActions, ErrorPageBody, ErrorPageDetails,
+    ErrorPageTone, SiteContentFrame, SiteSurface,
+};
 
 /// Root application component with error boundary.
 #[component]
@@ -54,38 +56,37 @@ pub fn App() -> impl IntoView {
     view! {
         <ErrorBoundary
             fallback=|errors| view! {
-                <div class=err_css::container>
-                    <div class=err_css::inner>
-                        <h1 class=err_css::title>
-                            "Something went wrong"
-                        </h1>
-                        <p class=err_css::message>
-                            "An unexpected error occurred. Please try reloading the page."
-                        </p>
-                        <details class=err_css::details>
-                            <summary class=err_css::summary>
-                                "Error details"
-                            </summary>
-                            <ul class=err_css::detailsList>
-                                {move || errors.get()
-                                    .into_iter()
-                                    .map(|(_, e)| view! { <li>{e.to_string()}</li> })
-                                    .collect::<Vec<_>>()
-                                }
-                            </ul>
-                        </details>
-                        <button
-                            class=err_css::reloadButton
-                            on:click=move |_| {
-                                if let Some(window) = web_sys::window() {
-                                    let _ = window.location().reload();
-                                }
-                            }
+                <SiteSurface class="">
+                    <SiteContentFrame class="">
+                        <ErrorPageBody
+                            tone=ErrorPageTone::Failure
+                            code="render"
+                            kicker="Application boundary"
+                            title="Something went wrong"
+                            message="An unexpected error occurred while rendering this page."
                         >
-                            "Reload Page"
-                        </button>
-                    </div>
-                </div>
+                            <ErrorPageDetails summary="Error details" open=false>
+                                <ul>
+                                    {move || errors.get()
+                                        .into_iter()
+                                        .map(|(_, e)| view! { <li>{e.to_string()}</li> })
+                                        .collect::<Vec<_>>()
+                                    }
+                                </ul>
+                            </ErrorPageDetails>
+                            <ErrorPageActions>
+                                <ErrorPageActionButton on_click=Callback::new(move |()| {
+                                    if let Some(window) = web_sys::window() {
+                                        let _ = window.location().reload();
+                                    }
+                                })>
+                                    "Reload page"
+                                </ErrorPageActionButton>
+                                <ErrorPageActionLink href="#/">"Go home"</ErrorPageActionLink>
+                            </ErrorPageActions>
+                        </ErrorPageBody>
+                    </SiteContentFrame>
+                </SiteSurface>
             }
         >
             <RouterView />

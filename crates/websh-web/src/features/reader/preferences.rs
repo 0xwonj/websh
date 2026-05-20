@@ -4,7 +4,6 @@
 //! browser storage and only affect the reader body surface.
 
 use super::intent::ReaderIntent;
-use websh_core::domain::FileType;
 
 pub const TEXT_SCALE_STORAGE_KEY: &str = "reader.TEXT_SCALE";
 
@@ -80,13 +79,9 @@ pub fn intent_supports_text_scale(intent: &ReaderIntent) -> bool {
         ReaderIntent::Html { .. } | ReaderIntent::Markdown { .. } | ReaderIntent::Plain { .. } => {
             true
         }
-        ReaderIntent::BundleVariant { variant_path, .. } => {
-            matches!(
-                FileType::from_path(variant_path.as_str()),
-                FileType::Html | FileType::Markdown
-            )
+        ReaderIntent::Pdf { .. } | ReaderIntent::Image { .. } | ReaderIntent::Redirect { .. } => {
+            false
         }
-        ReaderIntent::Asset { .. } | ReaderIntent::Redirect { .. } => false,
     }
 }
 
@@ -162,14 +157,8 @@ mod tests {
         assert!(intent_supports_text_scale(&ReaderIntent::Plain {
             node_path: vp("/note.txt")
         }));
-        assert!(intent_supports_text_scale(&ReaderIntent::BundleVariant {
-            bundle_path: vp("/writing/foo"),
-            variant_id: "en".to_string(),
-            variant_path: vp("/writing/foo/en.md")
-        }));
-        assert!(!intent_supports_text_scale(&ReaderIntent::Asset {
+        assert!(!intent_supports_text_scale(&ReaderIntent::Pdf {
             node_path: vp("/paper.pdf"),
-            media_type: "application/pdf".to_string()
         }));
     }
 }

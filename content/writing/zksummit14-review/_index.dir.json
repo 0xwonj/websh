@@ -2,7 +2,10 @@
   "schema": 1,
   "kind": "bundle",
   "bundle": {
-    "default_variant": "en",
+    "default_variant": {
+      "strategy": "locale",
+      "fallback": "en"
+    },
     "variants": [
       {
         "id": "en",
@@ -44,6 +47,7 @@
   "derived": {
     "title": "zksummit14-review",
     "kind": "bundle",
+    "modified_at": 1779062096,
     "child_count": 2
   }
 }

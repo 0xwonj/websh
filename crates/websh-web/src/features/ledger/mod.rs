@@ -313,7 +313,9 @@ fn LedgerBlock(entry: LedgerEntry, block_number: String, previous_hash: String) 
         <article class=block_class>
             <div class=css::blockHead>
                 <span class=css::blockNumber>{format!("block {block_number}")}</span>
-                <span class=css::kind data-kind=entry.kind.clone()>{entry.kind.clone()}</span>
+                {entry.kind_chips.iter().map(|kind| view! {
+                    <span class=css::kind data-kind=kind.clone()>{kind.clone()}</span>
+                }).collect_view()}
                 {entry.encrypted.then(|| view! {
                     <span class=css::lock data-state="encrypted">"encrypted"</span>
                 })}

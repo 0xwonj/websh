@@ -743,8 +743,8 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            backend.content_url(".websh/site.json").unwrap(),
-            "https://raw.githubusercontent.com/owner/repo/main/~/.websh/site.json"
+            backend.content_url(".site/now.toml").unwrap(),
+            "https://raw.githubusercontent.com/owner/repo/main/~/.site/now.toml"
         );
     }
 

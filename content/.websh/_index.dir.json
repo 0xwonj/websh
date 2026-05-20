@@ -5,6 +5,7 @@
   "derived": {
     "title": ".websh",
     "kind": "directory",
+    "renderer": "directory_listing",
     "child_count": 2
   }
 }

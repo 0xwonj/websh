@@ -2,10 +2,44 @@ use leptos::ev;
 use leptos::prelude::*;
 
 use crate::shared::components::{MonoOverflow, MonoTone, MonoValue};
-use websh_core::attestation::artifact::{Attestation, Subject};
+use websh_core::attestation::artifact::{Attestation, AttestationArtifact, Subject};
 use websh_core::crypto::pgp::pretty_fingerprint;
+use websh_core::domain::VirtualPath;
+use websh_core::filesystem::content_route_for_path;
 
 stylance::import_crate_style!(css, "src/shared/components/signature_footer.module.css");
+
+pub fn nearest_attestation_route_for_content_path(path: &VirtualPath) -> String {
+    let fallback = content_route_for_path(path.as_str());
+    let Ok(artifact) = websh_site::attestation_artifact() else {
+        return fallback;
+    };
+    nearest_attestation_route_for_content_path_in_artifact(&artifact, path).unwrap_or(fallback)
+}
+
+fn nearest_attestation_route_for_content_path_in_artifact(
+    artifact: &AttestationArtifact,
+    path: &VirtualPath,
+) -> Option<String> {
+    attestation_route_candidates(path)
+        .into_iter()
+        .find(|candidate| artifact.subject_for_route(candidate).is_some())
+}
+
+fn attestation_route_candidates(path: &VirtualPath) -> Vec<String> {
+    let mut candidates = Vec::new();
+    let mut current = Some(path.clone());
+    while let Some(candidate_path) = current {
+        let route = content_route_for_path(candidate_path.as_str());
+        if !candidates.contains(&route) {
+            candidates.push(route);
+        }
+        current = candidate_path
+            .parent()
+            .filter(|parent| !parent.is_root() || path.is_root());
+    }
+    candidates
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct FooterSigSummary {

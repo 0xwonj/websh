@@ -5,6 +5,8 @@
   "derived": {
     "title": "writing",
     "kind": "directory",
+    "renderer": "directory_listing",
+    "modified_at": 1779062096,
     "child_count": 2
   }
 }

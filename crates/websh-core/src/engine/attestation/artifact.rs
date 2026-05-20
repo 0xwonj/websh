@@ -9,9 +9,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 pub use crate::engine::attestation::subject::{
-    BundleSubject, ContentFile, DocumentSubject, Envelope, HomepageSubject, LedgerSubject,
-    PageSubject, Subject, SubjectCanonicalError, SubjectValidationError, compute_content_sha256,
-    subject_id_for_route,
+    BundleSubject, ContentFile, DirectorySubject, DocumentSubject, Envelope, HomepageSubject,
+    LedgerSubject, PageSubject, Subject, SubjectCanonicalError, SubjectValidationError,
+    compute_content_sha256, subject_id_for_route,
 };
 
 pub const ATTESTATIONS_SCHEME: &str = "websh.attestations.v1";

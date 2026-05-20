@@ -10,8 +10,9 @@ use websh_core::attestation::ledger::{
 use websh_core::support::format::iso_date_prefix;
 
 use super::files::{
-    BundleContentUnit, build_content_files, collect_files_recursive, discover_bundle_content_units,
-    path_is_inside_bundle, relative_path_from, resolve_path, route_for_content_path,
+    BundleContentUnit, DirectoryContentUnit, build_content_files, collect_files_recursive,
+    discover_bundle_content_units, discover_directory_content_units, path_is_inside_bundle,
+    path_is_inside_directory_unit, relative_path_from, resolve_path, route_for_content_path,
     should_skip_primary_content_file,
 };
 use super::frontmatter::content_entry_raw_date;
@@ -29,6 +30,23 @@ pub(crate) fn generate_content_ledger(root: &Path, content_dir: &Path) -> CliRes
 
     let mut staged: Vec<ContentLedgerInput> = Vec::new();
     let bundles = discover_bundle_content_units(&content_root, &files)?;
+    let directories = discover_directory_content_units(&content_root, &files, &bundles)?;
+    for directory in &directories {
+        let route = route_for_content_path(&directory.rel_path);
+        let content_files = build_content_files(root, &directory.content_paths)?;
+        let sort_date = sort_date_for_directory(directory);
+        staged.push(ContentLedgerInput::new(
+            ContentLedgerSortKey::new(sort_date, directory.rel_path.clone()),
+            ContentLedgerEntry::new(
+                subject_id_for_route(&route),
+                route,
+                directory.rel_path.clone(),
+                ContentLedgerCategory::for_path(&directory.rel_path),
+                content_files,
+            )?,
+        ));
+    }
+
     for bundle in &bundles {
         let route = route_for_content_path(&bundle.rel_path);
         let content_files = build_content_files(root, &bundle.content_paths)?;
@@ -49,6 +67,9 @@ pub(crate) fn generate_content_ledger(root: &Path, content_dir: &Path) -> CliRes
     for file_path in files {
         let rel_path = relative_path_from(&content_root, &file_path)?;
         if should_skip_primary_content_file(&rel_path) {
+            continue;
+        }
+        if path_is_inside_directory_unit(&rel_path, &directories) {
             continue;
         }
         if path_is_inside_bundle(&rel_path, &bundles) {
@@ -105,11 +126,19 @@ fn sort_date_for_bundle(bundle: &BundleContentUnit) -> Option<String> {
         .map(str::to_string)
 }
 
+fn sort_date_for_directory(directory: &DirectoryContentUnit) -> Option<String> {
+    directory
+        .metadata
+        .date()
+        .and_then(iso_date_prefix)
+        .map(str::to_string)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::path::PathBuf;
-    use websh_core::domain::BundleValidationError;
+    use websh_core::filesystem::RouteCatalogError;
 
     fn temp_root(name: &str) -> PathBuf {
         let mut root = std::env::temp_dir();
@@ -127,8 +156,10 @@ mod tests {
         let content = root.join("content");
         fs::create_dir_all(content.join("talks")).unwrap();
         fs::create_dir_all(content.join(".websh")).unwrap();
+        fs::create_dir_all(content.join(".websh/errors")).unwrap();
         fs::write(content.join("manifest.json"), "{}").unwrap();
         fs::write(content.join(".websh/old.json"), "{}").unwrap();
+        fs::write(content.join(".websh/errors/404.md"), b"not found").unwrap();
         fs::write(content.join("talks/a.pdf"), b"pdf").unwrap();
         fs::write(
             content.join("talks/a.meta.json"),
@@ -155,6 +186,7 @@ mod tests {
         assert!(!encoded.contains("\"title\""));
         assert!(!encoded.contains("\"tags\""));
         assert!(root.join("content/.websh/ledger.json").exists());
+        assert!(!encoded.contains(".websh/errors/404"));
 
         fs::remove_dir_all(root).unwrap();
     }
@@ -241,7 +273,7 @@ mod tests {
               "schema":1,
               "kind":"bundle",
               "bundle":{
-                "default_variant":"en",
+                "default_variant":{"strategy":"static","id":"en"},
                 "variants":[
                   {"id":"en","path":"en.md","label":"English"},
                   {"id":"ko","path":"ko.md","label":"Korean"}
@@ -284,6 +316,112 @@ mod tests {
     }
 
     #[test]
+    fn ledger_groups_authored_directory_into_one_directory_block() {
+        let root = temp_root("authored-directory");
+        let content = root.join("content");
+        fs::create_dir_all(content.join(".site/errors")).unwrap();
+        fs::create_dir_all(content.join(".site/keys")).unwrap();
+        fs::create_dir_all(content.join(".websh/errors")).unwrap();
+        fs::write(
+            content.join(".site/_index.dir.json"),
+            r#"{"schema":1,"kind":"directory","authored":{"title":"Site support","date":"2026-05-01"},"derived":{"kind":"directory"}}"#,
+        )
+        .unwrap();
+        fs::write(content.join(".site/now.toml"), b"[[items]]\n").unwrap();
+        fs::write(content.join(".site/now.meta.json"), b"{\"schema\":1}").unwrap();
+        fs::write(content.join(".site/keys/wonjae.asc"), b"key").unwrap();
+        fs::write(content.join(".site/errors/404.md"), b"not found").unwrap();
+        fs::write(content.join(".site/errors/empty.md"), b"").unwrap();
+        fs::write(content.join(".site/.DS_Store"), b"local").unwrap();
+        fs::write(content.join(".site/keys/.gitkeep"), b"").unwrap();
+        fs::write(content.join(".websh/errors/404.md"), b"websh error").unwrap();
+
+        let ledger = generate_content_ledger(&root, Path::new("content")).unwrap();
+
+        assert_eq!(ledger.blocks.len(), 1);
+        let entry = &ledger.blocks[0].entry;
+        assert_eq!(entry.path, ".site");
+        assert_eq!(entry.route, "/.site");
+        assert_eq!(entry.category, ContentLedgerCategory::Misc);
+        let paths = entry
+            .content_files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect::<Vec<_>>();
+        assert!(paths.contains(&"content/.site/_index.dir.json"));
+        assert!(paths.contains(&"content/.site/now.meta.json"));
+        assert!(paths.contains(&"content/.site/now.toml"));
+        assert!(paths.contains(&"content/.site/keys/wonjae.asc"));
+        assert!(paths.contains(&"content/.site/errors/404.md"));
+        assert!(paths.contains(&"content/.site/errors/empty.md"));
+        assert!(!paths.contains(&"content/.site/.DS_Store"));
+        assert!(!paths.contains(&"content/.site/keys/.gitkeep"));
+        assert!(!paths.contains(&"content/.websh/errors/404.md"));
+        let empty = entry
+            .content_files
+            .iter()
+            .find(|file| file.path == "content/.site/errors/empty.md")
+            .expect("zero-byte directory file is signed");
+        assert_eq!(empty.bytes, 0);
+        assert!(
+            !ledger
+                .blocks
+                .iter()
+                .any(|block| block.entry.path == ".site/now.toml")
+        );
+        ledger.validate().unwrap();
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn ledger_does_not_group_directory_without_authored_metadata() {
+        let root = temp_root("directory-empty-authored");
+        let content = root.join("content");
+        fs::create_dir_all(content.join("writing")).unwrap();
+        fs::write(
+            content.join("writing/_index.dir.json"),
+            r#"{"schema":1,"kind":"directory","authored":{},"derived":{"kind":"directory"}}"#,
+        )
+        .unwrap();
+        fs::write(content.join("writing/hello.md"), b"hello").unwrap();
+
+        let ledger = generate_content_ledger(&root, Path::new("content")).unwrap();
+        assert!(
+            ledger
+                .blocks
+                .iter()
+                .any(|block| block.entry.path == "writing/hello.md")
+        );
+        assert!(
+            !ledger
+                .blocks
+                .iter()
+                .any(|block| block.entry.path == "writing")
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn ledger_rejects_legacy_site_directory_kind() {
+        let root = temp_root("site-legacy-kind");
+        let content = root.join("content");
+        fs::create_dir_all(content.join(".site")).unwrap();
+        fs::write(
+            content.join(".site/_index.dir.json"),
+            r#"{"schema":1,"kind":"site","authored":{"title":"Site"},"derived":{"kind":"site"}}"#,
+        )
+        .unwrap();
+        fs::write(content.join(".site/now.toml"), b"[[items]]\n").unwrap();
+
+        let err = generate_content_ledger(&root, Path::new("content")).unwrap_err();
+        assert!(err.to_string().contains("parse"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn ledger_rejects_bundle_root_route_collision() {
         let root = temp_root("bundle-collision");
         let content = root.join("content");
@@ -294,7 +432,7 @@ mod tests {
               "schema":1,
               "kind":"bundle",
               "bundle":{
-                "default_variant":"en",
+                "default_variant":{"strategy":"static","id":"en"},
                 "variants":[{"id":"en","path":"en.md","label":"English"}]
               },
               "authored":{"title":"Foo"},
@@ -306,13 +444,12 @@ mod tests {
         fs::write(content.join("writing/foo.md"), b"collision").unwrap();
 
         let err = generate_content_ledger(&root, Path::new("content")).unwrap_err();
-        let bundle_error = err
-            .downcast_ref::<BundleValidationError>()
-            .expect("bundle route collision error");
+        let route_error = err
+            .downcast_ref::<RouteCatalogError>()
+            .expect("route catalog collision error");
         assert!(matches!(
-            bundle_error,
-            BundleValidationError::RootRouteCollision { file_path, .. }
-                if file_path == "writing/foo.md"
+            route_error,
+            RouteCatalogError::RouteCollision { route, .. } if route == "/writing/foo"
         ));
 
         fs::remove_dir_all(root).unwrap();

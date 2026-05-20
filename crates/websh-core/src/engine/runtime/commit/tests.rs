@@ -1,7 +1,11 @@
 use std::rc::Rc;
 use std::sync::Mutex;
 
-use crate::domain::{ChangeType, EntryExtensions, Fields, NodeKind, NodeMetadata, SCHEMA_VERSION};
+use crate::domain::{
+    BundleDefaultVariant, BundleMetadata, BundleVariant, ChangeType, EntryExtensions, Fields,
+    NodeKind, NodeMetadata, SCHEMA_VERSION,
+};
+use crate::filesystem::RouteCatalogError;
 use crate::ports::{
     CommitBase, CommitRequest, LocalBoxFuture, ScannedFile, ScannedSubtree, StorageBackend,
     StorageBackendRef, StorageResult,
@@ -16,6 +20,31 @@ fn blank_meta() -> NodeMetadata {
         bundle: None,
         authored: Fields::default(),
         derived: Fields::default(),
+    }
+}
+
+fn bundle_meta(default_variant: &str, variants: Vec<BundleVariant>) -> NodeMetadata {
+    NodeMetadata {
+        schema: SCHEMA_VERSION,
+        kind: NodeKind::Bundle,
+        bundle: Some(BundleMetadata {
+            default_variant: BundleDefaultVariant::Static {
+                id: default_variant.to_string(),
+            },
+            variants,
+        }),
+        authored: Fields::default(),
+        derived: Fields::default(),
+    }
+}
+
+fn variant(id: &str, path: &str, label: &str) -> BundleVariant {
+    BundleVariant {
+        id: id.to_string(),
+        path: path.to_string(),
+        label: label.to_string(),
+        locale: None,
+        media_type: None,
     }
 }
 
@@ -152,6 +181,155 @@ async fn prepared_commit_contains_merged_staged_snapshot() {
     assert_eq!(request.cleanup_paths, vec![p("/new.md")]);
     assert_eq!(request.expected_head.as_deref(), Some("old"));
     assert_eq!(request.auth_token, None);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn prepared_commit_rejects_staged_route_collision() {
+    let backend: StorageBackendRef = Rc::new(PrepareBackend {
+        scan: Mutex::new(Some(ScannedSubtree::default())),
+    });
+    let mut changes = ChangeSet::new();
+    for path in ["/writing/foo/ko.md", "/writing/foo/ko.html"] {
+        upsert(
+            &mut changes,
+            p(path),
+            ChangeType::CreateFile {
+                content: "body".to_string(),
+                meta: blank_meta(),
+                extensions: EntryExtensions::default(),
+            },
+        );
+    }
+
+    let error = prepare_commit(
+        &backend,
+        &VirtualPath::root(),
+        &changes,
+        "msg".to_string(),
+        Some("old".to_string()),
+        None,
+    )
+    .await
+    .unwrap_err();
+
+    assert!(matches!(
+        error,
+        CommitError::Prepare(CommitPrepareError::RouteCatalog {
+            source: RouteCatalogError::RouteCollision { route, .. }
+        }) if route == "/writing/foo/ko"
+    ));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn prepared_commit_rejects_staged_bundle_default_target_route_collision() {
+    let backend: StorageBackendRef = Rc::new(PrepareBackend {
+        scan: Mutex::new(Some(ScannedSubtree::default())),
+    });
+    let mut changes = ChangeSet::new();
+    upsert(
+        &mut changes,
+        p("/writing/foo"),
+        ChangeType::CreateDirectory {
+            meta: bundle_meta("en", vec![variant("en", "en.md", "English")]),
+        },
+    );
+    for path in ["/writing/foo/en.md", "/writing/foo/en.html"] {
+        upsert(
+            &mut changes,
+            p(path),
+            ChangeType::CreateFile {
+                content: "body".to_string(),
+                meta: blank_meta(),
+                extensions: EntryExtensions::default(),
+            },
+        );
+    }
+
+    let error = prepare_commit(
+        &backend,
+        &VirtualPath::root(),
+        &changes,
+        "msg".to_string(),
+        Some("old".to_string()),
+        None,
+    )
+    .await
+    .unwrap_err();
+
+    assert!(matches!(
+        error,
+        CommitError::Prepare(CommitPrepareError::RouteCatalog {
+            source: RouteCatalogError::RouteCollision { route, .. }
+        }) if route == "/writing/foo/en"
+    ));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn prepared_commit_accepts_valid_bundle_variant_snapshot() {
+    let backend: StorageBackendRef = Rc::new(PrepareBackend {
+        scan: Mutex::new(Some(ScannedSubtree::default())),
+    });
+    let mut changes = ChangeSet::new();
+    upsert(
+        &mut changes,
+        p("/writing/foo"),
+        ChangeType::CreateDirectory {
+            meta: bundle_meta(
+                "en",
+                vec![
+                    variant("en", "en.md", "English"),
+                    variant("print_pdf", "print.pdf", "Print PDF"),
+                ],
+            ),
+        },
+    );
+    upsert(
+        &mut changes,
+        p("/writing/foo/en.md"),
+        ChangeType::CreateFile {
+            content: "english".to_string(),
+            meta: blank_meta(),
+            extensions: EntryExtensions::default(),
+        },
+    );
+    upsert(
+        &mut changes,
+        p("/writing/foo/print.pdf"),
+        ChangeType::CreateFile {
+            content: "%PDF-1.4".to_string(),
+            meta: NodeMetadata {
+                kind: NodeKind::Document,
+                ..blank_meta()
+            },
+            extensions: EntryExtensions::default(),
+        },
+    );
+
+    let request = prepare_commit(
+        &backend,
+        &VirtualPath::root(),
+        &changes,
+        "msg".to_string(),
+        Some("old".to_string()),
+        None,
+    )
+    .await
+    .expect("valid bundle commit prepares");
+
+    assert!(
+        request
+            .merged_snapshot
+            .directories
+            .iter()
+            .any(|dir| dir.path == "writing/foo" && dir.meta.is_bundle())
+    );
+    assert!(
+        request
+            .merged_snapshot
+            .files
+            .iter()
+            .any(|file| file.path == "writing/foo/print.pdf")
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]

@@ -666,10 +666,6 @@
   color: var(--home-amber);
 }
 
-.file {
-  color: var(--home-ink);
-}
-
 .cursor {
   display: inline-block;
   flex: none;

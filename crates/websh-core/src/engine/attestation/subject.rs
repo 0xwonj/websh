@@ -64,6 +64,12 @@ pub struct BundleSubject {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DirectorySubject {
+    #[serde(flatten)]
+    pub env: Envelope,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Subject {
     Homepage(HomepageSubject),
@@ -71,6 +77,7 @@ pub enum Subject {
     Document(DocumentSubject),
     Page(PageSubject),
     Bundle(BundleSubject),
+    Directory(DirectorySubject),
 }
 
 impl Subject {
@@ -81,6 +88,7 @@ impl Subject {
             Subject::Document(s) => &s.env,
             Subject::Page(s) => &s.env,
             Subject::Bundle(s) => &s.env,
+            Subject::Directory(s) => &s.env,
         }
     }
 
@@ -91,6 +99,7 @@ impl Subject {
             Subject::Document(s) => &mut s.env,
             Subject::Page(s) => &mut s.env,
             Subject::Bundle(s) => &mut s.env,
+            Subject::Directory(s) => &mut s.env,
         }
     }
 
@@ -121,6 +130,7 @@ impl Subject {
             Subject::Document(_) => "document",
             Subject::Page(_) => "page",
             Subject::Bundle(_) => "bundle",
+            Subject::Directory(_) => "directory",
         }
     }
 
@@ -164,6 +174,11 @@ impl Subject {
             ),
             Subject::Bundle(_) => format!(
                 "id={id}\nroute={route}\nkind=bundle\ncontent_sha256={content_sha256}\nissued_at={issued_at}",
+                route = env.route,
+                issued_at = env.issued_at,
+            ),
+            Subject::Directory(_) => format!(
+                "id={id}\nroute={route}\nkind=directory\ncontent_sha256={content_sha256}\nissued_at={issued_at}",
                 route = env.route,
                 issued_at = env.issued_at,
             ),
@@ -307,12 +322,24 @@ mod tests {
         })
     }
 
+    fn directory() -> Subject {
+        Subject::Directory(DirectorySubject {
+            env: Envelope {
+                route: "/.site".to_string(),
+                issued_at: "2026-04-30".to_string(),
+                content_files: sample_files(),
+                attestations: Vec::new(),
+            },
+        })
+    }
+
     #[test]
     fn id_is_route_prefixed() {
         assert_eq!(homepage().id(), "route:/");
         assert_eq!(ledger().id(), "route:/ledger");
         assert_eq!(document().id(), "route:/keys/wonjae.asc");
         assert_eq!(bundle().id(), "route:/writing/foo");
+        assert_eq!(directory().id(), "route:/.site");
     }
 
     #[test]
@@ -322,6 +349,7 @@ mod tests {
         assert_eq!(document().kind_str(), "document");
         assert_eq!(page().kind_str(), "page");
         assert_eq!(bundle().kind_str(), "bundle");
+        assert_eq!(directory().kind_str(), "directory");
     }
 
     #[test]
@@ -375,6 +403,16 @@ mod tests {
     }
 
     #[test]
+    fn canonical_message_directory_is_exact() {
+        let subject = directory();
+        let content_sha = subject.content_sha256().unwrap();
+        let expected = format!(
+            "websh.subject.v1\nid=route:/.site\nroute=/.site\nkind=directory\ncontent_sha256={content_sha}\nissued_at=2026-04-30"
+        );
+        assert_eq!(subject.canonical_message().unwrap(), expected);
+    }
+
+    #[test]
     fn canonical_message_is_deterministic() {
         let subject = homepage();
         assert_eq!(
@@ -407,6 +445,7 @@ mod tests {
         assert!(document().validate().is_ok());
         assert!(page().validate().is_ok());
         assert!(bundle().validate().is_ok());
+        assert!(directory().validate().is_ok());
     }
 
     #[test]
@@ -494,6 +533,31 @@ mod tests {
         let back: Subject = serde_json::from_str(&json).unwrap();
         assert_eq!(subject, back);
         assert!(json.contains("\"kind\":\"bundle\""));
+    }
+
+    #[test]
+    fn serde_roundtrip_directory() {
+        let subject = directory();
+        let json = serde_json::to_string(&subject).unwrap();
+        let back: Subject = serde_json::from_str(&json).unwrap();
+        assert_eq!(subject, back);
+        assert!(json.contains("\"kind\":\"directory\""));
+        assert!(!json.contains("\"chain_head\""));
+        assert!(!json.contains("\"ack_combined_root\""));
+    }
+
+    #[test]
+    fn serde_rejects_legacy_site_kind() {
+        let json = r#"{
+            "kind": "site",
+            "route": "/.site",
+            "issued_at": "2026-04-30",
+            "content_files": [],
+            "attestations": []
+        }"#;
+
+        let parsed = serde_json::from_str::<Subject>(json);
+        assert!(parsed.is_err());
     }
 
     #[test]

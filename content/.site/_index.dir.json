@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "kind": "directory",
+  "authored": {
+    "title": "Site",
+    "description": "Runtime support and trust metadata for the site.",
+    "tags": [
+      "keys",
+      "errors",
+      "now"
+    ]
+  },
+  "derived": {
+    "title": ".site",
+    "kind": "directory",
+    "renderer": "directory_listing",
+    "child_count": 3
+  }
+}

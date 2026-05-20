@@ -2,14 +2,87 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
+use crate::support::normalize_locale_tag;
+
 pub type BundleValidationResult<T = ()> = Result<T, BundleValidationError>;
 
 /// Top-level metadata for a renderable directory bundle.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BundleMetadata {
-    pub default_variant: String,
+    pub default_variant: BundleDefaultVariant,
     pub variants: Vec<BundleVariant>,
+}
+
+/// Policy used when a request targets a bundle directory.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "strategy", rename_all = "snake_case", deny_unknown_fields)]
+pub enum BundleDefaultVariant {
+    /// The bundle root is the canonical route for one declared variant.
+    Static { id: String },
+    /// The bundle root selects a localized explicit variant route.
+    Locale { fallback: String },
+}
+
+impl BundleMetadata {
+    /// Declared default id used by metadata-only consumers.
+    ///
+    /// Locale selection is user-specific and belongs at request time; places
+    /// like ledgers and directory summaries should use this stable id.
+    pub fn default_variant_id(&self) -> &str {
+        self.default_variant.variant_id()
+    }
+
+    pub fn static_default_variant_id(&self) -> Option<&str> {
+        match &self.default_variant {
+            BundleDefaultVariant::Static { id } => Some(id),
+            BundleDefaultVariant::Locale { .. } => None,
+        }
+    }
+
+    pub fn is_static_default_variant(&self, variant_id: &str) -> bool {
+        self.static_default_variant_id() == Some(variant_id)
+    }
+
+    pub fn is_locale_default_strategy(&self) -> bool {
+        matches!(self.default_variant, BundleDefaultVariant::Locale { .. })
+    }
+
+    pub fn variant_by_id(&self, variant_id: &str) -> Option<&BundleVariant> {
+        self.variants
+            .iter()
+            .find(|variant| variant.id == variant_id)
+    }
+
+    pub fn selected_variant_for_locale(&self, raw_locale: Option<&str>) -> Option<&BundleVariant> {
+        match &self.default_variant {
+            BundleDefaultVariant::Static { id } => self.variant_by_id(id),
+            BundleDefaultVariant::Locale { fallback } => {
+                if let Some(requested) = raw_locale.and_then(normalize_locale_tag)
+                    && let Some(variant) = self.variants.iter().find(|variant| {
+                        variant
+                            .locale
+                            .as_deref()
+                            .and_then(normalize_locale_tag)
+                            .as_deref()
+                            == Some(requested.as_str())
+                    })
+                {
+                    return Some(variant);
+                }
+                self.variant_by_id(fallback)
+            }
+        }
+    }
+}
+
+impl BundleDefaultVariant {
+    pub fn variant_id(&self) -> &str {
+        match self {
+            Self::Static { id } => id,
+            Self::Locale { fallback } => fallback,
+        }
+    }
 }
 
 /// One declared rendition inside a bundle directory.
@@ -27,7 +100,7 @@ pub struct BundleVariant {
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum BundleValidationError {
-    #[error("bundle {bundle_path} has an empty default_variant")]
+    #[error("bundle {bundle_path} has an empty default_variant id")]
     EmptyDefaultVariant { bundle_path: String },
     #[error("bundle {bundle_path} declares duplicate variant id `{variant_id}`")]
     DuplicateVariantId {
@@ -81,21 +154,6 @@ pub enum BundleValidationError {
         variant_id: String,
         path: String,
     },
-    #[error("bundle {bundle_path} route `{route}` collides with file `{file_path}`")]
-    RootRouteCollision {
-        bundle_path: String,
-        route: String,
-        file_path: String,
-    },
-    #[error(
-        "bundle {bundle_path} variant `{variant_id}` route `{route}` collides with file `{file_path}`"
-    )]
-    VariantRouteCollision {
-        bundle_path: String,
-        variant_id: String,
-        route: String,
-        file_path: String,
-    },
 }
 
 pub fn validate_bundle_metadata(
@@ -106,7 +164,8 @@ pub fn validate_bundle_metadata(
     let mut paths = BTreeSet::new();
     let bundle_path = display_bundle_path(bundle_path).to_string();
 
-    if bundle.default_variant.trim().is_empty() {
+    let default_variant_id = bundle.default_variant_id();
+    if default_variant_id.trim().is_empty() {
         return Err(BundleValidationError::EmptyDefaultVariant { bundle_path });
     }
 
@@ -126,10 +185,10 @@ pub fn validate_bundle_metadata(
         }
     }
 
-    if !ids.contains(&bundle.default_variant) {
+    if !ids.contains(default_variant_id) {
         return Err(BundleValidationError::DefaultVariantMissing {
             bundle_path,
-            default_variant: bundle.default_variant.clone(),
+            default_variant: default_variant_id.to_string(),
         });
     }
 
@@ -148,49 +207,6 @@ where
     for variant in &bundle.variants {
         validate_variant_target(variant)?;
     }
-    Ok(())
-}
-
-pub fn validate_bundle_route_collisions<'a>(
-    bundle_path: &str,
-    bundle: &BundleMetadata,
-    file_paths: impl IntoIterator<Item = &'a str>,
-    route_for_path: impl Fn(&str) -> String,
-) -> BundleValidationResult {
-    let display_path = display_bundle_path(bundle_path).to_string();
-    let bundle_route = route_for_path(bundle_path);
-    let declared_variant_paths = bundle
-        .variants
-        .iter()
-        .map(|variant| join_bundle_path(bundle_path, &variant.path))
-        .collect::<BTreeSet<_>>();
-
-    for file_path in file_paths {
-        if declared_variant_paths.contains(file_path) {
-            continue;
-        }
-
-        let file_route = route_for_path(file_path);
-        if file_route == bundle_route {
-            return Err(BundleValidationError::RootRouteCollision {
-                bundle_path: display_path,
-                route: bundle_route,
-                file_path: file_path.to_string(),
-            });
-        }
-        for variant in &bundle.variants {
-            let variant_route = join_route(&bundle_route, &variant.id);
-            if file_route == variant_route {
-                return Err(BundleValidationError::VariantRouteCollision {
-                    bundle_path: display_path,
-                    variant_id: variant.id.clone(),
-                    route: variant_route,
-                    file_path: file_path.to_string(),
-                });
-            }
-        }
-    }
-
     Ok(())
 }
 
@@ -269,22 +285,6 @@ fn display_bundle_path(path: &str) -> &str {
     if path.is_empty() { "/" } else { path }
 }
 
-fn join_bundle_path(base: &str, child: &str) -> String {
-    if base.is_empty() {
-        child.to_string()
-    } else {
-        format!("{base}/{child}")
-    }
-}
-
-fn join_route(base: &str, child: &str) -> String {
-    if base == "/" {
-        format!("/{child}")
-    } else {
-        format!("{base}/{child}")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -299,10 +299,91 @@ mod tests {
         }
     }
 
+    fn static_default(id: &str) -> BundleDefaultVariant {
+        BundleDefaultVariant::Static { id: id.to_string() }
+    }
+
+    fn locale_default(fallback: &str) -> BundleDefaultVariant {
+        BundleDefaultVariant::Locale {
+            fallback: fallback.to_string(),
+        }
+    }
+
+    #[test]
+    fn deserializes_object_default_variant_schema() {
+        let bundle = serde_json::from_str::<BundleMetadata>(
+            r#"{
+              "default_variant":{"strategy":"locale","fallback":"en"},
+              "variants":[
+                {"id":"en","path":"en.md","label":"English","locale":"en"},
+                {"id":"ko","path":"ko.md","label":"Korean","locale":"ko"}
+              ]
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(bundle.default_variant, locale_default("en"));
+        assert_eq!(
+            bundle
+                .selected_variant_for_locale(Some("ko-KR"))
+                .map(|variant| variant.id.as_str()),
+            Some("ko")
+        );
+        assert_eq!(
+            bundle
+                .selected_variant_for_locale(Some("fr-FR"))
+                .map(|variant| variant.id.as_str()),
+            Some("en")
+        );
+    }
+
+    #[test]
+    fn rejects_legacy_string_default_variant_schema() {
+        let parsed = serde_json::from_str::<BundleMetadata>(
+            r#"{
+              "default_variant":"en",
+              "variants":[{"id":"en","path":"en.md","label":"English"}]
+            }"#,
+        );
+
+        assert!(parsed.is_err());
+    }
+
+    #[test]
+    fn rejects_unknown_default_variant_fields() {
+        let parsed = serde_json::from_str::<BundleMetadata>(
+            r#"{
+              "default_variant":{"strategy":"static","id":"en","extra":true},
+              "variants":[{"id":"en","path":"en.md","label":"English"}]
+            }"#,
+        );
+
+        assert!(parsed.is_err());
+    }
+
+    #[test]
+    fn rejects_missing_strategy_payload_fields() {
+        let missing_id = serde_json::from_str::<BundleMetadata>(
+            r#"{
+              "default_variant":{"strategy":"static"},
+              "variants":[{"id":"en","path":"en.md","label":"English"}]
+            }"#,
+        );
+        let missing_fallback = serde_json::from_str::<BundleMetadata>(
+            r#"{
+              "default_variant":{"strategy":"locale"},
+              "variants":[{"id":"en","path":"en.md","label":"English"}]
+            }"#,
+        );
+
+        assert!(missing_id.is_err());
+        assert!(missing_fallback.is_err());
+    }
+
     #[test]
     fn rejects_variant_ids_with_dots() {
         let bundle = BundleMetadata {
-            default_variant: "ko.md".to_string(),
+            default_variant: static_default("ko.md"),
             variants: vec![variant("ko.md", "ko.md")],
         };
 
@@ -317,7 +398,7 @@ mod tests {
     #[test]
     fn accepts_slug_like_non_language_variant_ids() {
         let bundle = BundleMetadata {
-            default_variant: "print_pdf".to_string(),
+            default_variant: static_default("print_pdf"),
             variants: vec![variant("print_pdf", "print.pdf")],
         };
 
@@ -327,7 +408,7 @@ mod tests {
     #[test]
     fn rejects_sidecar_variant_paths() {
         let bundle = BundleMetadata {
-            default_variant: "en".to_string(),
+            default_variant: static_default("en"),
             variants: vec![variant("en", "en.meta.json")],
         };
 
@@ -340,62 +421,32 @@ mod tests {
     }
 
     #[test]
-    fn rejects_root_route_collisions() {
+    fn rejects_undeclared_static_default_variant() {
         let bundle = BundleMetadata {
-            default_variant: "en".to_string(),
+            default_variant: static_default("fr"),
             variants: vec![variant("en", "en.md")],
         };
 
-        let err = validate_bundle_route_collisions(
-            "writing/foo",
-            &bundle,
-            ["writing/foo/en.md", "writing/foo.md"],
-            test_route_for_path,
-        )
-        .unwrap_err();
-
+        let err = validate_bundle_metadata("writing/foo", &bundle).unwrap_err();
         assert!(matches!(
             err,
-            BundleValidationError::RootRouteCollision { file_path, .. }
-                if file_path == "writing/foo.md"
+            BundleValidationError::DefaultVariantMissing { default_variant, .. }
+                if default_variant == "fr"
         ));
     }
 
     #[test]
-    fn rejects_variant_route_collisions_except_declared_variant_path() {
+    fn rejects_undeclared_locale_fallback_variant() {
         let bundle = BundleMetadata {
-            default_variant: "print".to_string(),
-            variants: vec![variant("print", "print.pdf")],
+            default_variant: locale_default("fr"),
+            variants: vec![variant("en", "en.md")],
         };
 
-        let err = validate_bundle_route_collisions(
-            "writing/foo",
-            &bundle,
-            ["writing/foo/print.pdf", "writing/foo/print.md"],
-            test_route_for_path,
-        )
-        .unwrap_err();
-
+        let err = validate_bundle_metadata("writing/foo", &bundle).unwrap_err();
         assert!(matches!(
             err,
-            BundleValidationError::VariantRouteCollision {
-                variant_id,
-                file_path,
-                ..
-            } if variant_id == "print" && file_path == "writing/foo/print.md"
+            BundleValidationError::DefaultVariantMissing { default_variant, .. }
+                if default_variant == "fr"
         ));
-    }
-
-    fn test_route_for_path(path: &str) -> String {
-        let normalized = path.trim_matches('/');
-        if normalized.is_empty() {
-            return "/".to_string();
-        }
-        for suffix in [".page.html", ".page.md", ".html", ".md", ".link", ".app"] {
-            if let Some(route) = normalized.strip_suffix(suffix) {
-                return format!("/{route}");
-            }
-        }
-        format!("/{normalized}")
     }
 }

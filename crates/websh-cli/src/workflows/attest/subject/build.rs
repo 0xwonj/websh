@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
 use websh_core::attestation::artifact::{
-    AttestationArtifact, BundleSubject, ContentFile, DocumentSubject, Envelope, HomepageSubject,
-    LedgerSubject, PageSubject, Subject,
+    AttestationArtifact, BundleSubject, ContentFile, DirectorySubject, DocumentSubject, Envelope,
+    HomepageSubject, LedgerSubject, PageSubject, Subject,
 };
 use websh_core::attestation::ledger::ContentLedger;
 use websh_site::PUBLIC_KEY_PATH;
@@ -92,6 +92,7 @@ fn build_unattested_subject(
         SubjectKind::Document => Subject::Document(DocumentSubject { env }),
         SubjectKind::Page => Subject::Page(PageSubject { env }),
         SubjectKind::Bundle => Subject::Bundle(BundleSubject { env }),
+        SubjectKind::Directory => Subject::Directory(DirectorySubject { env }),
     };
 
     Ok(subject)
