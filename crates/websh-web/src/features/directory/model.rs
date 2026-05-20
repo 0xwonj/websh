@@ -9,7 +9,6 @@ use websh_core::support::format::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct DirectoryModel {
     pub(super) kind: NodeKind,
-    pub(super) path_label: String,
     pub(super) title: String,
     pub(super) description: Option<String>,
     pub(super) date: Option<String>,
@@ -142,7 +141,6 @@ pub(super) fn build_directory_model_with_bundle_context(
 
     DirectoryModel {
         kind,
-        path_label: path_label(path),
         title,
         description,
         date,
@@ -450,14 +448,6 @@ fn title_for_path(path: &VirtualPath) -> String {
         .unwrap_or_else(|| path.as_str().trim_matches('/').to_string())
 }
 
-fn path_label(path: &VirtualPath) -> String {
-    if path.is_root() {
-        "~".to_string()
-    } else {
-        format!("~{}", path.as_str())
-    }
-}
-
 #[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
     use super::*;
@@ -595,7 +585,6 @@ mod tests {
 
         assert_eq!(model.kind, NodeKind::Directory);
         assert_eq!(model.title, "Site");
-        assert_eq!(model.path_label, "~/.site");
         assert_eq!(model.entry_count, 2);
         assert_eq!(
             model

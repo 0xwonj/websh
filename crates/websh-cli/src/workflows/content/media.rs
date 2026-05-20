@@ -8,8 +8,8 @@ use super::frontmatter::strip_yaml_frontmatter;
 
 /// Compute file-type-specific derived fields (page_size for PDFs,
 /// dimensions for images, word_count for markdown). Filesystem-level
-/// fields (`size_bytes`, `modified_at`, `content_sha256`) are populated
-/// by the caller.
+/// sidecar fields (`size_bytes`, `content_sha256`) are populated by the
+/// caller; `modified_at` is a manifest-only projection from Git history.
 pub(crate) fn derived_for_path(
     file_path: &Path,
     rel_path: &str,

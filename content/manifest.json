@@ -10,7 +10,7 @@
           "title": "Home",
           "kind": "directory",
           "renderer": "directory_listing",
-          "modified_at": 1779062096,
+          "modified_at": 1779251200,
           "child_count": 6
         }
       }
@@ -33,6 +33,7 @@
           "title": ".site",
           "kind": "directory",
           "renderer": "directory_listing",
+          "modified_at": 1779251200,
           "child_count": 3
         }
       }
@@ -49,6 +50,7 @@
           "title": "errors",
           "kind": "directory",
           "renderer": "directory_listing",
+          "modified_at": 1779251200,
           "child_count": 1
         }
       }
@@ -59,12 +61,14 @@
         "schema": 1,
         "kind": "directory",
         "authored": {
-          "description": "Public keys used to verify site identity and attestations."
+          "description": "Public keys used to verify site identity and attestations.",
+          "date": "2026-04-20"
         },
         "derived": {
           "title": "keys",
           "kind": "directory",
           "renderer": "directory_listing",
+          "modified_at": 1779251200,
           "child_count": 1
         }
       }
@@ -277,6 +281,7 @@
           "kind": "page",
           "renderer": "markdown_page",
           "size_bytes": 582,
+          "modified_at": 1779251200,
           "content_sha256": "0x0621834d4f48da42dcc8bd35bc8f940ab60cd865047e7af7e431732a7768d922",
           "word_count": 79
         }
@@ -295,6 +300,7 @@
           "title": "wonjae",
           "kind": "document",
           "size_bytes": 640,
+          "modified_at": 1779251200,
           "content_sha256": "0xe2b439e3359273df2e82a30b5b0f68990626abf89065c5f71fb7189bee781c5b"
         }
       }
@@ -311,6 +317,7 @@
           "title": "now",
           "kind": "document",
           "size_bytes": 298,
+          "modified_at": 1779251200,
           "content_sha256": "0x402f591372dc8f8a28265338f0a4ca7367656b5cac1000fd3f7adee608c4691a"
         }
       }
@@ -324,7 +331,7 @@
         "derived": {
           "title": "ledger",
           "kind": "data",
-          "size_bytes": 7546
+          "size_bytes": 7545
         }
       }
     },

@@ -2,7 +2,8 @@
   "schema": 1,
   "kind": "directory",
   "authored": {
-    "description": "Public keys used to verify site identity and attestations."
+    "description": "Public keys used to verify site identity and attestations.",
+    "date": "2026-04-20"
   },
   "derived": {
     "title": "keys",

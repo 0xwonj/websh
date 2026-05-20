@@ -10,8 +10,8 @@ use crate::CliResult;
 use crate::infra::json::write_json;
 
 use super::files::{
-    CONTENT_MANIFEST_FILE, collect_files_recursive, has_authored_metadata, relative_path_from,
-    resolve_path, should_skip_content_file, should_skip_primary_content_file,
+    CONTENT_MANIFEST_FILE, collect_files_recursive, relative_path_from, resolve_path,
+    should_skip_content_file, should_skip_primary_content_file,
 };
 use super::modified_at::GitModifiedAt;
 use super::sidecar::{
@@ -20,6 +20,12 @@ use super::sidecar::{
 };
 
 pub(crate) const DEFAULT_CONTENT_DIR: &str = "content";
+
+#[derive(Debug, Default)]
+struct ModifiedAtIndex {
+    files: BTreeMap<String, u64>,
+    directories: BTreeMap<String, u64>,
+}
 
 /// Canonical entry point: walk the content tree, refresh every node's
 /// sidecar (recompute `derived` fields and merge frontmatter into
@@ -47,25 +53,19 @@ pub(crate) fn sync_content(root: &Path, content_dir: &Path) -> CliResult<Content
         if should_skip_primary_content_file(&rel_path) {
             continue;
         }
-        let file_modified_at = modified_at.timestamp_for_path(file_path)?;
-        sync_file_sidecar(&content_root, file_path, &rel_path, file_modified_at)?;
+        sync_file_sidecar(&content_root, file_path, &rel_path)?;
     }
 
     // Second pass: refresh directory sidecars.
     let directories = enumerate_directories_from_files(&content_root, &all_files)?;
-    let directory_modified_at =
-        build_directory_modified_at(&content_root, &all_files, &mut modified_at)?;
     for dir_rel in &directories {
-        sync_directory_sidecar(
-            &content_root,
-            dir_rel,
-            directory_modified_at.get(dir_rel).copied(),
-        )?;
+        sync_directory_sidecar(&content_root, dir_rel)?;
     }
 
     // Third pass: build manifest from current sidecars + the file list
     // we already have on hand.
-    bundle_manifest(&content_root, &all_files, &directories)
+    let modified_at = build_modified_at_index(&content_root, &all_files, &mut modified_at)?;
+    bundle_manifest(&content_root, &all_files, &directories, &modified_at)
 }
 
 /// Internal-only: re-fold `manifest.json` from existing sidecars without
@@ -89,7 +89,9 @@ pub(crate) fn build_manifest_from_sidecars(
     let mut all_files = Vec::new();
     collect_files_recursive(&content_root, &mut all_files)?;
     let directories = enumerate_directories_from_files(&content_root, &all_files)?;
-    bundle_manifest(&content_root, &all_files, &directories)
+    let mut modified_at = GitModifiedAt::new(root)?;
+    let modified_at = build_modified_at_index(&content_root, &all_files, &mut modified_at)?;
+    bundle_manifest(&content_root, &all_files, &directories, &modified_at)
 }
 
 /// Project current sidecars + filesystem state into a `manifest.json`
@@ -98,13 +100,15 @@ fn bundle_manifest(
     content_root: &Path,
     all_files: &[PathBuf],
     directories: &[String],
+    modified_at: &ModifiedAtIndex,
 ) -> CliResult<ContentManifestDocument> {
     let mut entries = Vec::new();
 
     // Directory entries first (canonical order).
     for dir_rel in directories {
-        let metadata = read_directory_sidecar(content_root, dir_rel)?
+        let mut metadata = read_directory_sidecar(content_root, dir_rel)?
             .unwrap_or_else(|| default_directory_metadata(dir_rel));
+        apply_manifest_modified_at(&mut metadata, modified_at.directories.get(dir_rel).copied());
         entries.push(ContentManifestEntry {
             path: dir_rel.clone(),
             metadata,
@@ -122,8 +126,9 @@ fn bundle_manifest(
         if should_skip_content_file(&rel_path) {
             continue;
         }
-        let metadata = read_file_sidecar(content_root, &rel_path)?
+        let mut metadata = read_file_sidecar(content_root, &rel_path)?
             .unwrap_or_else(|| default_file_metadata(file_path, &rel_path));
+        apply_manifest_modified_at(&mut metadata, modified_at.files.get(&rel_path).copied());
         file_entries.push(ContentManifestEntry {
             path: rel_path,
             metadata,
@@ -137,6 +142,10 @@ fn bundle_manifest(
     validate_manifest(&manifest)?;
     write_json(&content_root.join(CONTENT_MANIFEST_FILE), &manifest)?;
     Ok(manifest)
+}
+
+fn apply_manifest_modified_at(metadata: &mut websh_core::domain::NodeMetadata, value: Option<u64>) {
+    metadata.derived.modified_at = value;
 }
 
 fn validate_manifest(manifest: &ContentManifestDocument) -> CliResult {
@@ -156,41 +165,23 @@ fn content_parent_dirs(rel_path: &str) -> Vec<String> {
     out
 }
 
-fn build_directory_modified_at(
+fn build_modified_at_index(
     content_root: &Path,
     all_files: &[PathBuf],
     modified_at: &mut GitModifiedAt,
-) -> CliResult<BTreeMap<String, u64>> {
-    let mut directory_modified_at = BTreeMap::new();
+) -> CliResult<ModifiedAtIndex> {
+    let mut index = ModifiedAtIndex::default();
     for file_path in all_files {
         let rel_path = relative_path_from(content_root, file_path)?;
-        if !should_skip_primary_content_file(&rel_path) {
-            if let Some(timestamp) = modified_at.timestamp_for_path(file_path)? {
-                propagate_file_modified_at(&mut directory_modified_at, &rel_path, timestamp);
-            }
+        if should_skip_primary_content_file(&rel_path) {
             continue;
         }
-
-        let Some(dir_rel) = directory_rel_from_sidecar_rel(&rel_path) else {
-            continue;
-        };
-        let authored = read_directory_sidecar(content_root, &dir_rel)?.is_some_and(|metadata| {
-            metadata.bundle.is_some() || has_authored_metadata(&metadata.authored)
-        });
-        if authored && let Some(timestamp) = modified_at.timestamp_for_path(file_path)? {
-            propagate_directory_modified_at(&mut directory_modified_at, &dir_rel, timestamp);
+        if let Some(timestamp) = modified_at.timestamp_for_path(file_path)? {
+            index.files.insert(rel_path.clone(), timestamp);
+            propagate_file_modified_at(&mut index.directories, &rel_path, timestamp);
         }
     }
-    Ok(directory_modified_at)
-}
-
-fn directory_rel_from_sidecar_rel(rel_path: &str) -> Option<String> {
-    if rel_path == "_index.dir.json" {
-        return Some(String::new());
-    }
-    rel_path
-        .strip_suffix("/_index.dir.json")
-        .map(str::to_string)
+    Ok(index)
 }
 
 fn propagate_file_modified_at(
@@ -362,13 +353,13 @@ mod tests {
         let manifest = sync_content(&dir, Path::new(".")).expect("sync ok");
 
         let file_sidecar = read_sidecar(&dir.join("docs/readme.meta.json"));
-        assert_eq!(file_sidecar.derived.modified_at, Some(1_700_000_000));
+        assert_eq!(file_sidecar.derived.modified_at, None);
 
         let directory_sidecar = read_sidecar(&dir.join("docs/_index.dir.json"));
-        assert_eq!(directory_sidecar.derived.modified_at, Some(1_700_000_000));
+        assert_eq!(directory_sidecar.derived.modified_at, None);
 
         let root_sidecar = read_sidecar(&dir.join("_index.dir.json"));
-        assert_eq!(root_sidecar.derived.modified_at, Some(1_700_000_000));
+        assert_eq!(root_sidecar.derived.modified_at, None);
 
         let entry = manifest
             .entries
@@ -376,10 +367,22 @@ mod tests {
             .find(|entry| entry.path == "docs/readme.md")
             .expect("manifest entry");
         assert_eq!(entry.metadata.modified_at(), Some(1_700_000_000));
+        let directory = manifest
+            .entries
+            .iter()
+            .find(|entry| entry.path == "docs")
+            .expect("directory manifest entry");
+        assert_eq!(directory.metadata.modified_at(), Some(1_700_000_000));
+        let root = manifest
+            .entries
+            .iter()
+            .find(|entry| entry.path.is_empty())
+            .expect("root manifest entry");
+        assert_eq!(root.metadata.modified_at(), Some(1_700_000_000));
     }
 
     #[test]
-    fn authored_directory_sidecar_commit_can_drive_directory_modified_at() {
+    fn generated_sidecar_commit_does_not_drive_directory_modified_at() {
         let dir = tempdir();
         init_git(&dir);
         fs::create_dir_all(dir.join("docs")).unwrap();
@@ -398,13 +401,26 @@ mod tests {
         .unwrap();
         git_add_commit_at(&dir, 1_700_000_100, "describe docs");
 
-        sync_content(&dir, Path::new(".")).expect("sync ok");
+        let manifest = sync_content(&dir, Path::new(".")).expect("sync ok");
 
         let directory_sidecar = read_sidecar(&dir.join("docs/_index.dir.json"));
-        assert_eq!(directory_sidecar.derived.modified_at, Some(1_700_000_100));
+        assert_eq!(directory_sidecar.derived.modified_at, None);
 
         let root_sidecar = read_sidecar(&dir.join("_index.dir.json"));
-        assert_eq!(root_sidecar.derived.modified_at, Some(1_700_000_100));
+        assert_eq!(root_sidecar.derived.modified_at, None);
+
+        let directory = manifest
+            .entries
+            .iter()
+            .find(|entry| entry.path == "docs")
+            .expect("directory manifest entry");
+        assert_eq!(directory.metadata.modified_at(), Some(1_700_000_000));
+        let root = manifest
+            .entries
+            .iter()
+            .find(|entry| entry.path.is_empty())
+            .expect("root manifest entry");
+        assert_eq!(root.metadata.modified_at(), Some(1_700_000_000));
     }
 
     #[test]
@@ -413,13 +429,19 @@ mod tests {
         init_git(&dir);
         fs::write(dir.join("draft.md"), "untracked").unwrap();
 
-        sync_content(&dir, Path::new(".")).expect("sync ok");
+        let manifest = sync_content(&dir, Path::new(".")).expect("sync ok");
 
         let file_sidecar = read_sidecar(&dir.join("draft.meta.json"));
         assert_eq!(file_sidecar.derived.modified_at, None);
 
         let root_sidecar = read_sidecar(&dir.join("_index.dir.json"));
         assert_eq!(root_sidecar.derived.modified_at, None);
+        let entry = manifest
+            .entries
+            .iter()
+            .find(|entry| entry.path == "draft.md")
+            .expect("manifest entry");
+        assert_eq!(entry.metadata.modified_at(), None);
     }
 
     #[test]

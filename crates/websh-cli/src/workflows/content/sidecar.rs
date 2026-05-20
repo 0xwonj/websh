@@ -26,7 +26,6 @@ pub(crate) fn sync_file_sidecar(
     content_root: &Path,
     file_path: &Path,
     rel_path: &str,
-    modified_at: Option<u64>,
 ) -> CliResult {
     let metadata = fs::metadata(file_path)
         .with_context(|| format!("read metadata {}", file_path.display()))?;
@@ -40,10 +39,6 @@ pub(crate) fn sync_file_sidecar(
         .renderer
         .or_else(|| default_renderer_for_kind(kind, rel_path));
     derived.size_bytes = Some(metadata.len());
-    // `modified_at` comes from Git history, not filesystem mtime. Checkout
-    // mtimes diverge across clones and sidecar writes, while commit times
-    // stay stable enough for manifest and attestation inputs.
-    derived.modified_at = modified_at;
     derived.content_sha256 = Some(format!("0x{}", hex::encode(Sha256::digest(&bytes))));
 
     let sidecar_path = sidecar_path_for(content_root, rel_path);
@@ -75,11 +70,7 @@ pub(crate) fn sync_file_sidecar(
     write_json(&sidecar_path, &new_meta)
 }
 
-pub(crate) fn sync_directory_sidecar(
-    content_root: &Path,
-    dir_rel: &str,
-    modified_at: Option<u64>,
-) -> CliResult {
+pub(crate) fn sync_directory_sidecar(content_root: &Path, dir_rel: &str) -> CliResult {
     let sidecar_path = directory_sidecar_path_for(content_root, dir_rel);
     let existing = read_sidecar_metadata(&sidecar_path)?;
     let dir_path = if dir_rel.is_empty() {
@@ -88,9 +79,6 @@ pub(crate) fn sync_directory_sidecar(
         content_root.join(dir_rel)
     };
 
-    // Directory `modified_at` is derived from stable Git timestamps for
-    // authored directory metadata and recursive primary content. Filesystem
-    // mtime is still avoided because writing sidecars during sync bumps it.
     let default_kind = default_directory_kind(dir_rel);
     let directory_kind = match existing.as_ref().map(|metadata| metadata.kind) {
         Some(kind) if kind.is_directory_like() => kind,
@@ -134,7 +122,6 @@ pub(crate) fn sync_directory_sidecar(
         kind: Some(directory_kind),
         renderer: default_renderer_for_kind(directory_kind, dir_rel),
         child_count: Some(count_children(&dir_path)?),
-        modified_at,
         ..Fields::default()
     };
 

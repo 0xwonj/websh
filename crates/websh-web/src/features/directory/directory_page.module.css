@@ -194,7 +194,7 @@
 
 .groupGlyph {
   margin-right: 6px;
-  color: var(--directory-kind-color);
+  color: var(--text-muted);
   font-weight: var(--weight-regular);
 }
 

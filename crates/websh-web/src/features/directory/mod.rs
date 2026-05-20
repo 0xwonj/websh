@@ -15,6 +15,7 @@ use model::{
     build_directory_model_with_bundle_context, kind_label, surface_kind_label,
 };
 use websh_core::filesystem::{RouteFrame, route_request_targets_runtime_overlay};
+use websh_core::support::format::format_date_compact;
 
 stylance::import_crate_style!(css, "src/features/directory/directory_page.module.css");
 
@@ -71,11 +72,12 @@ pub fn DirectoryPage(route: Memo<RouteFrame>) -> impl IntoView {
 #[component]
 fn DirectoryIdentifier(model: DirectoryModel) -> impl IntoView {
     let count = entry_count_label(model.entry_count);
+    let date = model.date.as_deref().and_then(format_date_compact);
     view! {
         <IdentifierStrip muted=true>
             <span class=css::identLeft>
                 <span>{surface_kind_label(model.kind)}</span>
-                <span>{model.path_label}</span>
+                {date.map(|value| view! { <span>{value}</span> })}
             </span>
             <span class=css::identMetric>
                 <span>{count}</span>
