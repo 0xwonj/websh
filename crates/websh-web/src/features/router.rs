@@ -30,7 +30,7 @@ use crate::platform::dom::{current_route_request, focus_terminal_input, replace_
 use crate::runtime::MountLoadStatus;
 use crate::shared::components::{
     AttestationSigFooter, ErrorPageActionButton, ErrorPageActionLink, ErrorPageActions,
-    ErrorPageBody, ErrorPageDetails, ErrorPageTone, SiteContentFrame, SiteSurface,
+    ErrorPageBody, ErrorPageDetails, ErrorPageFrame, ErrorPageTone, SiteContentFrame, SiteSurface,
     nearest_attestation_route_for_content_path,
 };
 
@@ -71,7 +71,8 @@ use websh_core::domain::VirtualPath;
 use websh_core::filesystem::{
     GlobalFs, RenderIntent, ResolvedKind, RouteCatalogError, RouteFrame, RouteRequest,
     RouteResolution, RouteRole, RouteSurface, build_render_intent, bundle_variant_href,
-    is_new_request_path, route_request_targets_runtime_overlay, try_resolve_route,
+    content_route_for_path, is_new_request_path, route_request_targets_runtime_overlay,
+    try_resolve_route,
 };
 
 /// Main application router.
@@ -380,7 +381,9 @@ fn RouteErrorPage(request: RouteRequest, children: Children) -> impl IntoView {
         <SiteSurface class="">
             <SiteChrome route=route />
             <SiteContentFrame class="">
-                {children()}
+                <ErrorPageFrame>
+                    {children()}
+                </ErrorPageFrame>
             </SiteContentFrame>
         </SiteSurface>
     }
@@ -389,15 +392,17 @@ fn RouteErrorPage(request: RouteRequest, children: Children) -> impl IntoView {
 #[component]
 fn NotFound(request: RouteRequest) -> impl IntoView {
     let request_path = request.url_path.clone();
+    let resolved_path = content_route_for_path(NOT_FOUND_CONTENT_PATH);
 
     view! {
         <RouteErrorPage request=request>
             <ErrorPageBody
                 tone=ErrorPageTone::Missing
                 code="404"
-                kicker="Route resolution"
-                title="Route not found"
-                message="No content route matched the current path."
+                title="Page not found"
+                message="The requested page was not found. You can go home, or play a small game."
+                meta_resolved=resolved_path
+                meta_apology="very sorry"
             >
                 <ErrorPageDetails summary="Request path" open=true>
                     <code>{request_path}</code>
@@ -428,7 +433,6 @@ fn RoutePending(request: RouteRequest) -> impl IntoView {
             <ErrorPageBody
                 tone=ErrorPageTone::Pending
                 code="pending"
-                kicker="Route resolution"
                 title="Route pending"
                 message="The content mount is still loading. This route will resolve when the filesystem is ready."
             >
@@ -449,7 +453,6 @@ fn RootMountFailed(request: RouteRequest, error: String) -> impl IntoView {
             <ErrorPageBody
                 tone=ErrorPageTone::Failure
                 code="mount"
-                kicker="Filesystem mount"
                 title="Root mount failed"
                 message="The content filesystem could not be mounted, so this route cannot be resolved."
             >
@@ -484,7 +487,6 @@ fn RouteCatalogInvalid(request: RouteRequest, error: RouteCatalogError) -> impl 
             <ErrorPageBody
                 tone=ErrorPageTone::Failure
                 code="catalog"
-                kicker="Route catalog"
                 title="Route catalog invalid"
                 message="The content filesystem has conflicting public routes, so this request cannot be resolved safely."
             >

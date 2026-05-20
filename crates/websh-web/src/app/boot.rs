@@ -61,7 +61,6 @@ pub fn App() -> impl IntoView {
                         <ErrorPageBody
                             tone=ErrorPageTone::Failure
                             code="render"
-                            kicker="Application boundary"
                             title="Something went wrong"
                             message="An unexpected error occurred while rendering this page."
                         >

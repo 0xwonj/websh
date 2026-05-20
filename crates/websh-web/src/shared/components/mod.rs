@@ -15,7 +15,7 @@ pub use breadcrumb::Breadcrumb;
 pub use editor::EditModal;
 pub use error_page::{
     ErrorPageActionButton, ErrorPageActionLink, ErrorPageActions, ErrorPageBody, ErrorPageDetails,
-    ErrorPageTone,
+    ErrorPageFrame, ErrorPageTone,
 };
 pub use file_meta::{FileMeta, file_meta_for_path, size_summary_parts};
 pub use file_meta_strip::FileMetaStrip;
