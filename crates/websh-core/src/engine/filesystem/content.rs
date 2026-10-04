@@ -116,9 +116,7 @@ mod tests {
     use std::rc::Rc;
     use std::sync::Mutex;
 
-    use crate::domain::{
-        EntryExtensions, Fields, NodeKind, NodeMetadata, SCHEMA_VERSION, VirtualPath,
-    };
+    use crate::domain::{EntryExtensions, Fields, NodeKind, NodeMetadata, VirtualPath};
     use crate::ports::StorageBackend;
 
     use super::*;
@@ -131,10 +129,6 @@ mod tests {
     }
 
     impl StorageBackend for StubBackend {
-        fn backend_type(&self) -> &'static str {
-            "stub"
-        }
-
         fn scan(
             &self,
         ) -> crate::ports::LocalBoxFuture<
@@ -179,7 +173,6 @@ mod tests {
             path.clone(),
             "ko".to_string(),
             NodeMetadata {
-                schema: SCHEMA_VERSION,
                 kind: NodeKind::Data,
                 bundle: None,
                 authored: Fields::default(),
@@ -277,7 +270,6 @@ mod tests {
             path.clone(),
             "draft".to_string(),
             NodeMetadata {
-                schema: SCHEMA_VERSION,
                 kind: NodeKind::Page,
                 bundle: None,
                 authored: Fields::default(),

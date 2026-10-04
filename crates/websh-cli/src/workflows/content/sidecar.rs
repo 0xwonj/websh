@@ -5,8 +5,7 @@ use anyhow::{Context, anyhow, bail};
 use sha2::{Digest, Sha256};
 
 use websh_core::domain::{
-    Fields, NodeKind, NodeMetadata, RendererKind, SCHEMA_VERSION,
-    validate_bundle_metadata_with_targets,
+    Fields, NodeKind, NodeMetadata, RendererKind, validate_bundle_metadata_with_targets,
 };
 use websh_core::ports::ManifestSnapshotError;
 
@@ -61,7 +60,6 @@ pub(crate) fn sync_file_sidecar(
     };
 
     let new_meta = NodeMetadata {
-        schema: SCHEMA_VERSION,
         kind,
         bundle: None,
         authored,
@@ -131,7 +129,6 @@ pub(crate) fn sync_directory_sidecar(content_root: &Path, dir_rel: &str) -> CliR
         .unwrap_or_default();
 
     let new_meta = NodeMetadata {
-        schema: SCHEMA_VERSION,
         kind: directory_kind,
         bundle,
         authored,
@@ -215,7 +212,6 @@ pub(crate) fn default_file_metadata(file_path: &Path, rel_path: &str) -> NodeMet
     let size = fs::metadata(file_path).ok().map(|m| m.len());
 
     NodeMetadata {
-        schema: SCHEMA_VERSION,
         kind,
         bundle: None,
         authored: Fields::default(),
@@ -232,7 +228,6 @@ pub(crate) fn default_file_metadata(file_path: &Path, rel_path: &str) -> NodeMet
 pub(crate) fn default_directory_metadata(dir_rel: &str) -> NodeMetadata {
     let kind = default_directory_kind(dir_rel);
     NodeMetadata {
-        schema: SCHEMA_VERSION,
         kind,
         bundle: None,
         authored: Fields::default(),

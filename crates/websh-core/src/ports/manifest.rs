@@ -238,7 +238,7 @@ fn validate_manifest_path(path: &str, allow_empty: bool) -> ManifestSnapshotResu
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::{Fields, NodeKind, NodeMetadata, SCHEMA_VERSION};
+    use crate::domain::{Fields, NodeKind, NodeMetadata};
 
     use super::*;
 
@@ -248,7 +248,6 @@ mod tests {
             files: vec![ScannedFile {
                 path: "about.md".to_string(),
                 meta: NodeMetadata {
-                    schema: SCHEMA_VERSION,
                     kind: NodeKind::Page,
                     bundle: None,
                     authored: Fields {
@@ -268,7 +267,6 @@ mod tests {
             directories: vec![ScannedDirectory {
                 path: String::new(),
                 meta: NodeMetadata {
-                    schema: SCHEMA_VERSION,
                     kind: NodeKind::Directory,
                     bundle: None,
                     authored: Fields {
@@ -290,7 +288,7 @@ mod tests {
     fn rejects_manifest_paths_with_traversal_segments() {
         let manifest = r#"{
             "entries": [
-                {"path":"../secret.md","metadata":{"schema":1,"kind":"page","authored":{},"derived":{}}}
+                {"path":"../secret.md","metadata":{"kind":"page","authored":{},"derived":{}}}
             ]
         }"#;
 
@@ -311,7 +309,6 @@ mod tests {
                 {
                     "path":"writing/foo",
                     "metadata":{
-                        "schema":1,
                         "kind":"bundle",
                         "bundle":{
                             "default_variant":{"strategy":"static","id":"en"},
@@ -324,8 +321,8 @@ mod tests {
                         "derived":{"kind":"bundle"}
                     }
                 },
-                {"path":"writing/foo/en.md","metadata":{"schema":1,"kind":"page","authored":{},"derived":{}}},
-                {"path":"writing/foo/ko.md","metadata":{"schema":1,"kind":"page","authored":{},"derived":{}}}
+                {"path":"writing/foo/en.md","metadata":{"kind":"page","authored":{},"derived":{}}},
+                {"path":"writing/foo/ko.md","metadata":{"kind":"page","authored":{},"derived":{}}}
             ]
         }"#;
 
@@ -342,7 +339,6 @@ mod tests {
                 {
                     "path":"writing/foo",
                     "metadata":{
-                        "schema":1,
                         "kind":"directory",
                         "bundle":{"default_variant":{"strategy":"static","id":"en"},"variants":[]},
                         "authored":{},
@@ -363,7 +359,7 @@ mod tests {
     fn rejects_bundle_manifest_without_metadata_block() {
         let manifest = r#"{
             "entries": [
-                {"path":"writing/foo","metadata":{"schema":1,"kind":"bundle","authored":{},"derived":{"kind":"bundle"}}}
+                {"path":"writing/foo","metadata":{"kind":"bundle","authored":{},"derived":{"kind":"bundle"}}}
             ]
         }"#;
 
@@ -381,7 +377,6 @@ mod tests {
                 {
                     "path":"writing/foo",
                     "metadata":{
-                        "schema":1,
                         "kind":"bundle",
                         "bundle":{
                             "default_variant":{"strategy":"static","id":"en"},
@@ -410,7 +405,6 @@ mod tests {
                 {
                     "path":"writing/foo",
                     "metadata":{
-                        "schema":1,
                         "kind":"bundle",
                         "bundle":{
                             "default_variant":{"strategy":"static","id":"notes"},
@@ -420,7 +414,7 @@ mod tests {
                         "derived":{"kind":"bundle"}
                     }
                 },
-                {"path":"writing/foo/notes","metadata":{"schema":1,"kind":"directory","authored":{},"derived":{"kind":"directory"}}}
+                {"path":"writing/foo/notes","metadata":{"kind":"directory","authored":{},"derived":{"kind":"directory"}}}
             ]
         }"#;
 
@@ -435,7 +429,6 @@ mod tests {
                 {
                     "path":"writing/foo",
                     "metadata":{
-                        "schema":1,
                         "kind":"bundle",
                         "bundle":{
                             "default_variant":{"strategy":"static","id":"nested"},
@@ -448,7 +441,6 @@ mod tests {
                 {
                     "path":"writing/foo/nested",
                     "metadata":{
-                        "schema":1,
                         "kind":"bundle",
                         "bundle":{
                             "default_variant":{"strategy":"static","id":"en"},
@@ -458,7 +450,7 @@ mod tests {
                         "derived":{"kind":"bundle"}
                     }
                 },
-                {"path":"writing/foo/nested/en.md","metadata":{"schema":1,"kind":"page","authored":{},"derived":{}}}
+                {"path":"writing/foo/nested/en.md","metadata":{"kind":"page","authored":{},"derived":{}}}
             ]
         }"#;
 
@@ -478,7 +470,6 @@ mod tests {
                 {
                     "path":"writing/foo",
                     "metadata":{
-                        "schema":1,
                         "kind":"bundle",
                         "bundle":{
                             "default_variant":{"strategy":"static","id":"ko.md"},
@@ -488,7 +479,7 @@ mod tests {
                         "derived":{"kind":"bundle"}
                     }
                 },
-                {"path":"writing/foo/ko.md","metadata":{"schema":1,"kind":"page","authored":{},"derived":{}}}
+                {"path":"writing/foo/ko.md","metadata":{"kind":"page","authored":{},"derived":{}}}
             ]
         }"#;
 
@@ -506,7 +497,6 @@ mod tests {
                 {
                     "path":"writing/foo",
                     "metadata":{
-                        "schema":1,
                         "kind":"bundle",
                         "bundle":{
                             "default_variant":{"strategy":"static","id":"en"},
@@ -516,8 +506,8 @@ mod tests {
                         "derived":{"kind":"bundle"}
                     }
                 },
-                {"path":"writing/foo/en.md","metadata":{"schema":1,"kind":"page","authored":{},"derived":{}}},
-                {"path":"writing/foo.md","metadata":{"schema":1,"kind":"page","authored":{},"derived":{}}}
+                {"path":"writing/foo/en.md","metadata":{"kind":"page","authored":{},"derived":{}}},
+                {"path":"writing/foo.md","metadata":{"kind":"page","authored":{},"derived":{}}}
             ]
         }"#;
 
@@ -533,8 +523,8 @@ mod tests {
     fn rejects_normal_content_route_collisions() {
         let manifest = r#"{
             "entries": [
-                {"path":"writing/foo/ko.md","metadata":{"schema":1,"kind":"page","authored":{},"derived":{}}},
-                {"path":"writing/foo/ko.html","metadata":{"schema":1,"kind":"page","authored":{},"derived":{}}}
+                {"path":"writing/foo/ko.md","metadata":{"kind":"page","authored":{},"derived":{}}},
+                {"path":"writing/foo/ko.html","metadata":{"kind":"page","authored":{},"derived":{}}}
             ]
         }"#;
 
@@ -553,7 +543,6 @@ mod tests {
                 ScannedFile {
                     path: "writing/foo/ko.md".to_string(),
                     meta: NodeMetadata {
-                        schema: SCHEMA_VERSION,
                         kind: NodeKind::Page,
                         bundle: None,
                         authored: Fields::default(),
@@ -564,7 +553,6 @@ mod tests {
                 ScannedFile {
                     path: "writing/foo/ko.html".to_string(),
                     meta: NodeMetadata {
-                        schema: SCHEMA_VERSION,
                         kind: NodeKind::Page,
                         bundle: None,
                         authored: Fields::default(),
@@ -592,7 +580,6 @@ mod tests {
                 {
                     "path":"writing/foo",
                     "metadata":{
-                        "schema":1,
                         "kind":"bundle",
                         "bundle":{
                             "default_variant":{"strategy":"static","id":"en"},
@@ -605,8 +592,8 @@ mod tests {
                         "derived":{"kind":"bundle"}
                     }
                 },
-                {"path":"writing/foo/en.md","metadata":{"schema":1,"kind":"page","authored":{},"derived":{}}},
-                {"path":"writing/foo/en.html","metadata":{"schema":1,"kind":"page","authored":{},"derived":{}}}
+                {"path":"writing/foo/en.md","metadata":{"kind":"page","authored":{},"derived":{}}},
+                {"path":"writing/foo/en.html","metadata":{"kind":"page","authored":{},"derived":{}}}
             ]
         }"#;
 
@@ -625,7 +612,6 @@ mod tests {
                 {
                     "path":"writing/foo",
                     "metadata":{
-                        "schema":1,
                         "kind":"bundle",
                         "bundle":{
                             "default_variant":{"strategy":"static","id":"en"},
@@ -638,9 +624,9 @@ mod tests {
                         "derived":{"kind":"bundle"}
                     }
                 },
-                {"path":"writing/foo/en.md","metadata":{"schema":1,"kind":"page","authored":{},"derived":{}}},
-                {"path":"writing/foo/print.pdf","metadata":{"schema":1,"kind":"document","authored":{},"derived":{}}},
-                {"path":"writing/foo/print.pdf.md","metadata":{"schema":1,"kind":"page","authored":{},"derived":{}}}
+                {"path":"writing/foo/en.md","metadata":{"kind":"page","authored":{},"derived":{}}},
+                {"path":"writing/foo/print.pdf","metadata":{"kind":"document","authored":{},"derived":{}}},
+                {"path":"writing/foo/print.pdf.md","metadata":{"kind":"page","authored":{},"derived":{}}}
             ]
         }"#;
 
@@ -656,7 +642,7 @@ mod tests {
     fn rejects_authored_route_fields() {
         let manifest = r#"{
             "entries": [
-                {"path":"about.md","metadata":{"schema":1,"kind":"page","authored":{"route":"/custom"},"derived":{}}}
+                {"path":"about.md","metadata":{"kind":"page","authored":{"route":"/custom"},"derived":{}}}
             ]
         }"#;
 

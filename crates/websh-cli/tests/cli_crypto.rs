@@ -116,7 +116,7 @@ fn write_homepage_content(root: &Path) {
     fs::write(root.join("assets/themes/dracula.css"), "theme").unwrap();
     fs::write(
         root.join("content/.site/_index.dir.json"),
-        r#"{"schema":1,"kind":"directory","authored":{"title":"Site support"},"derived":{"kind":"directory"}}"#,
+        r#"{"kind":"directory","authored":{"title":"Site support"},"derived":{"kind":"directory"}}"#,
     )
     .unwrap();
     fs::write(
@@ -583,7 +583,7 @@ fn cli_content_manifest_generates_manifest_without_attestation() {
     fs::write(root.join("content/talks/slides.pdf"), b"%PDF").unwrap();
     fs::write(
         root.join("content/talks/slides.meta.json"),
-        r#"{"schema":1,"kind":"document","authored":{"title":"ZK Talk","date":"2026-04-24","tags":["talk","zk"]},"derived":{}}"#,
+        r#"{"kind":"document","authored":{"title":"ZK Talk","date":"2026-04-24","tags":["talk","zk"]},"derived":{}}"#,
     )
     .unwrap();
 

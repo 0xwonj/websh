@@ -1,5 +1,4 @@
 {
-  "schema": 1,
   "kind": "document",
   "authored": {
     "title": "Evaluating compiler-optimization impacts on zkVM performance",

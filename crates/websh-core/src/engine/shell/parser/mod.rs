@@ -52,6 +52,25 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
+    /// Whether this input consists only of current commands and pipe filters.
+    /// Call before echoing or retaining input supplied by the user.
+    pub fn is_supported(&self) -> bool {
+        self.error.is_none()
+            && self.commands.iter().enumerate().all(|(index, command)| {
+                if index == 0 {
+                    !matches!(
+                        super::Command::parse(&command.name, &command.args),
+                        super::Command::Unknown(_)
+                    )
+                } else {
+                    matches!(
+                        command.name.to_ascii_lowercase().as_str(),
+                        "grep" | "head" | "tail" | "wc"
+                    )
+                }
+            })
+    }
+
     /// Check if the pipeline is empty
     pub fn is_empty(&self) -> bool {
         self.commands.is_empty()
@@ -262,5 +281,31 @@ mod tests {
         let pipeline = parse_input("echo \"$NO_SUCH_VAR\" hello", &[]);
         assert!(!pipeline.has_error());
         assert_eq!(pipeline.commands[0].args, vec!["", "hello"]);
+    }
+
+    #[test]
+    fn supported_input_uses_the_expanded_command_and_filter_grammar() {
+        for input in [
+            "",
+            "'ls' | GREP foo | head -2",
+            "echo 'sync auth set'",
+            "echo a > b",
+            "REFRESH /mempool",
+        ] {
+            assert!(parse_input(input, &[]).is_supported(), "{input}");
+        }
+        for input in [
+            "sync auth set payload",
+            "echo hello | sync auth set payload",
+            "edit foo",
+            "ls | echo hi",
+            "ls |",
+            "echo 'unclosed",
+        ] {
+            assert!(!parse_input(input, &[]).is_supported(), "{input}");
+        }
+        let env = BTreeMap::from([("CMD".into(), "sync".into())]);
+        assert!(!parse_input_with_env("$CMD auth set payload", &[], &env).is_supported());
+        assert!(!parse_input("!!", &["sync auth set payload".into()]).is_supported());
     }
 }

@@ -246,9 +246,7 @@ mod tests {
     use super::*;
     use std::process::Command;
     use std::sync::atomic::{AtomicU64, Ordering};
-    use websh_core::domain::{
-        AccessFilter, Fields, NodeKind, NodeMetadata, Recipient, SCHEMA_VERSION,
-    };
+    use websh_core::domain::{AccessFilter, Fields, NodeKind, NodeMetadata, Recipient};
     use websh_core::filesystem::RouteCatalogError;
 
     fn tempdir() -> PathBuf {
@@ -392,7 +390,6 @@ mod tests {
         fs::write(
             dir.join("docs/_index.dir.json"),
             r#"{
-              "schema":1,
               "kind":"directory",
               "authored":{"title":"Docs"},
               "derived":{"kind":"directory"}
@@ -472,7 +469,6 @@ mod tests {
         // sort of field a user authors directly in the JSON, not via
         // markdown frontmatter. Sync must not clobber it.
         let prior = NodeMetadata {
-            schema: SCHEMA_VERSION,
             kind: NodeKind::Page,
             bundle: None,
             authored: Fields {
@@ -510,7 +506,6 @@ mod tests {
         fs::write(
             dir.join("writing/foo/_index.dir.json"),
             r#"{
-              "schema":1,
               "kind":"bundle",
               "bundle":{
                 "default_variant":{"strategy":"static","id":"en"},
@@ -556,7 +551,7 @@ mod tests {
         fs::create_dir_all(dir.join(".site")).unwrap();
         fs::write(
             dir.join(".site/_index.dir.json"),
-            r#"{"schema":1,"kind":"site","authored":{"title":"Site"},"derived":{"kind":"site"}}"#,
+            r#"{"kind":"site","authored":{"title":"Site"},"derived":{"kind":"site"}}"#,
         )
         .unwrap();
         fs::write(dir.join(".site/now.toml"), b"[[items]]\n").unwrap();

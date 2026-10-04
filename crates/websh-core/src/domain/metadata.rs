@@ -22,15 +22,12 @@ use serde::{Deserialize, Serialize};
 
 use super::bundle::BundleMetadata;
 
-pub const SCHEMA_VERSION: u32 = 1;
-
 /// Top-level metadata record for a node. Persisted as `<file>.meta.json`
 /// (file sidecars), `_index.dir.json` (directory sidecars), and embedded
 /// inline in the manifest bundle.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NodeMetadata {
-    pub schema: u32,
     pub kind: NodeKind,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bundle: Option<BundleMetadata>,
@@ -41,7 +38,6 @@ pub struct NodeMetadata {
 impl Default for NodeMetadata {
     fn default() -> Self {
         Self {
-            schema: SCHEMA_VERSION,
             kind: NodeKind::Asset,
             bundle: None,
             authored: Fields::default(),
@@ -364,7 +360,6 @@ mod tests {
     #[test]
     fn directory_kind_is_directory_like_but_not_bundle() {
         let meta = NodeMetadata {
-            schema: SCHEMA_VERSION,
             kind: NodeKind::Directory,
             bundle: None,
             authored: Fields::default(),
@@ -380,16 +375,14 @@ mod tests {
 
     #[test]
     fn site_kind_is_not_accepted() {
-        let parsed = serde_json::from_str::<NodeMetadata>(
-            r#"{"schema":1,"kind":"site","authored":{},"derived":{}}"#,
-        );
+        let parsed =
+            serde_json::from_str::<NodeMetadata>(r#"{"kind":"site","authored":{},"derived":{}}"#);
         assert!(parsed.is_err());
     }
 
     #[test]
     fn bundle_metadata_round_trips() {
         let meta = NodeMetadata {
-            schema: SCHEMA_VERSION,
             kind: NodeKind::Bundle,
             bundle: Some(BundleMetadata {
                 default_variant: crate::domain::BundleDefaultVariant::Static {
@@ -432,7 +425,6 @@ mod tests {
     #[test]
     fn bundle_identity_uses_top_level_kind_only() {
         let meta = NodeMetadata {
-            schema: SCHEMA_VERSION,
             kind: NodeKind::Directory,
             bundle: None,
             authored: Fields {
@@ -449,7 +441,6 @@ mod tests {
     #[test]
     fn skips_none_fields_on_serialization() {
         let meta = NodeMetadata {
-            schema: SCHEMA_VERSION,
             kind: NodeKind::Page,
             bundle: None,
             authored: Fields {
@@ -468,7 +459,6 @@ mod tests {
     #[test]
     fn authored_wins_over_derived() {
         let meta = NodeMetadata {
-            schema: SCHEMA_VERSION,
             kind: NodeKind::Document,
             bundle: None,
             authored: Fields {
@@ -488,7 +478,6 @@ mod tests {
     #[test]
     fn derived_used_when_authored_is_none() {
         let meta = NodeMetadata {
-            schema: SCHEMA_VERSION,
             kind: NodeKind::Document,
             bundle: None,
             authored: Fields::default(),
@@ -513,15 +502,14 @@ mod tests {
 
     #[test]
     fn deny_unknown_fields_on_top_level() {
-        let bad = r#"{"schema":1,"kind":"page","authored":{},"derived":{},"unexpected":"value"}"#;
+        let bad = r#"{"kind":"page","authored":{},"derived":{},"unexpected":"value"}"#;
         let parsed = serde_json::from_str::<NodeMetadata>(bad);
         assert!(parsed.is_err());
     }
 
     #[test]
     fn deny_unknown_fields_on_fields_section() {
-        let bad =
-            r#"{"schema":1,"kind":"page","authored":{"unexpected_key":"value"},"derived":{}}"#;
+        let bad = r#"{"kind":"page","authored":{"unexpected_key":"value"},"derived":{}}"#;
         let parsed = serde_json::from_str::<NodeMetadata>(bad);
         assert!(parsed.is_err());
     }
@@ -529,9 +517,9 @@ mod tests {
     #[test]
     fn requires_canonical_top_level_shape() {
         for bad in [
-            r#"{"kind":"page","authored":{},"derived":{}}"#,
-            r#"{"schema":1,"kind":"page","derived":{}}"#,
-            r#"{"schema":1,"kind":"page","authored":{}}"#,
+            r#"{"authored":{},"derived":{}}"#,
+            r#"{"kind":"page","derived":{}}"#,
+            r#"{"kind":"page","authored":{}}"#,
         ] {
             let parsed = serde_json::from_str::<NodeMetadata>(bad);
             assert!(parsed.is_err(), "accepted non-canonical metadata: {bad}");
@@ -541,7 +529,6 @@ mod tests {
     #[test]
     fn round_trip_full_metadata() {
         let meta = NodeMetadata {
-            schema: SCHEMA_VERSION,
             kind: NodeKind::Document,
             bundle: None,
             authored: Fields {

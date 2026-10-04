@@ -77,17 +77,15 @@ pub enum FsEntry {
         meta: NodeMetadata,
     },
     File {
-        content_path: Option<String>,
         meta: NodeMetadata,
         extensions: EntryExtensions,
     },
 }
 
 impl FsEntry {
-    /// Create a file without content path (static file).
+    /// Create an asset with empty metadata.
     pub fn file() -> Self {
         FsEntry::File {
-            content_path: None,
             meta: NodeMetadata {
                 kind: NodeKind::Asset,
                 bundle: None,
@@ -98,16 +96,8 @@ impl FsEntry {
     }
 
     /// Create a file with full metadata and domain extensions.
-    pub fn content_file_with_meta(
-        path: &str,
-        meta: NodeMetadata,
-        extensions: EntryExtensions,
-    ) -> Self {
-        FsEntry::File {
-            content_path: Some(path.to_string()),
-            meta,
-            extensions,
-        }
+    pub fn file_with_meta(meta: NodeMetadata, extensions: EntryExtensions) -> Self {
+        FsEntry::File { meta, extensions }
     }
 
     pub fn is_directory(&self) -> bool {

@@ -3,9 +3,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use serde::Deserialize;
 
-use websh_core::domain::VirtualPath;
-use websh_core::domain::{ContentManifestDocument, ContentManifestEntry};
-use websh_core::mempool::{MempoolManifestState, build_mempool_manifest_state};
+use websh_core::domain::ContentManifestDocument;
 
 use crate::CliResult;
 use crate::infra::gh::{
@@ -280,15 +278,8 @@ fn manifest_with_added_entry(
     repo_path: &str,
     file_body: &str,
 ) -> CliResult<ContentManifestDocument> {
-    let canonical_path = VirtualPath::from_absolute(format!("/mempool/{repo_path}"))
-        .with_context(|| format!("invalid mempool path /mempool/{repo_path}"))?;
-    let MempoolManifestState { meta, extensions } =
-        build_mempool_manifest_state(file_body, &canonical_path);
-    let new_entry = ContentManifestEntry {
-        path: repo_path.to_string(),
-        metadata: meta,
-        mempool: extensions.mempool,
-    };
+    let path = MempoolEntryPath::parse(repo_path)?;
+    let new_entry = super::manifest::build_entry(&path, file_body);
 
     manifest.entries.retain(|entry| entry.path != repo_path);
     manifest.entries.push(new_entry);
@@ -320,7 +311,7 @@ pub(crate) enum DropOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use websh_core::domain::{MempoolStatus, NodeMetadata};
+    use websh_core::domain::{ContentManifestEntry, MempoolStatus, NodeMetadata};
 
     fn entry(path: &str) -> ContentManifestEntry {
         ContentManifestEntry {

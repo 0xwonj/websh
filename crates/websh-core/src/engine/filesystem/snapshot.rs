@@ -4,6 +4,36 @@ use crate::domain::FsEntry;
 use crate::ports::{ScannedDirectory, ScannedFile, ScannedSubtree};
 
 use super::tree::directory_metadata;
+use super::{
+    GlobalFs, RouteCatalog, RouteCatalogError, RouteRequest, RouteResolution,
+    resolve_route_with_catalog,
+};
+
+/// An immutable content tree and the route catalog validated against that tree.
+#[derive(Clone, Debug)]
+pub struct Snapshot {
+    fs: GlobalFs,
+    routes: RouteCatalog,
+}
+
+impl Snapshot {
+    pub fn new(fs: GlobalFs) -> Result<Self, RouteCatalogError> {
+        let routes = RouteCatalog::from_global_fs(&fs)?;
+        Ok(Self { fs, routes })
+    }
+
+    pub fn fs(&self) -> &GlobalFs {
+        &self.fs
+    }
+
+    pub fn routes(&self) -> &RouteCatalog {
+        &self.routes
+    }
+
+    pub fn resolve(&self, request: &RouteRequest) -> Option<RouteResolution> {
+        resolve_route_with_catalog(&self.fs, &self.routes, request)
+    }
+}
 
 pub(super) fn scanned_subtree_root(snapshot: &ScannedSubtree) -> FsEntry {
     let dir_meta_map: HashMap<String, &ScannedDirectory> = snapshot
@@ -56,11 +86,7 @@ fn insert_scanned_file(
         if is_last {
             current.insert(
                 (*part).to_string(),
-                FsEntry::content_file_with_meta(
-                    &file.path,
-                    file.meta.clone(),
-                    file.extensions.clone(),
-                ),
+                FsEntry::file_with_meta(file.meta.clone(), file.extensions.clone()),
             );
             return;
         }
@@ -118,5 +144,46 @@ fn scanned_directory_entry(
             .get(path)
             .map(|dir| dir.meta.clone())
             .unwrap_or_else(|| directory_metadata(name)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::{EntryExtensions, NodeKind, NodeMetadata, VirtualPath};
+
+    fn add_page(fs: &mut GlobalFs, path: &str) {
+        fs.upsert_file(
+            VirtualPath::from_absolute(path).unwrap(),
+            String::new(),
+            NodeMetadata {
+                kind: NodeKind::Page,
+                ..NodeMetadata::default()
+            },
+            EntryExtensions::default(),
+        );
+    }
+
+    #[test]
+    fn snapshot_resolves_its_validated_content_and_shell_routes() {
+        let mut fs = GlobalFs::empty();
+        add_page(&mut fs, "/article.md");
+        let snapshot = Snapshot::new(fs).unwrap();
+        let route = snapshot.resolve(&RouteRequest::new("/article")).unwrap();
+        assert_eq!(route.node_path.as_str(), "/article.md");
+        assert!(snapshot.fs().exists(&route.node_path));
+        assert!(snapshot.routes().resolve("/article").is_some());
+        assert!(snapshot.resolve(&RouteRequest::new("/websh")).is_some());
+    }
+
+    #[test]
+    fn conflicting_routes_cannot_be_published_as_a_snapshot() {
+        let mut fs = GlobalFs::empty();
+        add_page(&mut fs, "/article.md");
+        add_page(&mut fs, "/article.html");
+        assert!(matches!(
+            Snapshot::new(fs),
+            Err(RouteCatalogError::RouteCollision { .. })
+        ));
     }
 }

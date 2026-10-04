@@ -101,7 +101,6 @@ mod tests {
         fs::write(
             content.join("writing/foo/_index.dir.json"),
             r#"{
-              "schema":1,
               "kind":"bundle",
               "bundle":{
                 "default_variant":{"strategy":"static","id":"en"},
@@ -116,7 +115,7 @@ mod tests {
         fs::write(content.join("writing/foo/cover.png"), b"png").unwrap();
         fs::write(
             content.join("writing/foo/cover.meta.json"),
-            b"{\"schema\":1,\"authored\":{\"title\":\"Cover\"}}",
+            b"{\"authored\":{\"title\":\"Cover\"}}",
         )
         .unwrap();
 
@@ -153,11 +152,11 @@ mod tests {
         fs::write(content.join("manifest.json"), "{}").unwrap();
         fs::write(
             content.join(".site/_index.dir.json"),
-            r#"{"schema":1,"kind":"directory","authored":{"title":"Site support"},"derived":{"kind":"directory"}}"#,
+            r#"{"kind":"directory","authored":{"title":"Site support"},"derived":{"kind":"directory"}}"#,
         )
         .unwrap();
         fs::write(content.join(".site/now.toml"), b"[[items]]\n").unwrap();
-        fs::write(content.join(".site/now.meta.json"), b"{\"schema\":1}").unwrap();
+        fs::write(content.join(".site/now.meta.json"), b"{}").unwrap();
         fs::write(content.join(".site/keys/wonjae.asc"), b"key").unwrap();
         fs::write(content.join(".site/errors/404.md"), b"not found").unwrap();
         fs::write(content.join(".site/errors/empty.md"), b"").unwrap();
@@ -165,11 +164,7 @@ mod tests {
         fs::write(content.join(".site/keys/.gitkeep"), b"").unwrap();
         fs::write(content.join(".websh/ledger.json"), "{}").unwrap();
         fs::write(content.join(".websh/errors/404.md"), b"not found").unwrap();
-        fs::write(
-            content.join(".websh/errors/404.meta.json"),
-            b"{\"schema\":1}",
-        )
-        .unwrap();
+        fs::write(content.join(".websh/errors/404.meta.json"), b"{}").unwrap();
 
         let specs = discover_subject_specs(&root, Path::new("content")).unwrap();
         let routes = specs
@@ -219,7 +214,7 @@ mod tests {
         fs::create_dir_all(content.join("writing")).unwrap();
         fs::write(
             content.join("writing/_index.dir.json"),
-            r#"{"schema":1,"kind":"directory","authored":{},"derived":{"kind":"directory"}}"#,
+            r#"{"kind":"directory","authored":{},"derived":{"kind":"directory"}}"#,
         )
         .unwrap();
         fs::write(content.join("writing/hello.md"), b"hello").unwrap();
@@ -246,7 +241,7 @@ mod tests {
         fs::create_dir_all(content.join(".site")).unwrap();
         fs::write(
             content.join(".site/_index.dir.json"),
-            r#"{"schema":1,"kind":"site","authored":{"title":"Site"},"derived":{"kind":"site"}}"#,
+            r#"{"kind":"site","authored":{"title":"Site"},"derived":{"kind":"site"}}"#,
         )
         .unwrap();
         fs::write(content.join(".site/now.toml"), b"[[items]]\n").unwrap();

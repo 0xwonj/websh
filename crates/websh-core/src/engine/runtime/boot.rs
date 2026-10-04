@@ -5,24 +5,16 @@
 
 #![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
 
-use crate::domain::{BootstrapSiteSource, RuntimeBackendKind, RuntimeMount, VirtualPath};
+use crate::domain::{BootstrapSiteSource, RuntimeMount, VirtualPath};
 use crate::engine::filesystem::{GlobalFs, MountError};
 use crate::ports::ScannedSubtree;
 
 pub fn bootstrap_runtime_mount(source: &BootstrapSiteSource) -> RuntimeMount {
-    RuntimeMount::new(
-        source.mount_root(),
-        source.label(),
-        RuntimeBackendKind::GitHub,
-    )
+    RuntimeMount::new(source.mount_root(), source.label())
 }
 
 pub fn bootstrap_global_fs() -> GlobalFs {
     GlobalFs::empty()
-}
-
-pub fn seed_bootstrap_routes(_global: &mut GlobalFs) {
-    // Shell is a reserved code route, not a filesystem app node.
 }
 
 pub fn assemble_global_fs(scans: &[(VirtualPath, ScannedSubtree)]) -> Result<GlobalFs, MountError> {
@@ -36,7 +28,7 @@ pub fn assemble_global_fs(scans: &[(VirtualPath, ScannedSubtree)]) -> Result<Glo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{EntryExtensions, Fields, NodeKind, NodeMetadata, SCHEMA_VERSION};
+    use crate::domain::{EntryExtensions, Fields, NodeKind, NodeMetadata};
     use crate::ports::{ScannedDirectory, ScannedFile};
 
     fn bootstrap_source() -> BootstrapSiteSource {
@@ -65,7 +57,6 @@ mod tests {
 
     fn file_meta(kind: NodeKind) -> NodeMetadata {
         NodeMetadata {
-            schema: SCHEMA_VERSION,
             kind,
             bundle: None,
             authored: Fields::default(),
@@ -75,7 +66,6 @@ mod tests {
 
     fn dir_meta(name: &str) -> NodeMetadata {
         NodeMetadata {
-            schema: SCHEMA_VERSION,
             kind: NodeKind::Directory,
             bundle: None,
             authored: Fields {

@@ -197,9 +197,7 @@ fn file_in_repo(root_prefix: &str, file_path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use websh_core::domain::{
-        Fields, MempoolFields, MempoolStatus, NodeKind, NodeMetadata, SCHEMA_VERSION,
-    };
+    use websh_core::domain::{Fields, MempoolFields, MempoolStatus, NodeKind, NodeMetadata};
 
     use super::*;
 
@@ -207,7 +205,6 @@ mod tests {
         ContentManifestEntry {
             path: path.to_string(),
             metadata: NodeMetadata {
-                schema: SCHEMA_VERSION,
                 kind,
                 bundle: None,
                 authored: Fields {

@@ -1,20 +1,12 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, anyhow, bail};
-use serde::Deserialize;
+use websh_core::domain::MountDeclaration;
 
 use crate::CliResult;
 use crate::workflows::content::DEFAULT_CONTENT_DIR;
 
 const MEMPOOL_MOUNT_DECL_PATH: &str = ".websh/mounts/mempool.mount.json";
-
-#[derive(Deserialize)]
-struct MountDeclarationFile {
-    backend: String,
-    repo: Option<String>,
-    branch: Option<String>,
-    root: Option<String>,
-}
 
 #[derive(Clone, Debug)]
 pub(crate) struct MempoolMountInfo {
@@ -41,7 +33,7 @@ pub(crate) fn read_mempool_mount_declaration(root: &Path) -> CliResult<MempoolMo
     }
     let body =
         std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
-    let decl: MountDeclarationFile =
+    let decl: MountDeclaration =
         serde_json::from_str(&body).with_context(|| format!("parse {}", path.display()))?;
 
     if decl.backend != "github" {
@@ -88,7 +80,7 @@ mod tests {
         let root = tempdir();
         write_mount(
             &root,
-            r#"{"backend":"github","mount_at":"/mempool","repo":"0xwonj/m","branch":"main","root":"","writable":true,"name":"mempool"}"#,
+            r#"{"backend":"github","mount_at":"/mempool","repo":"0xwonj/m","branch":"main","root":"","name":"mempool"}"#,
         );
         let info = read_mempool_mount_declaration(&root).unwrap();
         assert_eq!(info.repo, "0xwonj/m");
@@ -105,6 +97,16 @@ mod tests {
         );
         let info = read_mempool_mount_declaration(&root).unwrap();
         assert_eq!(info.branch, "main");
+    }
+
+    #[test]
+    fn rejects_unknown_declaration_fields() {
+        let root = tempdir();
+        write_mount(
+            &root,
+            r#"{"backend":"github","mount_at":"/mempool","repo":"0xwonj/m","writable":true}"#,
+        );
+        assert!(read_mempool_mount_declaration(&root).is_err());
     }
 
     #[test]

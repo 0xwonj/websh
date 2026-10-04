@@ -3,7 +3,6 @@
     {
       "path": "",
       "metadata": {
-        "schema": 1,
         "kind": "directory",
         "authored": {
           "title": "Home",
@@ -17,7 +16,6 @@
     {
       "path": "blog",
       "metadata": {
-        "schema": 1,
         "kind": "directory",
         "authored": {
           "title": "Blog Posts",
@@ -33,7 +31,6 @@
     {
       "path": "a.md",
       "metadata": {
-        "schema": 1,
         "kind": "page",
         "authored": {
           "title": "A",
@@ -57,7 +54,6 @@
     {
       "path": "b.md",
       "metadata": {
-        "schema": 1,
         "kind": "page",
         "authored": {
           "title": "B"
@@ -71,7 +67,6 @@
     {
       "path": "blog/post.md",
       "metadata": {
-        "schema": 1,
         "kind": "page",
         "authored": {
           "title": "First Post",

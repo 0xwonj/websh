@@ -1,17 +1,14 @@
 //! Pure runtime orchestration helpers shared by the web app and CLI.
 
 use crate::domain::{
-    EntryExtensions, Fields, NodeKind, NodeMetadata, SCHEMA_VERSION, WalletState,
-    runtime_state_root,
+    EntryExtensions, Fields, NodeKind, NodeMetadata, WalletState, runtime_state_root,
 };
 use crate::engine::filesystem::GlobalFs;
 
 pub(crate) mod boot;
 mod state;
 
-pub use boot::{
-    assemble_global_fs, bootstrap_global_fs, bootstrap_runtime_mount, seed_bootstrap_routes,
-};
+pub use boot::{assemble_global_fs, bootstrap_global_fs, bootstrap_runtime_mount};
 pub use state::RuntimeStateSnapshot;
 
 pub fn build_view_global_fs(
@@ -33,7 +30,6 @@ fn populate_runtime_state(
     fs.remove_subtree(&state_root);
 
     let dir = |title: &str| NodeMetadata {
-        schema: SCHEMA_VERSION,
         kind: NodeKind::Directory,
         bundle: None,
         authored: Fields {
@@ -43,7 +39,6 @@ fn populate_runtime_state(
         derived: Fields::default(),
     };
     let data_file = || NodeMetadata {
-        schema: SCHEMA_VERSION,
         kind: NodeKind::Data,
         bundle: None,
         authored: Fields::default(),

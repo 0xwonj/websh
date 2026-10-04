@@ -74,8 +74,6 @@ pub struct ScannedDirectory {
 }
 
 pub trait StorageBackend {
-    fn backend_type(&self) -> &'static str;
-
     /// Scan the mount and return its current tree.
     fn scan(&self) -> LocalBoxFuture<'_, StorageResult<ScannedSubtree>>;
 

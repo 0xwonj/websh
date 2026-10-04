@@ -27,7 +27,7 @@ impl GlobalFs {
         insert_tree_entry(
             &mut self.root,
             &path,
-            FsEntry::content_file_with_meta("", meta, extensions),
+            FsEntry::file_with_meta(meta, extensions),
         )?;
         self.inline_text.insert(path, content);
         Ok(())

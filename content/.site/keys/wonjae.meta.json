@@ -1,5 +1,4 @@
 {
-  "schema": 1,
   "kind": "document",
   "authored": {
     "description": "PGP public key — verifies content attestations on this site.",

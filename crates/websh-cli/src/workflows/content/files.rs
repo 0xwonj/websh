@@ -5,7 +5,7 @@ use std::path::{Component, Path, PathBuf};
 use anyhow::{Context, anyhow, bail};
 use websh_core::attestation::artifact::{ContentFile, sha256_hex};
 use websh_core::domain::{
-    BundleMetadata, Fields, NodeKind, NodeMetadata, SCHEMA_VERSION, VirtualPath,
+    BundleMetadata, Fields, NodeKind, NodeMetadata, VirtualPath,
     validate_bundle_metadata_with_targets,
 };
 use websh_core::filesystem::content_route_for_path;
@@ -325,7 +325,6 @@ fn validate_bundle_content_route_collisions(
     let mut nodes = vec![RouteCatalogNode::new(
         virtual_path_for_rel(rel_path),
         NodeMetadata {
-            schema: SCHEMA_VERSION,
             kind: NodeKind::Bundle,
             bundle: Some(bundle.clone()),
             authored: Fields::default(),
@@ -342,7 +341,6 @@ fn validate_bundle_content_route_collisions(
         nodes.push(RouteCatalogNode::new(
             virtual_path_for_rel(&candidate),
             NodeMetadata {
-                schema: SCHEMA_VERSION,
                 kind: if is_directory {
                     NodeKind::Directory
                 } else {

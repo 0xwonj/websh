@@ -412,12 +412,11 @@ mod tests {
     /// These names all share the prefix `h`, so a `/h`-style partial
     /// exercises both the dir-only and file+dir classification paths.
     fn path_fixture() -> GlobalFs {
-        use crate::domain::{EntryExtensions, Fields, NodeKind, NodeMetadata, SCHEMA_VERSION};
+        use crate::domain::{EntryExtensions, Fields, NodeKind, NodeMetadata};
         use crate::engine::filesystem::GlobalFs;
         use crate::ports::{ScannedDirectory, ScannedFile, ScannedSubtree};
         fn file_meta() -> NodeMetadata {
             NodeMetadata {
-                schema: SCHEMA_VERSION,
                 kind: NodeKind::Page,
                 bundle: None,
                 authored: Fields::default(),
@@ -426,7 +425,6 @@ mod tests {
         }
         fn directory_meta(title: &str) -> NodeMetadata {
             NodeMetadata {
-                schema: SCHEMA_VERSION,
                 kind: NodeKind::Directory,
                 bundle: None,
                 authored: Fields {

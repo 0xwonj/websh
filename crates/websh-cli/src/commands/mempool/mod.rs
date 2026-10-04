@@ -2,7 +2,7 @@
 //! chain (atomic local commit on the bundle source), drop a draft from
 //! the mempool repo.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use clap::{Args, Subcommand};
 
@@ -27,6 +27,11 @@ pub(crate) struct MempoolCommand {
 enum MempoolSubcommand {
     /// List pending entries in the mempool repo.
     List,
+    /// Rebuild the manifest from a local mempool checkout without publishing.
+    Manifest {
+        #[arg(long)]
+        repo_dir: PathBuf,
+    },
     /// Create a new mempool entry by committing it to the mempool repo.
     /// CRUD-symmetry counterpart to promote/drop; lets terminal-only or
     /// scripted workflows author drafts without opening the browser.
@@ -42,6 +47,15 @@ enum MempoolSubcommand {
 pub(crate) fn run(root: &Path, command: MempoolCommand) -> CliResult {
     match command.command {
         MempoolSubcommand::List => list::list(root),
+        MempoolSubcommand::Manifest { repo_dir } => {
+            let repo_dir = root.join(repo_dir);
+            let count = crate::workflows::mempool::manifest::rebuild(&repo_dir)?;
+            println!(
+                "mempool manifest: {count} entries -> {}",
+                repo_dir.join("manifest.json").display()
+            );
+            Ok(())
+        }
         MempoolSubcommand::Add(args) => add::add(root, args),
         MempoolSubcommand::Promote(args) => promote::promote(root, args),
         MempoolSubcommand::Drop(args) => drop::drop_entry(root, args),

@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 /// Filesystem-declared mount definition loaded after bootstrap.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MountDeclaration {
     pub backend: String,
     pub mount_at: String,
@@ -28,8 +29,7 @@ mod tests {
                 "backend": "github",
                 "mount_at": "/db",
                 "repo": "0xwonj/db",
-                "branch": "main",
-                "writable": true
+                "branch": "main"
             }"#,
         )
         .unwrap();
@@ -39,28 +39,14 @@ mod tests {
         assert_eq!(decl.repo.as_deref(), Some("0xwonj/db"));
         assert_eq!(decl.branch.as_deref(), Some("main"));
     }
-}
-
-#[cfg(test)]
-mod compatibility_tests {
-    use super::*;
     #[test]
-    fn legacy_writable_field_is_ignored_and_missing_is_valid() {
+    fn mount_declaration_rejects_unknown_fields() {
         let base = r#"{"backend":"github","mount_at":"/db","repo":"owner/repo"}"#;
-        let expected: MountDeclaration = serde_json::from_str(base).unwrap();
+        let _: MountDeclaration = serde_json::from_str(base).unwrap();
         for value in [true, false] {
-            let mut legacy: serde_json::Value = serde_json::from_str(base).unwrap();
-            legacy["writable"] = value.into();
-            assert_eq!(
-                serde_json::from_value::<MountDeclaration>(legacy).unwrap(),
-                expected
-            );
+            let mut invalid: serde_json::Value = serde_json::from_str(base).unwrap();
+            invalid["writable"] = value.into();
+            assert!(serde_json::from_value::<MountDeclaration>(invalid).is_err());
         }
-        assert!(
-            serde_json::to_value(expected)
-                .unwrap()
-                .get("writable")
-                .is_none()
-        );
     }
 }

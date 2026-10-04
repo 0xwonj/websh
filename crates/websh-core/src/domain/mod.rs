@@ -20,12 +20,9 @@ pub use manifest::{ContentManifestDocument, ContentManifestEntry};
 pub use mempool::{MempoolFields, MempoolStatus, Priority};
 pub use metadata::{
     AccessFilter, Fields, ImageDim, LinkRef, NodeKind, NodeMetadata, PageSize, Recipient,
-    RendererKind, SCHEMA_VERSION, TrustLevel,
+    RendererKind, TrustLevel,
 };
-pub use mount::{
-    BootstrapSiteSource, RuntimeBackendKind, RuntimeMount, RuntimeMountKind,
-    is_runtime_overlay_path, runtime_state_root,
-};
+pub use mount::{BootstrapSiteSource, RuntimeMount, is_runtime_overlay_path, runtime_state_root};
 pub use site::MountDeclaration;
 pub use virtual_path::{VirtualPath, VirtualPathParseError};
 pub use wallet::{WalletState, chain_name};

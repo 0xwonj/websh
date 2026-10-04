@@ -286,16 +286,8 @@ fn blank_dir_meta() -> crate::domain::NodeMetadata {
 #[test]
 fn refresh_selects_owner_without_requiring_a_listed_path() {
     let mounts = [
-        crate::domain::RuntimeMount::new(
-            VirtualPath::root(),
-            "root",
-            crate::domain::RuntimeBackendKind::GitHub,
-        ),
-        crate::domain::RuntimeMount::new(
-            home_vpath("mempool"),
-            "external",
-            crate::domain::RuntimeBackendKind::GitHub,
-        ),
+        crate::domain::RuntimeMount::new(VirtualPath::root(), "root"),
+        crate::domain::RuntimeMount::new(home_vpath("mempool"), "external"),
     ];
     let fs = GlobalFs::empty();
     for raw in ["/mempool", "/mempool/not-loaded.md"] {

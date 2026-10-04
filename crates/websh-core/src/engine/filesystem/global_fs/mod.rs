@@ -2,10 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use thiserror::Error;
 
-use crate::domain::{DirEntry, FsEntry, NodeMetadata, VirtualPath};
+use crate::domain::{FsEntry, NodeMetadata, VirtualPath};
 
-use super::intent::{RenderIntent, build_render_intent};
-use super::routing::{RouteRequest, RouteResolution, resolve_route};
 use super::tree::directory_metadata;
 
 mod mount;
@@ -33,14 +31,6 @@ pub enum FsMutationError {
     RootMustBeDirectory,
     #[error("parent is a file: {path}")]
     ParentIsFile { path: VirtualPath },
-}
-
-/// Minimal engine trait for the canonical-path read surface.
-pub trait FsEngine {
-    fn stat(&self, path: &VirtualPath) -> Option<&FsEntry>;
-    fn list(&self, path: &VirtualPath) -> Option<Vec<DirEntry>>;
-    fn resolve_route(&self, request: &RouteRequest) -> Option<RouteResolution>;
-    fn build_render_intent(&self, resolution: &RouteResolution) -> Option<RenderIntent>;
 }
 
 /// Global filesystem assembled from mounted subtrees plus local overlays.
@@ -82,23 +72,5 @@ impl GlobalFs {
 impl Default for GlobalFs {
     fn default() -> Self {
         Self::empty()
-    }
-}
-
-impl FsEngine for GlobalFs {
-    fn stat(&self, path: &VirtualPath) -> Option<&FsEntry> {
-        self.get_entry(path)
-    }
-
-    fn list(&self, path: &VirtualPath) -> Option<Vec<DirEntry>> {
-        self.list_dir(path)
-    }
-
-    fn resolve_route(&self, request: &RouteRequest) -> Option<RouteResolution> {
-        resolve_route(self, request)
-    }
-
-    fn build_render_intent(&self, resolution: &RouteResolution) -> Option<RenderIntent> {
-        build_render_intent(self, resolution)
     }
 }

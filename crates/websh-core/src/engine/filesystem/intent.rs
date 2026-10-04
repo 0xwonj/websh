@@ -84,7 +84,7 @@ mod tests {
 
     use crate::domain::{
         BundleDefaultVariant, BundleMetadata, BundleVariant, EntryExtensions, Fields, NodeKind,
-        NodeMetadata, SCHEMA_VERSION, VirtualPath,
+        NodeMetadata, VirtualPath,
     };
     use crate::engine::filesystem::{
         GlobalFs, ResolvedKind, RouteRequest, RouteResolution, RouteRole, RouteSurface,
@@ -96,14 +96,12 @@ mod tests {
 
     fn site(files: &[&str], directories: &[&str]) -> GlobalFs {
         let make_meta = |kind: NodeKind| NodeMetadata {
-            schema: SCHEMA_VERSION,
             kind,
             bundle: None,
             authored: Fields::default(),
             derived: Fields::default(),
         };
         let make_dir_meta = |name: &str| NodeMetadata {
-            schema: SCHEMA_VERSION,
             kind: NodeKind::Directory,
             bundle: None,
             authored: Fields {
@@ -144,7 +142,6 @@ mod tests {
                 ScannedFile {
                     path: "writing/foo/en.md".to_string(),
                     meta: NodeMetadata {
-                        schema: SCHEMA_VERSION,
                         kind: NodeKind::Page,
                         bundle: None,
                         authored: Fields::default(),
@@ -155,7 +152,6 @@ mod tests {
                 ScannedFile {
                     path: "writing/foo/ko.md".to_string(),
                     meta: NodeMetadata {
-                        schema: SCHEMA_VERSION,
                         kind: NodeKind::Page,
                         bundle: None,
                         authored: Fields::default(),
@@ -167,7 +163,6 @@ mod tests {
             directories: vec![ScannedDirectory {
                 path: "writing/foo".to_string(),
                 meta: NodeMetadata {
-                    schema: SCHEMA_VERSION,
                     kind: NodeKind::Bundle,
                     bundle: Some(BundleMetadata {
                         default_variant: BundleDefaultVariant::Static {
@@ -211,7 +206,6 @@ mod tests {
                 ScannedFile {
                     path: "writing/foo/en.md".to_string(),
                     meta: NodeMetadata {
-                        schema: SCHEMA_VERSION,
                         kind: NodeKind::Page,
                         bundle: None,
                         authored: Fields::default(),
@@ -222,7 +216,6 @@ mod tests {
                 ScannedFile {
                     path: "writing/foo/ko.md".to_string(),
                     meta: NodeMetadata {
-                        schema: SCHEMA_VERSION,
                         kind: NodeKind::Page,
                         bundle: None,
                         authored: Fields::default(),
@@ -234,7 +227,6 @@ mod tests {
             directories: vec![ScannedDirectory {
                 path: "writing/foo".to_string(),
                 meta: NodeMetadata {
-                    schema: SCHEMA_VERSION,
                     kind: NodeKind::Bundle,
                     bundle: Some(BundleMetadata {
                         default_variant: BundleDefaultVariant::Locale {

@@ -1,13 +1,12 @@
 use std::collections::HashMap;
 
-use crate::domain::{EntryExtensions, Fields, NodeKind, NodeMetadata, SCHEMA_VERSION};
+use crate::domain::{EntryExtensions, Fields, NodeKind, NodeMetadata};
 use crate::ports::{ScannedDirectory, ScannedFile, ScannedSubtree};
 
 use super::*;
 
 fn file_meta(kind: NodeKind) -> NodeMetadata {
     NodeMetadata {
-        schema: SCHEMA_VERSION,
         kind,
         bundle: None,
         authored: Fields::default(),
@@ -17,7 +16,6 @@ fn file_meta(kind: NodeKind) -> NodeMetadata {
 
 fn dir_meta(name: &str) -> NodeMetadata {
     NodeMetadata {
-        schema: SCHEMA_VERSION,
         kind: NodeKind::Directory,
         bundle: None,
         authored: Fields {

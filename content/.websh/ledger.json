@@ -11,7 +11,7 @@
         "path": ".site"
       },
       "prev_block_sha256": "0x0000000000000000000000000000000000000000000000000000000000000000",
-      "block_sha256": "0xc2fa9ddb002dced158287fb1b5a0a722ef81ef49dcd9e1a2df0aa46553c0bda1",
+      "block_sha256": "0x38678ff39adf60283de26b8b9e0b082aa3656583264514370c1fed43ca3cb50c",
       "entry": {
         "id": "route:/.site",
         "route": "/.site",
@@ -20,8 +20,8 @@
         "content_files": [
           {
             "path": "content/.site/_index.dir.json",
-            "sha256": "0x5e6fa2234c5c8c4ed4c90abfb693d9f2d8d1770067afa5672dc48cae62318146",
-            "bytes": 341
+            "sha256": "0xfc38a9f6abb7b773be0e101102b16002acb04e8846cb7b8abd2a07e8fe715172",
+            "bytes": 326
           },
           {
             "path": "content/.site/errors/404.md",
@@ -30,18 +30,18 @@
           },
           {
             "path": "content/.site/errors/404.meta.json",
-            "sha256": "0xdcc1cae9ab56509214757a3f172a48720d2f47dc7744a19f9ed7ae07a7b76155",
-            "bytes": 397
+            "sha256": "0x487c4fa9393b3747de527e709fcecbe9111987ff1e87df2a350d42a747a45681",
+            "bytes": 382
           },
           {
             "path": "content/.site/errors/_index.dir.json",
-            "sha256": "0x6a687d060d90fd5d69259de46b04ec3bff0f4a237b1488845b8dfc4b224e6daa",
-            "bytes": 260
+            "sha256": "0x886e801363c5223fe0a1014781d45d4347e90699fe638835857c0987610d0ede",
+            "bytes": 245
           },
           {
             "path": "content/.site/keys/_index.dir.json",
-            "sha256": "0x117c50460fa5fa93892582bb4e1b40099faac91c8e5d76ca637b25d1d7c63615",
-            "bytes": 292
+            "sha256": "0xa5388444201497ff394d9f1b1fbc4fb2995ef37f35acc9b0eacad0367554d650",
+            "bytes": 277
           },
           {
             "path": "content/.site/keys/wonjae.asc",
@@ -50,13 +50,13 @@
           },
           {
             "path": "content/.site/keys/wonjae.meta.json",
-            "sha256": "0xfc6b5dcdacc9b51ef03608764a09fe3bea9ceaa3c2b443c3a2bbefa41e597563",
-            "bytes": 352
+            "sha256": "0x92d8d5fd825573ecaab2ec4a75510138f0d10b4650fe7227650bdd6edf4c4e63",
+            "bytes": 337
           },
           {
             "path": "content/.site/now.meta.json",
-            "sha256": "0xa845345e201f5a90ced33167294196d7a6dd8fbb39577f282667b44a14c753c1",
-            "bytes": 313
+            "sha256": "0xe5db09353268ce99558a1efb7a1e24a36ad1924e1a6de10d8ff25985297db1dc",
+            "bytes": 298
           },
           {
             "path": "content/.site/now.toml",
@@ -64,7 +64,7 @@
             "bytes": 298
           }
         ],
-        "content_sha256": "0xceeaaa35ea161861a178e059f94257f481d8707705dba25e9cf19d73e24c3a6a"
+        "content_sha256": "0x9586de15d867a9d20c505b49960e3197f8210609771788a1d6ea4344e1b7f13d"
       }
     },
     {
@@ -73,8 +73,8 @@
         "date": "2026-04-24",
         "path": "talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.pdf"
       },
-      "prev_block_sha256": "0xc2fa9ddb002dced158287fb1b5a0a722ef81ef49dcd9e1a2df0aa46553c0bda1",
-      "block_sha256": "0x50173193eeff9cc651e96b2d045dfb9ac0a0953433e63d34e39deee3971ced20",
+      "prev_block_sha256": "0x38678ff39adf60283de26b8b9e0b082aa3656583264514370c1fed43ca3cb50c",
+      "block_sha256": "0xd28f3fda3b49f7b6a02136a110ea94eea973d36918da78dc83f30a61b495d9d4",
       "entry": {
         "id": "route:/talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.pdf",
         "route": "/talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.pdf",
@@ -83,8 +83,8 @@
         "content_files": [
           {
             "path": "content/talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.meta.json",
-            "sha256": "0xb237153e16d317e5cc24bf02587a484ea93a692281fa57530d091aa525584758",
-            "bytes": 902
+            "sha256": "0xa98a9c318494d3ab17f6f626844644a0f24172ffb6470fb334d242d121f7f729",
+            "bytes": 887
           },
           {
             "path": "content/talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.pdf",
@@ -92,7 +92,7 @@
             "bytes": 3417199
           }
         ],
-        "content_sha256": "0x77d945e91de4a00f049ef6723afa8d9e29c67934568d3a037809b1dc3ad77a2e"
+        "content_sha256": "0xec5ea2f249a70425b410f8e08d74c79005341528058ab8709e451f0e3f7b209d"
       }
     },
     {
@@ -101,8 +101,8 @@
         "date": "2026-05-15",
         "path": "writing/zk-proofs-from-a-compiler-perspective"
       },
-      "prev_block_sha256": "0x50173193eeff9cc651e96b2d045dfb9ac0a0953433e63d34e39deee3971ced20",
-      "block_sha256": "0x6a080c59effabbffce9cd81ae9aa6667c3ddd5543ad8b5eba82c06d429a29699",
+      "prev_block_sha256": "0xd28f3fda3b49f7b6a02136a110ea94eea973d36918da78dc83f30a61b495d9d4",
+      "block_sha256": "0xbc1281faa847804bbb033cede56b3daad53b722001cee27c0923d86461bcb6df",
       "entry": {
         "id": "route:/writing/zk-proofs-from-a-compiler-perspective",
         "route": "/writing/zk-proofs-from-a-compiler-perspective",
@@ -111,8 +111,8 @@
         "content_files": [
           {
             "path": "content/writing/zk-proofs-from-a-compiler-perspective/_index.dir.json",
-            "sha256": "0x16af4a039e3d50b87bbf713f19a35d53456c3e9cf23fb5ea226e3209b3129f0d",
-            "bytes": 987
+            "sha256": "0xb2844e6a69e1999280dd513d70a55af7920371c4a441ceb7d43d550ac64982c8",
+            "bytes": 972
           },
           {
             "path": "content/writing/zk-proofs-from-a-compiler-perspective/en.md",
@@ -121,8 +121,8 @@
           },
           {
             "path": "content/writing/zk-proofs-from-a-compiler-perspective/en.meta.json",
-            "sha256": "0x324a8c96a1c6d991210327997b5166e203df2edebbe88624479bdd94da866177",
-            "bytes": 607
+            "sha256": "0xc99de577b8c14501edb6b8ca432cd8bb1a5b2827563d0a7b2bdf26c995c3808f",
+            "bytes": 592
           },
           {
             "path": "content/writing/zk-proofs-from-a-compiler-perspective/ko.md",
@@ -131,11 +131,11 @@
           },
           {
             "path": "content/writing/zk-proofs-from-a-compiler-perspective/ko.meta.json",
-            "sha256": "0x09dc798fd6fd8bc2b37cedb1754360cc88d709bcb19d28d85c874f816d13c053",
-            "bytes": 656
+            "sha256": "0x15a202c552e2fc4bc409b25b060de2ff64f4fd343381bc3bf686d0fae2624bcc",
+            "bytes": 641
           }
         ],
-        "content_sha256": "0x9f0eec072de2dd0f6c9ab901d2c92566d483e03eb18b64c92018b221015be76f"
+        "content_sha256": "0x0e83a79f548f15170eba865d3e23a731c7dea15757fa8dd4fd3ff487b59f9ad4"
       }
     },
     {
@@ -144,8 +144,8 @@
         "date": "2026-05-18",
         "path": "writing/zksummit14-review"
       },
-      "prev_block_sha256": "0x6a080c59effabbffce9cd81ae9aa6667c3ddd5543ad8b5eba82c06d429a29699",
-      "block_sha256": "0x02a9dc0d32d36dcb109e8274ae262c636a961935218e3359880135dedf207c46",
+      "prev_block_sha256": "0xbc1281faa847804bbb033cede56b3daad53b722001cee27c0923d86461bcb6df",
+      "block_sha256": "0x24b6ca62efc4be28291044dff0f7496baa3b47d5f0c2cab4bd2f5ee74e6f971f",
       "entry": {
         "id": "route:/writing/zksummit14-review",
         "route": "/writing/zksummit14-review",
@@ -154,8 +154,8 @@
         "content_files": [
           {
             "path": "content/writing/zksummit14-review/_index.dir.json",
-            "sha256": "0x1237a8ebe6ae7aa43825afb1c3fd3db3f8ad2949be993da01a85e0ea10b04bfa",
-            "bytes": 1064
+            "sha256": "0x4efb691dcd1b14cbdebc3cd38a3aa23930cf71a24b800ee6e7676c81e01e4d63",
+            "bytes": 1049
           },
           {
             "path": "content/writing/zksummit14-review/en.md",
@@ -164,8 +164,8 @@
           },
           {
             "path": "content/writing/zksummit14-review/en.meta.json",
-            "sha256": "0x1c134b7569eea6e81f1bdaa3df54343d4f8e8d84d0be033e1ab1ac258f0689d7",
-            "bytes": 588
+            "sha256": "0x98af8d7dcc9713200c8cf5909759c5412f60dae6094acd66d5645295d45f4add",
+            "bytes": 573
           },
           {
             "path": "content/writing/zksummit14-review/ko.md",
@@ -174,14 +174,14 @@
           },
           {
             "path": "content/writing/zksummit14-review/ko.meta.json",
-            "sha256": "0x943d5b2fdfbf484e185b126371a4bc6392698207365f3e6a1543c2c9a9ce8efb",
-            "bytes": 575
+            "sha256": "0xa6e1c812acc2344f03cc3986cf7e403f1d1e72450d7309716463f7524cbe7cf3",
+            "bytes": 560
           }
         ],
-        "content_sha256": "0xcc7db86fde571d92006023c5e50e7b7fa8832908439648cb2f4accc64baa6718"
+        "content_sha256": "0x10f5bb892caf2d462f1ffae81f780745cfdc54327794066617b039a4b3183610"
       }
     }
   ],
   "block_count": 4,
-  "chain_head": "0x02a9dc0d32d36dcb109e8274ae262c636a961935218e3359880135dedf207c46"
+  "chain_head": "0x24b6ca62efc4be28291044dff0f7496baa3b47d5f0c2cab4bd2f5ee74e6f971f"
 }

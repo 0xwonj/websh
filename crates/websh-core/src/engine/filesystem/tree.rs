@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 
-use crate::domain::{
-    DirEntry, Fields, FsEntry, NodeKind, NodeMetadata, SCHEMA_VERSION, VirtualPath,
-};
+use crate::domain::{DirEntry, Fields, FsEntry, NodeKind, NodeMetadata, VirtualPath};
 
 use super::global_fs::FsMutationError;
 
@@ -22,7 +20,6 @@ pub(super) fn directory_metadata(name: &str) -> NodeMetadata {
         Some(name.to_string())
     };
     NodeMetadata {
-        schema: SCHEMA_VERSION,
         kind: NodeKind::Directory,
         bundle: None,
         authored: Fields {

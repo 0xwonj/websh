@@ -862,7 +862,7 @@ fn normalize_absolute_path(path: &str) -> Option<VirtualPath> {
 mod tests {
     use crate::domain::{
         BundleDefaultVariant, BundleMetadata, BundleVariant, EntryExtensions, Fields, NodeKind,
-        NodeMetadata, SCHEMA_VERSION,
+        NodeMetadata,
     };
     use crate::ports::{ScannedDirectory, ScannedFile, ScannedSubtree};
 
@@ -870,7 +870,6 @@ mod tests {
 
     fn make_meta(kind: NodeKind) -> NodeMetadata {
         NodeMetadata {
-            schema: SCHEMA_VERSION,
             kind,
             bundle: None,
             authored: Fields::default(),
@@ -880,7 +879,6 @@ mod tests {
 
     fn make_dir_meta(name: &str) -> NodeMetadata {
         NodeMetadata {
-            schema: SCHEMA_VERSION,
             kind: NodeKind::Directory,
             bundle: None,
             authored: Fields {
@@ -954,7 +952,6 @@ mod tests {
                 ScannedDirectory {
                     path: "writing/foo".to_string(),
                     meta: NodeMetadata {
-                        schema: SCHEMA_VERSION,
                         kind: NodeKind::Bundle,
                         bundle: Some(BundleMetadata {
                             default_variant: static_default("en"),
@@ -1017,7 +1014,6 @@ mod tests {
                 ScannedDirectory {
                     path: "writing/foo".to_string(),
                     meta: NodeMetadata {
-                        schema: SCHEMA_VERSION,
                         kind: NodeKind::Bundle,
                         bundle: Some(BundleMetadata {
                             default_variant: locale_default("en"),
@@ -1267,7 +1263,6 @@ mod tests {
                 ScannedDirectory {
                     path: "writing/foo".to_string(),
                     meta: NodeMetadata {
-                        schema: SCHEMA_VERSION,
                         kind: NodeKind::Bundle,
                         bundle: Some(BundleMetadata {
                             default_variant: static_default("en"),
@@ -1341,7 +1336,6 @@ mod tests {
             directories: vec![ScannedDirectory {
                 path: "writing/foo".to_string(),
                 meta: NodeMetadata {
-                    schema: SCHEMA_VERSION,
                     kind: NodeKind::Bundle,
                     bundle: Some(BundleMetadata {
                         default_variant: static_default("en"),
@@ -1437,7 +1431,6 @@ mod tests {
             directories: vec![ScannedDirectory {
                 path: "writing/foo".to_string(),
                 meta: NodeMetadata {
-                    schema: SCHEMA_VERSION,
                     kind: NodeKind::Bundle,
                     bundle: Some(BundleMetadata {
                         default_variant: static_default("en"),
@@ -1492,7 +1485,6 @@ mod tests {
             directories: vec![ScannedDirectory {
                 path: "writing/foo".to_string(),
                 meta: NodeMetadata {
-                    schema: SCHEMA_VERSION,
                     kind: NodeKind::Bundle,
                     bundle: Some(BundleMetadata {
                         default_variant: static_default("fr"),
@@ -1552,7 +1544,6 @@ mod tests {
                 ScannedDirectory {
                     path: "writing/foo".to_string(),
                     meta: NodeMetadata {
-                        schema: SCHEMA_VERSION,
                         kind: NodeKind::Bundle,
                         bundle: Some(BundleMetadata {
                             default_variant: static_default("nested"),
@@ -1571,7 +1562,6 @@ mod tests {
                 ScannedDirectory {
                     path: "writing/foo/nested".to_string(),
                     meta: NodeMetadata {
-                        schema: SCHEMA_VERSION,
                         kind: NodeKind::Bundle,
                         bundle: Some(BundleMetadata {
                             default_variant: static_default("en"),

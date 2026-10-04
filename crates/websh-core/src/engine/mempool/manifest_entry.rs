@@ -1,6 +1,6 @@
 //! Single source of truth for the manifest shape of a mempool entry.
 //!
-//! Every write path (browser New/Edit, CLI `mempool add`) routes through
+//! Native authoring and manifest regeneration use
 //! `build_mempool_manifest_state` so the resulting `(NodeMetadata,
 //! EntryExtensions)` is identical given identical inputs. `derived` fields
 //! (size, sha256, word_count) are computed from the raw bytes that go on
@@ -16,7 +16,7 @@ use sha2::{Digest, Sha256};
 
 use crate::domain::{
     EntryExtensions, Fields, MempoolFields, MempoolStatus, NodeKind, NodeMetadata, Priority,
-    SCHEMA_VERSION, VirtualPath,
+    VirtualPath,
 };
 
 use super::parse::{category_for_mempool_path, parse_mempool_frontmatter, strip_frontmatter_block};
@@ -57,7 +57,6 @@ pub fn build_mempool_manifest_state(raw_body: &str, path: &VirtualPath) -> Mempo
 
     MempoolManifestState {
         meta: NodeMetadata {
-            schema: SCHEMA_VERSION,
             kind: NodeKind::Page,
             bundle: None,
             authored: Fields {

@@ -163,7 +163,7 @@ mod tests {
         fs::write(content.join("talks/a.pdf"), b"pdf").unwrap();
         fs::write(
             content.join("talks/a.meta.json"),
-            r#"{"schema":1,"kind":"document","authored":{"title":"Talk","tags":["zk"],"date":"2026-04-01"},"derived":{}}"#,
+            r#"{"kind":"document","authored":{"title":"Talk","tags":["zk"],"date":"2026-04-01"},"derived":{}}"#,
         )
         .unwrap();
 
@@ -214,7 +214,7 @@ mod tests {
         fs::write(content.join("papers/p.pdf"), b"pdf").unwrap();
         fs::write(
             content.join("papers/p.meta.json"),
-            r#"{"schema":1,"kind":"document","authored":{"date":"2026-03-10"},"derived":{}}"#,
+            r#"{"kind":"document","authored":{"date":"2026-03-10"},"derived":{}}"#,
         )
         .unwrap();
         // Undated entries have `None` sort dates, so they sort first with
@@ -270,7 +270,6 @@ mod tests {
         fs::write(
             content.join("writing/foo/_index.dir.json"),
             r#"{
-              "schema":1,
               "kind":"bundle",
               "bundle":{
                 "default_variant":{"strategy":"static","id":"en"},
@@ -285,12 +284,12 @@ mod tests {
         )
         .unwrap();
         fs::write(content.join("writing/foo/en.md"), b"english").unwrap();
-        fs::write(content.join("writing/foo/en.meta.json"), b"{\"schema\":1}").unwrap();
+        fs::write(content.join("writing/foo/en.meta.json"), b"{}").unwrap();
         fs::write(content.join("writing/foo/ko.md"), b"korean").unwrap();
         fs::write(content.join("writing/foo/cover.png"), b"png").unwrap();
         fs::write(
             content.join("writing/foo/cover.meta.json"),
-            b"{\"schema\":1,\"authored\":{\"title\":\"Cover\"}}",
+            b"{\"authored\":{\"title\":\"Cover\"}}",
         )
         .unwrap();
 
@@ -324,11 +323,11 @@ mod tests {
         fs::create_dir_all(content.join(".websh/errors")).unwrap();
         fs::write(
             content.join(".site/_index.dir.json"),
-            r#"{"schema":1,"kind":"directory","authored":{"title":"Site support","date":"2026-05-01"},"derived":{"kind":"directory"}}"#,
+            r#"{"kind":"directory","authored":{"title":"Site support","date":"2026-05-01"},"derived":{"kind":"directory"}}"#,
         )
         .unwrap();
         fs::write(content.join(".site/now.toml"), b"[[items]]\n").unwrap();
-        fs::write(content.join(".site/now.meta.json"), b"{\"schema\":1}").unwrap();
+        fs::write(content.join(".site/now.meta.json"), b"{}").unwrap();
         fs::write(content.join(".site/keys/wonjae.asc"), b"key").unwrap();
         fs::write(content.join(".site/errors/404.md"), b"not found").unwrap();
         fs::write(content.join(".site/errors/empty.md"), b"").unwrap();
@@ -381,7 +380,7 @@ mod tests {
         fs::create_dir_all(content.join("writing")).unwrap();
         fs::write(
             content.join("writing/_index.dir.json"),
-            r#"{"schema":1,"kind":"directory","authored":{},"derived":{"kind":"directory"}}"#,
+            r#"{"kind":"directory","authored":{},"derived":{"kind":"directory"}}"#,
         )
         .unwrap();
         fs::write(content.join("writing/hello.md"), b"hello").unwrap();
@@ -410,7 +409,7 @@ mod tests {
         fs::create_dir_all(content.join(".site")).unwrap();
         fs::write(
             content.join(".site/_index.dir.json"),
-            r#"{"schema":1,"kind":"site","authored":{"title":"Site"},"derived":{"kind":"site"}}"#,
+            r#"{"kind":"site","authored":{"title":"Site"},"derived":{"kind":"site"}}"#,
         )
         .unwrap();
         fs::write(content.join(".site/now.toml"), b"[[items]]\n").unwrap();
@@ -429,7 +428,6 @@ mod tests {
         fs::write(
             content.join("writing/foo/_index.dir.json"),
             r#"{
-              "schema":1,
               "kind":"bundle",
               "bundle":{
                 "default_variant":{"strategy":"static","id":"en"},

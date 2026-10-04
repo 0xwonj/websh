@@ -8,13 +8,6 @@ static RUNTIME_STATE_ROOT: LazyLock<VirtualPath> = LazyLock::new(|| {
     VirtualPath::from_absolute("/.websh/state").expect("runtime state root is canonical")
 });
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RuntimeMountKind {
-    Content,
-    External,
-    RuntimeOverlay,
-}
-
 pub fn runtime_state_root() -> &'static VirtualPath {
     &RUNTIME_STATE_ROOT
 }
@@ -42,32 +35,18 @@ impl BootstrapSiteSource {
     }
 }
 
-/// Backend kind associated with a mounted canonical subtree.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RuntimeBackendKind {
-    GitHub,
-    Ipfs,
-    Ens,
-}
-
-/// Mounted runtime subtree and its public source kind.
+/// Mounted runtime subtree and its display label.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RuntimeMount {
     pub root: VirtualPath,
     pub label: String,
-    pub backend_kind: RuntimeBackendKind,
 }
 
 impl RuntimeMount {
-    pub fn new(
-        root: VirtualPath,
-        label: impl Into<String>,
-        backend_kind: RuntimeBackendKind,
-    ) -> Self {
+    pub fn new(root: VirtualPath, label: impl Into<String>) -> Self {
         Self {
             root,
             label: label.into(),
-            backend_kind,
         }
     }
 
@@ -95,11 +74,7 @@ mod tests {
 
     #[test]
     fn runtime_mount_contains_canonical_subpaths() {
-        let mount = RuntimeMount::new(
-            VirtualPath::from_absolute("/db").unwrap(),
-            "db",
-            RuntimeBackendKind::GitHub,
-        );
+        let mount = RuntimeMount::new(VirtualPath::from_absolute("/db").unwrap(), "db");
 
         assert!(mount.contains(&VirtualPath::from_absolute("/db/notes/todo.md").unwrap()));
         assert!(!mount.contains(&VirtualPath::from_absolute("/db2").unwrap()));

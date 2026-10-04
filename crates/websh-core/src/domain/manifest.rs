@@ -13,10 +13,9 @@ pub struct ContentManifestDocument {
     pub entries: Vec<ContentManifestEntry>,
 }
 
-/// `mempool` is a domain-extension sibling block; new domains slot in
-/// here. No `deny_unknown_fields` so older runtimes ignore newer
-/// domain blocks instead of rejecting the manifest.
+/// A content node with optional mempool metadata.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ContentManifestEntry {
     pub path: String,
     pub metadata: NodeMetadata,
@@ -40,5 +39,21 @@ mod tests {
     fn content_manifest_requires_entries() {
         let parsed = serde_json::from_str::<ContentManifestDocument>("{}");
         assert!(parsed.is_err());
+    }
+
+    #[test]
+    fn content_manifest_rejects_unknown_entry_fields() {
+        let body = include_str!("../../../../tests/fixtures/manifest_golden.json");
+        let mut value: serde_json::Value = serde_json::from_str(body).unwrap();
+        value["entries"][0]["unknown"] = true.into();
+        assert!(serde_json::from_value::<ContentManifestDocument>(value).is_err());
+    }
+
+    #[test]
+    fn metadata_has_one_unversioned_shape() {
+        let body = include_str!("../../../../tests/fixtures/manifest_golden.json");
+        let mut value: serde_json::Value = serde_json::from_str(body).unwrap();
+        value["entries"][0]["metadata"]["schema"] = 1.into();
+        assert!(serde_json::from_value::<ContentManifestDocument>(value).is_err());
     }
 }

@@ -3,7 +3,6 @@
     {
       "path": "",
       "metadata": {
-        "schema": 1,
         "kind": "directory",
         "authored": {},
         "derived": {
@@ -18,7 +17,6 @@
     {
       "path": ".site",
       "metadata": {
-        "schema": 1,
         "kind": "directory",
         "authored": {
           "title": "Site",
@@ -41,7 +39,6 @@
     {
       "path": ".site/errors",
       "metadata": {
-        "schema": 1,
         "kind": "directory",
         "authored": {
           "description": "Error response templates and route-failure policy."
@@ -58,7 +55,6 @@
     {
       "path": ".site/keys",
       "metadata": {
-        "schema": 1,
         "kind": "directory",
         "authored": {
           "description": "Public keys used to verify site identity and attestations.",
@@ -76,7 +72,6 @@
     {
       "path": ".websh",
       "metadata": {
-        "schema": 1,
         "kind": "directory",
         "authored": {},
         "derived": {
@@ -90,7 +85,6 @@
     {
       "path": ".websh/mounts",
       "metadata": {
-        "schema": 1,
         "kind": "directory",
         "authored": {},
         "derived": {
@@ -104,7 +98,6 @@
     {
       "path": "papers",
       "metadata": {
-        "schema": 1,
         "kind": "directory",
         "authored": {},
         "derived": {
@@ -118,7 +111,6 @@
     {
       "path": "projects",
       "metadata": {
-        "schema": 1,
         "kind": "directory",
         "authored": {},
         "derived": {
@@ -132,7 +124,6 @@
     {
       "path": "talks",
       "metadata": {
-        "schema": 1,
         "kind": "directory",
         "authored": {},
         "derived": {
@@ -147,7 +138,6 @@
     {
       "path": "writing",
       "metadata": {
-        "schema": 1,
         "kind": "directory",
         "authored": {},
         "derived": {
@@ -162,7 +152,6 @@
     {
       "path": "writing/zk-proofs-from-a-compiler-perspective",
       "metadata": {
-        "schema": 1,
         "kind": "bundle",
         "bundle": {
           "default_variant": {
@@ -214,7 +203,6 @@
     {
       "path": "writing/zksummit14-review",
       "metadata": {
-        "schema": 1,
         "kind": "bundle",
         "bundle": {
           "default_variant": {
@@ -270,7 +258,6 @@
     {
       "path": ".site/errors/404.md",
       "metadata": {
-        "schema": 1,
         "kind": "page",
         "authored": {
           "title": "404 response policy",
@@ -290,7 +277,6 @@
     {
       "path": ".site/keys/wonjae.asc",
       "metadata": {
-        "schema": 1,
         "kind": "document",
         "authored": {
           "description": "PGP public key — verifies content attestations on this site.",
@@ -308,7 +294,6 @@
     {
       "path": ".site/now.toml",
       "metadata": {
-        "schema": 1,
         "kind": "document",
         "authored": {
           "description": "What I'm working on right now — short status feed."
@@ -325,7 +310,6 @@
     {
       "path": ".websh/ledger.json",
       "metadata": {
-        "schema": 1,
         "kind": "data",
         "authored": {},
         "derived": {
@@ -338,7 +322,6 @@
     {
       "path": ".websh/mounts/mempool.mount.json",
       "metadata": {
-        "schema": 1,
         "kind": "data",
         "authored": {},
         "derived": {
@@ -351,7 +334,6 @@
     {
       "path": "talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.pdf",
       "metadata": {
-        "schema": 1,
         "kind": "document",
         "authored": {
           "title": "Evaluating compiler-optimization impacts on zkVM performance",
@@ -392,7 +374,6 @@
     {
       "path": "writing/zk-proofs-from-a-compiler-perspective/en.md",
       "metadata": {
-        "schema": 1,
         "kind": "page",
         "authored": {
           "title": "Zero-Knowledge Proofs, from a Compiler Perspective",
@@ -421,7 +402,6 @@
     {
       "path": "writing/zk-proofs-from-a-compiler-perspective/ko.md",
       "metadata": {
-        "schema": 1,
         "kind": "page",
         "authored": {
           "title": "컴파일러 관점에서 보는 영지식 증명",
@@ -450,7 +430,6 @@
     {
       "path": "writing/zksummit14-review/en.md",
       "metadata": {
-        "schema": 1,
         "kind": "page",
         "authored": {
           "title": "ZK Summit 14 Review: Talks, Themes, and Takeaways",
@@ -478,7 +457,6 @@
     {
       "path": "writing/zksummit14-review/ko.md",
       "metadata": {
-        "schema": 1,
         "kind": "page",
         "authored": {
           "title": "ZK Summit 14 리뷰: 발표, 주제, 시사점",
