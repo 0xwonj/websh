@@ -404,10 +404,4 @@ mod tests {
         assert_eq!(manifest.entries.len(), 1);
         assert_eq!(manifest.entries[0].path, "writing/a.md");
     }
-
-    #[test]
-    fn drop_rejects_reserved_manifest_path_before_remote_delete() {
-        let err = MempoolEntryPath::parse("manifest.json").unwrap_err();
-        assert!(err.to_string().contains("reserved"));
-    }
 }

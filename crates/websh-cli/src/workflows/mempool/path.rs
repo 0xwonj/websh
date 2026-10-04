@@ -100,17 +100,22 @@ mod tests {
 
     #[test]
     fn rejects_reserved_or_escaping_paths() {
-        for raw in [
-            "",
-            "/writing/a.md",
-            "manifest.json",
-            "writing/../manifest.json",
-            "writing//a.md",
-            "writing/a.txt",
-            "unknown/a.md",
-            "writing/-bad.md",
+        use MempoolEntryPathError::*;
+        for (raw, expected) in [
+            ("", Empty),
+            ("/writing/a.md", Absolute),
+            ("manifest.json", Reserved),
+            ("writing/../manifest.json", Reserved),
+            ("writing//a.md", Shape),
+            ("writing/series/foo.md", Shape),
+            ("writing/", EmptySegment),
+            ("writing/..", Traversal),
+            ("writing/a.txt", Extension),
+            ("unknown/a.md", UnknownCategory("unknown".into())),
+            ("writing/-bad.md", Slug),
+            ("writing/.md", Slug),
         ] {
-            assert!(MempoolEntryPath::parse(raw).is_err(), "{raw} should fail");
+            assert_eq!(MempoolEntryPath::parse(raw).unwrap_err(), expected, "{raw}");
         }
     }
 }

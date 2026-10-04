@@ -1,312 +1,150 @@
 use super::*;
 
-fn args(strs: &[&str]) -> Vec<String> {
-    strs.iter().map(|s| s.to_string()).collect()
+fn filter(name: &str, args: &[&str], lines: &[&str]) -> CommandResult {
+    apply_filter(
+        name,
+        &args.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+        lines.iter().map(|s| OutputLine::text(*s)).collect(),
+    )
 }
 
-fn test_lines() -> Vec<OutputLine> {
-    vec![
-        OutputLine::text("apple"),
-        OutputLine::text("banana"),
-        OutputLine::text("cherry"),
-        OutputLine::text("date"),
-        OutputLine::text("elderberry"),
-    ]
+fn text(result: &CommandResult) -> Vec<&str> {
+    result
+        .output
+        .iter()
+        .map(|line| match &line.data {
+            OutputLineData::Text(text) => text.as_str(),
+            other => panic!("expected text output, got {other:?}"),
+        })
+        .collect()
 }
 
 #[test]
-fn test_grep_filter() {
-    let lines = test_lines();
-    let result = apply_filter("grep", &args(&["an"]), lines);
+fn grep_applies_regex_case_and_inversion_options() {
+    for (args, expected) in [
+        (&["apple"][..], &["apple"][..]),
+        (&["^b"][..], &["banana"][..]),
+        (&["-i", "apple"][..], &["Apple", "apple"][..]),
+        (&["-v", "apple"][..], &["Apple", "banana"][..]),
+        (&["-iv", "apple"][..], &["banana"][..]),
+        (&["-E", "a.*e"][..], &["apple"][..]),
+    ] {
+        let result = filter("grep", args, &["Apple", "apple", "banana"]);
+        assert_eq!(result.exit_code, 0, "{args:?}");
+        assert_eq!(text(&result), expected, "{args:?}");
+    }
+}
+
+#[test]
+fn grep_fixed_strings_treats_regex_characters_literally() {
+    for flag in ["-F", "--fixed-strings"] {
+        let result = filter("grep", &[flag, "a.b"], &["a.b", "axb"]);
+        assert_eq!(result.exit_code, 0, "{flag}");
+        assert_eq!(text(&result), ["a.b"], "{flag}");
+    }
+    let result = filter("grep", &["-iF", "a.b"], &["A.B", "AxB"]);
     assert_eq!(result.exit_code, 0);
-    assert_eq!(result.output.len(), 1);
-    assert!(matches!(&result.output[0].data, OutputLineData::Text(s) if s == "banana"));
+    assert_eq!(text(&result), ["A.B"]);
 }
 
 #[test]
-fn test_grep_case_sensitive_default_rejects_uppercase() {
-    let lines = vec![OutputLine::text("APPLE"), OutputLine::text("banana")];
-    let result = apply_filter("grep", &args(&["apple"]), lines);
-    // default is case-sensitive, so "APPLE" doesn't match
+fn grep_no_match_has_empty_output_and_exit_one() {
+    let result = filter("grep", &["apple"], &["APPLE", "banana"]);
     assert_eq!(result.exit_code, 1);
     assert!(result.output.is_empty());
 }
 
 #[test]
-fn test_grep_regex_match() {
-    let lines = vec![
-        OutputLine::text("apple"),
-        OutputLine::text("banana"),
-        OutputLine::text("cherry"),
-    ];
-    let result = apply_filter("grep", &args(&["^b"]), lines);
-    assert_eq!(result.exit_code, 0);
-    assert_eq!(result.output.len(), 1);
-    assert!(matches!(&result.output[0].data, OutputLineData::Text(s) if s == "banana"));
+fn grep_reports_invalid_arguments_with_exit_two() {
+    for (args, message) in [
+        (&[][..], "missing pattern"),
+        (&["("][..], "invalid regex"),
+        (&["-x", "pattern"][..], "unknown option"),
+        (&["first", "second"][..], "extra argument"),
+    ] {
+        let result = filter("grep", args, &["anything"]);
+        assert_eq!(result.exit_code, 2, "{args:?}");
+        assert!(
+            matches!(&result.output[..], [OutputLine { data: OutputLineData::Error(error), .. }] if error.contains(message)),
+            "{args:?}: {:?}",
+            result.output,
+        );
+    }
 }
 
 #[test]
-fn test_grep_case_sensitive_by_default() {
-    let lines = vec![OutputLine::text("Apple"), OutputLine::text("apple")];
-    let result = apply_filter("grep", &args(&["apple"]), lines);
-    // default is case-sensitive now (was case-insensitive previously)
-    assert_eq!(result.exit_code, 0);
-    assert_eq!(result.output.len(), 1);
-    assert!(matches!(&result.output[0].data, OutputLineData::Text(s) if s == "apple"));
-}
-
-#[test]
-fn test_grep_ignore_case_flag() {
-    let lines = vec![
-        OutputLine::text("Apple"),
-        OutputLine::text("apple"),
-        OutputLine::text("banana"),
-    ];
-    let result = apply_filter("grep", &args(&["-i", "apple"]), lines);
-    assert_eq!(result.exit_code, 0);
-    assert_eq!(result.output.len(), 2);
-}
-
-#[test]
-fn test_grep_invert_flag() {
-    let lines = vec![
-        OutputLine::text("apple"),
-        OutputLine::text("banana"),
-        OutputLine::text("cherry"),
-    ];
-    let result = apply_filter("grep", &args(&["-v", "apple"]), lines);
-    assert_eq!(result.exit_code, 0);
-    assert_eq!(result.output.len(), 2);
-}
-
-#[test]
-fn test_grep_combined_short_flags() {
-    let lines = vec![OutputLine::text("Apple"), OutputLine::text("banana")];
-    let result = apply_filter("grep", &args(&["-iv", "apple"]), lines);
-    // -i case-insensitive AND -v invert: "Apple" matches case-insensitive so is excluded;
-    // "banana" doesn't match, so is kept
-    assert_eq!(result.exit_code, 0);
-    assert_eq!(result.output.len(), 1);
-    assert!(matches!(&result.output[0].data, OutputLineData::Text(s) if s == "banana"));
-}
-
-#[test]
-fn test_grep_extended_flag_accepted() {
-    // -E is accepted as alias (regex crate always uses extended syntax)
-    let lines = vec![OutputLine::text("apple")];
-    let result = apply_filter("grep", &args(&["-E", "a.*e"]), lines);
-    assert_eq!(result.exit_code, 0);
-    assert_eq!(result.output.len(), 1);
-}
-
-#[test]
-fn test_grep_invalid_regex_exit_2() {
-    let lines = vec![OutputLine::text("anything")];
-    // unbalanced parens
-    let result = apply_filter("grep", &args(&["("]), lines);
-    assert_eq!(result.exit_code, 2);
-}
-
-#[test]
-fn test_grep_unknown_flag_exit_2() {
-    let lines = vec![OutputLine::text("anything")];
-    let result = apply_filter("grep", &args(&["-x", "pat"]), lines);
-    assert_eq!(result.exit_code, 2);
-}
-
-#[test]
-fn test_grep_missing_pattern() {
-    let lines = test_lines();
-    let result = apply_filter("grep", &[], lines);
-    assert_eq!(result.exit_code, 2);
-    assert_eq!(result.output.len(), 1);
-    assert!(
-        matches!(&result.output[0].data, OutputLineData::Error(s) if s.contains("missing pattern"))
+fn grep_matches_directory_entries_without_changing_their_presentation() {
+    let matching = OutputLine::dir_entry("project-alpha", "Alpha project");
+    let result = apply_filter(
+        "grep",
+        &["alpha".into()],
+        vec![
+            matching.clone(),
+            OutputLine::dir_entry("project-beta", "Beta project"),
+        ],
     );
-}
-
-#[test]
-fn test_grep_list_entry() {
-    let lines = vec![
-        OutputLine::dir_entry("project-alpha", "Alpha project"),
-        OutputLine::dir_entry("project-beta", "Beta project"),
-    ];
-    let result = apply_filter("grep", &args(&["alpha"]), lines);
     assert_eq!(result.exit_code, 0);
-    assert_eq!(result.output.len(), 1);
+    assert_eq!(result.output, vec![matching]);
 }
 
 #[test]
-fn test_head_filter() {
-    let lines = test_lines();
-    let result = apply_filter("head", &args(&["-3"]), lines);
-    assert_eq!(result.exit_code, 0);
-    assert_eq!(result.output.len(), 3);
-    assert!(matches!(&result.output[0].data, OutputLineData::Text(s) if s == "apple"));
-    assert!(matches!(&result.output[2].data, OutputLineData::Text(s) if s == "cherry"));
+fn head_and_tail_select_the_requested_end_of_the_input() {
+    let lines = ["apple", "banana", "cherry", "date", "elderberry"];
+    for (name, expected) in [("head", &lines[..2]), ("tail", &lines[3..])] {
+        for args in [&["-2"][..], &["-n", "2"][..]] {
+            let result = filter(name, args, &lines);
+            assert_eq!(result.exit_code, 0, "{name} {args:?}");
+            assert_eq!(text(&result), expected, "{name} {args:?}");
+        }
+        let result = filter(name, &[], &lines);
+        assert_eq!(result.exit_code, 0, "{name}");
+        assert_eq!(
+            text(&result),
+            lines,
+            "{name} keeps inputs shorter than ten lines"
+        );
+    }
+    let longer = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"];
+    for (name, expected) in [("head", &longer[..10]), ("tail", &longer[2..])] {
+        let result = filter(name, &[], &longer);
+        assert_eq!(result.exit_code, 0, "{name}");
+        assert_eq!(text(&result), expected, "{name} defaults to ten lines");
+    }
 }
 
 #[test]
-fn test_head_with_dash() {
-    let lines = test_lines();
-    let result = apply_filter("head", &args(&["-2"]), lines);
-    assert_eq!(result.exit_code, 0);
-    assert_eq!(result.output.len(), 2);
+fn head_and_tail_reject_invalid_counts() {
+    for name in ["head", "tail"] {
+        for args in [&["--2"][..], &["-abc"][..]] {
+            assert_eq!(
+                filter(name, args, &["line"]).exit_code,
+                2,
+                "{name} {args:?}"
+            );
+        }
+    }
 }
 
 #[test]
-fn test_head_default() {
-    let lines = test_lines();
-    let result = apply_filter("head", &[], lines);
-    assert_eq!(result.exit_code, 0);
-    assert_eq!(result.output.len(), 5); // Default 10, but only 5 lines
-}
-
-#[test]
-fn test_tail_filter() {
-    let lines = test_lines();
-    let result = apply_filter("tail", &args(&["-2"]), lines);
-    assert_eq!(result.exit_code, 0);
-    assert_eq!(result.output.len(), 2);
-    assert!(matches!(&result.output[0].data, OutputLineData::Text(s) if s == "date"));
-    assert!(matches!(&result.output[1].data, OutputLineData::Text(s) if s == "elderberry"));
-}
-
-#[test]
-fn test_tail_with_dash() {
-    let lines = test_lines();
-    let result = apply_filter("tail", &args(&["-3"]), lines);
-    assert_eq!(result.exit_code, 0);
-    assert_eq!(result.output.len(), 3);
-}
-
-#[test]
-fn test_wc_filter() {
-    let lines = test_lines();
-    let result = apply_filter("wc", &[], lines);
-    assert_eq!(result.exit_code, 0);
-    assert_eq!(result.output.len(), 1);
-    assert!(matches!(&result.output[0].data, OutputLineData::Text(s) if s == "5"));
-}
-
-#[test]
-fn test_wc_excludes_empty() {
-    let lines = vec![
-        OutputLine::text("line1"),
-        OutputLine::empty(),
-        OutputLine::text("line2"),
-        OutputLine::empty(),
-    ];
-    let result = apply_filter("wc", &[], lines);
-    assert_eq!(result.exit_code, 0);
-    assert!(matches!(&result.output[0].data, OutputLineData::Text(s) if s == "2"));
-}
-
-#[test]
-fn test_unknown_filter() {
-    let lines = test_lines();
-    let result = apply_filter("unknown", &[], lines);
-    assert_eq!(result.exit_code, 127);
-    assert_eq!(result.output.len(), 1);
-    assert!(
-        matches!(&result.output[0].data, OutputLineData::Error(s) if s.contains("unknown filter"))
+fn wc_counts_nonempty_output_entries() {
+    let result = apply_filter(
+        "wc",
+        &[],
+        vec![
+            OutputLine::text("one"),
+            OutputLine::empty(),
+            OutputLine::text("two"),
+        ],
     );
+    assert_eq!(result.exit_code, 0);
+    assert_eq!(text(&result), ["2"]);
 }
 
 #[test]
-fn test_grep_no_match_exit_1() {
-    let lines = test_lines();
-    let result = apply_filter("grep", &args(&["xyzzy"]), lines);
-    assert_eq!(result.exit_code, 1);
-    assert!(result.output.is_empty());
-}
-
-#[test]
-fn test_grep_missing_pattern_exit_2() {
-    let lines = test_lines();
-    let result = apply_filter("grep", &[], lines);
-    assert_eq!(result.exit_code, 2);
-}
-
-#[test]
-fn test_unknown_filter_exit_127() {
-    let lines = test_lines();
-    let result = apply_filter("zzz", &[], lines);
+fn unknown_filter_reports_exit_127() {
+    let result = filter("unknown", &[], &["line"]);
     assert_eq!(result.exit_code, 127);
-}
-
-#[test]
-fn test_head_double_dash_rejected() {
-    let lines = test_lines();
-    let result = apply_filter("head", &args(&["--5"]), lines);
-    assert_eq!(result.exit_code, 2);
-}
-
-#[test]
-fn test_head_n_flag() {
-    let lines = test_lines();
-    let result = apply_filter("head", &args(&["-n", "3"]), lines);
-    assert_eq!(result.exit_code, 0);
-    assert_eq!(result.output.len(), 3);
-}
-
-#[test]
-fn test_head_non_numeric_rejected() {
-    let lines = test_lines();
-    let result = apply_filter("head", &args(&["-abc"]), lines);
-    assert_eq!(result.exit_code, 2);
-}
-
-#[test]
-fn test_tail_double_dash_rejected() {
-    let lines = test_lines();
-    let result = apply_filter("tail", &args(&["--2"]), lines);
-    assert_eq!(result.exit_code, 2);
-}
-
-#[test]
-fn test_tail_n_flag() {
-    let lines = test_lines();
-    let result = apply_filter("tail", &args(&["-n", "2"]), lines);
-    assert_eq!(result.exit_code, 0);
-    assert_eq!(result.output.len(), 2);
-}
-
-#[test]
-fn test_grep_fixed_strings_short_flag() {
-    // Without -F, parens are regex metachars
-    let lines = vec![OutputLine::text("hello (world)")];
-    let result = apply_filter("grep", &args(&["-F", "(world)"]), lines);
-    assert_eq!(result.exit_code, 0);
-    assert_eq!(result.output.len(), 1);
-}
-
-#[test]
-fn test_grep_fixed_strings_long_flag() {
-    let lines = vec![OutputLine::text("a.b.c")];
-    let result = apply_filter("grep", &args(&["--fixed-strings", "a.b"]), lines);
-    assert_eq!(result.exit_code, 0);
-}
-
-#[test]
-fn test_grep_fixed_strings_combined_with_i() {
-    let lines = vec![
-        OutputLine::text("HELLO.WORLD"),
-        OutputLine::text("no match here"),
-    ];
-    let result = apply_filter("grep", &args(&["-iF", "hello.world"]), lines);
-    assert_eq!(result.exit_code, 0);
-    assert_eq!(result.output.len(), 1);
-}
-
-#[test]
-fn test_grep_extra_positional_error_message() {
-    let lines = vec![OutputLine::text("x")];
-    let result = apply_filter("grep", &args(&["pat1", "pat2"]), lines);
-    assert_eq!(result.exit_code, 2);
-    let msg = match &result.output[0].data {
-        OutputLineData::Error(s) => s.clone(),
-        _ => panic!("expected error"),
-    };
-    assert!(msg.contains("extra argument"), "msg: {}", msg);
+    assert!(
+        matches!(&result.output[..], [OutputLine { data: OutputLineData::Error(error), .. }] if error.contains("unknown filter"))
+    );
 }

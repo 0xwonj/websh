@@ -342,39 +342,17 @@ mod tests {
     }
 
     #[test]
-    fn test_common_prefix() {
-        let strings = vec![
-            "hello".to_string(),
-            "help".to_string(),
-            "helicopter".to_string(),
-        ];
-        assert_eq!(find_common_prefix(&strings), "hel");
-    }
-
-    #[test]
-    fn test_common_prefix_multibyte() {
-        // Korean characters (3 bytes each in UTF-8)
-        let strings = vec!["한국어".to_string(), "한국인".to_string()];
-        assert_eq!(find_common_prefix(&strings), "한국");
-    }
-
-    #[test]
-    fn test_common_prefix_emoji() {
-        // Emoji (4-byte sequences)
-        let strings = vec!["café_1".to_string(), "café_2".to_string()];
-        assert_eq!(find_common_prefix(&strings), "café_");
-    }
-
-    #[test]
-    fn test_common_prefix_mixed_ascii_multibyte() {
-        let strings = vec!["abc한".to_string(), "abc中".to_string()];
-        assert_eq!(find_common_prefix(&strings), "abc");
-    }
-
-    #[test]
-    fn test_common_prefix_no_common() {
-        let strings = vec!["한".to_string(), "中".to_string()];
-        assert_eq!(find_common_prefix(&strings), "");
+    fn common_prefix_stops_at_character_boundaries() {
+        for (input, expected) in [
+            (&["hello", "help", "helicopter"][..], "hel"),
+            (&["한국어", "한국인"][..], "한국"),
+            (&["café_1", "café_2"][..], "café_"),
+            (&["abc한", "abc中"][..], "abc"),
+            (&["한", "中"][..], ""),
+        ] {
+            let strings: Vec<_> = input.iter().map(|s| s.to_string()).collect();
+            assert_eq!(find_common_prefix(&strings), expected, "{input:?}");
+        }
     }
 
     #[test]
@@ -389,19 +367,6 @@ mod tests {
         assert_eq!(mode, CompletionMode::FilePath);
 
         let (mode, _) = CompletionMode::from_input("whoami arg");
-        assert_eq!(mode, CompletionMode::None);
-    }
-
-    #[test]
-    fn test_completion_mode_less_no_longer_file() {
-        // less is not an implemented command; it should not trigger file-path completion
-        let (mode, _) = CompletionMode::from_input("less file.txt");
-        assert_eq!(mode, CompletionMode::None);
-    }
-
-    #[test]
-    fn test_completion_mode_more_no_longer_file() {
-        let (mode, _) = CompletionMode::from_input("more file.txt");
         assert_eq!(mode, CompletionMode::None);
     }
 
@@ -546,17 +511,12 @@ mod tests {
     }
 
     #[test]
-    fn removed_commands_have_no_completion() {
+    fn unknown_commands_have_no_argument_suggestions() {
         let fs = GlobalFs::empty();
-        for name in ["edit", "touch", "mkdir", "rm", "rmdir", "sync"] {
-            assert_eq!(
-                autocomplete(&format!("{name} "), &VirtualPath::root(), &fs),
-                AutocompleteResult::None
-            );
-            assert_eq!(
-                get_hint(&format!("{name} "), &VirtualPath::root(), &fs),
-                None
-            );
-        }
+        assert_eq!(
+            autocomplete("unknown ", &VirtualPath::root(), &fs),
+            AutocompleteResult::None
+        );
+        assert_eq!(get_hint("unknown ", &VirtualPath::root(), &fs), None);
     }
 }

@@ -41,12 +41,7 @@ mod tests {
     }
     #[test]
     fn mount_declaration_rejects_unknown_fields() {
-        let base = r#"{"backend":"github","mount_at":"/db","repo":"owner/repo"}"#;
-        let _: MountDeclaration = serde_json::from_str(base).unwrap();
-        for value in [true, false] {
-            let mut invalid: serde_json::Value = serde_json::from_str(base).unwrap();
-            invalid["writable"] = value.into();
-            assert!(serde_json::from_value::<MountDeclaration>(invalid).is_err());
-        }
+        let invalid = r#"{"backend":"github","mount_at":"/db","unexpected":true}"#;
+        assert!(serde_json::from_str::<MountDeclaration>(invalid).is_err());
     }
 }

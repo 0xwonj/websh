@@ -144,6 +144,7 @@ fn read_pdf_dimensions(path: &Path) -> Result<(PageSize, u32, u32), PdfDimension
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::temp_dir;
     use lopdf::{Document, Object, dictionary};
 
     #[test]
@@ -167,11 +168,10 @@ mod tests {
         );
         let catalog = document.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages });
         document.trailer.set("Root", catalog);
-        let path =
-            std::env::temp_dir().join(format!("websh-pdf-metadata-{}.pdf", std::process::id()));
+        let root = temp_dir("pdf-metadata");
+        let path = root.join("document.pdf");
         document.save(&path).unwrap();
         let result = read_pdf_dimensions(&path);
-        std::fs::remove_file(&path).unwrap();
         let (size, count, rotation) = result.unwrap();
         assert_eq!(
             (size.width, size.height, count, rotation),

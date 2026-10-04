@@ -204,6 +204,7 @@ mod tests {
     #[test]
     fn test_parse_pipeline() {
         let pipeline = parse_input("ls | grep blog | head -5", &[]);
+        assert!(!pipeline.has_error());
         assert_eq!(pipeline.commands.len(), 3);
         assert_eq!(pipeline.commands[0].name, "ls");
         assert_eq!(pipeline.commands[1].name, "grep");
@@ -230,85 +231,30 @@ mod tests {
     }
 
     #[test]
-    fn test_empty_pipe_leading() {
-        let pipeline = parse_input("| grep foo", &[]);
-        assert!(pipeline.has_error());
-        assert_eq!(
-            pipeline.error,
-            Some(ShellParseError::UnexpectedPipe { position: 0 })
-        );
+    fn empty_pipeline_stages_report_their_position() {
+        for (input, expected) in [
+            (
+                "| grep foo",
+                ShellParseError::UnexpectedPipe { position: 0 },
+            ),
+            (
+                "ls | | grep foo",
+                ShellParseError::EmptyPipeStage { position: 2 },
+            ),
+            ("ls |", ShellParseError::TrailingPipe { position: 1 }),
+        ] {
+            assert_eq!(parse_input(input, &[]).error, Some(expected), "{input}");
+        }
     }
 
     #[test]
-    fn test_empty_pipe_middle() {
-        let pipeline = parse_input("ls | | grep foo", &[]);
-        assert!(pipeline.has_error());
-        // tokens: ["ls", "|", "|", "grep", "foo"], second pipe at index 2
-        assert_eq!(
-            pipeline.error,
-            Some(ShellParseError::EmptyPipeStage { position: 2 })
-        );
-    }
-
-    #[test]
-    fn test_empty_pipe_trailing() {
-        let pipeline = parse_input("ls |", &[]);
-        assert!(pipeline.has_error());
-        // tokens: ["ls", "|"], pipe at index 1
-        assert_eq!(
-            pipeline.error,
-            Some(ShellParseError::TrailingPipe { position: 1 })
-        );
-    }
-
-    #[test]
-    fn test_valid_pipeline_no_error() {
-        let pipeline = parse_input("ls | grep foo | head -5", &[]);
-        assert!(!pipeline.has_error());
-        assert_eq!(pipeline.commands.len(), 3);
-    }
-
-    #[test]
-    fn test_unclosed_single_quote() {
-        let pipeline = parse_input("echo 'hello", &[]);
-        assert!(pipeline.has_error());
-        assert!(matches!(
-            pipeline.error,
-            Some(ShellParseError::UnclosedQuote { kind: '\'', .. })
-        ));
-    }
-
-    #[test]
-    fn test_unclosed_double_quote() {
-        let pipeline = parse_input("echo \"world", &[]);
-        assert!(pipeline.has_error());
-        assert!(matches!(
-            pipeline.error,
-            Some(ShellParseError::UnclosedQuote { kind: '"', .. })
-        ));
-    }
-
-    #[test]
-    fn test_closed_quotes_ok() {
-        let pipeline = parse_input("echo 'hi'", &[]);
-        assert!(!pipeline.has_error());
-        assert_eq!(pipeline.commands[0].args, vec!["hi"]);
-    }
-
-    #[test]
-    fn test_unquoted_undef_drops_argv_slot() {
-        let pipeline = parse_input("echo $NO_SUCH_VAR hello", &[]);
-        assert!(!pipeline.has_error());
-        assert_eq!(pipeline.commands[0].name, "echo");
-        // $NO_SUCH_VAR is unquoted and empty → the word disappears.
-        assert_eq!(pipeline.commands[0].args, vec!["hello"]);
-    }
-
-    #[test]
-    fn test_quoted_undef_keeps_empty_arg() {
-        let pipeline = parse_input("echo \"$NO_SUCH_VAR\" hello", &[]);
-        assert!(!pipeline.has_error());
-        assert_eq!(pipeline.commands[0].args, vec!["", "hello"]);
+    fn unclosed_quotes_are_parse_errors() {
+        for (input, expected) in [("echo 'hello", '\''), ("echo \"world", '"')] {
+            assert!(
+                matches!(parse_input(input, &[]).error, Some(ShellParseError::UnclosedQuote { kind, .. }) if kind == expected),
+                "{input}"
+            );
+        }
     }
 
     #[test]
@@ -316,25 +262,24 @@ mod tests {
         for input in [
             "",
             "'ls' | GREP foo | head -2",
-            "echo 'sync auth set'",
+            "echo 'unknown command'",
             "echo a > b",
             "REFRESH /mempool",
         ] {
             assert!(parse_input(input, &[]).is_supported(), "{input}");
         }
         for input in [
-            "sync auth set payload",
-            "echo hello | sync auth set payload",
-            "edit foo",
+            "unknown payload",
+            "echo hello | unknown payload",
             "ls | echo hi",
             "ls |",
             "echo 'unclosed",
         ] {
             assert!(!parse_input(input, &[]).is_supported(), "{input}");
         }
-        let env = BTreeMap::from([("CMD".into(), "sync".into())]);
-        assert!(!parse_input_with_env("$CMD auth set payload", &[], &env).is_supported());
-        assert!(!parse_input("!!", &["sync auth set payload".into()]).is_supported());
+        let env = BTreeMap::from([("CMD".into(), "unknown".into())]);
+        assert!(!parse_input_with_env("$CMD payload", &[], &env).is_supported());
+        assert!(!parse_input("!!", &["unknown payload".into()]).is_supported());
     }
 
     #[test]

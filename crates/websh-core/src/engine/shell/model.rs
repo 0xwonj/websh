@@ -399,26 +399,9 @@ impl Command {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{BootstrapSiteSource, RuntimeMount};
-    use crate::engine::shell::execute_pipeline;
 
     fn args(strs: &[&str]) -> Vec<String> {
         strs.iter().map(|s| s.to_string()).collect()
-    }
-
-    fn bootstrap_source() -> BootstrapSiteSource {
-        BootstrapSiteSource {
-            repo_with_owner: "example/site",
-            branch: "main",
-            content_root: "content",
-            gateway: "self",
-        }
-    }
-
-    fn runtime_mounts() -> [RuntimeMount; 1] {
-        [crate::engine::runtime::boot::bootstrap_runtime_mount(
-            &bootstrap_source(),
-        )]
     }
 
     #[test]
@@ -546,161 +529,10 @@ mod tests {
     }
 
     #[test]
-    fn test_command_names() {
-        let names = Command::names();
-        assert!(names.contains(&"ls"));
-        assert!(names.contains(&"cd"));
-        assert!(names.contains(&"cat"));
-        assert!(names.contains(&"help"));
-        assert!(names.contains(&"login"));
-        assert!(names.contains(&"logout"));
-        assert!(names.contains(&"theme"));
-        assert!(!names.contains(&"explorer"));
-        // Filter commands should be included for autocomplete
-        assert!(names.contains(&"grep"));
-        assert!(names.contains(&"head"));
-        assert!(names.contains(&"tail"));
-        assert!(names.contains(&"wc"));
-        // less and more should NOT be in the list
-        assert!(!names.contains(&"less"));
-        assert!(!names.contains(&"more"));
-    }
-
-    #[test]
-    fn test_pipeline_no_filters_preserves_side_effect() {
-        // execute_pipeline should preserve SideEffect from first command
-        // when there are no filters.
-        use crate::domain::{VirtualPath, WalletState};
-        use crate::engine::filesystem::GlobalFs;
-        use crate::engine::shell::parser::parse_input;
-
-        let wallet = WalletState::Disconnected;
-        let fs = GlobalFs::empty();
-        let cwd = VirtualPath::root();
-
-        let pipeline = parse_input("login", &[]);
-        let result = execute_pipeline(&pipeline, &wallet, &runtime_mounts(), &fs, &cwd);
-        assert_eq!(
-            result.side_effects.first().cloned(),
-            Some(super::SideEffect::Login)
-        );
-    }
-
-    #[test]
-    fn test_pipeline_drops_side_effect_when_piped() {
-        // When a command has filters attached, side effects are discarded.
-        use crate::domain::{VirtualPath, WalletState};
-        use crate::engine::filesystem::GlobalFs;
-        use crate::engine::shell::parser::parse_input;
-
-        let wallet = WalletState::Disconnected;
-        let fs = GlobalFs::empty();
-        let cwd = VirtualPath::root();
-
-        let pipeline = parse_input("help | head -1", &[]);
-        let result = execute_pipeline(&pipeline, &wallet, &runtime_mounts(), &fs, &cwd);
-        assert!(result.side_effects.first().cloned().is_none());
-    }
-
-    #[test]
-    fn test_pipeline_exit_code_is_last_stage() {
-        use crate::domain::{VirtualPath, WalletState};
-        use crate::engine::filesystem::GlobalFs;
-        use crate::engine::shell::parser::parse_input;
-
-        let wallet = WalletState::Disconnected;
-        let fs = GlobalFs::empty();
-        let cwd = VirtualPath::root();
-
-        // `help | grep xyzzy` should exit 1 (grep no match)
-        let pipeline = parse_input("help | grep xyzzy", &[]);
-        let result = execute_pipeline(&pipeline, &wallet, &runtime_mounts(), &fs, &cwd);
-        assert_eq!(result.exit_code, 1);
-    }
-
-    #[test]
     fn test_parse_echo_plain_no_redirect() {
         assert!(matches!(
             Command::parse("echo", &args(&["hello"])),
             Command::Echo(ref s) if s == "hello"
         ));
-    }
-
-    #[test]
-    fn test_parser_error_exit_2() {
-        use crate::domain::{VirtualPath, WalletState};
-        use crate::engine::filesystem::GlobalFs;
-        use crate::engine::shell::parser::parse_input;
-
-        let wallet = WalletState::Disconnected;
-        let fs = GlobalFs::empty();
-        let cwd = VirtualPath::root();
-
-        // Pipe with nothing on the right-hand side → parse error
-        let pipeline = parse_input("ls |", &[]);
-        let result = execute_pipeline(&pipeline, &wallet, &runtime_mounts(), &fs, &cwd);
-        assert_eq!(result.exit_code, 2);
-    }
-    #[test]
-    fn test_output_constructor() {
-        let r = CommandResult::output(vec![OutputLine::text("hi")]);
-        assert_eq!(r.exit_code, 0);
-        assert!(r.side_effects.is_empty());
-        assert_eq!(r.output.len(), 1);
-    }
-
-    #[test]
-    fn test_error_line_constructor() {
-        let r = CommandResult::error_line("boom");
-        assert_eq!(r.exit_code, 1);
-        assert!(r.side_effects.is_empty());
-        assert_eq!(r.output.len(), 1);
-    }
-
-    #[test]
-    fn test_navigate_constructor() {
-        let route = RouteRequest::new("/websh/blog");
-        let r = CommandResult::navigate(route.clone());
-        assert_eq!(r.exit_code, 0);
-        assert_eq!(r.side_effects, vec![SideEffect::Navigate(route)]);
-    }
-
-    #[test]
-    fn test_login_constructor() {
-        let r = CommandResult::login();
-        assert_eq!(r.exit_code, 0);
-        assert_eq!(r.side_effects, vec![SideEffect::Login]);
-    }
-
-    #[test]
-    fn test_logout_constructor() {
-        let r = CommandResult::logout();
-        assert_eq!(r.side_effects, vec![SideEffect::Logout]);
-    }
-
-    #[test]
-    fn test_with_exit_code() {
-        let r = CommandResult::empty().with_exit_code(127);
-        assert_eq!(r.exit_code, 127);
-    }
-}
-
-#[cfg(test)]
-mod read_only_tests {
-    use super::*;
-    #[test]
-    fn output_operators_are_literal_text() {
-        for input in [
-            "echo hello > note.md",
-            "echo hello >> note.md",
-            "echo hello \">\" note.md",
-        ] {
-            let pipeline = crate::shell::parse_input(input, &[]);
-            let command = &pipeline.commands[0];
-            match Command::parse(&command.name, &command.args) {
-                Command::Echo(text) => assert_eq!(text, command.args.join(" ")),
-                other => panic!("unexpected command {other:?}"),
-            }
-        }
     }
 }

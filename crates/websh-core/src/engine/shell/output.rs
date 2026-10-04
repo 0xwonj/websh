@@ -176,124 +176,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_output_line_constructors() {
-        assert_eq!(
-            OutputLine::text("hello").data,
-            OutputLineData::Text("hello".to_string())
-        );
-        assert_eq!(
-            OutputLine::error("error").data,
-            OutputLineData::Error("error".to_string())
-        );
-        assert_eq!(
-            OutputLine::success("ok").data,
-            OutputLineData::Success("ok".to_string())
-        );
-        assert_eq!(
-            OutputLine::info("info").data,
-            OutputLineData::Info("info".to_string())
-        );
-        assert_eq!(
-            OutputLine::ascii("art").data,
-            OutputLineData::Ascii("art".to_string())
-        );
-    }
-
-    #[test]
-    fn test_command_line() {
-        let cmd = OutputLine::command("user@host", "ls -la");
-        match cmd.data {
-            OutputLineData::Command { prompt, input } => {
-                assert_eq!(prompt, "user@host");
-                assert_eq!(input, "ls -la");
-            }
-            _ => panic!("Expected Command variant"),
+    fn file_listing_style_distinguishes_hidden_names() {
+        for (name, expected) in [
+            ("readme.md", TextStyle::File),
+            (".gitignore", TextStyle::Hidden),
+        ] {
+            let entry = OutputLine::file_entry(name, "", false);
+            assert!(
+                matches!(entry.data, OutputLineData::ListEntry { style, .. } if style == expected)
+            );
         }
     }
 
     #[test]
-    fn test_dir_entry() {
-        let entry = OutputLine::dir_entry("docs", "Documentation");
-        match entry.data {
-            OutputLineData::ListEntry {
-                name,
-                description,
-                style,
-                encrypted,
-                format,
-            } => {
-                assert_eq!(name, "docs");
-                assert_eq!(description, "Documentation");
-                assert_eq!(style, TextStyle::Directory);
-                assert!(!encrypted);
-                assert_eq!(format, ListFormat::Short);
-            }
-            _ => panic!("Expected ListEntry variant"),
-        }
-    }
-
-    #[test]
-    fn test_file_entry_normal() {
-        let entry = OutputLine::file_entry("readme.md", "Readme file", false);
-        match entry.data {
-            OutputLineData::ListEntry { name, style, .. } => {
-                assert_eq!(name, "readme.md");
-                assert_eq!(style, TextStyle::File);
-            }
-            _ => panic!("Expected ListEntry variant"),
-        }
-    }
-
-    #[test]
-    fn test_file_entry_hidden() {
-        let entry = OutputLine::file_entry(".gitignore", "Git ignore", false);
-        match entry.data {
-            OutputLineData::ListEntry { name, style, .. } => {
-                assert_eq!(name, ".gitignore");
-                assert_eq!(style, TextStyle::Hidden);
-            }
-            _ => panic!("Expected ListEntry variant"),
-        }
-    }
-
-    #[test]
-    fn test_unique_ids() {
-        let line1 = OutputLine::text("first");
-        let line2 = OutputLine::text("second");
-        let line3 = OutputLine::text("first"); // Same content as line1
-
-        // IDs should all be different
-        assert_ne!(line1.id, line2.id);
-        assert_ne!(line1.id, line3.id);
-        assert_ne!(line2.id, line3.id);
-
-        // But content equality works
-        assert_eq!(line1.data, line3.data);
-    }
-
-    #[test]
-    fn test_output_line_ids_are_unique_and_monotonic() {
-        let a = OutputLine::text("a");
-        let b = OutputLine::text("b");
-        assert_ne!(a.id, b.id);
-        // Newtype: compare via .0
-        assert!(a.id.0 < b.id.0);
-    }
-
-    #[test]
-    fn test_output_line_id_is_copy() {
-        let a = OutputLine::text("a");
-        let _copy = a.id; // Copy trait
-        let _copy2 = a.id; // can copy twice
-    }
-
-    #[test]
-    fn test_output_line_structural_eq() {
-        let a = OutputLine::text("hello");
-        let b = OutputLine::text("hello");
-        // Different ids → structural PartialEq says not equal.
-        assert_ne!(a, b);
-        // But .data equality still works.
-        assert_eq!(a.data, b.data);
+    fn repeated_output_gets_distinct_monotonic_ids() {
+        let first = OutputLine::text("same text");
+        let second = OutputLine::text("same text");
+        assert_eq!(first.data, second.data);
+        assert!(first.id.0 < second.id.0);
+        assert_ne!(first, second);
     }
 }

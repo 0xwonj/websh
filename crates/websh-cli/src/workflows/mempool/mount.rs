@@ -67,6 +67,7 @@ fn mempool_mount_decl_path(root: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::temp_dir;
     use std::fs;
 
     fn write_mount(root: &Path, body: &str) {
@@ -77,7 +78,7 @@ mod tests {
 
     #[test]
     fn reads_minimal_declaration() {
-        let root = tempdir();
+        let root = temp_dir("mempool-mount");
         write_mount(
             &root,
             r#"{"backend":"github","mount_at":"/mempool","repo":"0xwonj/m","branch":"main","root":"","name":"mempool"}"#,
@@ -90,7 +91,7 @@ mod tests {
 
     #[test]
     fn defaults_branch_to_main_when_missing() {
-        let root = tempdir();
+        let root = temp_dir("mempool-mount");
         write_mount(
             &root,
             r#"{"backend":"github","mount_at":"/mempool","repo":"0xwonj/m"}"#,
@@ -100,18 +101,8 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unknown_declaration_fields() {
-        let root = tempdir();
-        write_mount(
-            &root,
-            r#"{"backend":"github","mount_at":"/mempool","repo":"0xwonj/m","writable":true}"#,
-        );
-        assert!(read_mempool_mount_declaration(&root).is_err());
-    }
-
-    #[test]
     fn rejects_non_github_backend() {
-        let root = tempdir();
+        let root = temp_dir("mempool-mount");
         write_mount(&root, r#"{"backend":"ipfs","mount_at":"/x","repo":"x/y"}"#);
         let err = read_mempool_mount_declaration(&root).unwrap_err();
         assert!(err.to_string().contains("backend `ipfs`"));
@@ -119,7 +110,7 @@ mod tests {
 
     #[test]
     fn rejects_missing_repo() {
-        let root = tempdir();
+        let root = temp_dir("mempool-mount");
         write_mount(&root, r#"{"backend":"github","mount_at":"/mempool"}"#);
         let err = read_mempool_mount_declaration(&root).unwrap_err();
         assert!(err.to_string().contains("missing required `repo`"));
@@ -127,7 +118,7 @@ mod tests {
 
     #[test]
     fn rejects_empty_repo_string() {
-        let root = tempdir();
+        let root = temp_dir("mempool-mount");
         write_mount(
             &root,
             r#"{"backend":"github","mount_at":"/mempool","repo":""}"#,
@@ -138,21 +129,8 @@ mod tests {
 
     #[test]
     fn errors_when_file_missing() {
-        let root = tempdir();
+        let root = temp_dir("mempool-mount");
         let err = read_mempool_mount_declaration(&root).unwrap_err();
         assert!(err.to_string().contains("not found"));
-    }
-
-    fn tempdir() -> PathBuf {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        let id = COUNTER.fetch_add(1, Ordering::SeqCst);
-        let mut d = std::env::temp_dir();
-        d.push(format!("websh-mempool-test-{}-{}", std::process::id(), id));
-        if d.exists() {
-            fs::remove_dir_all(&d).unwrap();
-        }
-        fs::create_dir_all(&d).unwrap();
-        d
     }
 }

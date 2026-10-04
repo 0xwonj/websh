@@ -8,3 +8,7 @@ pub(crate) mod workflows;
 pub(crate) type CliResult<T = ()> = anyhow::Result<T>;
 
 pub use cli::run;
+
+#[cfg(test)]
+#[path = "../tests/support/fs.rs"]
+mod test_support;

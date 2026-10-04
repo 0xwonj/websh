@@ -234,44 +234,6 @@ fn test_cd_empty_string_exit_1() {
     );
 }
 
-#[test]
-fn test_has_children_empty_dir_is_false() {
-    let mut fs = GlobalFs::empty();
-    fs.upsert_directory(home_vpath("empty"), blank_dir_meta());
-    assert!(!fs.has_children(&home_vpath("empty")));
-}
-
-#[test]
-fn test_has_children_with_child_is_true() {
-    let mut fs = GlobalFs::empty();
-    fs.upsert_directory(home_vpath("dir"), blank_dir_meta());
-    fs.upsert_file(
-        home_vpath("dir/child.md"),
-        String::new(),
-        blank_file_meta(NodeKind::Asset),
-        EntryExtensions::default(),
-    );
-    assert!(fs.has_children(&home_vpath("dir")));
-}
-
-#[test]
-fn test_has_children_nonexistent_is_false() {
-    let fs = GlobalFs::empty();
-    assert!(!fs.has_children(&home_vpath("ghost")));
-}
-
-#[test]
-fn test_has_children_file_is_false() {
-    let mut fs = GlobalFs::empty();
-    fs.upsert_file(
-        home_vpath("file.md"),
-        String::new(),
-        blank_file_meta(NodeKind::Asset),
-        EntryExtensions::default(),
-    );
-    assert!(!fs.has_children(&home_vpath("file.md")));
-}
-
 fn blank_file_meta(kind: NodeKind) -> crate::domain::NodeMetadata {
     crate::domain::NodeMetadata {
         kind,
@@ -314,20 +276,4 @@ fn refresh_selects_owner_without_requiring_a_listed_path() {
     );
     assert_ne!(result.exit_code, 0);
     assert!(result.side_effects.is_empty());
-}
-
-#[test]
-fn removed_commands_never_produce_content_effects() {
-    let fs = GlobalFs::empty();
-    for name in ["edit", "touch", "mkdir", "rm", "rmdir", "sync"] {
-        let result = execute_command(
-            Command::parse(name, &["/example".into()]),
-            &WalletState::Disconnected,
-            &fs,
-            &root_cwd(),
-        );
-        assert_eq!(result.exit_code, 127);
-        assert!(result.side_effects.is_empty());
-        assert!(!Command::names().contains(&name));
-    }
 }

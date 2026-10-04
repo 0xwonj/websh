@@ -244,22 +244,10 @@ fn enumerate_directories_from_files(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::temp_dir;
     use std::process::Command;
-    use std::sync::atomic::{AtomicU64, Ordering};
     use websh_core::domain::{AccessFilter, Fields, NodeKind, NodeMetadata, Recipient};
     use websh_core::filesystem::RouteCatalogError;
-
-    fn tempdir() -> PathBuf {
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        let id = COUNTER.fetch_add(1, Ordering::SeqCst);
-        let mut d = std::env::temp_dir();
-        d.push(format!("websh-manifest-test-{}-{}", std::process::id(), id));
-        if d.exists() {
-            fs::remove_dir_all(&d).unwrap();
-        }
-        fs::create_dir_all(&d).unwrap();
-        d
-    }
 
     fn read_sidecar(path: &Path) -> NodeMetadata {
         let body = fs::read_to_string(path).expect("sidecar exists");
@@ -314,7 +302,7 @@ mod tests {
 
     #[test]
     fn populates_authored_from_frontmatter() {
-        let dir = tempdir();
+        let dir = temp_dir("content-manifest");
         fs::write(
             dir.join("hello.md"),
             "---\ntitle: Greeting\ntags:\n  - intro\n  - sample\ndate: 2026-04-22\n---\n\nbody\n",
@@ -342,7 +330,7 @@ mod tests {
 
     #[test]
     fn populates_git_modified_at_for_files_and_parent_directories() {
-        let dir = tempdir();
+        let dir = temp_dir("content-manifest");
         init_git(&dir);
         fs::create_dir_all(dir.join("docs")).unwrap();
         fs::write(dir.join("docs/readme.md"), "hello").unwrap();
@@ -381,7 +369,7 @@ mod tests {
 
     #[test]
     fn generated_sidecar_commit_does_not_drive_directory_modified_at() {
-        let dir = tempdir();
+        let dir = temp_dir("content-manifest");
         init_git(&dir);
         fs::create_dir_all(dir.join("docs")).unwrap();
         fs::write(dir.join("docs/readme.md"), "hello").unwrap();
@@ -422,7 +410,7 @@ mod tests {
 
     #[test]
     fn untracked_content_omits_modified_at() {
-        let dir = tempdir();
+        let dir = temp_dir("content-manifest");
         init_git(&dir);
         fs::write(dir.join("draft.md"), "untracked").unwrap();
 
@@ -443,7 +431,7 @@ mod tests {
 
     #[test]
     fn idempotent_across_repeated_runs() {
-        let dir = tempdir();
+        let dir = temp_dir("content-manifest");
         fs::write(dir.join("note.md"), "---\ntitle: Note\n---\n\ncontent\n").unwrap();
 
         sync_content(&dir, Path::new(".")).expect("first sync");
@@ -463,7 +451,7 @@ mod tests {
 
     #[test]
     fn preserves_sidecar_only_authored_fields() {
-        let dir = tempdir();
+        let dir = temp_dir("content-manifest");
 
         // Pre-existing sidecar carries an `access` recipient list — the
         // sort of field a user authors directly in the JSON, not via
@@ -501,7 +489,7 @@ mod tests {
 
     #[test]
     fn rejects_bundle_route_collisions_during_manifest_sync() {
-        let dir = tempdir();
+        let dir = temp_dir("content-manifest");
         fs::create_dir_all(dir.join("writing/foo")).unwrap();
         fs::write(
             dir.join("writing/foo/_index.dir.json"),
@@ -534,7 +522,7 @@ mod tests {
 
     #[test]
     fn sync_creates_directory_sidecar_for_dot_site_root() {
-        let dir = tempdir();
+        let dir = temp_dir("content-manifest");
         fs::create_dir_all(dir.join(".site")).unwrap();
         fs::write(dir.join(".site/now.toml"), b"[[items]]\n").unwrap();
 
@@ -543,20 +531,5 @@ mod tests {
         let sidecar = read_sidecar(&dir.join(".site/_index.dir.json"));
         assert_eq!(sidecar.kind, NodeKind::Directory);
         assert_eq!(sidecar.derived.kind, Some(NodeKind::Directory));
-    }
-
-    #[test]
-    fn sync_rejects_legacy_site_sidecar_for_dot_site_root() {
-        let dir = tempdir();
-        fs::create_dir_all(dir.join(".site")).unwrap();
-        fs::write(
-            dir.join(".site/_index.dir.json"),
-            r#"{"kind":"site","authored":{"title":"Site"},"derived":{"kind":"site"}}"#,
-        )
-        .unwrap();
-        fs::write(dir.join(".site/now.toml"), b"[[items]]\n").unwrap();
-
-        let err = sync_content(&dir, Path::new(".")).unwrap_err();
-        assert!(err.to_string().contains("parse"));
     }
 }

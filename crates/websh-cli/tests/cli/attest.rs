@@ -1,91 +1,15 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use websh_core::attestation::artifact::{
     Attestation, AttestationArtifact, Subject, compute_content_sha256,
 };
 use websh_core::attestation::ledger::{CONTENT_LEDGER_PATH, ContentLedger};
-use websh_core::crypto::ack::{ACK_RECEIPTS_DIR, AckArtifact, slugify_name};
 use websh_core::crypto::pgp::normalize_fingerprint;
 use websh_site::{ACK_ARTIFACT_PATH, ACK_COMMITMENT_JSON, ATTESTATIONS_PATH};
 
-fn temp_root(name: &str) -> PathBuf {
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("websh-{name}-{}-{stamp}", std::process::id()));
-    fs::create_dir_all(&root).unwrap();
-    root
-}
-
-fn cli(root: &Path, args: &[&str]) {
-    let output = Command::new(env!("CARGO_BIN_EXE_websh-cli"))
-        .arg("--root")
-        .arg(root)
-        .args(args)
-        .output()
-        .expect("run websh-cli");
-    assert!(
-        output.status.success(),
-        "websh-cli {:?} failed\nstdout:\n{}\nstderr:\n{}",
-        args,
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-fn cli_with_env(root: &Path, args: &[&str], envs: &[(&str, &str)]) {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_websh-cli"));
-    command.arg("--root").arg(root).args(args);
-    for (key, value) in envs {
-        command.env(key, value);
-    }
-    let output = command.output().expect("run websh-cli");
-    assert!(
-        output.status.success(),
-        "websh-cli {:?} failed\nstdout:\n{}\nstderr:\n{}",
-        args,
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-fn cli_output(root: &Path, args: &[&str]) -> String {
-    let output = Command::new(env!("CARGO_BIN_EXE_websh-cli"))
-        .arg("--root")
-        .arg(root)
-        .args(args)
-        .output()
-        .expect("run websh-cli");
-    assert!(
-        output.status.success(),
-        "websh-cli {:?} failed\nstdout:\n{}\nstderr:\n{}",
-        args,
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    String::from_utf8(output.stdout).expect("stdout is utf8")
-}
-
-fn cli_fails(root: &Path, args: &[&str]) {
-    let output = Command::new(env!("CARGO_BIN_EXE_websh-cli"))
-        .arg("--root")
-        .arg(root)
-        .args(args)
-        .output()
-        .expect("run websh-cli");
-    assert!(
-        !output.status.success(),
-        "websh-cli {:?} unexpectedly succeeded\nstdout:\n{}\nstderr:\n{}",
-        args,
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
+use crate::support::{cli, cli_fails, cli_with_env, temp_dir};
 
 fn write_ack_artifact(root: &Path) {
     let path = root.join(ACK_ARTIFACT_PATH);
@@ -126,13 +50,74 @@ fn write_homepage_content(root: &Path) {
     .unwrap();
 }
 
+fn fake_gpg(root: &Path, script: &str) -> String {
+    let bin = root.join("fake-bin");
+    fs::create_dir_all(&bin).unwrap();
+    let executable = bin.join("gpg");
+    fs::write(&executable, script).unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+    format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    )
+}
+
 #[test]
-fn cli_attest_preserves_invalid_existing_artifacts_before_generating_content() {
+fn build_hook_respects_profiles_force_and_unsigned_mode() {
+    let root = temp_dir("attest-build-skipped");
+    for profile in [None, Some("dev"), Some("Release")] {
+        let envs = profile
+            .map(|profile| ("TRUNK_PROFILE", profile))
+            .into_iter()
+            .collect::<Vec<_>>();
+        assert!(cli_with_env(&root, &["attest", "build"], &envs).contains("skipped"));
+        assert!(!root.join(ATTESTATIONS_PATH).exists());
+        assert!(!root.join("content/manifest.json").exists());
+    }
+
+    for (profile, force, unsigned) in [
+        ("release", false, " yes "),
+        ("dev", true, "TRUE"),
+        ("", true, "1"),
+    ] {
+        let root = temp_dir("attest-build-unsigned");
+        write_homepage_content(&root);
+        let path = fake_gpg(&root, "#!/bin/sh\necho 'unexpected signing' >&2\nexit 91\n");
+        let mut args = vec!["attest", "build"];
+        if force {
+            args.push("--force");
+        }
+        cli_with_env(
+            &root,
+            &args,
+            &[
+                ("TRUNK_PROFILE", profile),
+                ("WEBSH_NO_SIGN", unsigned),
+                ("PATH", &path),
+            ],
+        );
+        let artifact: AttestationArtifact =
+            serde_json::from_str(&fs::read_to_string(root.join(ATTESTATIONS_PATH)).unwrap())
+                .unwrap();
+        assert!(artifact.subject_for_route("/").is_some());
+        assert!(
+            artifact
+                .subjects
+                .iter()
+                .all(|subject| subject.attestations().is_empty())
+        );
+        assert!(root.join(CONTENT_LEDGER_PATH).exists());
+    }
+}
+
+#[test]
+fn attest_preserves_invalid_existing_artifacts_before_generating_content() {
     for body in [
         "corrupt artifact",
         r#"{"version":2,"scheme":"websh.attestations.v1","subjects":[]}"#,
     ] {
-        let root = temp_root("attest-invalid-existing");
+        let root = temp_dir("attest-invalid-existing");
         write_homepage_content(&root);
         let artifact = root.join(ATTESTATIONS_PATH);
         fs::write(&artifact, body).unwrap();
@@ -148,13 +133,12 @@ fn cli_attest_preserves_invalid_existing_artifacts_before_generating_content() {
         assert_eq!(fs::read_to_string(artifact).unwrap(), body);
         assert!(!root.join("content/manifest.json").exists());
         assert!(!root.join(CONTENT_LEDGER_PATH).exists());
-        fs::remove_dir_all(root).unwrap();
     }
 }
 
 #[test]
-fn cli_attest_does_not_treat_artifact_read_errors_as_a_new_project() {
-    let root = temp_root("attest-artifact-read-error");
+fn attest_does_not_treat_artifact_read_errors_as_a_new_project() {
+    let root = temp_dir("attest-artifact-read-error");
     write_homepage_content(&root);
     let artifact = root.join(ATTESTATIONS_PATH);
     fs::create_dir(&artifact).unwrap();
@@ -170,87 +154,11 @@ fn cli_attest_does_not_treat_artifact_read_errors_as_a_new_project() {
     assert!(artifact.is_dir());
     assert!(!root.join("content/manifest.json").exists());
     assert!(!root.join(CONTENT_LEDGER_PATH).exists());
-    fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
-fn cli_builds_ack_artifact_and_private_receipt() {
-    let root = temp_root("ack");
-    cli(&root, &["crypto", "ack", "init"]);
-    cli(&root, &["crypto", "ack", "add", "--public", "coffee"]);
-    cli(&root, &["crypto", "ack", "verify", "--name", "coffee"]);
-
-    cli(
-        &root,
-        &["crypto", "ack", "add", "--private", "anonymous reviewer"],
-    );
-
-    let artifact_body = fs::read_to_string(root.join(ACK_ARTIFACT_PATH)).unwrap();
-    assert!(!artifact_body.contains("anonymous reviewer"));
-    let artifact: AckArtifact = serde_json::from_str(&artifact_body).unwrap();
-    artifact.validate().unwrap();
-
-    let receipt = root
-        .join(ACK_RECEIPTS_DIR)
-        .join(format!("{}.json", slugify_name("anonymous reviewer")));
-    assert!(receipt.exists());
-    cli(
-        &root,
-        &[
-            "crypto",
-            "ack",
-            "verify",
-            "--receipt",
-            receipt.to_str().unwrap(),
-        ],
-    );
-
-    cli(&root, &["crypto", "ack", "build"]);
-    cli(
-        &root,
-        &["crypto", "ack", "receipt", "--name", "anonymous reviewer"],
-    );
-
-    cli(&root, &["crypto", "ack", "remove", "anonymous reviewer"]);
-    assert!(!receipt.exists());
-
-    cli(&root, &["crypto", "ack", "rm", "coffee"]);
-    cli_fails(&root, &["crypto", "ack", "verify", "--name", "coffee"]);
-
-    let artifact_body = fs::read_to_string(root.join(ACK_ARTIFACT_PATH)).unwrap();
-    let artifact: AckArtifact = serde_json::from_str(&artifact_body).unwrap();
-    artifact.validate().unwrap();
-}
-
-#[test]
-fn cli_ack_handles_unicode_private_receipt_names() {
-    let root = temp_root("ack-unicode");
-    cli(&root, &["crypto", "ack", "init"]);
-    cli(&root, &["crypto", "ack", "add", "--private", "익명 리뷰어"]);
-
-    let receipt = root
-        .join(ACK_RECEIPTS_DIR)
-        .join(format!("{}.json", slugify_name("익명 리뷰어")));
-    assert!(receipt.exists());
-    assert!(receipt.file_name().unwrap().to_string_lossy().is_ascii());
-
-    cli(
-        &root,
-        &[
-            "crypto",
-            "ack",
-            "verify",
-            "--receipt",
-            receipt.to_str().unwrap(),
-        ],
-    );
-    cli(&root, &["crypto", "ack", "remove", "익명 리뷰어"]);
-    assert!(!receipt.exists());
-}
-
-#[test]
-fn cli_attest_subject_set_builds_deterministic_content_hash() {
-    let root = temp_root("attest-set");
+fn attest_subject_set_builds_deterministic_content_hash() {
+    let root = temp_dir("attest-set");
     write_ack_artifact(&root);
     fs::write(root.join("a.txt"), "alpha").unwrap();
     fs::write(root.join("b.txt"), "beta").unwrap();
@@ -290,7 +198,7 @@ fn cli_attest_subject_set_builds_deterministic_content_hash() {
         subject.content_sha256().unwrap()
     );
 
-    let message = cli_output(&root, &["attest", "subject", "message", "--route", "/"]);
+    let message = cli(&root, &["attest", "subject", "message", "--route", "/"]);
     assert_eq!(message.trim_end(), subject.canonical_message().unwrap());
 
     let first_hash = subject.content_sha256().unwrap();
@@ -325,8 +233,8 @@ fn cli_attest_subject_set_builds_deterministic_content_hash() {
 }
 
 #[test]
-fn cli_attest_eth_import_rejects_invalid_signature() {
-    let root = temp_root("attest-eth");
+fn attest_eth_import_rejects_invalid_signature() {
+    let root = temp_dir("attest-eth");
     write_ack_artifact(&root);
     fs::write(root.join("page.txt"), "page").unwrap();
     cli(
@@ -363,8 +271,8 @@ fn cli_attest_eth_import_rejects_invalid_signature() {
 }
 
 #[test]
-fn cli_attest_eth_import_accepts_valid_personal_sign_signature() {
-    let root = temp_root("attest-eth-valid");
+fn attest_eth_import_accepts_valid_personal_sign_signature() {
+    let root = temp_dir("attest-eth-valid");
     write_ack_artifact(&root);
     fs::write(root.join("page.txt"), "page").unwrap();
     cli(
@@ -436,8 +344,8 @@ fn cli_attest_eth_import_accepts_valid_personal_sign_signature() {
 }
 
 #[test]
-fn cli_attest_pgp_import_verifies_detached_signature() {
-    let root = temp_root("attest-pgp");
+fn attest_pgp_import_verifies_detached_signature() {
+    let root = temp_dir("attest-pgp");
     write_ack_artifact(&root);
     fs::write(root.join("page.txt"), "page").unwrap();
     cli(
@@ -502,8 +410,8 @@ fn cli_attest_pgp_import_verifies_detached_signature() {
 }
 
 #[test]
-fn cli_attest_default_discovers_content_dir_and_manifest() {
-    let root = temp_root("attest-default");
+fn attest_default_discovers_content_dir_and_manifest() {
+    let root = temp_dir("attest-default");
     write_homepage_content(&root);
     fs::create_dir_all(root.join("content/writing")).unwrap();
     fs::write(
@@ -583,8 +491,8 @@ fn cli_attest_default_discovers_content_dir_and_manifest() {
 }
 
 #[test]
-fn cli_attest_default_updates_existing_subject_issued_at_when_content_changes() {
-    let root = temp_root("attest-default-refresh-date");
+fn attest_default_updates_existing_subject_issued_at_when_content_changes() {
+    let root = temp_dir("attest-default-refresh-date");
     write_homepage_content(&root);
     fs::create_dir_all(root.join("content/writing")).unwrap();
     fs::write(
@@ -618,55 +526,8 @@ fn cli_attest_default_updates_existing_subject_issued_at_when_content_changes() 
 }
 
 #[test]
-fn cli_content_manifest_generates_manifest_without_attestation() {
-    let root = temp_root("content-manifest");
-    fs::create_dir_all(root.join("content/writing")).unwrap();
-    fs::create_dir_all(root.join("content/talks")).unwrap();
-    fs::write(
-        root.join("content/writing/hello.md"),
-        "---\ntitle: Hello Manifest\ndate: 2026-04-20\ntags: [notes, websh]\n---\n# Ignored\nbody",
-    )
-    .unwrap();
-    fs::write(root.join("content/talks/slides.pdf"), b"%PDF").unwrap();
-    fs::write(
-        root.join("content/talks/slides.meta.json"),
-        r#"{"kind":"document","authored":{"title":"ZK Talk","date":"2026-04-24","tags":["talk","zk"]},"derived":{}}"#,
-    )
-    .unwrap();
-
-    let output = cli_output(&root, &["content", "manifest"]);
-    assert!(output.contains("sidecars refreshed"));
-    assert!(!root.join(ATTESTATIONS_PATH).exists());
-
-    let manifest: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(root.join("content/manifest.json")).unwrap())
-            .unwrap();
-    let entries = manifest["entries"].as_array().unwrap();
-    let file_entries: Vec<&serde_json::Value> = entries
-        .iter()
-        .filter(|e| e["metadata"]["kind"] != "directory")
-        .collect();
-    assert_eq!(file_entries.len(), 2);
-
-    let hello = file_entries
-        .iter()
-        .find(|e| e["path"] == "writing/hello.md")
-        .unwrap();
-    assert_eq!(hello["metadata"]["authored"]["title"], "Hello Manifest");
-    assert_eq!(hello["metadata"]["authored"]["date"], "2026-04-20");
-
-    let slides = file_entries
-        .iter()
-        .find(|e| e["path"] == "talks/slides.pdf")
-        .unwrap();
-    assert_eq!(slides["metadata"]["authored"]["title"], "ZK Talk");
-    assert_eq!(slides["metadata"]["authored"]["date"], "2026-04-24");
-    assert_eq!(slides["metadata"]["authored"]["tags"][0], "talk");
-}
-
-#[test]
-fn cli_attest_default_can_sign_with_local_gpg() {
-    let root = temp_root("attest-default-pgp");
+fn attest_default_can_sign_with_local_gpg() {
+    let root = temp_dir("attest-default-pgp");
     write_homepage_content(&root);
 
     cli(&root, &["attest", "--no-sign", "--issued-at", "2026-04-26"]);
@@ -696,19 +557,10 @@ fn cli_attest_default_can_sign_with_local_gpg() {
         ],
     );
 
-    let fake_bin = root.join("fake-bin");
-    fs::create_dir_all(&fake_bin).unwrap();
-    let fake_gpg = fake_bin.join("gpg");
-    fs::write(
-        &fake_gpg,
+    let path = fake_gpg(
+        &root,
         "#!/bin/sh\nif [ \"$1\" = \"--with-colons\" ] && [ \"$2\" = \"--list-secret-keys\" ]; then\n  printf 'sec:::::::::\\n'\n  printf 'fpr:::::::::%s:\\n' \"$WEBSH_FAKE_GPG_FINGERPRINT\"\n  exit 0\nfi\nout=\"\"\nin=\"\"\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = \"--output\" ]; then\n    shift\n    out=\"$1\"\n  else\n    in=\"$1\"\n  fi\n  shift\ndone\nslug=$(basename \"$in\" .message.txt)\ncp \"$WEBSH_FAKE_GPG_SIGNATURE_DIR/$slug.sig.asc\" \"$out\"\n",
-    )
-    .unwrap();
-    let mut perms = fs::metadata(&fake_gpg).unwrap().permissions();
-    perms.set_mode(0o755);
-    fs::set_permissions(&fake_gpg, perms).unwrap();
-    let old_path = std::env::var("PATH").unwrap_or_default();
-    let path = format!("{}:{old_path}", fake_bin.display());
+    );
 
     cli_with_env(
         &root,

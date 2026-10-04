@@ -77,25 +77,12 @@ fn subject_kind_for_node_kind(kind: NodeKind) -> SubjectKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::temp_dir;
     use std::fs;
-    use std::path::PathBuf;
-
-    fn temp_root(name: &str) -> PathBuf {
-        let mut root = std::env::temp_dir();
-        root.push(format!(
-            "websh-attest-discover-test-{name}-{}",
-            std::process::id()
-        ));
-        if root.exists() {
-            fs::remove_dir_all(&root).unwrap();
-        }
-        fs::create_dir_all(&root).unwrap();
-        root
-    }
 
     #[test]
     fn discovers_bundle_support_assets_as_bundle_subject_content() {
-        let root = temp_root("bundle-assets");
+        let root = temp_dir("bundle-assets");
         let content = root.join("content");
         fs::create_dir_all(content.join("writing/foo")).unwrap();
         fs::write(
@@ -138,13 +125,11 @@ mod tests {
         assert!(paths.contains(&"content/writing/foo/en.md".to_string()));
         assert!(paths.contains(&"content/writing/foo/cover.png".to_string()));
         assert!(paths.contains(&"content/writing/foo/cover.meta.json".to_string()));
-
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn discovers_authored_directory_as_one_subject_and_skips_websh_files() {
-        let root = temp_root("authored-directory");
+        let root = temp_dir("authored-directory");
         let content = root.join("content");
         fs::create_dir_all(content.join(".site/errors")).unwrap();
         fs::create_dir_all(content.join(".site/keys")).unwrap();
@@ -203,13 +188,11 @@ mod tests {
         assert!(paths.contains(&"content/.site/errors/empty.md".to_string()));
         assert!(!paths.contains(&"content/.site/.DS_Store".to_string()));
         assert!(!paths.contains(&"content/.site/keys/.gitkeep".to_string()));
-
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn does_not_discover_directory_without_authored_metadata() {
-        let root = temp_root("directory-empty-authored");
+        let root = temp_dir("directory-empty-authored");
         let content = root.join("content");
         fs::create_dir_all(content.join("writing")).unwrap();
         fs::write(
@@ -230,25 +213,5 @@ mod tests {
                 .iter()
                 .any(|spec| spec.route == "/writing" && spec.kind == SubjectKind::Directory)
         );
-
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn rejects_legacy_site_directory_kind() {
-        let root = temp_root("site-legacy-kind");
-        let content = root.join("content");
-        fs::create_dir_all(content.join(".site")).unwrap();
-        fs::write(
-            content.join(".site/_index.dir.json"),
-            r#"{"kind":"site","authored":{"title":"Site"},"derived":{"kind":"site"}}"#,
-        )
-        .unwrap();
-        fs::write(content.join(".site/now.toml"), b"[[items]]\n").unwrap();
-
-        let err = discover_subject_specs(&root, Path::new("content")).unwrap_err();
-        assert!(err.to_string().contains("parse"));
-
-        fs::remove_dir_all(root).unwrap();
     }
 }

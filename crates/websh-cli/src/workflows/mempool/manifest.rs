@@ -70,65 +70,51 @@ pub(super) fn build_entry(path: &MempoolEntryPath, body: &str) -> ContentManifes
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::temp_dir;
     use websh_core::domain::MempoolStatus;
-
-    fn temp_dir(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "websh-mempool-manifest-{name}-{}",
-            std::process::id()
-        ));
-        if dir.exists() {
-            fs::remove_dir_all(&dir).unwrap();
-        }
-        fs::create_dir_all(&dir).unwrap();
-        dir
-    }
 
     #[test]
     fn rebuilds_current_manifest_from_sources_deterministically() {
         let temp = temp_dir("rebuild");
-        fs::create_dir(temp.as_path().join("writing")).unwrap();
-        fs::create_dir(temp.as_path().join("papers")).unwrap();
-        fs::create_dir(temp.as_path().join("unrelated")).unwrap();
+        fs::create_dir(temp.join("writing")).unwrap();
+        fs::create_dir(temp.join("papers")).unwrap();
+        fs::create_dir(temp.join("unrelated")).unwrap();
         let body = "---\ntitle: Test\nstatus: review\npriority: high\n---\n\nHello world.\n";
-        fs::write(temp.as_path().join("writing/test.md"), body).unwrap();
-        fs::write(temp.as_path().join("papers/first.md"), "# First\n").unwrap();
-        fs::write(temp.as_path().join("README.md"), "# Repository\n").unwrap();
-        fs::write(temp.as_path().join("unrelated/ignored.md"), "# Ignore\n").unwrap();
-        fs::write(temp.as_path().join("manifest.json"), "not an input").unwrap();
+        fs::write(temp.join("writing/test.md"), body).unwrap();
+        fs::write(temp.join("papers/first.md"), "# First\n").unwrap();
+        fs::write(temp.join("README.md"), "# Repository\n").unwrap();
+        fs::write(temp.join("unrelated/ignored.md"), "# Ignore\n").unwrap();
+        fs::write(temp.join("manifest.json"), "not an input").unwrap();
 
-        assert_eq!(rebuild(temp.as_path()).unwrap(), 2);
-        let encoded = fs::read_to_string(temp.as_path().join("manifest.json")).unwrap();
+        assert_eq!(rebuild(&temp).unwrap(), 2);
+        let encoded = fs::read_to_string(temp.join("manifest.json")).unwrap();
         let manifest: ContentManifestDocument = serde_json::from_str(&encoded).unwrap();
         assert_eq!(manifest.entries[0].path, "papers/first.md");
         assert_eq!(
             manifest.entries[1].mempool.as_ref().unwrap().status,
             MempoolStatus::Review
         );
-        assert!(!encoded.contains("\"schema\""));
         assert_eq!(
-            fs::read_to_string(temp.as_path().join("writing/test.md")).unwrap(),
+            fs::read_to_string(temp.join("writing/test.md")).unwrap(),
             body
         );
-        rebuild(temp.as_path()).unwrap();
+        rebuild(&temp).unwrap();
         assert_eq!(
-            fs::read_to_string(temp.as_path().join("manifest.json")).unwrap(),
+            fs::read_to_string(temp.join("manifest.json")).unwrap(),
             encoded
         );
-        fs::remove_dir_all(temp).unwrap();
     }
 
     #[test]
     fn invalid_source_does_not_replace_the_manifest() {
         let temp = temp_dir("invalid");
-        fs::create_dir(temp.as_path().join("writing")).unwrap();
-        fs::write(temp.as_path().join("writing/not a slug.md"), "# Invalid\n").unwrap();
-        fs::write(temp.as_path().join("manifest.json"), "untouched").unwrap();
-        assert!(rebuild(temp.as_path()).is_err());
+        fs::create_dir(temp.join("writing")).unwrap();
+        fs::write(temp.join("writing/not a slug.md"), "# Invalid\n").unwrap();
+        fs::write(temp.join("manifest.json"), "untouched").unwrap();
+        assert!(rebuild(&temp).is_err());
         assert_eq!(
-            fs::read_to_string(temp.as_path().join("manifest.json")).unwrap(),
+            fs::read_to_string(temp.join("manifest.json")).unwrap(),
             "untouched"
         );
-        fs::remove_dir_all(temp).unwrap();
     }
 }

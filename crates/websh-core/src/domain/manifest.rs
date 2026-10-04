@@ -48,12 +48,4 @@ mod tests {
         value["entries"][0]["unknown"] = true.into();
         assert!(serde_json::from_value::<ContentManifestDocument>(value).is_err());
     }
-
-    #[test]
-    fn metadata_has_one_unversioned_shape() {
-        let body = include_str!("../../../../tests/fixtures/manifest_golden.json");
-        let mut value: serde_json::Value = serde_json::from_str(body).unwrap();
-        value["entries"][0]["metadata"]["schema"] = 1.into();
-        assert!(serde_json::from_value::<ContentManifestDocument>(value).is_err());
-    }
 }

@@ -46,11 +46,6 @@ impl InteractionMode {
 struct PromoteTarget {
     /// Path inside the mempool repo, e.g., `writing/foo.md`.
     repo_path: String,
-    /// Category segment, e.g., `writing`. Production code reads category
-    /// indirectly through `bundle_disk_path`; tests assert this field
-    /// directly to verify path-parsing extracts the right segment.
-    #[cfg_attr(not(test), allow(dead_code))]
-    category: String,
     /// `<category>/<slug>` (no extension), used in commit messages.
     slug_relpath: String,
     /// Filesystem path (relative to repo root) where the body lands:
@@ -160,7 +155,6 @@ fn parse_promote_path(repo_relative: &str) -> CliResult<PromoteTarget> {
 
     Ok(PromoteTarget {
         repo_path: repo_path.to_string(),
-        category,
         slug_relpath,
         bundle_disk_path,
     })
@@ -469,22 +463,14 @@ fn git_head_pathspec(path: &Path) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::path::MempoolEntryPathError;
     use super::*;
+    use crate::test_support::{TempDir, temp_dir};
     use std::fs;
     use std::process::{Command as Process, Stdio};
-    use std::sync::atomic::{AtomicU64, Ordering};
 
-    fn temp_repo(name: &str) -> PathBuf {
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-        let id = COUNTER.fetch_add(1, Ordering::SeqCst);
-        let root =
-            std::env::temp_dir().join(format!("websh-promote-{name}-{}-{id}", std::process::id()));
-        if root.exists() {
-            fs::remove_dir_all(&root).unwrap();
-        }
-        fs::create_dir_all(&root).unwrap();
-        run_git(&root, ["init"]);
+    fn temp_repo(name: &str) -> TempDir {
+        let root = temp_dir(name);
+        run_git(&root, ["-c", "init.defaultBranch=main", "init"]);
         root
     }
 
@@ -508,6 +494,8 @@ mod tests {
                 "user.name=Test User",
                 "-c",
                 "user.email=test@example.com",
+                "-c",
+                "commit.gpgsign=false",
                 "commit",
                 "-m",
                 "initial",
@@ -525,38 +513,12 @@ mod tests {
         fs::write(path, body).unwrap();
     }
 
-    fn promote_path_error(raw: &str) -> MempoolEntryPathError {
-        parse_promote_path(raw)
-            .unwrap_err()
-            .downcast_ref::<MempoolEntryPathError>()
-            .expect("parse error keeps typed path source")
-            .clone()
-    }
-
     #[test]
-    fn parse_promote_path_extracts_category_slug_and_disk_path() {
+    fn parse_promote_path_resolves_source_and_destination() {
         let t = parse_promote_path("writing/foo.md").unwrap();
         assert_eq!(t.repo_path, "writing/foo.md");
-        assert_eq!(t.category, "writing");
         assert_eq!(t.slug_relpath, "writing/foo");
         assert_eq!(t.bundle_disk_path, PathBuf::from("content/writing/foo.md"));
-    }
-
-    #[test]
-    fn parse_promote_path_rejects_leading_slash() {
-        assert_eq!(
-            promote_path_error("/papers/bar.md"),
-            MempoolEntryPathError::Absolute
-        );
-    }
-
-    #[test]
-    fn sidecar_path_matches_generated_content_sidecar() {
-        let t = parse_promote_path("writing/foo.md").unwrap();
-        assert_eq!(
-            t.sidecar_disk_path(),
-            PathBuf::from("content/writing/foo.meta.json")
-        );
     }
 
     #[test]
@@ -571,38 +533,6 @@ mod tests {
 
         let paths = stage_paths(&t, true);
         assert!(paths.contains(&PathBuf::from(ATTESTATIONS_PATH)));
-    }
-
-    #[test]
-    fn parse_promote_path_rejects_non_md_extension() {
-        assert_eq!(
-            promote_path_error("writing/foo.txt"),
-            MempoolEntryPathError::Extension
-        );
-    }
-
-    #[test]
-    fn parse_promote_path_rejects_unknown_category() {
-        assert_eq!(
-            promote_path_error("fiction/foo.md"),
-            MempoolEntryPathError::UnknownCategory("fiction".to_string())
-        );
-    }
-
-    #[test]
-    fn parse_promote_path_rejects_nested_slug() {
-        assert_eq!(
-            promote_path_error("writing/series/foo.md"),
-            MempoolEntryPathError::Shape
-        );
-    }
-
-    #[test]
-    fn parse_promote_path_rejects_missing_slug() {
-        assert_eq!(
-            promote_path_error("writing/.md"),
-            MempoolEntryPathError::Slug
-        );
     }
 
     #[test]
@@ -634,7 +564,7 @@ mod tests {
     }
 
     #[test]
-    fn branch_mismatch_noninteractive_fails_fast() {
+    fn branch_mismatch_requires_explicit_override() {
         let root = temp_repo("branch-noninteractive");
         write(&root, "content/manifest.json", "{}\n");
         commit_all(&root);
@@ -643,15 +573,6 @@ mod tests {
         let err =
             confirm_on_bundle_branch(&root, InteractionMode::NonInteractive, false).unwrap_err();
         assert!(err.to_string().contains("--allow-branch-mismatch"));
-    }
-
-    #[test]
-    fn branch_mismatch_can_be_explicitly_allowed() {
-        let root = temp_repo("branch-allowed");
-        write(&root, "content/manifest.json", "{}\n");
-        commit_all(&root);
-        run_git(&root, ["checkout", "-b", "not-deploy-branch"]);
-
         confirm_on_bundle_branch(&root, InteractionMode::NonInteractive, true).unwrap();
     }
 

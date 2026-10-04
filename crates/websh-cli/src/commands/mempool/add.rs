@@ -192,92 +192,20 @@ mod tests {
     }
 
     #[test]
-    fn build_form_uses_explicit_slug_when_set() {
+    fn build_form_normalizes_options() {
         let mut args = sample_add_args();
         args.slug = Some("custom-slug".into());
-        let form = build_form(&args, "").unwrap();
-        assert_eq!(form.slug, "custom-slug");
-    }
-
-    #[test]
-    fn build_form_parses_comma_separated_tags() {
-        let mut args = sample_add_args();
-        args.tags = "essay, slow ,zk".into();
-        let form = build_form(&args, "").unwrap();
-        assert_eq!(form.tags, vec!["essay", "slow", "zk"]);
-    }
-
-    #[test]
-    fn build_form_drops_empty_tags() {
-        let mut args = sample_add_args();
-        args.tags = ", , ".into();
-        let form = build_form(&args, "").unwrap();
-        assert!(form.tags.is_empty());
-    }
-
-    #[test]
-    fn build_form_normalizes_priority() {
-        let mut args = sample_add_args();
+        args.tags = "essay, slow , ,zk,".into();
         args.priority = Some("med".into());
         let form = build_form(&args, "").unwrap();
+        assert_eq!(form.slug, "custom-slug");
+        assert_eq!(form.tags, vec!["essay", "slow", "zk"]);
         assert_eq!(form.priority.as_deref(), Some("med"));
 
+        args.tags = ", , ".into();
         args.priority = Some(String::new());
         let form = build_form(&args, "").unwrap();
+        assert!(form.tags.is_empty());
         assert!(form.priority.is_none());
-    }
-
-    #[test]
-    fn validate_form_rejects_form_built_from_bad_args() {
-        // Empty title → form has empty title → validate_form flags it.
-        let mut args = sample_add_args();
-        args.title = String::new();
-        let form = build_form(&args, "").unwrap();
-        let errs = validate_form(&form);
-        assert!(errs.iter().any(|e| matches!(e, ComposeError::TitleEmpty)));
-    }
-
-    #[test]
-    fn validate_form_rejects_unknown_category() {
-        let mut args = sample_add_args();
-        args.category = "fiction".into();
-        // slug is auto-derived (form will pass slug validation), so the
-        // only failure should be category.
-        let form = build_form(&args, "").unwrap();
-        let errs = validate_form(&form);
-        assert!(
-            errs.iter()
-                .any(|e| matches!(e, ComposeError::CategoryUnknown))
-        );
-    }
-
-    #[test]
-    fn validate_form_rejects_invalid_modified() {
-        let mut args = sample_add_args();
-        args.modified = Some("April 28".into());
-        let form = build_form(&args, "").unwrap();
-        let errs = validate_form(&form);
-        assert!(
-            errs.iter()
-                .any(|e| matches!(e, ComposeError::ModifiedNotIso))
-        );
-    }
-
-    #[test]
-    fn humanize_compose_error_covers_every_variant() {
-        let variants = [
-            ComposeError::TitleEmpty,
-            ComposeError::TitleHasReservedChars,
-            ComposeError::SlugInvalid,
-            ComposeError::StatusUnknown,
-            ComposeError::ModifiedNotIso,
-            ComposeError::CategoryUnknown,
-            ComposeError::PriorityUnknown,
-            ComposeError::TagHasReservedChars,
-        ];
-        for v in variants {
-            let msg = humanize_compose_error(&v);
-            assert!(!msg.is_empty(), "variant {:?} produced empty message", v);
-        }
     }
 }

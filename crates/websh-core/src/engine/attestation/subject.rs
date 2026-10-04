@@ -334,25 +334,6 @@ mod tests {
     }
 
     #[test]
-    fn id_is_route_prefixed() {
-        assert_eq!(homepage().id(), "route:/");
-        assert_eq!(ledger().id(), "route:/ledger");
-        assert_eq!(document().id(), "route:/keys/wonjae.asc");
-        assert_eq!(bundle().id(), "route:/writing/foo");
-        assert_eq!(directory().id(), "route:/.site");
-    }
-
-    #[test]
-    fn kind_str_matches_variant() {
-        assert_eq!(homepage().kind_str(), "homepage");
-        assert_eq!(ledger().kind_str(), "ledger");
-        assert_eq!(document().kind_str(), "document");
-        assert_eq!(page().kind_str(), "page");
-        assert_eq!(bundle().kind_str(), "bundle");
-        assert_eq!(directory().kind_str(), "directory");
-    }
-
-    #[test]
     fn canonical_message_homepage_is_exact() {
         let subject = homepage();
         let content_sha = subject.content_sha256().unwrap();
@@ -413,39 +394,11 @@ mod tests {
     }
 
     #[test]
-    fn canonical_message_is_deterministic() {
-        let subject = homepage();
-        assert_eq!(
-            subject.canonical_message().unwrap(),
-            subject.canonical_message().unwrap()
-        );
-    }
-
-    #[test]
-    fn content_sha256_is_stable_for_same_files() {
-        let files = sample_files();
-        assert_eq!(
-            compute_content_sha256(&files).unwrap(),
-            compute_content_sha256(&files).unwrap()
-        );
-    }
-
-    #[test]
     fn content_sha256_differs_when_files_differ() {
         let mut files = sample_files();
         let baseline = compute_content_sha256(&files).unwrap();
         files[0].bytes += 1;
         assert_ne!(compute_content_sha256(&files).unwrap(), baseline);
-    }
-
-    #[test]
-    fn validate_accepts_well_formed_subject() {
-        assert!(homepage().validate().is_ok());
-        assert!(ledger().validate().is_ok());
-        assert!(document().validate().is_ok());
-        assert!(page().validate().is_ok());
-        assert!(bundle().validate().is_ok());
-        assert!(directory().validate().is_ok());
     }
 
     #[test]
@@ -485,79 +438,31 @@ mod tests {
     }
 
     #[test]
-    fn serde_roundtrip_homepage() {
-        let subject = homepage();
-        let json = serde_json::to_string(&subject).unwrap();
-        let back: Subject = serde_json::from_str(&json).unwrap();
-        assert_eq!(subject, back);
-        assert!(json.contains("\"kind\":\"homepage\""));
-        assert!(json.contains("\"ack_combined_root\""));
-        assert!(!json.contains("\"chain_head\""));
-    }
-
-    #[test]
-    fn serde_roundtrip_ledger() {
-        let subject = ledger();
-        let json = serde_json::to_string(&subject).unwrap();
-        let back: Subject = serde_json::from_str(&json).unwrap();
-        assert_eq!(subject, back);
-        assert!(json.contains("\"kind\":\"ledger\""));
-        assert!(json.contains("\"chain_head\""));
-        assert!(!json.contains("\"ack_combined_root\""));
-    }
-
-    #[test]
-    fn serde_roundtrip_document() {
-        let subject = document();
-        let json = serde_json::to_string(&subject).unwrap();
-        let back: Subject = serde_json::from_str(&json).unwrap();
-        assert_eq!(subject, back);
-        assert!(json.contains("\"kind\":\"document\""));
-        assert!(!json.contains("\"chain_head\""));
-        assert!(!json.contains("\"ack_combined_root\""));
-    }
-
-    #[test]
-    fn serde_roundtrip_page() {
-        let subject = page();
-        let json = serde_json::to_string(&subject).unwrap();
-        let back: Subject = serde_json::from_str(&json).unwrap();
-        assert_eq!(subject, back);
-        assert!(json.contains("\"kind\":\"page\""));
-    }
-
-    #[test]
-    fn serde_roundtrip_bundle() {
-        let subject = bundle();
-        let json = serde_json::to_string(&subject).unwrap();
-        let back: Subject = serde_json::from_str(&json).unwrap();
-        assert_eq!(subject, back);
-        assert!(json.contains("\"kind\":\"bundle\""));
-    }
-
-    #[test]
-    fn serde_roundtrip_directory() {
-        let subject = directory();
-        let json = serde_json::to_string(&subject).unwrap();
-        let back: Subject = serde_json::from_str(&json).unwrap();
-        assert_eq!(subject, back);
-        assert!(json.contains("\"kind\":\"directory\""));
-        assert!(!json.contains("\"chain_head\""));
-        assert!(!json.contains("\"ack_combined_root\""));
-    }
-
-    #[test]
-    fn serde_rejects_legacy_site_kind() {
-        let json = r#"{
-            "kind": "site",
-            "route": "/.site",
-            "issued_at": "2026-04-30",
-            "content_files": [],
-            "attestations": []
-        }"#;
-
-        let parsed = serde_json::from_str::<Subject>(json);
-        assert!(parsed.is_err());
+    fn subject_variants_round_trip_without_derived_fields() {
+        for subject in [
+            homepage(),
+            ledger(),
+            document(),
+            page(),
+            bundle(),
+            directory(),
+        ] {
+            subject.validate().unwrap();
+            let json = serde_json::to_value(&subject).unwrap();
+            assert_eq!(json["kind"], subject.kind_str());
+            assert_eq!(
+                json.get("ack_combined_root").is_some(),
+                matches!(subject, Subject::Homepage(_))
+            );
+            assert_eq!(
+                json.get("chain_head").is_some(),
+                matches!(subject, Subject::Ledger(_))
+            );
+            for field in ["id", "content_sha256", "message"] {
+                assert!(json.get(field).is_none(), "{}: {field}", subject.kind_str());
+            }
+            assert_eq!(serde_json::from_value::<Subject>(json).unwrap(), subject);
+        }
     }
 
     #[test]
@@ -571,14 +476,5 @@ mod tests {
 
         let parsed = serde_json::from_str::<Subject>(json);
         assert!(parsed.is_err());
-    }
-
-    #[test]
-    fn json_does_not_contain_derived_fields() {
-        let subject = homepage();
-        let json = serde_json::to_string(&subject).unwrap();
-        assert!(!json.contains("\"id\""));
-        assert!(!json.contains("\"content_sha256\""));
-        assert!(!json.contains("\"message\""));
     }
 }

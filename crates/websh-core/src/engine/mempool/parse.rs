@@ -171,38 +171,22 @@ mod tests {
     }
 
     #[test]
-    fn parses_category_when_present() {
-        let raw = body("---\ntitle: t\ncategory: papers\n---\n");
-        let meta = parse_mempool_frontmatter(&raw).expect("parses");
-        assert_eq!(meta.category.as_deref(), Some("papers"));
-    }
-
-    #[test]
-    fn category_absent_returns_none() {
-        let raw = body("---\ntitle: t\nstatus: draft\n---\n");
-        let meta = parse_mempool_frontmatter(&raw).expect("parses");
-        assert!(meta.category.is_none());
-    }
-
-    #[test]
     fn parses_minimal_frontmatter() {
         let raw = body("---\ntitle: foo\nstatus: draft\nmodified: 2026-04-22\n---\nbody\n");
         let meta = parse_mempool_frontmatter(&raw).expect("parses");
         assert_eq!(meta.title.as_deref(), Some("foo"));
         assert_eq!(meta.status.as_deref(), Some("draft"));
         assert!(meta.priority.is_none());
+        assert!(meta.category.is_none());
         assert_eq!(meta.modified.as_deref(), Some("2026-04-22"));
         assert!(meta.tags.is_empty());
     }
 
     #[test]
-    fn returns_none_when_no_frontmatter_fence() {
-        assert!(parse_mempool_frontmatter("# title\nbody\n").is_none());
-    }
-
-    #[test]
-    fn returns_none_for_empty_input() {
-        assert!(parse_mempool_frontmatter("").is_none());
+    fn input_without_frontmatter_has_no_metadata() {
+        for input in ["", "# title\nbody\n"] {
+            assert!(parse_mempool_frontmatter(input).is_none(), "{input:?}");
+        }
     }
 
     #[test]
@@ -214,24 +198,19 @@ mod tests {
     }
 
     #[test]
-    fn category_for_path_uses_first_segment_under_mempool() {
-        let path = VirtualPath::from_absolute("/mempool/writing/foo.md").unwrap();
-        let mempool_root = VirtualPath::from_absolute("/mempool").unwrap();
-        assert_eq!(category_for_mempool_path(&path, &mempool_root), "writing");
-    }
-
-    #[test]
-    fn category_for_path_handles_root_level_files() {
-        let path = VirtualPath::from_absolute("/mempool/loose.md").unwrap();
-        let mempool_root = VirtualPath::from_absolute("/mempool").unwrap();
-        assert_eq!(category_for_mempool_path(&path, &mempool_root), "misc");
-    }
-
-    #[test]
-    fn category_for_path_handles_nested_paths() {
-        let path = VirtualPath::from_absolute("/mempool/papers/series/foo.md").unwrap();
-        let mempool_root = VirtualPath::from_absolute("/mempool").unwrap();
-        assert_eq!(category_for_mempool_path(&path, &mempool_root), "papers");
+    fn category_is_the_first_directory_under_the_mount() {
+        let root = VirtualPath::from_absolute("/mempool").unwrap();
+        for (path, expected) in [
+            ("writing/foo.md", "writing"),
+            ("papers/series/foo.md", "papers"),
+            ("loose.md", "misc"),
+        ] {
+            assert_eq!(
+                category_for_mempool_path(&root.join(path), &root),
+                expected,
+                "{path}"
+            );
+        }
     }
 
     #[test]

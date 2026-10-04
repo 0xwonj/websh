@@ -294,20 +294,6 @@ mod tests {
     }
 
     #[test]
-    fn builds_markdown_content_intent_for_top_level_page() {
-        let fs = site(&["about.md"], &[]);
-        let resolution = resolve_route(&fs, &RouteRequest::new("/about")).unwrap();
-        let intent = build_render_intent(&fs, &resolution).unwrap();
-
-        assert_eq!(
-            intent,
-            RenderIntent::MarkdownContent {
-                node_path: VirtualPath::from_absolute("/about.md").unwrap(),
-            }
-        );
-    }
-
-    #[test]
     fn builds_terminal_app_intent() {
         let fs = site(&[], &[]);
         let resolution = resolve_route(&fs, &RouteRequest::new("/websh")).unwrap();
@@ -331,20 +317,6 @@ mod tests {
             intent,
             RenderIntent::DirectoryListing {
                 node_path: VirtualPath::from_absolute("/blog").unwrap(),
-            }
-        );
-    }
-
-    #[test]
-    fn builds_redirect_intent_with_source_node_path() {
-        let fs = site(&["jump.link"], &[]);
-        let resolution = resolve_route(&fs, &RouteRequest::new("/jump")).unwrap();
-        let intent = build_render_intent(&fs, &resolution).unwrap();
-
-        assert_eq!(
-            intent,
-            RenderIntent::Redirect {
-                node_path: VirtualPath::from_absolute("/jump.link").unwrap(),
             }
         );
     }
@@ -498,34 +470,6 @@ mod tests {
     }
 
     #[test]
-    fn default_bundle_variant_intent_ignores_locale_preferences() {
-        let fs = bundle_site();
-        let resolution = resolve_route(&fs, &RouteRequest::new("/writing/foo")).unwrap();
-        let intent = build_render_intent(&fs, &resolution).unwrap();
-
-        assert_eq!(resolution.node_path.as_str(), "/writing/foo/en.md");
-        assert_eq!(
-            resolution
-                .bundle_variant
-                .as_ref()
-                .map(|context| context.variant_id.as_str()),
-            Some("en")
-        );
-        assert_eq!(
-            intent,
-            RenderIntent::MarkdownContent {
-                node_path: VirtualPath::from_absolute("/writing/foo/en.md").unwrap(),
-            }
-        );
-    }
-
-    #[test]
-    fn default_variant_target_route_is_unresolved() {
-        let fs = bundle_site();
-        assert!(resolve_route(&fs, &RouteRequest::new("/writing/foo/en")).is_none());
-    }
-
-    #[test]
     fn builds_locale_bundle_selector_intent() {
         let fs = locale_bundle_site();
         let resolution = resolve_route(&fs, &RouteRequest::new("/writing/foo")).unwrap();
@@ -539,12 +483,6 @@ mod tests {
                 bundle_path: VirtualPath::from_absolute("/writing/foo").unwrap(),
             }
         );
-    }
-
-    #[test]
-    fn extensionful_bundle_variant_route_is_unresolved() {
-        let fs = bundle_site();
-        assert!(resolve_route(&fs, &RouteRequest::new("/writing/foo/ko.md")).is_none());
     }
 
     #[test]

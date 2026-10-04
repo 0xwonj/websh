@@ -196,81 +196,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn accepts_absolute_path() {
-        let p = VirtualPath::from_absolute("/home/wonjae/a.md").unwrap();
-        assert_eq!(p.as_str(), "/home/wonjae/a.md");
-    }
-
-    #[test]
-    fn rejects_empty() {
-        assert_eq!(
-            VirtualPath::from_absolute(""),
-            Err(VirtualPathParseError::Empty)
-        );
-    }
-
-    #[test]
-    fn rejects_relative() {
-        match VirtualPath::from_absolute("foo/bar") {
-            Err(VirtualPathParseError::NotAbsolute(s)) => assert_eq!(s, "foo/bar"),
-            other => panic!("expected NotAbsolute, got {:?}", other),
-        }
-    }
-
-    #[test]
-    fn rejects_non_canonical_absolute_paths() {
-        assert!(matches!(
-            VirtualPath::from_absolute("/a//b"),
-            Err(VirtualPathParseError::EmptySegment(_))
-        ));
-        assert!(matches!(
-            VirtualPath::from_absolute("/a/."),
-            Err(VirtualPathParseError::DotSegment(_))
-        ));
-        assert!(matches!(
-            VirtualPath::from_absolute("/a/../b"),
-            Err(VirtualPathParseError::ParentSegment(_))
-        ));
-        assert!(matches!(
-            VirtualPath::from_absolute("/a\\b"),
-            Err(VirtualPathParseError::Backslash(_))
-        ));
-        assert!(matches!(
-            VirtualPath::from_absolute("/a/\u{7}"),
-            Err(VirtualPathParseError::ControlCharacter(_))
-        ));
-    }
-
-    #[test]
-    fn serde_rejects_non_canonical_absolute_paths() {
-        for raw in [
-            r#""/a//b""#,
-            r#""/a/.""#,
-            r#""/a/../b""#,
-            r#""/a\\b""#,
-            "\"/a/\u{7}\"",
+    fn construction_and_deserialization_enforce_canonical_paths() {
+        for (raw, error) in [
+            ("", VirtualPathParseError::Empty),
+            (
+                "foo/bar",
+                VirtualPathParseError::NotAbsolute("foo/bar".into()),
+            ),
+            ("/a//b", VirtualPathParseError::EmptySegment("/a//b".into())),
+            ("/a/.", VirtualPathParseError::DotSegment("/a/.".into())),
+            (
+                "/a/../b",
+                VirtualPathParseError::ParentSegment("/a/../b".into()),
+            ),
+            ("/a\\b", VirtualPathParseError::Backslash("/a\\b".into())),
+            (
+                "/a/\u{7}",
+                VirtualPathParseError::ControlCharacter("/a/\u{7}".into()),
+            ),
         ] {
+            assert_eq!(VirtualPath::from_absolute(raw), Err(error), "{raw:?}");
+            let json = serde_json::to_string(raw).unwrap();
             assert!(
-                serde_json::from_str::<VirtualPath>(raw).is_err(),
-                "{raw} should fail"
+                serde_json::from_str::<VirtualPath>(&json).is_err(),
+                "{raw:?}"
             );
         }
-    }
-
-    #[test]
-    fn display_round_trips() {
-        let p = VirtualPath::from_absolute("/x").unwrap();
-        assert_eq!(format!("{}", p), "/x");
-    }
-
-    #[test]
-    fn btreemap_orders_lexicographically() {
-        use std::collections::BTreeMap;
-        let mut m: BTreeMap<VirtualPath, u32> = BTreeMap::new();
-        m.insert(VirtualPath::from_absolute("/b").unwrap(), 2);
-        m.insert(VirtualPath::from_absolute("/a").unwrap(), 1);
-        let keys: Vec<_> = m.keys().map(|k| k.as_str().to_string()).collect();
-        assert_eq!(keys, vec!["/a".to_string(), "/b".to_string()]);
+        for raw in ["/", "/home/reader/a.md"] {
+            let path = VirtualPath::from_absolute(raw).unwrap();
+            let json = serde_json::to_string(&path).unwrap();
+            assert_eq!(serde_json::from_str::<VirtualPath>(&json).unwrap(), path);
+        }
     }
 
     #[test]

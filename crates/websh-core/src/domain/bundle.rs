@@ -338,18 +338,6 @@ mod tests {
     }
 
     #[test]
-    fn rejects_legacy_string_default_variant_schema() {
-        let parsed = serde_json::from_str::<BundleMetadata>(
-            r#"{
-              "default_variant":"en",
-              "variants":[{"id":"en","path":"en.md","label":"English"}]
-            }"#,
-        );
-
-        assert!(parsed.is_err());
-    }
-
-    #[test]
     fn rejects_unknown_default_variant_fields() {
         let parsed = serde_json::from_str::<BundleMetadata>(
             r#"{

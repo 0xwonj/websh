@@ -235,25 +235,18 @@ mod tests {
     }
 
     #[test]
-    fn format_date_compact_strips_dashes() {
-        assert_eq!(format_date_compact("2026-03-14"), Some("2026/0314".into()));
-        assert_eq!(format_date_compact("2024-01-01"), Some("2024/0101".into()));
-    }
-
-    #[test]
-    fn format_date_compact_tolerates_trailing_time() {
-        assert_eq!(
-            format_date_compact("2026-03-14T09:30:00Z"),
-            Some("2026/0314".into()),
-        );
-    }
-
-    #[test]
-    fn format_date_compact_rejects_malformed() {
-        assert!(format_date_compact("2026/03/14").is_none());
-        assert!(format_date_compact("2026-3-14").is_none());
-        assert!(format_date_compact("not a date").is_none());
-        assert!(format_date_compact("").is_none());
+    fn compact_dates_require_an_iso_prefix() {
+        for (input, expected) in [
+            ("2026-03-14", Some("2026/0314")),
+            ("2024-01-01", Some("2024/0101")),
+            ("2026-03-14T09:30:00Z", Some("2026/0314")),
+            ("2026/03/14", None),
+            ("2026-3-14", None),
+            ("not a date", None),
+            ("", None),
+        ] {
+            assert_eq!(format_date_compact(input).as_deref(), expected, "{input:?}");
+        }
     }
 
     #[test]
@@ -273,33 +266,23 @@ mod tests {
         assert_eq!(reading_time_minutes(115), 1); // half-boundary rounds up to 1
         assert_eq!(reading_time_minutes(230), 1);
         assert_eq!(reading_time_minutes(345), 2); // 1.5 rounds to 2
-        // Matches the example from the design discussion: 2,140 words → 9 min.
         assert_eq!(reading_time_minutes(2_140), 9);
         assert_eq!(reading_time_minutes(2_300), 10);
     }
-}
-
-#[cfg(test)]
-mod iso_date_prefix_tests {
-    use super::*;
 
     #[test]
-    fn iso_date_prefix_accepts_canonical_iso() {
-        assert_eq!(iso_date_prefix("2026-04-22"), Some("2026-04-22"));
-    }
-
-    #[test]
-    fn iso_date_prefix_accepts_iso_with_time_suffix() {
-        assert_eq!(iso_date_prefix("2026-04-22T12:00:00Z"), Some("2026-04-22"));
-    }
-
-    #[test]
-    fn iso_date_prefix_rejects_non_iso() {
-        assert_eq!(iso_date_prefix(""), None);
-        assert_eq!(iso_date_prefix("undated"), None);
-        assert_eq!(iso_date_prefix("Apr 22, 2026"), None);
-        assert_eq!(iso_date_prefix("2026/04/22"), None);
-        assert_eq!(iso_date_prefix("2026-4-22"), None);
-        assert_eq!(iso_date_prefix("20260422"), None);
+    fn iso_prefix_accepts_dates_and_timestamps() {
+        for (input, expected) in [
+            ("2026-04-22", Some("2026-04-22")),
+            ("2026-04-22T12:00:00Z", Some("2026-04-22")),
+            ("", None),
+            ("undated", None),
+            ("Apr 22, 2026", None),
+            ("2026/04/22", None),
+            ("2026-4-22", None),
+            ("20260422", None),
+        ] {
+            assert_eq!(iso_date_prefix(input), expected, "{input:?}");
+        }
     }
 }

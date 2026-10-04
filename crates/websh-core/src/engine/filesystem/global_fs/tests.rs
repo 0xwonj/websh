@@ -325,3 +325,28 @@ fn recipient_read_markers_follow_current_wallet_without_write_capability() {
     );
     assert_eq!(fs.read_inline_text(&path).unwrap(), "public bytes");
 }
+
+#[test]
+fn has_children_distinguishes_populated_directories() {
+    let mut fs = GlobalFs::empty();
+    fs.upsert_directory(VirtualPath::root().join("empty"), dir_meta("empty"));
+    fs.upsert_directory(VirtualPath::root().join("docs"), dir_meta("docs"));
+    fs.upsert_file(
+        VirtualPath::root().join("docs/readme.md"),
+        String::new(),
+        file_meta(NodeKind::Page),
+        EntryExtensions::default(),
+    );
+    for (path, expected) in [
+        ("empty", false),
+        ("docs", true),
+        ("missing", false),
+        ("docs/readme.md", false),
+    ] {
+        assert_eq!(
+            fs.has_children(&VirtualPath::root().join(path)),
+            expected,
+            "{path}"
+        );
+    }
+}

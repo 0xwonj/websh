@@ -1,10 +1,6 @@
 //! Compose form value type, validation, and payload conversion.
 //!
-//! `ComposeForm` is the structured shape the CLI `mempool add` subcommand
-//! and (historically) the browser modal compose flow consume. The browser
-//! reader's raw-textarea Save path bypasses `ComposeForm` and goes
-//! directly through `parse::parse_mempool_frontmatter` →
-//! `manifest_entry::build_mempool_manifest_state`.
+//! `ComposeForm` is the structured input to the native CLI `mempool add` workflow.
 
 use crate::support::format::iso_date_prefix;
 
@@ -135,38 +131,26 @@ mod tests {
     }
 
     #[test]
-    fn validate_form_rejects_empty_title() {
-        let payload = sample(|p| p.title.clear());
-        let errors = validate_form(&payload);
-        assert!(errors.iter().any(|e| matches!(e, ComposeError::TitleEmpty)));
-    }
-
-    #[test]
-    fn validate_form_rejects_unknown_status() {
-        let payload = sample(|p| p.status = "published".into());
-        let errors = validate_form(&payload);
-        assert!(
-            errors
-                .iter()
-                .any(|e| matches!(e, ComposeError::StatusUnknown))
+    fn validation_reports_all_invalid_fields_together() {
+        let form = sample(|form| {
+            form.title = "  ".into();
+            form.slug = "Bad Slug".into();
+            form.status = "unknown".into();
+            form.modified = "April 28".into();
+            form.category = "unknown".into();
+            form.priority = Some("urgent".into());
+        });
+        assert_eq!(
+            validate_form(&form),
+            vec![
+                ComposeError::TitleEmpty,
+                ComposeError::SlugInvalid,
+                ComposeError::StatusUnknown,
+                ComposeError::ModifiedNotIso,
+                ComposeError::CategoryUnknown,
+                ComposeError::PriorityUnknown,
+            ]
         );
-    }
-
-    #[test]
-    fn validate_form_rejects_invalid_modified_date() {
-        let payload = sample(|p| p.modified = "April 28".into());
-        let errors = validate_form(&payload);
-        assert!(
-            errors
-                .iter()
-                .any(|e| matches!(e, ComposeError::ModifiedNotIso))
-        );
-    }
-
-    #[test]
-    fn validate_form_accepts_minimal_valid() {
-        let payload = sample(|_| {});
-        assert!(validate_form(&payload).is_empty());
     }
 
     #[test]
@@ -181,13 +165,6 @@ mod tests {
                 errs
             );
         }
-    }
-
-    #[test]
-    fn validate_form_rejects_unknown_priority() {
-        let payload = sample(|p| p.priority = Some("urgent".into()));
-        let errs = validate_form(&payload);
-        assert!(errs.contains(&ComposeError::PriorityUnknown));
     }
 
     #[test]

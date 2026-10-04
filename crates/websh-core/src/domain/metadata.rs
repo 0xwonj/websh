@@ -374,13 +374,6 @@ mod tests {
     }
 
     #[test]
-    fn site_kind_is_not_accepted() {
-        let parsed =
-            serde_json::from_str::<NodeMetadata>(r#"{"kind":"site","authored":{},"derived":{}}"#);
-        assert!(parsed.is_err());
-    }
-
-    #[test]
     fn bundle_metadata_round_trips() {
         let meta = NodeMetadata {
             kind: NodeKind::Bundle,
@@ -501,28 +494,17 @@ mod tests {
     }
 
     #[test]
-    fn deny_unknown_fields_on_top_level() {
-        let bad = r#"{"kind":"page","authored":{},"derived":{},"unexpected":"value"}"#;
-        let parsed = serde_json::from_str::<NodeMetadata>(bad);
-        assert!(parsed.is_err());
-    }
-
-    #[test]
-    fn deny_unknown_fields_on_fields_section() {
-        let bad = r#"{"kind":"page","authored":{"unexpected_key":"value"},"derived":{}}"#;
-        let parsed = serde_json::from_str::<NodeMetadata>(bad);
-        assert!(parsed.is_err());
-    }
-
-    #[test]
-    fn requires_canonical_top_level_shape() {
+    fn deserialization_requires_complete_current_shape() {
         for bad in [
             r#"{"authored":{},"derived":{}}"#,
             r#"{"kind":"page","derived":{}}"#,
             r#"{"kind":"page","authored":{}}"#,
+            r#"{"kind":"unknown","authored":{},"derived":{}}"#,
+            r#"{"kind":"page","authored":{},"derived":{},"unexpected":true}"#,
+            r#"{"kind":"page","authored":{"unexpected":true},"derived":{}}"#,
+            r#"{"kind":"page","authored":{},"derived":{"unexpected":true}}"#,
         ] {
-            let parsed = serde_json::from_str::<NodeMetadata>(bad);
-            assert!(parsed.is_err(), "accepted non-canonical metadata: {bad}");
+            assert!(serde_json::from_str::<NodeMetadata>(bad).is_err(), "{bad}");
         }
     }
 

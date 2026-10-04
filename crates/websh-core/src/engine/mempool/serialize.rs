@@ -65,24 +65,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn slug_from_title_kebab_cases_basic() {
-        assert_eq!(slug_from_title("On Writing Slow"), "on-writing-slow");
-    }
-
-    #[test]
-    fn slug_from_title_strips_punctuation() {
-        assert_eq!(slug_from_title("Hello, World!"), "hello-world");
-    }
-
-    #[test]
-    fn slug_from_title_collapses_double_dashes() {
-        assert_eq!(slug_from_title("foo  --  bar"), "foo-bar");
-    }
-
-    #[test]
-    fn slug_from_title_falls_back_for_empty() {
-        assert_eq!(slug_from_title(""), "untitled");
-        assert_eq!(slug_from_title("!!!"), "untitled");
+    fn slug_normalizes_ascii_words_with_a_nonempty_fallback() {
+        for (title, expected) in [
+            ("On Writing Slow", "on-writing-slow"),
+            ("Hello, World!", "hello-world"),
+            ("foo  --  bar", "foo-bar"),
+            ("", "untitled"),
+            ("!!!", "untitled"),
+        ] {
+            assert_eq!(slug_from_title(title), expected, "{title:?}");
+        }
     }
 
     #[test]

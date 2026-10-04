@@ -67,3 +67,32 @@ pub fn execute_pipeline_with_context(
 
     CommandResult::output(current_lines).with_exit_code(current_exit)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shell::{SideEffect, parse_input};
+
+    fn execute(input: &str) -> CommandResult {
+        execute_pipeline(
+            &parse_input(input, &[]),
+            &WalletState::Disconnected,
+            &[],
+            &GlobalFs::empty(),
+            &VirtualPath::root(),
+        )
+    }
+
+    #[test]
+    fn only_unpiped_commands_apply_side_effects() {
+        assert_eq!(execute("login").side_effects, vec![SideEffect::Login]);
+        assert!(execute("login | head -1").side_effects.is_empty());
+    }
+
+    #[test]
+    fn exit_status_reports_parse_failure_or_the_last_stage() {
+        for (input, expected) in [("ls |", 2), ("help | grep xyzzy", 1), ("help | head -1", 0)] {
+            assert_eq!(execute(input).exit_code, expected, "{input}");
+        }
+    }
+}

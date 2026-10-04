@@ -374,173 +374,46 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_simple_command() {
-        let lexer = Lexer::new("ls");
-        let tokens = lexer.tokenize();
-        assert_eq!(tokens, vec![Token::Word("ls".to_string())]);
-    }
-
-    #[test]
-    fn test_command_with_args() {
-        let lexer = Lexer::new("ls -la /home");
-        let tokens = lexer.tokenize();
+    fn tokenizes_words_and_pipe_boundaries() {
         assert_eq!(
-            tokens,
+            Lexer::new("ls -la /home | grep foo").tokenize(),
             vec![
-                Token::Word("ls".to_string()),
-                Token::Word("-la".to_string()),
-                Token::Word("/home".to_string()),
-            ]
-        );
-    }
-
-    #[test]
-    fn test_pipe() {
-        let lexer = Lexer::new("ls | grep foo");
-        let tokens = lexer.tokenize();
-        assert_eq!(
-            tokens,
-            vec![
-                Token::Word("ls".to_string()),
+                Token::Word("ls".into()),
+                Token::Word("-la".into()),
+                Token::Word("/home".into()),
                 Token::Pipe,
-                Token::Word("grep".to_string()),
-                Token::Word("foo".to_string()),
-            ]
+                Token::Word("grep".into()),
+                Token::Word("foo".into()),
+            ],
         );
     }
 
     #[test]
-    fn test_variable_undefined_drops_word() {
-        // $NOT_A_VAR alone in an unquoted segment → word drops.
-        let mut lexer = Lexer::new("echo $NOT_A_VAR foo");
-        let tokens: Vec<_> = (&mut lexer).collect();
-        assert_eq!(
-            tokens,
-            vec![
-                Token::Word("echo".to_string()),
-                Token::Word("foo".to_string()),
-            ]
-        );
+    fn quoting_and_expansion_preserve_word_boundaries() {
+        for (input, words) in [
+            ("echo $NOT_A_VAR foo", vec!["echo", "foo"]),
+            ("echo x$NOT_A_VAR", vec!["echo", "x"]),
+            ("echo \"$NOT_A_VAR\"", vec!["echo", ""]),
+            ("echo x\"y\"z", vec!["echo", "xyz"]),
+            ("echo 'hello world'", vec!["echo", "hello world"]),
+            ("echo \"hello world\"", vec!["echo", "hello world"]),
+        ] {
+            let expected: Vec<_> = words
+                .into_iter()
+                .map(|word| Token::Word(word.into()))
+                .collect();
+            assert_eq!(Lexer::new(input).tokenize(), expected, "{input}");
+        }
     }
 
     #[test]
-    fn test_variable_undefined_with_literal_keeps_word() {
-        // "x$NOT_A_VAR" → "x" (literal content keeps the word).
-        let mut lexer = Lexer::new("echo x$NOT_A_VAR");
-        let tokens: Vec<_> = (&mut lexer).collect();
-        assert_eq!(
-            tokens,
-            vec![
-                Token::Word("echo".to_string()),
-                Token::Word("x".to_string()),
-            ]
-        );
-    }
-
-    #[test]
-    fn test_quoted_empty_variable_keeps_word() {
-        // "$UNDEF" quoted → empty word preserved.
-        let mut lexer = Lexer::new("echo \"$NOT_A_VAR\"");
-        let tokens: Vec<_> = (&mut lexer).collect();
-        assert_eq!(
-            tokens,
-            vec![Token::Word("echo".to_string()), Token::Word("".to_string()),]
-        );
-    }
-
-    #[test]
-    fn test_adjacent_word_and_quoted() {
-        let mut lexer = Lexer::new("echo x\"y\"z");
-        let tokens: Vec<_> = (&mut lexer).collect();
-        assert_eq!(
-            tokens,
-            vec![
-                Token::Word("echo".to_string()),
-                Token::Word("xyz".to_string()),
-            ]
-        );
-    }
-
-    #[test]
-    fn test_adjacent_literal_and_variable() {
-        // env var not set → "x$UNDEF" → "x"
-        let mut lexer = Lexer::new("echo x$UNDEFINED_HERE");
-        let tokens: Vec<_> = (&mut lexer).collect();
-        assert_eq!(
-            tokens,
-            vec![
-                Token::Word("echo".to_string()),
-                Token::Word("x".to_string()),
-            ]
-        );
-    }
-
-    #[test]
-    fn test_history_last() {
-        let lexer = Lexer::new("!!");
-        let tokens = lexer.tokenize();
-        assert_eq!(tokens, vec![Token::HistoryLast]);
-    }
-
-    #[test]
-    fn test_history_index() {
-        let lexer = Lexer::new("!5");
-        let tokens = lexer.tokenize();
-        assert_eq!(tokens, vec![Token::HistoryIndex(5)]);
-    }
-
-    #[test]
-    fn test_history_negative_index() {
-        let lexer = Lexer::new("!-2");
-        let tokens = lexer.tokenize();
-        assert_eq!(tokens, vec![Token::HistoryIndex(-2)]);
-    }
-
-    #[test]
-    fn test_single_quotes() {
-        let lexer = Lexer::new("echo 'hello world'");
-        let tokens = lexer.tokenize();
-        assert_eq!(
-            tokens,
-            vec![
-                Token::Word("echo".to_string()),
-                Token::Word("hello world".to_string()),
-            ]
-        );
-    }
-
-    #[test]
-    fn test_double_quotes() {
-        let lexer = Lexer::new("echo \"hello world\"");
-        let tokens = lexer.tokenize();
-        assert_eq!(
-            tokens,
-            vec![
-                Token::Word("echo".to_string()),
-                Token::Word("hello world".to_string()),
-            ]
-        );
-    }
-
-    #[test]
-    fn test_lexer_iterator_take() {
-        let lexer = Lexer::new("a b c d e");
-        let first_two: Vec<_> = lexer.take(2).collect();
-        assert_eq!(first_two.len(), 2);
-        assert_eq!(first_two[0], Token::Word("a".to_string()));
-        assert_eq!(first_two[1], Token::Word("b".to_string()));
-    }
-
-    #[test]
-    fn test_lexer_iterator_filter() {
-        let lexer = Lexer::new("ls | grep | head");
-        let non_pipes: Vec<_> = lexer.filter(|t| !matches!(t, Token::Pipe)).collect();
-        assert_eq!(non_pipes.len(), 3);
-    }
-
-    #[test]
-    fn test_lexer_iterator_count() {
-        let lexer = Lexer::new("echo hello world");
-        assert_eq!(lexer.count(), 3);
+    fn tokenizes_absolute_and_relative_history_references() {
+        for (input, token) in [
+            ("!!", Token::HistoryLast),
+            ("!5", Token::HistoryIndex(5)),
+            ("!-2", Token::HistoryIndex(-2)),
+        ] {
+            assert_eq!(Lexer::new(input).tokenize(), vec![token], "{input}");
+        }
     }
 }

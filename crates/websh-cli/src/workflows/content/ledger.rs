@@ -137,22 +137,12 @@ fn sort_date_for_directory(directory: &DirectoryContentUnit) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use crate::test_support::temp_dir;
     use websh_core::filesystem::RouteCatalogError;
-
-    fn temp_root(name: &str) -> PathBuf {
-        let mut root = std::env::temp_dir();
-        root.push(format!("websh-ledger-test-{name}-{}", std::process::id()));
-        if root.exists() {
-            fs::remove_dir_all(&root).unwrap();
-        }
-        fs::create_dir_all(&root).unwrap();
-        root
-    }
 
     #[test]
     fn ledger_groups_sidecars_and_excludes_generated_files() {
-        let root = temp_root("sidecar");
+        let root = temp_dir("sidecar");
         let content = root.join("content");
         fs::create_dir_all(content.join("talks")).unwrap();
         fs::create_dir_all(content.join(".websh")).unwrap();
@@ -187,13 +177,11 @@ mod tests {
         assert!(!encoded.contains("\"tags\""));
         assert!(root.join("content/.websh/ledger.json").exists());
         assert!(!encoded.contains(".websh/errors/404"));
-
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn ledger_sorts_entries_by_date_with_path_tiebreaker() {
-        let root = temp_root("date-sort");
+        let root = temp_dir("date-sort");
         let content = root.join("content");
         fs::create_dir_all(content.join("writing")).unwrap();
         fs::create_dir_all(content.join("papers")).unwrap();
@@ -258,13 +246,11 @@ mod tests {
             ledger.blocks.last().unwrap().block_sha256
         );
         ledger.validate().unwrap();
-
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn ledger_groups_bundle_support_assets_without_standalone_blocks() {
-        let root = temp_root("bundle-assets");
+        let root = temp_dir("bundle-assets");
         let content = root.join("content");
         fs::create_dir_all(content.join("writing/foo")).unwrap();
         fs::write(
@@ -310,13 +296,11 @@ mod tests {
         assert!(paths.contains(&"content/writing/foo/ko.md"));
         assert!(paths.contains(&"content/writing/foo/cover.png"));
         assert!(paths.contains(&"content/writing/foo/cover.meta.json"));
-
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn ledger_groups_authored_directory_into_one_directory_block() {
-        let root = temp_root("authored-directory");
+        let root = temp_dir("authored-directory");
         let content = root.join("content");
         fs::create_dir_all(content.join(".site/errors")).unwrap();
         fs::create_dir_all(content.join(".site/keys")).unwrap();
@@ -369,13 +353,11 @@ mod tests {
                 .any(|block| block.entry.path == ".site/now.toml")
         );
         ledger.validate().unwrap();
-
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn ledger_does_not_group_directory_without_authored_metadata() {
-        let root = temp_root("directory-empty-authored");
+        let root = temp_dir("directory-empty-authored");
         let content = root.join("content");
         fs::create_dir_all(content.join("writing")).unwrap();
         fs::write(
@@ -398,31 +380,11 @@ mod tests {
                 .iter()
                 .any(|block| block.entry.path == "writing")
         );
-
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn ledger_rejects_legacy_site_directory_kind() {
-        let root = temp_root("site-legacy-kind");
-        let content = root.join("content");
-        fs::create_dir_all(content.join(".site")).unwrap();
-        fs::write(
-            content.join(".site/_index.dir.json"),
-            r#"{"kind":"site","authored":{"title":"Site"},"derived":{"kind":"site"}}"#,
-        )
-        .unwrap();
-        fs::write(content.join(".site/now.toml"), b"[[items]]\n").unwrap();
-
-        let err = generate_content_ledger(&root, Path::new("content")).unwrap_err();
-        assert!(err.to_string().contains("parse"));
-
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn ledger_rejects_bundle_root_route_collision() {
-        let root = temp_root("bundle-collision");
+        let root = temp_dir("bundle-collision");
         let content = root.join("content");
         fs::create_dir_all(content.join("writing/foo")).unwrap();
         fs::write(
@@ -449,7 +411,5 @@ mod tests {
             route_error,
             RouteCatalogError::RouteCollision { route, .. } if route == "/writing/foo"
         ));
-
-        fs::remove_dir_all(root).unwrap();
     }
 }

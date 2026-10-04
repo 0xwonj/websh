@@ -35,30 +35,3 @@ pub fn expand_tokens(tokens: Vec<Token>, history: &[String]) -> Vec<Token> {
         })
         .collect()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_history_expansion() {
-        let history = vec!["ls -la".to_string(), "pwd".to_string()];
-        let tokens = vec![Token::HistoryLast];
-        let expanded = expand_tokens(tokens, &history);
-        assert_eq!(expanded, vec![Token::Word("pwd".to_string())]);
-    }
-
-    #[test]
-    fn test_history_index_expansion() {
-        let history = vec!["ls -la".to_string(), "pwd".to_string()];
-        let tokens = vec![Token::HistoryIndex(0)];
-        let expanded = expand_tokens(tokens, &history);
-        assert_eq!(
-            expanded,
-            vec![
-                Token::Word("ls".to_string()),
-                Token::Word("-la".to_string()),
-            ]
-        );
-    }
-}

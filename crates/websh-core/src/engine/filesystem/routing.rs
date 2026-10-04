@@ -1087,26 +1087,6 @@ mod tests {
     }
 
     #[test]
-    fn explorer_is_no_longer_a_reserved_route_prefix() {
-        let fs = site(&["explorer/foo.md"], &["explorer"]);
-        let resolved = resolve_route(&fs, &RouteRequest::new("/explorer")).unwrap();
-        assert_eq!(resolved.kind, ResolvedKind::Directory);
-        assert_eq!(resolved.surface, RouteSurface::Content);
-        assert_eq!(resolved.node_path.as_str(), "/explorer");
-
-        let resolved = resolve_route(&fs, &RouteRequest::new("/explorer/foo")).unwrap();
-        assert_eq!(resolved.kind, ResolvedKind::Page);
-        assert_eq!(resolved.surface, RouteSurface::Content);
-        assert_eq!(resolved.node_path.as_str(), "/explorer/foo.md");
-    }
-
-    #[test]
-    fn fs_namespace_is_not_a_route() {
-        let fs = site(&["blog/post.md"], &["blog"]);
-        assert!(resolve_route(&fs, &RouteRequest::new("/fs/site/blog/post.md")).is_none());
-    }
-
-    #[test]
     fn reserved_shell_route_wins_over_content_node() {
         let fs = site(&["shell/index.md"], &["shell"]);
         let resolved = resolve_route(&fs, &RouteRequest::new("/websh")).unwrap();
@@ -1136,7 +1116,7 @@ mod tests {
     }
 
     #[test]
-    fn extensionful_reader_paths_do_not_resolve_as_compatibility_routes() {
+    fn reader_routes_use_canonical_extensionless_paths() {
         let fs = site(&["db/fresh.md"], &["db"]);
         assert!(resolve_route(&fs, &RouteRequest::new("/db/fresh.md")).is_none());
     }

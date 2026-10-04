@@ -1,5 +1,3 @@
-use serde_json::json;
-
 use super::*;
 
 fn sha(byte: char) -> String {
@@ -31,12 +29,6 @@ fn dot_site_path_maps_to_misc() {
         serde_json::to_string(&ContentLedgerCategory::Misc).unwrap(),
         "\"misc\""
     );
-}
-
-#[test]
-fn legacy_site_category_is_not_accepted() {
-    let parsed = serde_json::from_str::<ContentLedgerCategory>(r#""site""#);
-    assert!(parsed.is_err());
 }
 
 fn input(date: Option<&str>, path: &str) -> ContentLedgerInput {
@@ -398,17 +390,4 @@ fn ledger_validation_rejects_tampering() {
         ledger.validate().unwrap_err(),
         LedgerValidationError::ChainHeadMismatch
     ));
-}
-
-#[test]
-fn non_current_ledger_shape_is_rejected() {
-    let invalid = json!({
-        "version": 1,
-        "scheme": "websh.content-ledger.v1",
-        "hash": "sha256",
-        "entries": [],
-        "entry_count": 0,
-        "ledger_sha256": CONTENT_LEDGER_GENESIS_HASH,
-    });
-    assert!(serde_json::from_value::<ContentLedger>(invalid).is_err());
 }

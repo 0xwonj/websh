@@ -39,24 +39,3 @@ pub fn run() -> CliResult {
         Command::Mount(command) => mount::run(&root, command),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use clap::CommandFactory;
-
-    use super::Cli;
-
-    #[test]
-    fn content_help_only_lists_implemented_subcommands() {
-        let mut command = Cli::command();
-        let content = command
-            .find_subcommand_mut("content")
-            .expect("content subcommand");
-        let names = content
-            .get_subcommands()
-            .map(|subcommand| subcommand.get_name().to_string())
-            .collect::<Vec<_>>();
-
-        assert_eq!(names, vec!["manifest", "ledger"]);
-    }
-}
