@@ -35,7 +35,7 @@ unicode-normalization = "0.1"
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 imagesize = { version = "0.14", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
-lopdf = "0.40"
+lopdf = "0.42"
 pgp = "0.19"
 serde_norway = "0.9"
 tokio = { version = "1", features = ["macros", "rt"] }

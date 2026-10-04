@@ -5,7 +5,7 @@
     {
       "kind": "homepage",
       "route": "/",
-      "issued_at": "2026-05-20",
+      "issued_at": "2026-10-04",
       "content_files": [
         {
           "path": "assets/crypto/ack.commitment.json",
@@ -84,8 +84,8 @@
         },
         {
           "path": "crates/websh-web/src/features/home/mod.rs",
-          "sha256": "0xe788a9dcacf407fc1e1fd60bc5fce1c4a3a796076a8ea29831162fd4c73d0877",
-          "bytes": 13130
+          "sha256": "0x905aeacfca862024067e6fd0980104fd2bb7978eb698c23772002d5399f0a196",
+          "bytes": 13354
         },
         {
           "path": "crates/websh-web/src/features/home/model.rs",
@@ -98,18 +98,7 @@
           "bytes": 21135
         }
       ],
-      "attestations": [
-        {
-          "type": "pgp",
-          "signer": "Wonjae Choi <wonjae@snu.ac.kr>",
-          "fingerprint": "6CA8E0E8E0F9B9EE2F92EE49BEE7501AEA7758AD",
-          "key_path": "content/.site/keys/wonjae.asc",
-          "signature": "-----BEGIN PGP SIGNATURE-----\n\niKMEABYKAEsWIQRsqODo4Pm57i+S7km+51Aa6ndYrQUCag0yMxsUgAAAAAAEAA5t\nYW51MiwyLjUrMS4xMiwwLDMRHHdvbmphZUBzbnUuYWMua3IACgkQvudQGup3WK3O\nLAEA1RpzLMgXny4zY+MOTp1J7i9pemD4LiukTksDL91ZnOsBAOs/Nl92tHCa2PoC\nUadMD8azWfekg5GmlnJlnSIrlkIJ\n=6yWj\n-----END PGP SIGNATURE-----\n",
-          "signature_path": ".websh/local/crypto/attestations/root.sig.asc",
-          "message_sha256": "0x9148b3fe6bd9c425cd6ae4e7fa81570555634c6a8390f14c20339b5c29098552",
-          "verified": true
-        }
-      ],
+      "attestations": [],
       "ack_combined_root": "0x0cf81aff67ea9989eb08e49ca31f9ab054b809fa345d1e3fb9b98c2b981e87c9"
     },
     {

@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use websh_core::domain::{RuntimeMount, VirtualPath};
 use websh_core::ports::{ScannedSubtree, StorageBackendRef, StorageError};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct MountLoadSet {
     pub entries: BTreeMap<VirtualPath, MountEntry>,
     pub scan_jobs: Vec<MountScanJob>,
@@ -13,14 +13,38 @@ pub struct MountLoadSet {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MountEntry {
     pub declared: RuntimeMount,
+    /// Request identity changes on refresh; content identity changes only on publication.
+    pub epoch: u64,
+    pub content_revision: u64,
+    pub cache_descriptor: Option<super::mount_cache::CacheDescriptor>,
     pub status: MountLoadStatus,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SnapshotOrigin {
+    Cache,
+    Network,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RefreshState {
+    Idle,
+    Running,
+    Failed(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MountLoadStatus {
-    Loading { epoch: u64 },
-    Loaded { total_files: usize, epoch: u64 },
-    Failed { error: String, epoch: u64 },
+    Loading,
+    Available {
+        total_files: usize,
+        observed_at_ms: u64,
+        origin: SnapshotOrigin,
+        refresh: RefreshState,
+    },
+    Failed {
+        error: String,
+    },
 }
 
 #[derive(Clone)]
@@ -37,79 +61,94 @@ pub struct MountScanResult {
     pub scan: Result<ScannedSubtree, StorageError>,
 }
 
-impl MountLoadSet {
-    pub fn empty() -> Self {
+impl MountEntry {
+    fn new(declared: RuntimeMount, status: MountLoadStatus) -> Self {
         Self {
-            entries: BTreeMap::new(),
-            scan_jobs: Vec::new(),
-            rejected_entries: Vec::new(),
+            declared,
+            epoch: 0,
+            content_revision: 0,
+            cache_descriptor: None,
+            status,
         }
     }
 
+    pub fn effective_mount(&self) -> RuntimeMount {
+        self.declared.clone()
+    }
+
+    pub fn error(&self) -> Option<&str> {
+        match &self.status {
+            MountLoadStatus::Failed { error } => Some(error),
+            MountLoadStatus::Available {
+                refresh: RefreshState::Failed(error),
+                ..
+            } => Some(error),
+            _ => None,
+        }
+    }
+
+    fn fail(&mut self, error: String) {
+        match &mut self.status {
+            MountLoadStatus::Available { refresh, .. } => *refresh = RefreshState::Failed(error),
+            _ => self.status = MountLoadStatus::Failed { error },
+        }
+    }
+}
+
+impl MountLoadSet {
+    pub fn empty() -> Self {
+        Self::default()
+    }
+
     pub fn insert_loaded(&mut self, declared: RuntimeMount, total_files: usize) {
-        let root = declared.root.clone();
-        self.entries.insert(
-            root,
-            MountEntry {
-                declared,
-                status: MountLoadStatus::Loaded {
-                    total_files,
-                    epoch: 0,
-                },
+        let mut entry = MountEntry::new(
+            declared,
+            MountLoadStatus::Available {
+                total_files,
+                observed_at_ms: js_sys::Date::now() as u64,
+                origin: SnapshotOrigin::Network,
+                refresh: RefreshState::Idle,
             },
         );
+        entry.content_revision = 1;
+        self.entries.insert(entry.declared.root.clone(), entry);
     }
 
     pub fn insert_loading(&mut self, declared: RuntimeMount, backend: StorageBackendRef) {
-        let epoch = 0;
-        let root = declared.root.clone();
-        self.entries.insert(
-            root,
-            MountEntry {
-                declared: declared.clone(),
-                status: MountLoadStatus::Loading { epoch },
-            },
-        );
+        self.insert_declared_loading(declared.clone());
         self.scan_jobs.push(MountScanJob {
             mount: declared,
             backend,
-            epoch,
+            epoch: 0,
         });
     }
 
     pub(crate) fn insert_declared_loading(&mut self, declared: RuntimeMount) {
-        let root = declared.root.clone();
         self.entries.insert(
-            root,
-            MountEntry {
-                declared,
-                status: MountLoadStatus::Loading { epoch: 0 },
-            },
+            declared.root.clone(),
+            MountEntry::new(declared, MountLoadStatus::Loading),
         );
     }
 
     pub fn insert_failed(&mut self, declared: RuntimeMount, error: impl Into<String>) {
-        let root = declared.root.clone();
         self.entries.insert(
-            root,
-            MountEntry {
+            declared.root.clone(),
+            MountEntry::new(
                 declared,
-                status: MountLoadStatus::Failed {
+                MountLoadStatus::Failed {
                     error: error.into(),
-                    epoch: 0,
                 },
-            },
+            ),
         );
     }
 
     pub fn reject(&mut self, declared: RuntimeMount, error: impl Into<String>) {
-        self.rejected_entries.push(MountEntry {
+        self.rejected_entries.push(MountEntry::new(
             declared,
-            status: MountLoadStatus::Failed {
+            MountLoadStatus::Failed {
                 error: error.into(),
-                epoch: 0,
             },
-        });
+        ));
     }
 
     pub fn effective_mounts(&self) -> Vec<RuntimeMount> {
@@ -119,12 +158,20 @@ impl MountLoadSet {
             .collect()
     }
 
+    pub fn owner(&self, path: &VirtualPath) -> Option<&MountEntry> {
+        self.entries
+            .iter()
+            .filter(|(root, _)| path.starts_with(root))
+            .max_by_key(|(root, _)| root.as_str().len())
+            .map(|(_, entry)| entry)
+    }
+
     pub fn status(&self, root: &VirtualPath) -> Option<MountLoadStatus> {
         self.entries.get(root).map(|entry| entry.status.clone())
     }
 
     pub fn is_loaded(&self, root: &VirtualPath) -> bool {
-        matches!(self.status(root), Some(MountLoadStatus::Loaded { .. }))
+        matches!(self.status(root), Some(MountLoadStatus::Available { .. }))
     }
 
     pub fn declared(&self, root: &VirtualPath) -> Option<RuntimeMount> {
@@ -135,34 +182,65 @@ impl MountLoadSet {
         self.entries
             .values()
             .chain(self.rejected_entries.iter())
-            .filter(|entry| matches!(entry.status, MountLoadStatus::Failed { .. }))
+            .filter(|entry| entry.error().is_some())
             .cloned()
             .collect()
     }
 
     pub fn mark_loading(&mut self, root: &VirtualPath) -> Option<(RuntimeMount, u64)> {
         let entry = self.entries.get_mut(root)?;
-        let epoch = entry.status.epoch().saturating_add(1);
-        entry.status = MountLoadStatus::Loading { epoch };
-        Some((entry.declared.clone(), epoch))
+        entry.epoch = entry.epoch.saturating_add(1);
+        match &mut entry.status {
+            MountLoadStatus::Available { refresh, .. } => *refresh = RefreshState::Running,
+            _ => entry.status = MountLoadStatus::Loading,
+        }
+        Some((entry.declared.clone(), entry.epoch))
     }
 
     pub(crate) fn mark_failed(&mut self, root: &VirtualPath, error: impl Into<String>) -> bool {
         let Some(entry) = self.entries.get_mut(root) else {
             return false;
         };
-        let epoch = entry.status.epoch();
-        entry.status = MountLoadStatus::Failed {
-            error: error.into(),
-            epoch,
-        };
+        entry.fail(error.into());
         true
     }
 
     pub fn accepts_result(&self, root: &VirtualPath, epoch: u64) -> bool {
         self.entries
             .get(root)
-            .is_some_and(|entry| entry.status.epoch() == epoch)
+            .is_some_and(|entry| entry.epoch == epoch)
+    }
+
+    /// A cache result can fill an empty mount, never replace an available snapshot.
+    pub fn accepts_cache(&self, root: &VirtualPath, epoch: u64) -> bool {
+        self.entries.get(root).is_some_and(|entry| {
+            entry.epoch == epoch && !matches!(entry.status, MountLoadStatus::Available { .. })
+        })
+    }
+
+    pub fn publish(
+        &mut self,
+        root: &VirtualPath,
+        epoch: u64,
+        total_files: usize,
+        observed_at_ms: u64,
+        origin: SnapshotOrigin,
+        refresh: RefreshState,
+    ) -> bool {
+        let Some(entry) = self.entries.get_mut(root) else {
+            return false;
+        };
+        if entry.epoch != epoch {
+            return false;
+        }
+        entry.content_revision = entry.content_revision.saturating_add(1);
+        entry.status = MountLoadStatus::Available {
+            total_files,
+            observed_at_ms,
+            origin,
+            refresh,
+        };
+        true
     }
 
     pub fn mark_loaded_if_current(
@@ -171,14 +249,14 @@ impl MountLoadSet {
         epoch: u64,
         total_files: usize,
     ) -> bool {
-        let Some(entry) = self.entries.get_mut(root) else {
-            return false;
-        };
-        if entry.status.epoch() != epoch {
-            return false;
-        }
-        entry.status = MountLoadStatus::Loaded { total_files, epoch };
-        true
+        self.publish(
+            root,
+            epoch,
+            total_files,
+            js_sys::Date::now() as u64,
+            SnapshotOrigin::Network,
+            RefreshState::Idle,
+        )
     }
 
     pub fn mark_failed_if_current(
@@ -187,17 +265,10 @@ impl MountLoadSet {
         epoch: u64,
         error: impl Into<String>,
     ) -> bool {
-        let Some(entry) = self.entries.get_mut(root) else {
-            return false;
-        };
-        if entry.status.epoch() != epoch {
+        if !self.accepts_result(root, epoch) {
             return false;
         }
-        entry.status = MountLoadStatus::Failed {
-            error: error.into(),
-            epoch,
-        };
-        true
+        self.mark_failed(root, error)
     }
 
     pub fn failed_roots_under(&self, root: &VirtualPath) -> Vec<VirtualPath> {
@@ -213,39 +284,6 @@ impl MountLoadSet {
     }
 }
 
-impl MountEntry {
-    pub fn effective_mount(&self) -> RuntimeMount {
-        let mut mount = self.declared.clone();
-        if !matches!(self.status, MountLoadStatus::Loaded { .. }) {
-            mount.writable = false;
-        }
-        mount
-    }
-
-    pub fn error(&self) -> Option<&str> {
-        match &self.status {
-            MountLoadStatus::Failed { error, .. } => Some(error),
-            MountLoadStatus::Loading { .. } | MountLoadStatus::Loaded { .. } => None,
-        }
-    }
-}
-
-impl MountLoadStatus {
-    pub fn epoch(&self) -> u64 {
-        match self {
-            Self::Loading { epoch } | Self::Loaded { epoch, .. } | Self::Failed { epoch, .. } => {
-                *epoch
-            }
-        }
-    }
-}
-
-impl Default for MountLoadSet {
-    fn default() -> Self {
-        Self::empty()
-    }
-}
-
 #[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
     use std::rc::Rc;
@@ -253,10 +291,7 @@ mod tests {
     use super::*;
     use wasm_bindgen_test::*;
     use websh_core::domain::RuntimeBackendKind;
-    use websh_core::ports::{
-        CommitOutcome, CommitRequest, LocalBoxFuture, ScannedSubtree, StorageBackend, StorageError,
-        StorageResult,
-    };
+    use websh_core::ports::{LocalBoxFuture, ScannedSubtree, StorageBackend, StorageResult};
 
     wasm_bindgen_test_configure!(run_in_browser);
 
@@ -284,36 +319,14 @@ mod tests {
         ) -> LocalBoxFuture<'a, StorageResult<Vec<u8>>> {
             Box::pin(async { Ok(Vec::new()) })
         }
-
-        fn commit<'a>(
-            &'a self,
-            _request: &'a CommitRequest,
-        ) -> LocalBoxFuture<'a, StorageResult<CommitOutcome>> {
-            Box::pin(async {
-                Err(StorageError::InvalidRequest {
-                    message: "unused".to_string(),
-                })
-            })
-        }
     }
 
-    fn mount(root: &str, writable: bool) -> RuntimeMount {
+    fn mount(root: &str) -> RuntimeMount {
         RuntimeMount::new(
             VirtualPath::from_absolute(root).expect("mount root"),
             root.trim_start_matches('/'),
             RuntimeBackendKind::GitHub,
-            writable,
         )
-    }
-
-    #[wasm_bindgen_test]
-    fn loading_and_failed_effective_mounts_are_read_only() {
-        let mut set = MountLoadSet::empty();
-        set.insert_loading(mount("/db", true), Rc::new(NoopBackend));
-        set.insert_failed(mount("/bad", true), "unavailable");
-
-        let effective = set.effective_mounts();
-        assert!(effective.iter().all(|mount| !mount.writable));
     }
 
     #[wasm_bindgen_test]
@@ -324,33 +337,29 @@ mod tests {
             root.clone(),
             "~",
             RuntimeBackendKind::GitHub,
-            true,
         ));
 
-        assert!(matches!(
-            set.status(&root),
-            Some(MountLoadStatus::Loading { .. })
-        ));
+        assert!(matches!(set.status(&root), Some(MountLoadStatus::Loading)));
         assert!(set.scan_jobs.is_empty());
     }
 
     #[wasm_bindgen_test]
-    fn loaded_effective_mount_restores_declared_writability() {
+    fn loaded_mount_preserves_declaration() {
         let mut set = MountLoadSet::empty();
-        set.insert_loading(mount("/db", true), Rc::new(NoopBackend));
+        set.insert_loading(mount("/db"), Rc::new(NoopBackend));
         let root = VirtualPath::from_absolute("/db").expect("root");
         assert!(set.mark_loaded_if_current(&root, 0, 3));
 
         let effective = set.effective_mounts();
         assert_eq!(effective[0].root, root);
-        assert!(effective[0].writable);
+        assert_eq!(effective[0], mount("/db"));
     }
 
     #[wasm_bindgen_test]
     fn old_epoch_result_is_stale() {
         let mut set = MountLoadSet::empty();
         let root = VirtualPath::from_absolute("/db").expect("root");
-        set.insert_loaded(mount("/db", true), 1);
+        set.insert_loaded(mount("/db"), 1);
 
         let (_, epoch) = set.mark_loading(&root).expect("mount should reload");
 

@@ -63,17 +63,6 @@ pub fn validate_repo_relative_path(path: &str, allow_empty: bool) -> Result<(), 
     Ok(())
 }
 
-pub fn prefixed_repo_path(prefix: &str, path: &str) -> Result<String, RepoPathError> {
-    let prefix = normalize_repo_prefix(prefix)?;
-    let path = path.trim_start_matches('/');
-    validate_repo_relative_path(path, false)?;
-    if prefix.is_empty() {
-        Ok(path.to_string())
-    } else {
-        Ok(format!("{prefix}/{path}"))
-    }
-}
-
 pub fn encoded_repo_relative_path(path: &str, allow_empty: bool) -> Result<String, RepoPathError> {
     validate_repo_relative_path(path, allow_empty)?;
     Ok(path
@@ -106,10 +95,6 @@ mod tests {
     fn accepts_empty_prefix_and_tilde_prefix() {
         assert_eq!(normalize_repo_prefix("").unwrap(), "");
         assert_eq!(normalize_repo_prefix("/~/").unwrap(), "~");
-        assert_eq!(
-            prefixed_repo_path("~", "manifest.json").unwrap(),
-            "~/manifest.json"
-        );
     }
 
     #[wasm_bindgen_test]

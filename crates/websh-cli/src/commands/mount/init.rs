@@ -26,9 +26,6 @@ pub(super) struct MountInit {
     /// Empty string means the repo root itself.
     #[arg(long, default_value = "")]
     root: String,
-    /// Mark the mount as writable (allow wasm-driven commits).
-    #[arg(long, default_value_t = false)]
-    writable: bool,
 }
 
 pub(super) fn init_mount(root: &Path, init: MountInit) -> CliResult {
@@ -38,7 +35,6 @@ pub(super) fn init_mount(root: &Path, init: MountInit) -> CliResult {
         mount_at: init.mount_at,
         branch: init.branch,
         root: init.root,
-        writable: init.writable,
     };
     let outcome = run_init_mount(root, options)?;
 

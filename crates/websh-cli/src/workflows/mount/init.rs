@@ -17,7 +17,6 @@ pub(crate) struct MountInitOptions {
     pub(crate) mount_at: String,
     pub(crate) branch: String,
     pub(crate) root: String,
-    pub(crate) writable: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -46,7 +45,6 @@ struct MountFile {
     branch: String,
     root: String,
     name: String,
-    writable: bool,
 }
 
 pub(crate) fn init_mount(root: &Path, init: MountInitOptions) -> CliResult<MountInitOutcome> {
@@ -94,7 +92,6 @@ pub(crate) fn init_mount(root: &Path, init: MountInitOptions) -> CliResult<Mount
         branch: init.branch.clone(),
         root: root_prefix.to_string(),
         name: mount_name.to_string(),
-        writable: init.writable,
     };
     let mount_decl_path = mount_declaration_path(root, &mount_name);
     if let Some(parent) = mount_decl_path.parent() {

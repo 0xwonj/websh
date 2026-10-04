@@ -8,6 +8,7 @@ const MAX_TEXT_CACHE_BYTES: usize = 512 * 1024;
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ContentTextCacheKey {
     pub generation: u64,
+    pub revision: u64,
     pub mount_root: VirtualPath,
     pub rel_path: String,
 }
@@ -44,23 +45,6 @@ impl ContentTextCache {
         self.order.push_back(key.clone());
         self.entries.insert(key, CacheEntry { text, bytes });
         self.prune();
-    }
-
-    pub fn evict_path(&mut self, path: &VirtualPath) {
-        let keys = self
-            .entries
-            .keys()
-            .filter(|key| {
-                path.starts_with(&key.mount_root)
-                    && path
-                        .strip_prefix(&key.mount_root)
-                        .is_some_and(|rel| rel == key.rel_path)
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        for key in keys {
-            self.remove(&key);
-        }
     }
 
     pub fn evict_mount(&mut self, mount_root: &VirtualPath) {

@@ -4,6 +4,10 @@ use websh_core::ports::StorageError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeLoadError {
+    #[error("invalid root routes: {source}")]
+    InvalidRoutes {
+        source: websh_core::filesystem::RouteCatalogError,
+    },
     #[error("mount {label}: {source}")]
     BootstrapMount {
         label: String,

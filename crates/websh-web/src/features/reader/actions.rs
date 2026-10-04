@@ -1,8 +1,6 @@
 //! Reader-facing action menu.
 //!
-//! This is separate from the author edit toolbar: it holds viewer actions
-//! such as text size and sharing, and is designed to accept future reader
-//! controls without changing the title layout.
+//! Viewer actions include text size and link sharing.
 
 use gloo_timers::callback::Timeout;
 use leptos::ev;
@@ -14,7 +12,6 @@ use super::preferences::ReaderTextScale;
 
 #[derive(Clone, Copy)]
 pub struct ReaderActionsBindings {
-    pub visible: Signal<bool>,
     pub text_scalable: Signal<bool>,
     pub text_scale: ReadSignal<ReaderTextScale>,
     pub set_text_scale: Callback<ReaderTextScale>,
@@ -51,7 +48,6 @@ pub fn ReaderActionsMenu(actions: ReaderActionsBindings) -> impl IntoView {
     };
 
     view! {
-        <Show when=move || actions.visible.get()>
             <span class=css::readerActions>
                 <button
                     class=css::readerActionsTrigger
@@ -80,7 +76,6 @@ pub fn ReaderActionsMenu(actions: ReaderActionsBindings) -> impl IntoView {
                     />
                 </Show>
             </span>
-        </Show>
     }
 }
 

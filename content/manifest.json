@@ -344,7 +344,7 @@
         "derived": {
           "title": "mempool.mount",
           "kind": "data",
-          "size_bytes": 161
+          "size_bytes": 141
         }
       }
     },

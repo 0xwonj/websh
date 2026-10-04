@@ -61,12 +61,7 @@ impl GlobalFs {
         }
     }
 
-    pub fn get_permissions(
-        &self,
-        entry: &FsEntry,
-        wallet: &WalletState,
-        writable: bool,
-    ) -> DisplayPermissions {
+    pub fn get_permissions(&self, entry: &FsEntry, wallet: &WalletState) -> DisplayPermissions {
         let is_dir = entry.is_directory();
         let read = match entry {
             FsEntry::Directory { .. } => true,
@@ -85,7 +80,6 @@ impl GlobalFs {
         DisplayPermissions {
             is_dir,
             read,
-            write: writable,
             execute: is_dir,
         }
     }

@@ -16,7 +16,6 @@ cargo check --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo clippy -p websh-web --target wasm32-unknown-unknown --all-targets --all-features -- -D warnings
 cargo test --workspace
-cargo test -p websh-core --features mock --test commit_integration
 cargo check -p websh-core --target wasm32-unknown-unknown
 cargo check -p websh-web --target wasm32-unknown-unknown
 npm run lint:css

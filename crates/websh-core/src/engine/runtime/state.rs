@@ -6,6 +6,5 @@ use std::collections::BTreeMap;
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct RuntimeStateSnapshot {
     pub env: BTreeMap<String, String>,
-    pub github_token_present: bool,
     pub wallet_session: bool,
 }

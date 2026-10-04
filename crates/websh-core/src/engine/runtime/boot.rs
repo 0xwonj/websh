@@ -14,7 +14,6 @@ pub fn bootstrap_runtime_mount(source: &BootstrapSiteSource) -> RuntimeMount {
         source.mount_root(),
         source.label(),
         RuntimeBackendKind::GitHub,
-        source.writable,
     )
 }
 
@@ -46,7 +45,6 @@ mod tests {
             branch: "main",
             content_root: "content",
             gateway: "self",
-            writable: true,
         }
     }
 
@@ -63,7 +61,6 @@ mod tests {
         let mount = bootstrap_runtime_mount(&bootstrap_source());
         assert_eq!(mount.root.as_str(), "/");
         assert_eq!(mount.label, "~");
-        assert!(mount.writable);
     }
 
     fn file_meta(kind: NodeKind) -> NodeMetadata {

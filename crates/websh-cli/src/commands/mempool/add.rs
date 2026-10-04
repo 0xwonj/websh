@@ -66,7 +66,7 @@ pub(super) fn add(root: &Path, args: AddArgs) -> CliResult {
     match gh_path_status(&mount, entry_path.as_str())? {
         GhResourceStatus::Exists => {
             bail!(
-                "{} already exists in {}@{} — pass a different --slug or edit via the browser",
+                "{} already exists in {}@{} — pass a different --slug or edit the source file in the repository",
                 entry_path,
                 mount.repo,
                 mount.branch
@@ -138,7 +138,7 @@ fn build_form(args: &AddArgs, body: &str) -> CliResult<ComposeForm> {
 }
 
 /// Translate a single `ComposeError` into a CLI-friendly message. Mirrors the
-/// browser's compose modal field-error text where relevant.
+/// shared compose validation rules.
 fn humanize_compose_error(err: &ComposeError) -> String {
     match err {
         ComposeError::TitleEmpty => "title is required".to_string(),

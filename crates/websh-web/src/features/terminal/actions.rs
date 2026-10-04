@@ -68,19 +68,22 @@ fn handle_logout(ctx: &AppContext) {
 
 pub(super) fn create_submit_callback(ctx: AppContext, route_ctx: RouteContext) -> Callback<String> {
     Callback::new(move |input: String| {
+        // Reject retired credential input before echo, history, or parsing.
+        if contains_retired_credential_command(&input) {
+            ctx.terminal.history_index.set(None);
+            ctx.terminal.push_output(OutputLine::error(
+                "Browser authoring is no longer supported.",
+            ));
+            return;
+        }
         let current_frame = route_ctx.0.get();
         let cwd = route_cwd(&current_frame);
         let prompt = ctx.get_prompt(&cwd);
-        let display_input = display_command(&input);
 
         if !input.is_empty() {
             ctx.terminal
-                .push_output(OutputLine::command(prompt, &display_input));
-            if should_store_command_history(&input) {
-                ctx.terminal.add_to_command_history(&input);
-            } else {
-                ctx.terminal.history_index.set(None);
-            }
+                .push_output(OutputLine::command(prompt, &input));
+            ctx.terminal.add_to_command_history(&input);
         }
 
         let runtime_state = ctx.runtime_state.get();
@@ -90,22 +93,17 @@ pub(super) fn create_submit_callback(ctx: AppContext, route_ctx: RouteContext) -
             .with(|history| parse_input_with_env(&input, history, &runtime_state.env));
 
         let wallet_state = ctx.wallet.get();
-        let remote_head = ctx.remote_head_for_path(&cwd);
         let runtime_mounts = ctx.runtime_mounts_snapshot();
         let execution_context = shell_execution_context(&runtime_state);
-        let result = ctx.changes.with_untracked(|changes| {
-            ctx.system_global_fs.with(|current_fs| {
-                execute_pipeline_with_context(
-                    &pipeline,
-                    &wallet_state,
-                    &runtime_mounts,
-                    current_fs,
-                    &cwd,
-                    changes,
-                    remote_head.as_deref(),
-                    &execution_context,
-                )
-            })
+        let result = ctx.system_global_fs.with(|current_fs| {
+            execute_pipeline_with_context(
+                &pipeline,
+                &wallet_state,
+                &runtime_mounts,
+                current_fs,
+                &cwd,
+                &execution_context,
+            )
         });
 
         ctx.terminal.push_lines(result.output);
@@ -152,92 +150,6 @@ pub(crate) fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
                 "unset: failed to remove {key}: {error}"
             ))),
         },
-        SideEffect::ApplyChange { path, change } => {
-            let timestamp_ms = crate::platform::current_timestamp();
-            ctx.evict_text_cache_path(&path);
-            ctx.changes
-                .update(|cs| cs.upsert_at(path, *change, timestamp_ms));
-        }
-        SideEffect::StageChange { path } => {
-            ctx.changes.update(|cs| cs.stage(&path));
-        }
-        SideEffect::UnstageChange { path } => {
-            ctx.changes.update(|cs| cs.unstage(&path));
-        }
-        SideEffect::DiscardChange { path } => {
-            ctx.evict_text_cache_path(&path);
-            ctx.changes.update(|cs| cs.discard(&path));
-        }
-        SideEffect::StageAll => {
-            ctx.changes.update(|cs| cs.stage_all());
-        }
-        SideEffect::UnstageAll => {
-            ctx.changes.update(|cs| cs.unstage_all());
-        }
-        SideEffect::SetAuthToken { token } => {
-            match RuntimeServices::new(*ctx).set_github_token(&token) {
-                Ok(()) => {}
-                Err(error) => ctx.terminal.push_output(OutputLine::error(format!(
-                    "sync auth: failed to persist token: {error}"
-                ))),
-            }
-        }
-        SideEffect::ClearAuthToken => match RuntimeServices::new(*ctx).clear_github_token() {
-            Ok(()) => {}
-            Err(error) => ctx.terminal.push_output(OutputLine::error(format!(
-                "sync auth: failed to clear token: {error}"
-            ))),
-        },
-        SideEffect::InvalidateRuntimeState => {}
-        SideEffect::OpenEditor { path } => {
-            ctx.editor_open.set(Some(path));
-        }
-        SideEffect::Commit {
-            message,
-            mount_root,
-        } => {
-            let changes_signal = ctx.changes;
-            let terminal = ctx.terminal;
-            let services = RuntimeServices::new(*ctx);
-
-            wasm_bindgen_futures::spawn_local(async move {
-                match services.commit_staged(mount_root.clone(), message).await {
-                    Ok(outcome) => {
-                        let reload = if mount_root.is_root() {
-                            services.reload_runtime().await
-                        } else {
-                            services.reload_runtime_mount(mount_root.clone()).await
-                        };
-                        match reload {
-                            Ok(()) => {}
-                            Err(error) => {
-                                terminal.push_output(websh_core::shell::OutputLine::info(format!(
-                                    "sync: commit ok, runtime reload failed: {error}"
-                                )))
-                            }
-                        }
-
-                        let committed = outcome.committed_paths.clone();
-                        changes_signal.update(|cs| {
-                            for p in committed.iter() {
-                                cs.discard(p);
-                            }
-                        });
-
-                        terminal.push_output(websh_core::shell::OutputLine::info(format!(
-                            "sync: committed {} files (HEAD now {}).",
-                            outcome.committed_paths.len(),
-                            &outcome.new_head[..outcome.new_head.len().min(8)]
-                        )));
-                    }
-                    Err(e) => {
-                        terminal.push_output(websh_core::shell::OutputLine::error(format!(
-                            "sync: {e}"
-                        )));
-                    }
-                }
-            });
-        }
         SideEffect::ReloadRuntimeMount { mount_root } => {
             let terminal = ctx.terminal;
             let services = RuntimeServices::new(*ctx);
@@ -245,12 +157,12 @@ pub(crate) fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
                 match services.reload_runtime_mount(mount_root.clone()).await {
                     Ok(()) => {
                         terminal.push_output(websh_core::shell::OutputLine::info(format!(
-                            "sync: {} reloaded.",
+                            "refresh: {} reloaded.",
                             mount_root.as_str()
                         )));
                     }
                     Err(error) => terminal.push_output(websh_core::shell::OutputLine::error(
-                        format!("sync refresh: {error}"),
+                        format!("refresh: {error}"),
                     )),
                 }
             });
@@ -258,26 +170,39 @@ pub(crate) fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
     }
 }
 
-fn display_command(input: &str) -> String {
-    let trimmed = input.trim_start();
-    if is_sync_auth_set(trimmed) {
-        let leading = &input[..input.len() - trimmed.len()];
-        format!("{leading}sync auth set <redacted>")
-    } else {
-        input.to_string()
-    }
-}
-
-fn should_store_command_history(input: &str) -> bool {
-    !is_sync_auth_set(input.trim_start())
-}
-
-fn is_sync_auth_set(input: &str) -> bool {
-    let mut parts = input.split_whitespace();
-    matches!(
-        (parts.next(), parts.next(), parts.next(), parts.next()),
-        (Some("sync"), Some("auth"), Some("set"), Some(_))
-    )
+fn contains_retired_credential_command(input: &str) -> bool {
+    // Inspect only each stage's leading words, accepting the old quote/escape spelling.
+    // The credential payload is never parsed, copied into history, or logged.
+    input.split('|').any(|segment| {
+        let mut chars = segment.trim_start().chars().peekable();
+        for expected in ["sync", "auth", "set"] {
+            while chars.peek().is_some_and(|c| c.is_whitespace()) {
+                chars.next();
+            }
+            let mut word = String::new();
+            let mut quote = None;
+            while let Some(c) = chars.next() {
+                if c.is_whitespace() && quote.is_none() {
+                    break;
+                }
+                if c == '\\' && quote != Some('\'') {
+                    if let Some(escaped) = chars.next() {
+                        word.push(escaped);
+                    }
+                } else if quote == Some(c) {
+                    quote = None;
+                } else if quote.is_none() && matches!(c, '\'' | '"') {
+                    quote = Some(c);
+                } else {
+                    word.push(c);
+                }
+            }
+            if !word.eq_ignore_ascii_case(expected) {
+                return false;
+            }
+        }
+        true
+    })
 }
 
 pub(super) fn create_history_nav_callback(ctx: AppContext) -> Callback<i32, Option<String>> {
@@ -314,20 +239,20 @@ mod tests {
     wasm_bindgen_test_configure!(run_in_browser);
 
     #[wasm_bindgen_test]
-    fn auth_set_command_is_redacted_for_display() {
-        assert_eq!(
-            display_command("sync auth set ghp_secret"),
-            "sync auth set <redacted>"
-        );
-        assert_eq!(
-            display_command("  sync auth set ghp_secret"),
-            "  sync auth set <redacted>"
-        );
-    }
-
-    #[wasm_bindgen_test]
-    fn auth_set_command_is_not_stored_in_history() {
-        assert!(!should_store_command_history("sync auth set ghp_secret"));
-        assert!(should_store_command_history("sync auth clear"));
+    fn retired_credential_input_is_detected_before_echo_or_history() {
+        for input in [
+            "sync auth set placeholder",
+            "sync \"auth\" 'set' placeholder",
+            "\"sync\" auth set placeholder",
+            r"s\ync auth set placeholder",
+            "  SYNC\tAUTH  SET placeholder",
+            "echo hello | sync auth set placeholder",
+            "sync auth set",
+        ] {
+            assert!(contains_retired_credential_command(input));
+        }
+        for input in ["refresh", "login", "echo sync auth set", "sync auth clear"] {
+            assert!(!contains_retired_credential_command(input));
+        }
     }
 }

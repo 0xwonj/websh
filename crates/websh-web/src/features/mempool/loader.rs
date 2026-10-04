@@ -9,10 +9,10 @@ use websh_core::filesystem::GlobalFs;
 use websh_core::mempool::mempool_root;
 
 /// Manifest entries missing the `mempool` block are skipped (no
-/// body-fetch fallback) — re-commit them via compose to repopulate.
+/// body-fetch fallback) — regenerate the source manifest with the native CLI to repopulate.
 pub fn load_mempool_files(ctx: AppContext) -> Vec<LoadedMempoolFile> {
     let root = mempool_root();
-    ctx.view_global_fs.with(|fs| collect_loaded(fs, root))
+    ctx.global_fs.with(|fs| collect_loaded(fs, root))
 }
 
 fn collect_loaded(fs: &GlobalFs, root: &VirtualPath) -> Vec<LoadedMempoolFile> {
@@ -27,7 +27,7 @@ fn walk(fs: &GlobalFs, current: &VirtualPath, out: &mut Vec<LoadedMempoolFile>) 
     };
     match entry {
         FsEntry::Directory { children, .. } => {
-            for (name, _child) in children.iter() {
+            for name in children.keys() {
                 walk(fs, &current.join(name), out);
             }
         }

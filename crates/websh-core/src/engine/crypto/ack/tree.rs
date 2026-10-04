@@ -44,7 +44,9 @@ impl MerkleTree {
                 current.push(last);
             }
             let next = current
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|pair| node_hash(&pair[0], &pair[1]))
                 .collect::<Vec<_>>();
             levels.push(next);

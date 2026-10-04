@@ -19,6 +19,8 @@ pub enum ContentReadError {
         path: VirtualPath,
         root: VirtualPath,
     },
+    #[error("content changed while reading {path}; retry the request")]
+    Obsolete { path: VirtualPath },
     #[error(transparent)]
     Storage(#[from] StorageError),
 }
@@ -28,11 +30,11 @@ pub async fn read_text(
     backends: &BackendRegistry,
     path: &VirtualPath,
 ) -> Result<String, ContentReadError> {
-    if let Some(text) = fs.read_pending_text(path) {
+    if let Some(text) = fs.read_inline_text(path) {
         return Ok(text);
     }
 
-    let (root, backend) = backend_for_path(backends, path)
+    let (root, backend) = backend_for_path(fs, backends, path)
         .ok_or_else(|| ContentReadError::NoBackend { path: path.clone() })?;
     let rel_path = relative_backend_path(path, &root).ok_or_else(|| {
         ContentReadError::PathOutsideBackendRoot {
@@ -49,11 +51,11 @@ pub async fn read_bytes(
     backends: &BackendRegistry,
     path: &VirtualPath,
 ) -> Result<Vec<u8>, ContentReadError> {
-    if let Some(text) = fs.read_pending_text(path) {
+    if let Some(text) = fs.read_inline_text(path) {
         return Ok(text.into_bytes());
     }
 
-    let (root, backend) = backend_for_path(backends, path)
+    let (root, backend) = backend_for_path(fs, backends, path)
         .ok_or_else(|| ContentReadError::NoBackend { path: path.clone() })?;
     let rel_path = relative_backend_path(path, &root).ok_or_else(|| {
         ContentReadError::PathOutsideBackendRoot {
@@ -70,11 +72,11 @@ pub fn public_read_url(
     backends: &BackendRegistry,
     path: &VirtualPath,
 ) -> Result<Option<String>, ContentReadError> {
-    if fs.read_pending_text(path).is_some() {
+    if fs.read_inline_text(path).is_some() {
         return Ok(None);
     }
 
-    let (root, backend) = backend_for_path(backends, path)
+    let (root, backend) = backend_for_path(fs, backends, path)
         .ok_or_else(|| ContentReadError::NoBackend { path: path.clone() })?;
     let rel_path = relative_backend_path(path, &root).ok_or_else(|| {
         ContentReadError::PathOutsideBackendRoot {
@@ -87,14 +89,21 @@ pub fn public_read_url(
 }
 
 fn backend_for_path(
+    fs: &GlobalFs,
     backends: &BackendRegistry,
     path: &VirtualPath,
 ) -> Option<(VirtualPath, StorageBackendRef)> {
-    backends
+    let (root, backend) = backends
         .iter()
         .filter(|(root, _)| path.starts_with(root))
-        .max_by_key(|(root, _)| root.as_str().len())
-        .map(|(root, backend)| (root.clone(), backend.clone()))
+        .max_by_key(|(root, _)| root.as_str().len())?;
+    if fs
+        .mount_points()
+        .any(|boundary| path.starts_with(boundary) && boundary.as_str().len() > root.as_str().len())
+    {
+        return None;
+    }
+    Some((root.clone(), backend.clone()))
 }
 
 fn relative_backend_path(path: &VirtualPath, root: &VirtualPath) -> Option<String> {
@@ -160,29 +169,15 @@ mod tests {
                 .push(rel_path.to_string());
             Ok(self.public_url.clone())
         }
-
-        fn commit<'a>(
-            &'a self,
-            _request: &'a crate::ports::CommitRequest,
-        ) -> crate::ports::LocalBoxFuture<
-            'a,
-            crate::ports::StorageResult<crate::ports::CommitOutcome>,
-        > {
-            Box::pin(async {
-                Err(crate::ports::StorageError::InvalidRequest {
-                    message: "commit unused".to_string(),
-                })
-            })
-        }
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn pending_content_wins_over_backend_reads() {
+    async fn inline_runtime_content_wins_over_backend_reads() {
         let mut fs = GlobalFs::empty();
-        let path = VirtualPath::from_absolute("/.websh/state/env/EDITOR").unwrap();
+        let path = VirtualPath::from_absolute("/.websh/state/env/LANG").unwrap();
         fs.upsert_file(
             path.clone(),
-            "vim".to_string(),
+            "ko".to_string(),
             NodeMetadata {
                 schema: SCHEMA_VERSION,
                 kind: NodeKind::Data,
@@ -200,28 +195,32 @@ mod tests {
                 reads: Mutex::new(Vec::new()),
                 public_url_reads: Mutex::new(Vec::new()),
                 text: "nano".to_string(),
-                public_url: Some("/content/.websh/state/env/EDITOR".to_string()),
+                public_url: Some("/content/.websh/state/env/LANG".to_string()),
             }),
         );
 
         let text = read_text(&fs, &backends, &path).await.expect("text");
-        assert_eq!(text, "vim");
+        assert_eq!(text, "ko");
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn backend_reads_relative_path_under_mount_root() {
         let mut fs = GlobalFs::empty();
-        fs.upsert_binary_placeholder(
-            VirtualPath::from_absolute("/blog/post.md").unwrap(),
-            NodeMetadata {
-                schema: SCHEMA_VERSION,
-                kind: NodeKind::Page,
-                bundle: None,
-                authored: Fields::default(),
-                derived: Fields::default(),
+        fs.mount_scanned_subtree(
+            VirtualPath::root(),
+            &crate::ports::ScannedSubtree {
+                files: vec![crate::ports::ScannedFile {
+                    path: "blog/post.md".into(),
+                    meta: NodeMetadata {
+                        kind: NodeKind::Page,
+                        ..Default::default()
+                    },
+                    extensions: EntryExtensions::default(),
+                }],
+                directories: vec![],
             },
-            EntryExtensions::default(),
-        );
+        )
+        .unwrap();
 
         let backend = Rc::new(StubBackend {
             reads: Mutex::new(Vec::new()),

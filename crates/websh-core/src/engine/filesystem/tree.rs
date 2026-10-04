@@ -149,22 +149,3 @@ pub(super) fn remove_tree_entry(root: &mut FsEntry, path: &VirtualPath) {
 
     current.remove(parts.last().copied().unwrap_or_default());
 }
-
-pub(super) fn get_tree_entry_mut<'a>(
-    root: &'a mut FsEntry,
-    path: &VirtualPath,
-) -> Option<&'a mut FsEntry> {
-    if path.is_root() {
-        return Some(root);
-    }
-
-    let mut current = root;
-    for part in path.segments() {
-        current = match current {
-            FsEntry::Directory { children, .. } => children.get_mut(part)?,
-            FsEntry::File { .. } => return None,
-        };
-    }
-
-    Some(current)
-}

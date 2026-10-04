@@ -3,16 +3,14 @@
 //! Contains the `execute_command` function that runs parsed commands
 //! against the canonical filesystem and returns results.
 
-use crate::domain::{ChangeSet, RuntimeMount, VirtualPath, WalletState, is_runtime_overlay_path};
+use crate::domain::{RuntimeMount, VirtualPath, WalletState, is_runtime_overlay_path};
 use crate::engine::filesystem::{GlobalFs, canonicalize_user_path};
 
-use super::{AccessPolicy, Command, CommandResult, ExecutionContext, OutputLine, SideEffect};
+use super::{Command, CommandResult, ExecutionContext, OutputLine, PathArg, SideEffect};
 
 mod env_cmd;
 mod info;
 mod read;
-mod sync;
-mod write;
 
 /// Execute a parsed command and return output lines.
 ///
@@ -26,17 +24,12 @@ mod write;
 /// * `wallet_state` - Current wallet connection state
 /// * `fs` - Global canonical filesystem
 /// * `cwd` - Current canonical working directory
-/// * `changes` - The current set of pending changes
-/// * `remote_head` - Last-known remote HEAD SHA displayed by `sync status`
-#[allow(clippy::too_many_arguments)]
 pub fn execute_command(
     cmd: Command,
     wallet_state: &WalletState,
     runtime_mounts: &[RuntimeMount],
     fs: &GlobalFs,
     cwd: &VirtualPath,
-    changes: &ChangeSet,
-    remote_head: Option<&str>,
 ) -> CommandResult {
     execute_command_with_context(
         cmd,
@@ -44,34 +37,21 @@ pub fn execute_command(
         runtime_mounts,
         fs,
         cwd,
-        changes,
-        remote_head,
         &ExecutionContext::default(),
     )
 }
 
 /// Execute a parsed command with target-provided context.
-#[allow(clippy::too_many_arguments)]
 pub fn execute_command_with_context(
     cmd: Command,
     wallet_state: &WalletState,
     runtime_mounts: &[RuntimeMount],
     fs: &GlobalFs,
     cwd: &VirtualPath,
-    changes: &ChangeSet,
-    remote_head: Option<&str>,
     context: &ExecutionContext,
 ) -> CommandResult {
     match cmd {
-        Command::Ls { path, long } => read::execute_ls(
-            path,
-            long,
-            wallet_state,
-            &context.access_policy,
-            runtime_mounts,
-            fs,
-            cwd,
-        ),
+        Command::Ls { path, long } => read::execute_ls(path, long, wallet_state, fs, cwd),
         Command::Cd(path) => read::execute_cd(path, fs, cwd),
         Command::Pwd => CommandResult::output(vec![OutputLine::text(cwd.as_str())]),
         Command::Cat(file) => match file {
@@ -102,112 +82,32 @@ pub fn execute_command_with_context(
         },
         Command::Login => CommandResult::login(),
         Command::Logout => CommandResult::logout(),
-        Command::Touch { path } => write::execute_touch(
-            path,
-            wallet_state,
-            &context.access_policy,
-            runtime_mounts,
-            fs,
-            cwd,
-        ),
-        Command::Mkdir { path } => write::execute_mkdir(
-            path,
-            wallet_state,
-            &context.access_policy,
-            runtime_mounts,
-            fs,
-            cwd,
-        ),
-        Command::Rm { path, recursive } => write::execute_rm(
-            path,
-            recursive,
-            write::WriteCommandContext {
-                wallet_state,
-                access_policy: &context.access_policy,
-                runtime_mounts,
-                fs,
+        Command::Refresh(path) => {
+            let target = match resolve_path_arg(
+                "refresh",
+                path.as_ref().map_or(".", PathArg::as_str),
                 cwd,
-                changes,
-            },
-        ),
-        Command::Rmdir { path } => write::execute_rmdir(
-            path,
-            wallet_state,
-            &context.access_policy,
-            runtime_mounts,
-            fs,
-            cwd,
-            changes,
-        ),
-        Command::Edit { path } => write::execute_edit(
-            path,
-            wallet_state,
-            &context.access_policy,
-            runtime_mounts,
-            fs,
-            cwd,
-        ),
-        Command::EchoRedirect { body, path } => write::execute_echo_redirect(
-            body,
-            path,
-            wallet_state,
-            &context.access_policy,
-            runtime_mounts,
-            fs,
-            cwd,
-        ),
-        Command::Sync(sub) => sync::execute_sync(
-            sub,
-            wallet_state,
-            &context.access_policy,
-            runtime_mounts,
-            cwd,
-            changes,
-            remote_head,
-        ),
+            ) {
+                Ok(path) => path,
+                Err(error) => return error,
+            };
+            if is_runtime_overlay_path(&target) {
+                return CommandResult::error_line("refresh: runtime state has no remote source");
+            }
+            match mount_for_path(runtime_mounts, &target) {
+                Some(mount) => {
+                    CommandResult::empty().with_side_effect(SideEffect::ReloadRuntimeMount {
+                        mount_root: mount.root,
+                    })
+                }
+                None => CommandResult::error_line("refresh: no accepted mount owns this path"),
+            }
+        }
         Command::Unknown(cmd) => CommandResult::error_line(format!(
             "Command not found: {}. Type 'help' for available commands.",
             cmd
         ))
         .with_exit_code(127),
-    }
-}
-
-/// Resolve an admin + mount preflight for write commands. Returns the write
-/// target mount when the caller may write to `current_route`, or a
-/// `CommandResult` error otherwise.
-///
-/// Centralising this lets every write arm emit the same error string and keeps
-/// admin gating in one place.
-#[allow(clippy::result_large_err)]
-pub(super) fn require_write_access(
-    cmd_label: &str,
-    wallet_state: &WalletState,
-    access_policy: &AccessPolicy,
-    runtime_mounts: &[RuntimeMount],
-    path: &VirtualPath,
-) -> Result<(), CommandResult> {
-    if is_runtime_overlay_path(path) {
-        return Err(CommandResult::error_line(format!(
-            "{}: read-only filesystem",
-            cmd_label
-        )));
-    }
-
-    let Some(mount) = mount_for_path(runtime_mounts, path) else {
-        return Err(CommandResult::error_line(format!(
-            "{}: permission denied (admin login required)",
-            cmd_label
-        )));
-    };
-
-    if access_policy.can_write_to(wallet_state, mount.writable) {
-        Ok(())
-    } else {
-        Err(CommandResult::error_line(format!(
-            "{}: permission denied (admin login required)",
-            cmd_label
-        )))
     }
 }
 
@@ -230,21 +130,6 @@ pub(super) fn mount_for_path(
         .filter(|mount| mount.contains(path))
         .max_by_key(|mount| mount.root.as_str().len())
         .cloned()
-}
-
-pub(super) fn can_write_path(
-    wallet_state: &WalletState,
-    access_policy: &AccessPolicy,
-    runtime_mounts: &[RuntimeMount],
-    path: &VirtualPath,
-) -> bool {
-    if is_runtime_overlay_path(path) {
-        return false;
-    }
-
-    mount_for_path(runtime_mounts, path)
-        .as_ref()
-        .is_some_and(|mount| access_policy.can_write_to(wallet_state, mount.writable))
 }
 
 #[cfg(test)]

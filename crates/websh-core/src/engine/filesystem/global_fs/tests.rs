@@ -115,7 +115,7 @@ fn mutation_rejects_file_ancestor_without_replacing_it() {
     );
     assert!(
         global
-            .read_pending_text(&VirtualPath::from_absolute("/a/b.md").unwrap())
+            .read_inline_text(&VirtualPath::from_absolute("/a/b.md").unwrap())
             .is_none()
     );
 }
@@ -146,7 +146,7 @@ fn refuses_to_replace_existing_directory_mountpoint() {
 }
 
 #[test]
-fn reserves_mount_point_as_empty_export_exclusion() {
+fn reserved_mount_hides_parent_fallback_content() {
     let mut global = GlobalFs::empty();
     global
         .mount_scanned_subtree(
@@ -164,14 +164,6 @@ fn reserves_mount_point_as_empty_export_exclusion() {
             .get_entry(&VirtualPath::from_absolute("/mempool/root-fallback.md").unwrap())
             .is_none()
     );
-
-    let root_snapshot = global.export_mount_snapshot(&VirtualPath::root()).unwrap();
-    let files = root_snapshot
-        .files
-        .iter()
-        .map(|file| file.path.as_str())
-        .collect::<Vec<_>>();
-    assert_eq!(files, vec!["index.md"]);
 }
 
 #[test]
@@ -192,15 +184,7 @@ fn replaces_reserved_mount_point_with_scanned_subtree() {
             .is_some()
     );
 
-    let root_snapshot = global.export_mount_snapshot(&VirtualPath::root()).unwrap();
-    assert!(
-        root_snapshot
-            .files
-            .iter()
-            .all(|file| !file.path.starts_with("db/"))
-    );
-    let db_snapshot = global.export_mount_snapshot(&db_root).unwrap();
-    assert_eq!(db_snapshot.files[0].path, "notes/todo.md");
+    assert!(global.mount_points().any(|root| root == &db_root));
 }
 
 #[test]
@@ -263,7 +247,7 @@ fn child_summary_avoids_full_dir_entry_materialization() {
 }
 
 #[test]
-fn pending_text_tracks_upserts() {
+fn inline_text_tracks_upserts() {
     let mut global = GlobalFs::empty();
     let path = VirtualPath::from_absolute("/new.md").unwrap();
     global.upsert_file(
@@ -273,7 +257,7 @@ fn pending_text_tracks_upserts() {
         EntryExtensions::default(),
     );
 
-    assert_eq!(global.read_pending_text(&path).as_deref(), Some("hello"));
+    assert_eq!(global.read_inline_text(&path).as_deref(), Some("hello"));
 }
 
 #[test]
@@ -284,174 +268,62 @@ fn scanned_subtree_roundtrip_is_byte_stable() {
     ));
     let snapshot = crate::ports::parse_manifest_snapshot(golden).expect("golden parses");
 
-    let mut global = GlobalFs::empty();
-    let root = VirtualPath::root();
-    global
-        .mount_scanned_subtree(root.clone(), &snapshot)
-        .unwrap();
-    let reserialized = global.export_mount_snapshot(&root).unwrap();
-    let out = crate::ports::serialize_manifest_snapshot(&reserialized).expect("serialize");
+    let out = crate::ports::serialize_manifest_snapshot(&snapshot).expect("serialize");
 
     assert_eq!(out.trim_end(), golden.trim_end());
 }
 
 #[test]
-fn exported_mount_snapshot_sorts_regardless_of_input_order() {
-    let tagged_dir = |title: &str, tag: &str| NodeMetadata {
-        schema: SCHEMA_VERSION,
-        kind: NodeKind::Directory,
-        bundle: None,
-        authored: Fields {
-            title: Some(title.to_string()),
-            tags: Some(vec![tag.to_string()]),
-            ..Fields::default()
-        },
-        derived: Fields::default(),
-    };
-
-    let snapshot = ScannedSubtree {
-        files: vec![
-            ScannedFile {
-                path: "z.md".to_string(),
-                meta: file_meta(NodeKind::Page),
-                extensions: EntryExtensions::default(),
-            },
-            ScannedFile {
-                path: "m.md".to_string(),
-                meta: file_meta(NodeKind::Page),
-                extensions: EntryExtensions::default(),
-            },
-            ScannedFile {
-                path: "a.md".to_string(),
-                meta: file_meta(NodeKind::Page),
-                extensions: EntryExtensions::default(),
-            },
-        ],
-        directories: vec![
-            ScannedDirectory {
-                path: "z-dir".to_string(),
-                meta: tagged_dir("Z", "zone"),
-            },
-            ScannedDirectory {
-                path: "a-dir".to_string(),
-                meta: tagged_dir("A", "area"),
-            },
-        ],
-    };
-
+fn scanned_empty_directory_retains_metadata() {
     let mut global = GlobalFs::empty();
-    let root = VirtualPath::root();
+    let root = VirtualPath::from_absolute("/external").unwrap();
     global
-        .mount_scanned_subtree(root.clone(), &snapshot)
+        .mount_scanned_subtree(root.clone(), &snapshot(&[], &["empty"]))
         .unwrap();
-    let out = global.export_mount_snapshot(&root).unwrap();
-    let file_paths: Vec<&str> = out.files.iter().map(|f| f.path.as_str()).collect();
-    assert_eq!(file_paths, vec!["a.md", "m.md", "z.md"]);
-    let dir_paths: Vec<&str> = out.directories.iter().map(|d| d.path.as_str()).collect();
-    assert_eq!(dir_paths, vec!["a-dir", "z-dir"]);
+    let path = root.join("empty");
+    assert!(global.is_directory(&path));
+    assert_eq!(global.child_count(&path), Some(0));
+    assert_eq!(
+        global.node_metadata(&path).unwrap().kind,
+        NodeKind::Directory
+    );
 }
 
 #[test]
-fn exported_mount_snapshot_uses_relative_paths_for_pending_files() {
-    let mut global = GlobalFs::empty();
-    let root = VirtualPath::root();
-    global
-        .mount_scanned_subtree(root.clone(), &ScannedSubtree::default())
-        .unwrap();
-    global.upsert_file(
-        root.join("notes.md"),
-        "notes".into(),
-        file_meta(NodeKind::Page),
+fn recipient_read_markers_follow_current_wallet_without_write_capability() {
+    use crate::domain::{AccessFilter, Recipient, WalletState};
+    let mut fs = GlobalFs::empty();
+    let mut meta = file_meta(NodeKind::Page);
+    meta.authored.access = Some(AccessFilter {
+        recipients: vec![Recipient {
+            address: "0xAbC".into(),
+        }],
+    });
+    let path = VirtualPath::from_absolute("/advisory.md").unwrap();
+    fs.upsert_file(
+        path.clone(),
+        "public bytes".into(),
+        meta,
         EntryExtensions::default(),
     );
-
-    let snapshot = global.export_mount_snapshot(&root).unwrap();
-    assert_eq!(snapshot.files.len(), 1);
-    assert_eq!(snapshot.files[0].path, "notes.md");
-}
-
-#[test]
-fn exported_mount_snapshot_preserves_empty_directories() {
-    let mut global = GlobalFs::empty();
-    let root = VirtualPath::root();
-    global
-        .mount_scanned_subtree(root.clone(), &ScannedSubtree::default())
-        .unwrap();
-    global.upsert_directory(root.join("empty"), dir_meta("empty"));
-
-    let snapshot = global.export_mount_snapshot(&root).unwrap();
-    let paths: Vec<_> = snapshot
-        .directories
-        .iter()
-        .map(|dir| dir.path.as_str())
-        .collect();
-    assert_eq!(paths, vec!["empty"]);
-}
-
-#[test]
-fn root_export_excludes_descendant_mounts_and_runtime_state() {
-    let mut global = GlobalFs::empty();
-    global
-        .mount_scanned_subtree(
-            VirtualPath::root(),
-            &snapshot(
-                &[
-                    "index.md",
-                    ".websh/ledger.json",
-                    ".websh/mounts/db.mount.json",
-                ],
-                &[".websh", ".websh/mounts"],
-            ),
-        )
-        .unwrap();
-    global
-        .mount_scanned_subtree(
-            VirtualPath::from_absolute("/db").unwrap(),
-            &snapshot(&["fresh.md"], &[]),
-        )
-        .unwrap();
-    global.upsert_directory(
-        VirtualPath::from_absolute("/.websh/state").unwrap(),
-        dir_meta("state"),
+    let entry = fs.get_entry(&path).unwrap();
+    let wallet = |address: &str| WalletState::Connected {
+        address: address.into(),
+        ens_name: None,
+        chain_id: Some(1),
+    };
+    assert_eq!(
+        fs.get_permissions(entry, &WalletState::Disconnected)
+            .to_string(),
+        "----"
     );
-    global.upsert_file(
-        VirtualPath::from_absolute("/.websh/state/session/wallet_session").unwrap(),
-        "1".into(),
-        file_meta(NodeKind::Data),
-        EntryExtensions::default(),
+    assert_eq!(
+        fs.get_permissions(entry, &wallet("0xabc")).to_string(),
+        "-r--"
     );
-
-    let snapshot = global.export_mount_snapshot(&VirtualPath::root()).unwrap();
-    let files: Vec<_> = snapshot
-        .files
-        .iter()
-        .map(|file| file.path.as_str())
-        .collect();
-
-    assert!(files.contains(&"index.md"));
-    assert!(files.contains(&".websh/ledger.json"));
-    assert!(files.contains(&".websh/mounts/db.mount.json"));
-    assert!(!files.iter().any(|path| path.starts_with("db/")));
-    assert!(!files.iter().any(|path| path.starts_with(".websh/state/")));
-}
-
-#[test]
-fn descendant_mount_export_includes_only_mount_relative_files() {
-    let mut global = GlobalFs::empty();
-    global
-        .mount_scanned_subtree(VirtualPath::root(), &snapshot(&["index.md"], &[]))
-        .unwrap();
-    let db_root = VirtualPath::from_absolute("/db").unwrap();
-    global
-        .mount_scanned_subtree(db_root.clone(), &snapshot(&["fresh.md"], &[]))
-        .unwrap();
-
-    let snapshot = global.export_mount_snapshot(&db_root).unwrap();
-    let files: Vec<_> = snapshot
-        .files
-        .iter()
-        .map(|file| file.path.as_str())
-        .collect();
-
-    assert_eq!(files, vec!["fresh.md"]);
+    assert_eq!(
+        fs.get_permissions(entry, &wallet("0xdef")).to_string(),
+        "----"
+    );
+    assert_eq!(fs.read_inline_text(&path).unwrap(), "public bytes");
 }

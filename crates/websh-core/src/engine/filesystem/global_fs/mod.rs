@@ -8,7 +8,6 @@ use super::intent::{RenderIntent, build_render_intent};
 use super::routing::{RouteRequest, RouteResolution, resolve_route};
 use super::tree::directory_metadata;
 
-mod export;
 mod mount;
 mod mutation;
 mod query;
@@ -34,10 +33,6 @@ pub enum FsMutationError {
     RootMustBeDirectory,
     #[error("parent is a file: {path}")]
     ParentIsFile { path: VirtualPath },
-    #[error("target is a directory: {path}")]
-    TargetIsDirectory { path: VirtualPath },
-    #[error("target is missing: {path}")]
-    TargetMissing { path: VirtualPath },
 }
 
 /// Minimal engine trait for the canonical-path read surface.
@@ -53,7 +48,7 @@ pub trait FsEngine {
 pub struct GlobalFs {
     root: FsEntry,
     mount_points: BTreeSet<VirtualPath>,
-    pending_text: BTreeMap<VirtualPath, String>,
+    inline_text: BTreeMap<VirtualPath, String>,
 }
 
 impl GlobalFs {
@@ -64,7 +59,7 @@ impl GlobalFs {
                 meta: directory_metadata(""),
             },
             mount_points: BTreeSet::new(),
-            pending_text: BTreeMap::new(),
+            inline_text: BTreeMap::new(),
         }
     }
 
@@ -79,8 +74,8 @@ impl GlobalFs {
         self.get_entry(path).map(|entry| entry.meta())
     }
 
-    pub fn read_pending_text(&self, path: &VirtualPath) -> Option<String> {
-        self.pending_text.get(path).cloned()
+    pub fn read_inline_text(&self, path: &VirtualPath) -> Option<String> {
+        self.inline_text.get(path).cloned()
     }
 }
 

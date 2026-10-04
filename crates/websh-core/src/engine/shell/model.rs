@@ -3,7 +3,7 @@
 //! Command execution result type.
 
 use crate::engine::filesystem::RouteRequest;
-use crate::engine::shell::{AccessPolicy, OutputLine};
+use crate::engine::shell::OutputLine;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ViewMode {
@@ -30,53 +30,18 @@ pub enum SideEffect {
     /// Switch view mode and navigate in one step.
     SwitchViewAndNavigate(ViewMode, RouteRequest),
     /// Apply a global color palette.
-    SetTheme {
-        theme: String,
-    },
+    SetTheme { theme: String },
     /// Request the target to list available color palettes.
     ListThemes,
     /// Set a target-owned user environment variable.
-    SetEnvVar {
-        key: String,
-        value: String,
-    },
+    SetEnvVar { key: String, value: String },
     /// Remove a target-owned user environment variable.
-    UnsetEnvVar {
-        key: String,
-    },
+    UnsetEnvVar { key: String },
     /// Reset the terminal output ring buffer.
     ClearHistory,
 
-    // Filesystem mutations
-    ApplyChange {
-        path: crate::domain::VirtualPath,
-        change: Box<crate::domain::ChangeType>,
-    },
-    StageChange {
-        path: crate::domain::VirtualPath,
-    },
-    UnstageChange {
-        path: crate::domain::VirtualPath,
-    },
-    DiscardChange {
-        path: crate::domain::VirtualPath,
-    },
-    StageAll,
-    UnstageAll,
-    Commit {
-        message: String,
-        mount_root: crate::domain::VirtualPath,
-    },
     ReloadRuntimeMount {
         mount_root: crate::domain::VirtualPath,
-    },
-    SetAuthToken {
-        token: String,
-    },
-    ClearAuthToken,
-    InvalidateRuntimeState,
-    OpenEditor {
-        path: crate::domain::VirtualPath,
     },
 }
 
@@ -86,42 +51,16 @@ pub enum NavigationEffect {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum FilesystemEffect {
-    ApplyChange {
-        path: crate::domain::VirtualPath,
-        change: Box<crate::domain::ChangeType>,
-    },
-    StageChange {
-        path: crate::domain::VirtualPath,
-    },
-    UnstageChange {
-        path: crate::domain::VirtualPath,
-    },
-    DiscardChange {
-        path: crate::domain::VirtualPath,
-    },
-    StageAll,
-    UnstageAll,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RuntimeEffect {
-    Commit {
-        message: String,
-        mount_root: crate::domain::VirtualPath,
-    },
     ReloadRuntimeMount {
         mount_root: crate::domain::VirtualPath,
     },
-    InvalidateRuntimeState,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AuthEffect {
     Login,
     Logout,
-    SetAuthToken { token: String },
-    ClearAuthToken,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -143,11 +82,6 @@ pub enum ViewEffect {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum EditorEffect {
-    OpenEditor { path: crate::domain::VirtualPath },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SystemEffect {
     ClearHistory,
 }
@@ -155,13 +89,11 @@ pub enum SystemEffect {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ShellEffect {
     Navigation(NavigationEffect),
-    Filesystem(FilesystemEffect),
     Runtime(RuntimeEffect),
     Auth(AuthEffect),
     Theme(ThemeEffect),
     Environment(EnvironmentEffect),
     View(ViewEffect),
-    Editor(EditorEffect),
     System(SystemEffect),
 }
 
@@ -184,36 +116,9 @@ impl From<SideEffect> for ShellEffect {
                 Self::Environment(EnvironmentEffect::UnsetEnvVar { key })
             }
             SideEffect::ClearHistory => Self::System(SystemEffect::ClearHistory),
-            SideEffect::ApplyChange { path, change } => {
-                Self::Filesystem(FilesystemEffect::ApplyChange { path, change })
-            }
-            SideEffect::StageChange { path } => {
-                Self::Filesystem(FilesystemEffect::StageChange { path })
-            }
-            SideEffect::UnstageChange { path } => {
-                Self::Filesystem(FilesystemEffect::UnstageChange { path })
-            }
-            SideEffect::DiscardChange { path } => {
-                Self::Filesystem(FilesystemEffect::DiscardChange { path })
-            }
-            SideEffect::StageAll => Self::Filesystem(FilesystemEffect::StageAll),
-            SideEffect::UnstageAll => Self::Filesystem(FilesystemEffect::UnstageAll),
-            SideEffect::Commit {
-                message,
-                mount_root,
-            } => Self::Runtime(RuntimeEffect::Commit {
-                message,
-                mount_root,
-            }),
             SideEffect::ReloadRuntimeMount { mount_root } => {
                 Self::Runtime(RuntimeEffect::ReloadRuntimeMount { mount_root })
             }
-            SideEffect::SetAuthToken { token } => Self::Auth(AuthEffect::SetAuthToken { token }),
-            SideEffect::ClearAuthToken => Self::Auth(AuthEffect::ClearAuthToken),
-            SideEffect::InvalidateRuntimeState => {
-                Self::Runtime(RuntimeEffect::InvalidateRuntimeState)
-            }
-            SideEffect::OpenEditor { path } => Self::Editor(EditorEffect::OpenEditor { path }),
         }
     }
 }
@@ -379,7 +284,6 @@ impl PartialEq<&str> for PathArg {
 pub struct ExecutionContext {
     pub system_info: SystemInfo,
     pub env: BTreeMap<String, String>,
-    pub access_policy: AccessPolicy,
     pub shell_text: ShellText,
 }
 
@@ -433,47 +337,9 @@ pub enum Command {
     Login,
     Logout,
 
-    // Write / sync commands.
-    Touch {
-        path: PathArg,
-    },
-    Mkdir {
-        path: PathArg,
-    },
-    Rm {
-        path: PathArg,
-        recursive: bool,
-    },
-    Rmdir {
-        path: PathArg,
-    },
-    Edit {
-        path: PathArg,
-    },
-    Sync(SyncSubcommand),
-    EchoRedirect {
-        body: String,
-        path: PathArg,
-    },
+    Refresh(Option<PathArg>),
 
     Unknown(String),
-}
-
-/// `sync` subcommands — surface the in-progress change set, commit, refresh,
-/// or set/clear the auth token.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum SyncSubcommand {
-    Status,
-    Commit { message: String },
-    Refresh,
-    Auth(AuthAction),
-}
-
-/// Auth token actions for `sync auth`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AuthAction {
-    Set { token: String },
-    Clear,
 }
 
 impl Command {
@@ -482,9 +348,8 @@ impl Command {
     /// Includes both regular commands and pipe filter commands.
     pub fn names() -> &'static [&'static str] {
         &[
-            "cat", "cd", "clear", "cls", "echo", "edit", "export", "grep", "head", "help", "id",
-            "login", "logout", "ls", "mkdir", "pwd", "rm", "rmdir", "sync", "tail", "theme",
-            "touch", "unset", "wc", "whoami",
+            "cat", "cd", "clear", "cls", "echo", "export", "grep", "head", "help", "id", "login",
+            "logout", "ls", "pwd", "refresh", "tail", "theme", "unset", "wc", "whoami",
         ]
     }
 
@@ -520,112 +385,12 @@ impl Command {
                 Self::Theme(args.first().cloned())
             }
             "clear" | "cls" => Self::Clear,
-            "echo" => {
-                // Scan args for a whole-token redirect operator ">".
-                // The lexer strips quotes, so a quoted `">"` arrives as a
-                // Word equal to ">" too — but our callers only produce
-                // plain `>` as a redirect in tests and practice. Quoted
-                // `>` is exceedingly unusual and, if it ever occurs, is
-                // still parsed as a redirect here; that matches the
-                // tokenizer's declared contract (quotes are lost after
-                // lexing).
-                if let Some(idx) = args.iter().position(|a| a == ">") {
-                    let body = args[..idx].join(" ");
-                    let targets = &args[idx + 1..];
-                    if body.is_empty() || targets.len() != 1 {
-                        return Self::Unknown("echo".to_string());
-                    }
-                    Self::EchoRedirect {
-                        body,
-                        path: PathArg::new(&targets[0]),
-                    }
-                } else {
-                    Self::Echo(args.join(" "))
-                }
-            }
+            "echo" => Self::Echo(args.join(" ")),
             "export" => Self::Export(args.to_vec()),
             "unset" => Self::Unset(args.first().cloned()),
             "login" => Self::Login,
             "logout" => Self::Logout,
-            "touch" => {
-                if args.len() != 1 {
-                    return Self::Unknown("touch".to_string());
-                }
-                Self::Touch {
-                    path: PathArg::new(&args[0]),
-                }
-            }
-            "mkdir" => {
-                if args.len() != 1 {
-                    return Self::Unknown("mkdir".to_string());
-                }
-                Self::Mkdir {
-                    path: PathArg::new(&args[0]),
-                }
-            }
-            "rmdir" => {
-                if args.len() != 1 {
-                    return Self::Unknown("rmdir".to_string());
-                }
-                Self::Rmdir {
-                    path: PathArg::new(&args[0]),
-                }
-            }
-            "rm" => {
-                let mut recursive = false;
-                let mut paths: Vec<&String> = Vec::new();
-                for arg in args {
-                    match arg.as_str() {
-                        "-r" | "-rf" | "--recursive" => recursive = true,
-                        _ => paths.push(arg),
-                    }
-                }
-                if paths.len() != 1 {
-                    return Self::Unknown("rm".to_string());
-                }
-                Self::Rm {
-                    path: PathArg::new(paths[0]),
-                    recursive,
-                }
-            }
-            "edit" => {
-                if args.len() != 1 {
-                    return Self::Unknown("edit".to_string());
-                }
-                Self::Edit {
-                    path: PathArg::new(&args[0]),
-                }
-            }
-            "sync" => match args.first().map(String::as_str) {
-                None => Self::Sync(SyncSubcommand::Status),
-                Some("status") if args.len() == 1 => Self::Sync(SyncSubcommand::Status),
-                Some("refresh") if args.len() == 1 => Self::Sync(SyncSubcommand::Refresh),
-                Some("commit") => {
-                    if args.len() < 2 {
-                        return Self::Unknown("sync".to_string());
-                    }
-                    let message = args[1..].join(" ");
-                    if message.is_empty() {
-                        return Self::Unknown("sync".to_string());
-                    }
-                    Self::Sync(SyncSubcommand::Commit { message })
-                }
-                Some("auth") => match args.get(1).map(String::as_str) {
-                    Some("set") => {
-                        if args.len() != 3 {
-                            return Self::Unknown("sync".to_string());
-                        }
-                        Self::Sync(SyncSubcommand::Auth(AuthAction::Set {
-                            token: args[2].clone(),
-                        }))
-                    }
-                    Some("clear") if args.len() == 2 => {
-                        Self::Sync(SyncSubcommand::Auth(AuthAction::Clear))
-                    }
-                    _ => Self::Unknown("sync".to_string()),
-                },
-                _ => Self::Unknown("sync".to_string()),
-            },
+            "refresh" if args.len() <= 1 => Self::Refresh(args.first().map(PathArg::new)),
             _ => Self::Unknown(name.to_string()),
         }
     }
@@ -647,7 +412,6 @@ mod tests {
             branch: "main",
             content_root: "content",
             gateway: "self",
-            writable: true,
         }
     }
 
@@ -806,7 +570,6 @@ mod tests {
     fn test_pipeline_no_filters_preserves_side_effect() {
         // execute_pipeline should preserve SideEffect from first command
         // when there are no filters.
-        use crate::domain::ChangeSet;
         use crate::domain::{VirtualPath, WalletState};
         use crate::engine::filesystem::GlobalFs;
         use crate::engine::shell::parser::parse_input;
@@ -814,18 +577,9 @@ mod tests {
         let wallet = WalletState::Disconnected;
         let fs = GlobalFs::empty();
         let cwd = VirtualPath::root();
-        let changes = ChangeSet::new();
 
         let pipeline = parse_input("login", &[]);
-        let result = execute_pipeline(
-            &pipeline,
-            &wallet,
-            &runtime_mounts(),
-            &fs,
-            &cwd,
-            &changes,
-            None,
-        );
+        let result = execute_pipeline(&pipeline, &wallet, &runtime_mounts(), &fs, &cwd);
         assert_eq!(
             result.side_effects.first().cloned(),
             Some(super::SideEffect::Login)
@@ -835,7 +589,6 @@ mod tests {
     #[test]
     fn test_pipeline_drops_side_effect_when_piped() {
         // When a command has filters attached, side effects are discarded.
-        use crate::domain::ChangeSet;
         use crate::domain::{VirtualPath, WalletState};
         use crate::engine::filesystem::GlobalFs;
         use crate::engine::shell::parser::parse_input;
@@ -843,24 +596,14 @@ mod tests {
         let wallet = WalletState::Disconnected;
         let fs = GlobalFs::empty();
         let cwd = VirtualPath::root();
-        let changes = ChangeSet::new();
 
         let pipeline = parse_input("help | head -1", &[]);
-        let result = execute_pipeline(
-            &pipeline,
-            &wallet,
-            &runtime_mounts(),
-            &fs,
-            &cwd,
-            &changes,
-            None,
-        );
+        let result = execute_pipeline(&pipeline, &wallet, &runtime_mounts(), &fs, &cwd);
         assert!(result.side_effects.first().cloned().is_none());
     }
 
     #[test]
     fn test_pipeline_exit_code_is_last_stage() {
-        use crate::domain::ChangeSet;
         use crate::domain::{VirtualPath, WalletState};
         use crate::engine::filesystem::GlobalFs;
         use crate::engine::shell::parser::parse_input;
@@ -868,308 +611,11 @@ mod tests {
         let wallet = WalletState::Disconnected;
         let fs = GlobalFs::empty();
         let cwd = VirtualPath::root();
-        let changes = ChangeSet::new();
 
         // `help | grep xyzzy` should exit 1 (grep no match)
         let pipeline = parse_input("help | grep xyzzy", &[]);
-        let result = execute_pipeline(
-            &pipeline,
-            &wallet,
-            &runtime_mounts(),
-            &fs,
-            &cwd,
-            &changes,
-            None,
-        );
+        let result = execute_pipeline(&pipeline, &wallet, &runtime_mounts(), &fs, &cwd);
         assert_eq!(result.exit_code, 1);
-    }
-
-    #[test]
-    fn test_parse_touch_ok() {
-        assert!(matches!(
-            Command::parse("touch", &args(&["/tmp/a.md"])),
-            Command::Touch { ref path } if path == "/tmp/a.md"
-        ));
-    }
-
-    #[test]
-    fn test_parse_touch_missing_operand() {
-        assert!(matches!(
-            Command::parse("touch", &[]),
-            Command::Unknown(ref c) if c == "touch"
-        ));
-    }
-
-    #[test]
-    fn test_parse_touch_extra_args() {
-        assert!(matches!(
-            Command::parse("touch", &args(&["a", "b"])),
-            Command::Unknown(ref c) if c == "touch"
-        ));
-    }
-
-    #[test]
-    fn test_parse_mkdir_ok() {
-        assert!(matches!(
-            Command::parse("mkdir", &args(&["/tmp/d"])),
-            Command::Mkdir { ref path } if path == "/tmp/d"
-        ));
-    }
-
-    #[test]
-    fn test_parse_mkdir_missing() {
-        assert!(matches!(
-            Command::parse("mkdir", &[]),
-            Command::Unknown(ref c) if c == "mkdir"
-        ));
-    }
-
-    #[test]
-    fn test_parse_rmdir_ok() {
-        assert!(matches!(
-            Command::parse("rmdir", &args(&["/tmp/d"])),
-            Command::Rmdir { ref path } if path == "/tmp/d"
-        ));
-    }
-
-    #[test]
-    fn test_parse_rmdir_missing() {
-        assert!(matches!(
-            Command::parse("rmdir", &[]),
-            Command::Unknown(ref c) if c == "rmdir"
-        ));
-    }
-
-    #[test]
-    fn test_parse_rm_simple() {
-        assert!(matches!(
-            Command::parse("rm", &args(&["/tmp/a.md"])),
-            Command::Rm { ref path, recursive: false } if path == "/tmp/a.md"
-        ));
-    }
-
-    #[test]
-    fn test_parse_rm_short_r() {
-        assert!(matches!(
-            Command::parse("rm", &args(&["-r", "/tmp/d"])),
-            Command::Rm { ref path, recursive: true } if path == "/tmp/d"
-        ));
-    }
-
-    #[test]
-    fn test_parse_rm_rf() {
-        assert!(matches!(
-            Command::parse("rm", &args(&["-rf", "/tmp/d"])),
-            Command::Rm { ref path, recursive: true } if path == "/tmp/d"
-        ));
-    }
-
-    #[test]
-    fn test_parse_rm_long_recursive() {
-        assert!(matches!(
-            Command::parse("rm", &args(&["--recursive", "/tmp/d"])),
-            Command::Rm { ref path, recursive: true } if path == "/tmp/d"
-        ));
-    }
-
-    #[test]
-    fn test_parse_rm_flag_after_path() {
-        // `rm <path> -r` should also work: the flag is scanned anywhere.
-        assert!(matches!(
-            Command::parse("rm", &args(&["/tmp/d", "-r"])),
-            Command::Rm { ref path, recursive: true } if path == "/tmp/d"
-        ));
-    }
-
-    #[test]
-    fn test_parse_rm_missing_path() {
-        assert!(matches!(
-            Command::parse("rm", &[]),
-            Command::Unknown(ref c) if c == "rm"
-        ));
-    }
-
-    #[test]
-    fn test_parse_rm_flag_only() {
-        assert!(matches!(
-            Command::parse("rm", &args(&["-r"])),
-            Command::Unknown(ref c) if c == "rm"
-        ));
-    }
-
-    #[test]
-    fn test_parse_rm_multiple_paths() {
-        assert!(matches!(
-            Command::parse("rm", &args(&["a", "b"])),
-            Command::Unknown(ref c) if c == "rm"
-        ));
-    }
-
-    #[test]
-    fn test_parse_edit_ok() {
-        assert!(matches!(
-            Command::parse("edit", &args(&["/tmp/a.md"])),
-            Command::Edit { ref path } if path == "/tmp/a.md"
-        ));
-    }
-
-    #[test]
-    fn test_parse_edit_missing() {
-        assert!(matches!(
-            Command::parse("edit", &[]),
-            Command::Unknown(ref c) if c == "edit"
-        ));
-    }
-
-    #[test]
-    fn test_parse_sync_bare() {
-        assert!(matches!(
-            Command::parse("sync", &[]),
-            Command::Sync(SyncSubcommand::Status)
-        ));
-    }
-
-    #[test]
-    fn test_parse_sync_status() {
-        assert!(matches!(
-            Command::parse("sync", &args(&["status"])),
-            Command::Sync(SyncSubcommand::Status)
-        ));
-    }
-
-    #[test]
-    fn test_parse_sync_commit_message() {
-        match Command::parse("sync", &args(&["commit", "fix", "typo"])) {
-            Command::Sync(SyncSubcommand::Commit { message }) => {
-                assert_eq!(message, "fix typo");
-            }
-            other => panic!("expected Sync(Commit), got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn test_parse_sync_commit_no_message() {
-        assert!(matches!(
-            Command::parse("sync", &args(&["commit"])),
-            Command::Unknown(ref c) if c == "sync"
-        ));
-    }
-
-    #[test]
-    fn test_parse_sync_refresh() {
-        assert!(matches!(
-            Command::parse("sync", &args(&["refresh"])),
-            Command::Sync(SyncSubcommand::Refresh)
-        ));
-    }
-
-    #[test]
-    fn test_parse_sync_auth_set() {
-        match Command::parse("sync", &args(&["auth", "set", "TOK123"])) {
-            Command::Sync(SyncSubcommand::Auth(AuthAction::Set { token })) => {
-                assert_eq!(token, "TOK123");
-            }
-            other => panic!("expected Sync(Auth(Set)), got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn test_parse_sync_auth_set_missing_token() {
-        assert!(matches!(
-            Command::parse("sync", &args(&["auth", "set"])),
-            Command::Unknown(ref c) if c == "sync"
-        ));
-    }
-
-    #[test]
-    fn test_parse_sync_auth_clear() {
-        assert!(matches!(
-            Command::parse("sync", &args(&["auth", "clear"])),
-            Command::Sync(SyncSubcommand::Auth(AuthAction::Clear))
-        ));
-    }
-
-    #[test]
-    fn test_parse_sync_auth_bare() {
-        assert!(matches!(
-            Command::parse("sync", &args(&["auth"])),
-            Command::Unknown(ref c) if c == "sync"
-        ));
-    }
-
-    #[test]
-    fn test_parse_sync_unknown_subcommand() {
-        assert!(matches!(
-            Command::parse("sync", &args(&["foo"])),
-            Command::Unknown(ref c) if c == "sync"
-        ));
-    }
-
-    #[test]
-    fn test_parse_echo_redirect_single_word() {
-        match Command::parse("echo", &args(&["hello", ">", "/tmp/a.md"])) {
-            Command::EchoRedirect { body, path } => {
-                assert_eq!(body, "hello");
-                assert_eq!(path, PathArg::new("/tmp/a.md"));
-            }
-            other => panic!("expected EchoRedirect, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn test_parse_echo_redirect_multi_word_body() {
-        match Command::parse("echo", &args(&["hello", "world", ">", "/tmp/a.md"])) {
-            Command::EchoRedirect { body, path } => {
-                assert_eq!(body, "hello world");
-                assert_eq!(path, PathArg::new("/tmp/a.md"));
-            }
-            other => panic!("expected EchoRedirect, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn test_parse_echo_redirect_empty_body() {
-        assert!(matches!(
-            Command::parse("echo", &args(&[">", "/tmp/a.md"])),
-            Command::Unknown(ref c) if c == "echo"
-        ));
-    }
-
-    #[test]
-    fn test_parse_echo_redirect_missing_target() {
-        assert!(matches!(
-            Command::parse("echo", &args(&["hello", ">"])),
-            Command::Unknown(ref c) if c == "echo"
-        ));
-    }
-
-    #[test]
-    fn test_parse_echo_redirect_multiple_targets() {
-        assert!(matches!(
-            Command::parse("echo", &args(&["hello", ">", "a", "b"])),
-            Command::Unknown(ref c) if c == "echo"
-        ));
-    }
-
-    #[test]
-    fn test_parse_echo_quoted_gt_is_body_via_lexer() {
-        // End-to-end through the lexer: the `a > b` inside quotes must
-        // tokenize as a single arg, so the parser shouldn't see a ">"
-        // redirect token at all.
-        use crate::engine::shell::parser::parse_input;
-
-        let pipeline = parse_input("echo \"a > b\" > /tmp/a.md", &[]);
-        assert!(!pipeline.has_error());
-        assert_eq!(pipeline.commands.len(), 1);
-        let parsed = &pipeline.commands[0];
-        let cmd = Command::parse(&parsed.name, &parsed.args);
-        match cmd {
-            Command::EchoRedirect { body, path } => {
-                assert_eq!(body, "a > b");
-                assert_eq!(path, PathArg::new("/tmp/a.md"));
-            }
-            other => panic!("expected EchoRedirect, got {other:?}"),
-        }
     }
 
     #[test]
@@ -1182,7 +628,6 @@ mod tests {
 
     #[test]
     fn test_parser_error_exit_2() {
-        use crate::domain::ChangeSet;
         use crate::domain::{VirtualPath, WalletState};
         use crate::engine::filesystem::GlobalFs;
         use crate::engine::shell::parser::parse_input;
@@ -1190,19 +635,10 @@ mod tests {
         let wallet = WalletState::Disconnected;
         let fs = GlobalFs::empty();
         let cwd = VirtualPath::root();
-        let changes = ChangeSet::new();
 
         // Pipe with nothing on the right-hand side → parse error
         let pipeline = parse_input("ls |", &[]);
-        let result = execute_pipeline(
-            &pipeline,
-            &wallet,
-            &runtime_mounts(),
-            &fs,
-            &cwd,
-            &changes,
-            None,
-        );
+        let result = execute_pipeline(&pipeline, &wallet, &runtime_mounts(), &fs, &cwd);
         assert_eq!(result.exit_code, 2);
     }
     #[test]
@@ -1246,5 +682,25 @@ mod tests {
     fn test_with_exit_code() {
         let r = CommandResult::empty().with_exit_code(127);
         assert_eq!(r.exit_code, 127);
+    }
+}
+
+#[cfg(test)]
+mod read_only_tests {
+    use super::*;
+    #[test]
+    fn output_operators_are_literal_text() {
+        for input in [
+            "echo hello > note.md",
+            "echo hello >> note.md",
+            "echo hello \">\" note.md",
+        ] {
+            let pipeline = crate::shell::parse_input(input, &[]);
+            let command = &pipeline.commands[0];
+            match Command::parse(&command.name, &command.args) {
+                Command::Echo(text) => assert_eq!(text, command.args.join(" ")),
+                other => panic!("unexpected command {other:?}"),
+            }
+        }
     }
 }

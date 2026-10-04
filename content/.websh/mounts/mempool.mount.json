@@ -4,6 +4,5 @@
   "repo": "0xwonj/websh-mempool",
   "branch": "main",
   "root": "",
-  "name": "mempool",
-  "writable": true
+  "name": "mempool"
 }

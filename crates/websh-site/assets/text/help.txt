@@ -17,29 +17,18 @@ Available commands:
     echo <text>   Display text
     theme [name]  List or set palette
 
-  Filesystem (write, admin-only):
-    edit <path>       Open file in the editor (creates on save)
-    mkdir <path>      Create a directory
-    rm [-r] <path>    Remove a file or directory
-    rmdir <path>      Remove an empty directory
-    touch <path>      Create an empty file
-
   Environment:
     export                    Show all variables
     export KEY=value [...]    Set one or more variables (localStorage)
     unset KEY                 Remove variable
-    cat .profile              View all localStorage data
+    cat /.websh/state/env/LANG View a runtime environment value
 
   Wallet:
     login         Connect MetaMask wallet
     logout        Disconnect wallet
 
-  Sync:
-    sync                      Show working tree status (unstaged, staged)
-    sync commit <message>     Commit staged changes (admin-only)
-    sync refresh              Reload manifest from remote
-    sync auth set <token>     Set GitHub token
-    sync auth clear           Clear stored GitHub token
+  Refresh:
+    refresh [path]    Reload the owning mount; root reload discovers declarations
 
   Pipe Filters:
     grep [-i] [-v] [-F] <pattern>   Filter lines (regex by default; -i case-insensitive; -v invert; -F literal)
@@ -51,5 +40,6 @@ Available commands:
     - Use Tab for autocomplete
     - Up/Down arrows navigate command history
     - Chain commands with pipes: ls | grep -i md | head -5
-    - Press 'q' or 'Esc' to exit reader view
+    - Content is authored through local files, Git, and the native CLI
+    - Echo prints > and >> literally; it never writes files
     - grep is case-sensitive by default; pass -i for case-insensitive matching

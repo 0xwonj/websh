@@ -14,7 +14,6 @@ pub fn shell_execution_context(runtime_state: &RuntimeStateSnapshot) -> Executio
             user_agent: get_user_agent(),
         },
         env: runtime_state.env.clone(),
-        access_policy: websh_site::ACCESS_POLICY,
         shell_text: websh_site::SHELL_TEXT,
     }
 }

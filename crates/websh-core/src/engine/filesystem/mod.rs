@@ -1,11 +1,10 @@
 //! In-memory filesystem engine: globally-mounted tree, render intent,
-//! routing, content reads, and change-merge.
+//! routing, and content reads.
 
 mod content;
 mod content_routes;
 mod global_fs;
 mod intent;
-pub(crate) mod merge;
 mod routing;
 mod snapshot;
 mod tree;
@@ -22,7 +21,7 @@ pub use intent::{RenderIntent, build_render_intent};
 pub use routing::{
     BundleVariantContext, ResolvedKind, RouteCatalog, RouteCatalogError, RouteCatalogNode,
     RouteFrame, RouteRequest, RouteResolution, RouteRole, RouteSnapshotPathError, RouteSurface,
-    canonicalize_user_path, display_path_for, is_new_request_path, parent_request_path,
-    request_path_for_canonical_path, resolve_route, resolve_route_with_catalog, route_cwd,
-    route_request_targets_runtime_overlay, try_resolve_route,
+    canonicalize_user_path, display_path_for, parent_request_path, request_path_for_canonical_path,
+    resolve_route, resolve_route_with_catalog, route_cwd, route_request_targets_runtime_overlay,
+    try_resolve_route,
 };

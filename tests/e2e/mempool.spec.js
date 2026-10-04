@@ -47,7 +47,6 @@ const fixtureResponses = new Map([
     branch: 'main',
     root: '',
     name: 'mempool',
-    writable: true
   })],
   ['/0xwonj/websh-mempool/main/manifest.json', JSON.stringify({
     entries: [

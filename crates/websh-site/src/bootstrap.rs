@@ -7,5 +7,4 @@ pub const BOOTSTRAP_SITE: BootstrapSiteSource = BootstrapSiteSource {
     branch: "main",
     content_root: "content",
     gateway: "self",
-    writable: true,
 };

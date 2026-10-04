@@ -23,7 +23,6 @@ pub(super) enum RendererContent {
 #[derive(Clone)]
 pub(super) struct ReaderDocument {
     pub(super) content: RendererContent,
-    pub(super) raw_source: Option<String>,
 }
 
 pub(super) async fn load_reader_document(
@@ -42,7 +41,6 @@ pub(super) async fn load_reader_document(
                 })?;
             return Ok(ReaderDocument {
                 content: RendererContent::Markdown(render_markdown(&markdown)),
-                raw_source: Some(markdown),
             });
         }
         ReaderIntent::Html { .. } => ctx
@@ -66,10 +64,7 @@ pub(super) async fn load_reader_document(
         ReaderIntent::Redirect { .. } => load_redirect(ctx, &path).await?,
     };
 
-    Ok(ReaderDocument {
-        content,
-        raw_source: None,
-    })
+    Ok(ReaderDocument { content })
 }
 
 fn content_path_for_intent(intent: &ReaderIntent) -> VirtualPath {

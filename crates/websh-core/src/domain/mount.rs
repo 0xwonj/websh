@@ -30,7 +30,6 @@ pub struct BootstrapSiteSource {
     pub branch: &'static str,
     pub content_root: &'static str,
     pub gateway: &'static str,
-    pub writable: bool,
 }
 
 impl BootstrapSiteSource {
@@ -51,13 +50,12 @@ pub enum RuntimeBackendKind {
     Ens,
 }
 
-/// Mounted runtime subtree plus write ownership metadata.
+/// Mounted runtime subtree and its public source kind.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RuntimeMount {
     pub root: VirtualPath,
     pub label: String,
     pub backend_kind: RuntimeBackendKind,
-    pub writable: bool,
 }
 
 impl RuntimeMount {
@@ -65,26 +63,16 @@ impl RuntimeMount {
         root: VirtualPath,
         label: impl Into<String>,
         backend_kind: RuntimeBackendKind,
-        writable: bool,
     ) -> Self {
         Self {
             root,
             label: label.into(),
             backend_kind,
-            writable,
         }
     }
 
     pub fn contains(&self, path: &VirtualPath) -> bool {
         path.starts_with(&self.root)
-    }
-
-    pub fn storage_id(&self) -> String {
-        if self.root.is_root() {
-            "~".to_string()
-        } else {
-            self.root.as_str().trim_start_matches('/').replace('/', ":")
-        }
     }
 }
 
@@ -99,17 +87,10 @@ mod tests {
             branch: "main",
             content_root: "~",
             gateway: "https://raw.githubusercontent.com",
-            writable: true,
         };
 
         assert_eq!(source.mount_root().as_str(), "/");
         assert_eq!(source.label(), "~");
-    }
-
-    #[test]
-    fn runtime_mount_storage_id_uses_home_alias_for_root() {
-        let mount = RuntimeMount::new(VirtualPath::root(), "~", RuntimeBackendKind::GitHub, true);
-        assert_eq!(mount.storage_id(), "~");
     }
 
     #[test]
@@ -118,7 +99,6 @@ mod tests {
             VirtualPath::from_absolute("/db").unwrap(),
             "db",
             RuntimeBackendKind::GitHub,
-            false,
         );
 
         assert!(mount.contains(&VirtualPath::from_absolute("/db/notes/todo.md").unwrap()));

@@ -109,3 +109,87 @@ async fn fetch_url(url: &str) -> Result<String, FetchError> {
         }
     }
 }
+
+pub struct TextResponse {
+    pub status: u16,
+    pub retry_after: Option<u64>,
+    pub body: String,
+}
+
+/// A single deadline covers headers AND the complete body. Abort is best effort;
+/// the runtime's generation/epoch checks remain authoritative after cancellation.
+pub async fn fetch_manifest(url: &str, timeout_ms: u32) -> Result<TextResponse, FetchError> {
+    use futures_util::future::{Either, select};
+    let window = web_sys::window().ok_or(FetchError::NoWindow)?;
+    let abort = AbortController::new().map_err(|_| FetchError::AbortControllerFailed)?;
+    let options = RequestInit::new();
+    options.set_method("GET");
+    options.set_mode(RequestMode::Cors);
+    options.set_cache(web_sys::RequestCache::NoCache);
+    options.set_signal(Some(&abort.signal()));
+    let request = Request::new_with_str_and_init(url, &options)
+        .map_err(|_| FetchError::RequestCreationFailed)?;
+    let operation = Box::pin(async move {
+        let response: Response = JsFuture::from(window.fetch_with_request(&request))
+            .await
+            .map_err(|_| FetchError::NetworkError("manifest fetch failed".into()))?
+            .dyn_into()
+            .map_err(|_| FetchError::InvalidContent)?;
+        let status = response.status();
+        let retry_after = response
+            .headers()
+            .get("Retry-After")
+            .ok()
+            .flatten()
+            .and_then(|value| value.parse().ok());
+        let body = JsFuture::from(
+            response
+                .text()
+                .map_err(|_| FetchError::ResponseReadFailed)?,
+        )
+        .await
+        .map_err(|_| FetchError::ResponseReadFailed)?
+        .as_string()
+        .ok_or(FetchError::InvalidContent)?;
+        Ok(TextResponse {
+            status,
+            retry_after,
+            body,
+        })
+    });
+    match select(
+        operation,
+        Box::pin(gloo_timers::future::TimeoutFuture::new(timeout_ms)),
+    )
+    .await
+    {
+        Either::Left((result, _)) => result,
+        Either::Right(_) => {
+            abort.abort();
+            Err(FetchError::Timeout)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wasm_bindgen::prelude::*;
+    use wasm_bindgen_test::*;
+    wasm_bindgen_test_configure!(run_in_browser);
+
+    #[wasm_bindgen(
+        inline_js = "export function stallBody() { const old = globalThis.fetch; globalThis.fetch = async () => new Response(new ReadableStream({start() {}}), {status: 200}); return () => { globalThis.fetch = old; }; }"
+    )]
+    extern "C" {
+        fn stallBody() -> js_sys::Function;
+    }
+
+    #[wasm_bindgen_test(async)]
+    async fn deadline_includes_body_after_successful_headers() {
+        let restore = stallBody();
+        let result = fetch_manifest("/test-stalled-manifest", 25).await;
+        restore.call0(&JsValue::UNDEFINED).unwrap();
+        assert!(matches!(result, Err(FetchError::Timeout)));
+    }
+}

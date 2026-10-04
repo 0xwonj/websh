@@ -1,5 +1,4 @@
 pub mod breadcrumb;
-pub mod editor;
 pub mod error_page;
 pub mod file_meta;
 pub mod file_meta_strip;
@@ -12,7 +11,6 @@ pub mod site_frame;
 pub mod window_frame;
 
 pub use breadcrumb::Breadcrumb;
-pub use editor::EditModal;
 pub use error_page::{
     ErrorPageActionButton, ErrorPageActionLink, ErrorPageActions, ErrorPageBody, ErrorPageDetails,
     ErrorPageFrame, ErrorPageTone,
@@ -29,3 +27,6 @@ pub use window_frame::{
     WindowActionButton, WindowActionLink, WindowFrame, WindowTrafficButton, WindowTrafficLink,
     WindowTrafficTone,
 };
+
+mod mount_status;
+pub use mount_status::MountStatusNotice;

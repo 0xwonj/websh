@@ -2,8 +2,7 @@
 //!
 //! This module owns frontmatter parsing/serialization, the compose form
 //! and validation, path conventions for `/mempool/...`, and the canonical
-//! manifest-entry shape. Anything that depends on `AppContext` or
-//! `commit_backend` lives in the web mempool feature, not here.
+//! manifest-entry shape. Browser application state lives in the web crate.
 
 mod categories;
 mod form;
@@ -19,5 +18,5 @@ pub use parse::{
     MempoolFrontmatterError, RawMempoolMeta, category_for_mempool_path, parse_mempool_frontmatter,
     strip_frontmatter_block, transform_mempool_frontmatter,
 };
-pub use path::{MempoolPathError, derive_new_path, mempool_root, placeholder_frontmatter};
+pub use path::mempool_root;
 pub use serialize::{ComposePayload, serialize_mempool_file, slug_from_title};

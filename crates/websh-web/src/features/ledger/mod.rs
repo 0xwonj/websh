@@ -31,25 +31,29 @@ const LEDGER_RENDER_LIMIT: usize = 200;
 #[component]
 pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
-    let ledger_ctx = ctx;
+    let root_source = Memo::new(move |_| {
+        let version = ctx.read_version(&VirtualPath::root());
+        // Cold failure changes readiness; an available refresh failure preserves the same source.
+        let ready = match ctx.mount_status_for(&VirtualPath::root()) {
+            Some(MountLoadStatus::Available { .. }) => Ok(true),
+            Some(MountLoadStatus::Failed { error }) => Err(error),
+            _ => Ok(false),
+        };
+        (version, ready)
+    });
     let ledger = LocalResource::new(move || {
-        let ctx = ledger_ctx;
-        let root_status = ctx.mount_status_for(&VirtualPath::root());
+        let (_, readiness) = root_source.get();
         async move {
-            match root_status {
-                Some(MountLoadStatus::Loaded { .. }) => load_content_ledger(ctx).await.map(Some),
-                Some(MountLoadStatus::Failed { error, .. }) => {
-                    Err(LedgerLoadError::RootMountFailed { message: error })
-                }
-                Some(MountLoadStatus::Loading { .. }) | None => Ok(None),
+            match readiness {
+                Ok(true) => load_content_ledger(ctx).await.map(Some),
+                Ok(false) => Ok(None),
+                Err(message) => Err(LedgerLoadError::RootMountFailed { message }),
             }
         }
     });
 
     let mempool_ctx = ctx;
     let mempool_files = Memo::new(move |_| load_mempool_files(mempool_ctx));
-
-    let author_mode = Memo::new(move |_| ctx.runtime_state.with(|rs| rs.github_token_present));
 
     // Mempool collapse state lives at the LedgerPage level so it survives
     // filter-route changes (which re-render but don't re-mount this page).
@@ -63,6 +67,7 @@ pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
         <SiteSurface class=css::surface>
             <SiteChrome route=route />
             <SiteContentFrame class=css::page>
+                <crate::shared::components::MountStatusNotice path=Signal::derive(VirtualPath::root) />
                 <Suspense fallback=move || view! { <LedgerPending message="ledger pending".to_string() /> }>
                     {move || {
                         ledger.get().map(|result| {
@@ -73,7 +78,7 @@ pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
                                         &frame.request.url_path,
                                         &frame.resolution.node_path,
                                     );
-                                    let model = ctx.view_global_fs.with(|fs| {
+                                    let model = ctx.global_fs.with(|fs| {
                                         build_ledger_model(fs, &artifact, &filter)
                                     });
                                     let filter_shape = match &filter {
@@ -94,7 +99,6 @@ pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
                                         view! {
                                             <Mempool
                                                 model=mempool_model
-                                                author_mode=author_mode
                                                 collapsed=mempool_collapsed
                                             />
                                         }

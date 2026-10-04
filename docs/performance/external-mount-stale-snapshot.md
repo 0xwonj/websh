@@ -1,6 +1,6 @@
 # External Mount Stale Snapshot Design
 
-Status: design note only. This is not implemented in the current performance work.
+Status: historical design note, not implemented. Superseded by the implementation of the [read-only browser and external mount cache design](../plans/read-only-browser/design.md), prepared on 2026-10-04. The proposal below predates IndexedDB v3 and assumes browser writing remains; do not implement its migration or write-safety sections as the current plan.
 
 ## Problem
 

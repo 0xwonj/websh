@@ -4,8 +4,7 @@ const crypto = require('crypto');
 const baseUrl = process.env.WEBSH_E2E_BASE_URL || 'http://127.0.0.1:4173';
 const appBaseUrl = baseUrl.replace(/\/+$/, '');
 const appOrigin = new URL(appBaseUrl).origin;
-const admin = '0x2c4b04a4aeb6e18c2f8a5c8b4a3f62c0cf33795a';
-const expectedHead = '1111111111111111111111111111111111111111';
+const walletAddress = '0x2c4b04a4aeb6e18c2f8a5c8b4a3f62c0cf33795a';
 const themeStorageKey = 'user.THEME';
 const langStorageKey = 'user.LANG';
 const readerTextScaleStorageKey = 'reader.TEXT_SCALE';
@@ -202,7 +201,6 @@ function freshRawResponses() {
       branch: 'main',
       root: '',
       name: 'db',
-      writable: true
     })],
     ['/0xwonj/mount-db/main/manifest.json', JSON.stringify(dbManifest)],
     ['/0xwonj/mount-db/main/fresh.md', '# Fresh']
@@ -349,11 +347,11 @@ async function readBreadcrumbLayout(page) {
 test.beforeEach(async ({ page }) => {
   rawResponses = freshRawResponses();
 
-  await page.addInitScript((adminAddress) => {
+  await page.addInitScript((connectedAddress) => {
     window.ethereum = {
       request: async ({ method }) => {
         if (method === 'eth_requestAccounts' || method === 'eth_accounts') {
-          return [adminAddress];
+          return [connectedAddress];
         }
         if (method === 'eth_chainId') {
           return '0x1';
@@ -361,7 +359,7 @@ test.beforeEach(async ({ page }) => {
         return null;
       }
     };
-  }, admin);
+  }, walletAddress);
 
   await page.route('https://api.ensideas.com/**', async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
@@ -391,7 +389,7 @@ test.beforeEach(async ({ page }) => {
 async function collectBrowserErrors(page) {
   const pageErrors = [];
   const consoleErrors = [];
-  page.on('pageerror', (error) => pageErrors.push(`${page.url()}: ${error.stack || error.message}`));
+  page.on('pageerror', (error) => { const details = `${page.url()}: ${error.stack || error.message}`; pageErrors.push(details); console.error(details); });
   page.on('console', (message) => {
     if (message.type() === 'error') {
       consoleErrors.push(message.text());
@@ -448,78 +446,22 @@ async function runCommand(page, input, expectedText) {
   }
 }
 
-async function putMetadata(page, key, value) {
-  await page.evaluate(([metadataKey, metadataValue]) => new Promise((resolve, reject) => {
-    const request = indexedDB.open('websh-state', 3);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (db.objectStoreNames.contains('drafts')) {
-        db.deleteObjectStore('drafts');
-      }
-      if (!db.objectStoreNames.contains('draft_changes')) {
-        db.createObjectStore('draft_changes', { keyPath: 'key' });
-      }
-      if (!db.objectStoreNames.contains('metadata')) {
-        db.createObjectStore('metadata', { keyPath: 'key' });
-      }
-    };
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => {
-      const db = request.result;
-      const tx = db.transaction(['metadata'], 'readwrite');
-      tx.objectStore('metadata').put({ key: metadataKey, value: metadataValue });
-      tx.oncomplete = () => {
-        db.close();
-        resolve();
-      };
-      tx.onerror = () => reject(tx.error);
-    };
-  }), [key, value]);
-}
-
-async function waitForDraftPath(page, path) {
-  await expect(async () => {
-    const serialized = await page.evaluate((draftPath) => new Promise((resolve, reject) => {
-      const request = indexedDB.open('websh-state', 3);
+async function cacheRecords(page) {
+  return page.evaluate(async () => {
+    if (!(await indexedDB.databases()).some((db) => db.name === 'websh-cache')) return [];
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open('websh-cache');
       request.onerror = () => reject(request.error);
-      request.onupgradeneeded = () => {
-        const db = request.result;
-        if (db.objectStoreNames.contains('drafts')) {
-          db.deleteObjectStore('drafts');
-        }
-        if (!db.objectStoreNames.contains('draft_changes')) {
-          db.createObjectStore('draft_changes', { keyPath: 'key' });
-        }
-        if (!db.objectStoreNames.contains('metadata')) {
-          db.createObjectStore('metadata', { keyPath: 'key' });
-        }
-      };
       request.onsuccess = () => {
         const db = request.result;
-        const tx = db.transaction(['metadata', 'draft_changes'], 'readonly');
-        let payload = '';
-        const metadata = tx.objectStore('metadata').get('draft_paths:global');
-        metadata.onsuccess = () => {
-          const paths = JSON.parse(metadata.result?.value || '[]');
-          if (!paths.includes(draftPath)) {
-            payload = JSON.stringify({ paths });
-            return;
-          }
-          const get = tx.objectStore('draft_changes').get(`global:${draftPath}`);
-          get.onsuccess = () => {
-            payload = JSON.stringify({ paths, record: get.result || null });
-          };
-          get.onerror = () => reject(get.error);
-        };
-        tx.oncomplete = () => {
-          db.close();
-          resolve(payload);
-        };
-        tx.onerror = () => reject(tx.error);
+        if (!db.objectStoreNames.contains('mount_snapshots')) { db.close(); resolve([]); return; }
+        const tx = db.transaction('mount_snapshots', 'readonly');
+        const read = tx.objectStore('mount_snapshots').getAll();
+        tx.oncomplete = () => { db.close(); resolve(read.result); };
+        tx.onerror = () => { db.close(); reject(tx.error); };
       };
-    }), path);
-    expect(serialized).toContain(path);
-  }).toPass({ timeout: 5000 });
+    });
+  });
 }
 
 const directLoadCases = [
@@ -787,7 +729,7 @@ test('direct content hash route reports root mount failure when manifest fails',
   const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
   await page.goto(`${baseUrl}/#/docs/old`, { waitUntil: 'domcontentloaded' });
 
-  await expect(page.locator('body')).toContainText(/root mount failed/i, { timeout: 10000 });
+  await expect(page.locator('body')).toContainText(/route unconfirmed/i, { timeout: 10000 });
   await expect(page.locator('body')).toContainText('content/manifest.json');
   await expect(page.locator('body')).not.toContainText('404');
   await expect(page.locator('body')).not.toContainText('No route matched');
@@ -1546,7 +1488,7 @@ test('runtime state directory route renders the system filesystem listing', asyn
   await expect(page.locator('body')).toContainText('~/.websh/state', { timeout: 10000 });
   await expect(page.getByRole('navigation', { name: 'Directory entries' })).toContainText('session');
   await expect(page.getByRole('navigation', { name: 'Directory entries' })).toContainText('wallet');
-  await expect(page.getByRole('navigation', { name: 'Directory entries' })).toContainText('drafts');
+  await expect(page.getByRole('navigation', { name: 'Directory entries' })).not.toContainText('drafts');
 
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);
@@ -1576,208 +1518,259 @@ test('theme selection applies globally and persists', async ({ page }) => {
   expect(consoleErrors).toEqual([]);
 });
 
-test('new compose route seeds editor after reader route reuse', async ({ page }) => {
+test('retired credential input never reaches output, history, storage, or requests', async ({ page }) => {
   const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
+  const requests = [];
+  page.on('request', request => requests.push(request.url() + JSON.stringify(request.headers()) + (request.postData() || '')));
+  await page.addInitScript(() => {
+    sessionStorage.setItem('websh.gh_token', 'legacy-token-sentinel');
+    localStorage.setItem('user.LANG', 'ko');
+  });
   await page.goto(`${baseUrl}/#/websh`, { waitUntil: 'networkidle' });
-  await expect(page.locator('body')).toContainText('guest@wonjae.eth:~', { timeout: 10000 });
-  await runCommand(page, 'sync auth set qa-token', 'sync auth set <redacted>');
-
-  await page.goto(`${baseUrl}/#/docs/old`, { waitUntil: 'networkidle' });
-  await expect(page.locator('body')).toContainText('old', { timeout: 10000 });
-
-  await page.goto(`${baseUrl}/#/new`, { waitUntil: 'networkidle' });
-  const editor = page.getByRole('textbox', { name: 'Markdown source' });
-  await expect(editor).toBeVisible({ timeout: 10000 });
-  await expect(editor).toHaveValue(/title: ""/);
-  await expect(editor).toHaveValue(/category: writing/);
-  await editor.fill('stale draft should not survive navigation');
-
-  await page.goto(`${baseUrl}/#/docs/old`, { waitUntil: 'networkidle' });
-  await expect(page.locator('body')).toContainText('old', { timeout: 10000 });
-  await page.goto(`${baseUrl}/#/new`, { waitUntil: 'networkidle' });
-  await expect(page.getByRole('textbox', { name: 'Markdown source' })).toHaveValue(/title: ""/);
-  await expect(page.getByRole('textbox', { name: 'Markdown source' })).not.toHaveValue(/stale draft/);
-
+  await expect(page.locator('body')).toContainText('guest@wonjae.eth:~');
+  for (const command of ['sync auth set credential-sentinel', '  SyNc   AUTH  SET credential-sentinel  ', 'echo hi | sync auth set credential-sentinel']) {
+    await runCommand(page, command);
+    await expect(page.locator('body')).toContainText('Browser authoring is no longer supported');
+    await expect(page.locator('body')).not.toContainText('credential-sentinel');
+    await page.keyboard.press('ArrowUp');
+    await expect(page.locator('input[type="text"]')).not.toHaveValue(/credential-sentinel/);
+  }
+  expect(await page.evaluate(() => sessionStorage.getItem('websh.gh_token'))).toBeNull();
+  expect(await page.evaluate(() => localStorage.getItem('user.LANG'))).toBe('ko');
+  expect(requests.join(' ')).not.toMatch(/credential-sentinel|legacy-token-sentinel/);
+  expect(consoleErrors.join(' ')).not.toMatch(/credential-sentinel|legacy-token-sentinel/);
   expect(pageErrors).toEqual([]);
-  expect(consoleErrors).toEqual([]);
 });
 
-test('draft changes survive reload through IndexedDB', async ({ page }) => {
-  const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
+test('wallet sessions remain usable but writing commands and redirection cannot edit content', async ({ page }) => {
+  const mutations = [];
+  page.on('request', request => { if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method()) || /api\.github\.com|graphql/i.test(request.url()) || request.headers().authorization) mutations.push(request.url()); });
   await page.goto(`${baseUrl}/#/websh`, { waitUntil: 'networkidle' });
-  await expect(page.locator('body')).toContainText('guest@wonjae.eth:~', { timeout: 10000 });
   await runCommand(page, 'login', 'Connected:');
-  await runCommand(page, 'echo persisted > persist.md');
-  await waitForDraftPath(page, '/persist.md');
-
-  await page.reload({ waitUntil: 'networkidle' });
-  await expect(page.locator('input[type="text"]')).toBeVisible({ timeout: 10000 });
-  await runCommand(page, 'ls', 'persist.md');
-
-  expect(pageErrors).toEqual([]);
-  expect(consoleErrors).toEqual([]);
-});
-
-test('github token is represented by marker, not raw state file', async ({ page }) => {
-  const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
+  await runCommand(page, 'echo harmless > phantom.md');
+  await runCommand(page, 'echo more >> phantom.md');
+  for (const command of ['touch phantom.md', 'mkdir phantom', 'rm docs/old.md', 'rmdir docs', 'edit docs/old.md', 'sync commit removed']) await runCommand(page, command);
+  await runCommand(page, 'cat phantom.md', 'No such file or directory');
+  await runCommand(page, 'cat docs/old.md');
+  await expect(page.locator('body')).toContainText('old');
   await page.goto(`${baseUrl}/#/websh`, { waitUntil: 'networkidle' });
-  await expect(page.locator('body')).toContainText('guest@wonjae.eth:~', { timeout: 10000 });
-  await runCommand(page, 'sync auth set qa-token', 'sync auth set <redacted>');
-  await expect(page.locator('body')).not.toContainText('qa-token');
-  await page.keyboard.press('ArrowUp');
-  await expect(page.locator('input[type="text"]')).not.toHaveValue(/qa-token/);
-  await runCommand(page, 'ls /.websh/state/session', 'github_token_present');
   await page.reload({ waitUntil: 'networkidle' });
-  await expect(page.locator('input[type="text"]')).toBeVisible({ timeout: 10000 });
-  await runCommand(page, 'ls /.websh/state/session', 'github_token_present');
-  await runCommand(page, 'sync auth clear');
-  await page.reload({ waitUntil: 'networkidle' });
-  await expect(page.locator('input[type="text"]')).toBeVisible({ timeout: 10000 });
-  await runCommand(page, 'ls /.websh/state/session');
-  await expect(page.locator('body')).not.toContainText('github_token_present');
-  await runCommand(page, 'cat /.websh/state/session/github_token', 'No such file or directory');
-
-  expect(pageErrors).toEqual([]);
-  expect(consoleErrors).toEqual([]);
+  await expect(page.locator('body')).toContainText('Connected:');
+  await runCommand(page, 'logout');
+  await expect(page.locator('body')).toContainText('guest@wonjae.eth:~');
+  expect(mutations).toEqual([]);
 });
 
-test('sync commit sends token and normalized GitHub file changes', async ({ page }) => {
-  const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
-  const graphqlRequests = [];
-  const freshCommitBaseManifest = manifestDocument([
-    ...siteManifest.entries,
-    fileEntry('remote-only.md', 'Remote Only')
-  ]);
-  let committedManifest;
+test('new is an ordinary content route and the reader has no editing controls', async ({ page }) => {
+  await page.goto(`${baseUrl}/#/new`, { waitUntil: 'networkidle' });
+  await expect(page.getByRole('heading', { name: /not found/i })).toBeVisible();
+  installContentPage('new.md', 'Ordinary New', '# Ordinary New');
+  await page.reload({ waitUntil: 'networkidle' });
+  await expect(page.getByRole('heading', { name: 'Ordinary New' }).first()).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Markdown source' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^(edit|save|compose)$/i })).toHaveCount(0);
+});
 
-  await page.route('https://api.github.com/graphql', async (route) => {
-    let body = {};
-    try {
-      const request = route.request();
-      body = JSON.parse(request.postData() || '{}');
-      const authorization = request.headers().authorization;
-
-      if (body.variables?.manifestExpression) {
-        graphqlRequests.push({
-          kind: 'manifest-base',
-          authorization,
-          variables: body.variables
-        });
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            data: {
-              repository: {
-                object: {
-                  __typename: 'Blob',
-                  text: JSON.stringify(freshCommitBaseManifest)
-                }
-              }
-            }
-          })
-        });
-        return;
-      }
-
-      if (body.variables?.qualifiedName) {
-        graphqlRequests.push({
-          kind: 'head',
-          authorization,
-          variables: body.variables
-        });
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            data: {
-              repository: {
-                ref: {
-                  target: {
-                    oid: expectedHead
-                  }
-                }
-              }
-            }
-          })
-        });
-        return;
-      }
-
-      const input = body.variables.input;
-      graphqlRequests.push({
-        kind: 'commit',
-        authorization,
-        input
-      });
-
-      const manifestAddition = input.fileChanges.additions.find((addition) => addition.path === 'content/manifest.json');
-      const updatedManifest = Buffer.from(manifestAddition.contents, 'base64').toString('utf8');
-      committedManifest = JSON.parse(updatedManifest);
-      rawResponses.set('/content/manifest.json', updatedManifest);
-      rawResponses.set('/content/commit-new.md', 'commit-new');
-      rawResponses.delete('/content/docs/old.md');
-      rawResponses.delete('/content/docs/deep/old.md');
-
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          data: {
-            createCommitOnBranch: {
-              commit: { oid: '2222222222222222222222222222222222222222' }
-            }
-          }
-        })
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      graphqlRequests.push({ kind: 'fixture-error', message, body });
-      await route.fulfill({
-        status: 500,
-        contentType: 'application/json',
-        body: JSON.stringify({ errors: [{ message }] })
-      });
+test('legacy draft database is neither opened nor changed by application startup', async ({ page }) => {
+  await page.goto(`${baseUrl}/#/websh`, { waitUntil: 'networkidle' });
+  await page.evaluate(() => new Promise((resolve, reject) => {
+    const request = indexedDB.open('websh-state', 3);
+    request.onupgradeneeded = () => { request.result.createObjectStore('draft_changes', { keyPath: 'key' }); request.result.createObjectStore('drafts', { keyPath: 'key' }); };
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const db = request.result;
+      const tx = db.transaction(['draft_changes', 'drafts'], 'readwrite');
+      tx.objectStore('drafts').put({ key: 'old-format', raw: 'PRESERVE OLDER DRAFT' });
+      tx.objectStore('draft_changes').put({ key: 'global:/legacy.md', body: 'KEEP THIS EXACTLY' });
+      tx.oncomplete = () => { db.close(); resolve(); };
+      tx.onerror = () => reject(tx.error);
+    };
+  }));
+  await page.addInitScript(() => {
+    window.__legacyOperations = [];
+    for (const method of ['open', 'deleteDatabase']) {
+      const original = IDBFactory.prototype[method];
+      IDBFactory.prototype[method] = function(name, ...args) {
+        if (name === 'websh-state') window.__legacyOperations.push(method);
+        return original.call(this, name, ...args);
+      };
     }
   });
+  await page.reload({ waitUntil: 'networkidle' });
+  await expect(page.locator('body')).toContainText('guest@wonjae.eth:~');
+  expect(await page.evaluate(() => window.__legacyOperations)).toEqual([]);
+  const record = await page.evaluate(() => new Promise((resolve, reject) => {
+    const request = indexedDB.open('websh-state');
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const db = request.result;
+      const tx = db.transaction(['draft_changes', 'drafts'], 'readonly');
+      const older = tx.objectStore('drafts').get('old-format');
+      const read = tx.objectStore('draft_changes').get('global:/legacy.md');
+      tx.oncomplete = () => { db.close(); resolve({ version: db.version, record: read.result, older: older.result }); };
+    };
+  }));
+  expect(record).toEqual({ version: 3, older: { key: 'old-format', raw: 'PRESERVE OLDER DRAFT' }, record: { key: 'global:/legacy.md', body: 'KEEP THIS EXACTLY' } });
+});
 
+test('warm external cache serves a known listing during failed refresh and retries in place', async ({ page }) => {
+  await page.goto(`${baseUrl}/#/db/fresh`, { waitUntil: 'networkidle' });
+  await expect(page.getByRole('heading', { name: 'Fresh', exact: true }).first()).toBeVisible();
+  await expect.poll(async () => (await cacheRecords(page)).length).toBe(1);
+  const gate = deferred();
+  let offline = true;
+  await page.route('https://raw.githubusercontent.com/0xwonj/mount-db/main/manifest.json', async route => {
+    if (offline) { await gate.promise; await route.fulfill({ status: 503, body: 'offline' }); }
+    else await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(dbManifest) });
+  });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('heading', { name: 'Fresh', exact: true }).first()).toBeVisible();
+  await expect(page.locator('[data-mount-status]')).toContainText('Saved listing');
+  gate.resolve();
+  await expect(page.locator('[data-mount-status]')).toContainText('Refresh failed');
+  await expect(page.getByRole('heading', { name: 'Fresh', exact: true }).first()).toBeVisible();
+  offline = false;
+  await page.getByRole('button', { name: 'Refresh listing' }).click();
+  await expect(page.locator('[data-mount-status]')).toHaveCount(0);
+});
+
+test('a route absent from cached external metadata stays pending until the live answer', async ({ page }) => {
+  await page.goto(`${baseUrl}/#/db/fresh`, { waitUntil: 'networkidle' });
+  await expect.poll(async () => (await cacheRecords(page)).length).toBe(1);
+  const gate = deferred();
+  await page.route('https://raw.githubusercontent.com/0xwonj/mount-db/main/manifest.json', async route => {
+    await gate.promise;
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(dbManifest) });
+  });
+  await page.goto(`${baseUrl}/#/db/not-in-listing`, { waitUntil: 'domcontentloaded' });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('heading', { name: 'Route pending' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /not found/i })).toHaveCount(0);
+  gate.resolve();
+  await expect(page.getByRole('heading', { name: /not found/i })).toBeVisible();
+});
+
+test('unavailable IndexedDB does not block external public reading', async ({ page }) => {
+  await page.addInitScript(() => { IDBFactory.prototype.open = () => { throw new DOMException('storage denied', 'SecurityError'); }; });
+  await page.goto(`${baseUrl}/#/db/fresh`, { waitUntil: 'networkidle' });
+  await expect(page.getByRole('heading', { name: 'Fresh', exact: true }).first()).toBeVisible();
+  await expect(page.locator('body')).not.toContainText('storage denied');
+});
+
+for (const scenario of ['missing', 'rejected']) {
+  test(`wallet ${scenario} is graceful and leaves content readable`, async ({ page }) => {
+    await page.addInitScript((scenario) => {
+      if (scenario === 'missing') delete window.ethereum;
+      else window.ethereum.request = async () => { throw new Error('user declined'); };
+    }, scenario);
+    await page.goto(`${baseUrl}/#/websh`, { waitUntil: 'networkidle' });
+    await runCommand(page, 'login');
+    await expect(page.locator('body')).toContainText(scenario === 'missing' ? 'no wallet provider detected' : 'user declined');
+    await page.goto(`${baseUrl}/#/docs/old`, { waitUntil: 'networkidle' });
+    await expect(page.locator('[data-reader-body]')).toContainText('old');
+  });
+}
+
+test('wallet account and chain events update identity without repartitioning public cache', async ({ page }) => {
+  await page.addInitScript((address) => {
+    const listeners = new Map();
+    window.__walletListeners = listeners;
+    window.__walletEmit = (event, value) => (listeners.get(event) || []).forEach(fn => fn(value));
+    window.ethereum = {
+      request: async ({ method }) => method === 'eth_chainId' ? '0x1' : [address],
+      on: (event, listener) => listeners.set(event, [...(listeners.get(event) || []), listener]),
+      removeListener: (event, listener) => listeners.set(event, (listeners.get(event) || []).filter(fn => fn !== listener))
+    };
+  }, walletAddress);
+  await page.route('https://api.ensideas.com/**', route => route.fulfill({ status: 503, body: 'ENS unavailable' }));
   await page.goto(`${baseUrl}/#/websh`, { waitUntil: 'networkidle' });
-  await expect(page.locator('body')).toContainText('guest@wonjae.eth:~', { timeout: 10000 });
-  await putMetadata(page, 'remote_head.~', expectedHead);
-  await page.reload({ waitUntil: 'networkidle' });
-  await expect(page.locator('input[type="text"]')).toBeVisible({ timeout: 10000 });
-
   await runCommand(page, 'login', 'Connected:');
-  await runCommand(page, 'sync auth set qa-token', 'sync auth set <redacted>');
+  await expect.poll(async () => (await cacheRecords(page)).length).toBe(1);
+  const keys = (await cacheRecords(page)).map(record => record.key);
+  const second = '0x1111111111111111111111111111111111111111';
+  await page.evaluate(second => { window.__walletEmit('accountsChanged', [second]); window.__walletEmit('chainChanged', '0x89'); }, second);
+  await runCommand(page, 'id', 'chain_id=137');
+  await expect(page.locator('body')).toContainText(second);
+  await runCommand(page, 'cat /.websh/state/wallet/connection.json');
+  await expect(page.locator('body')).toContainText(second);
+  expect((await cacheRecords(page)).map(record => record.key)).toEqual(keys);
+  expect(await page.evaluate(() => Array.from(window.__walletListeners, ([event, callbacks]) => [event, callbacks.length]))).toEqual([['accountsChanged', 1], ['chainChanged', 1]]);
+  await page.evaluate(() => window.__walletEmit('accountsChanged', []));
+  await expect(page.locator('[data-reader-body]')).toContainText('Disconnected');
+  expect(await page.evaluate(() => localStorage.getItem('websh.wallet_session'))).toBeNull();
+});
+
+test('cached metadata never invents an unavailable body or repairs a failed cold root', async ({ page }) => {
+  await page.goto(`${baseUrl}/#/db/fresh`, { waitUntil: 'networkidle' });
+  await expect.poll(async () => (await cacheRecords(page)).length).toBe(1);
+  const records = await cacheRecords(page);
+  expect(records.every(record => !record.descriptor.canonical_mount_root.startsWith('/.websh'))).toBe(true);
+  expect(JSON.stringify(records)).not.toMatch(/# Fresh|websh\.wallet_session|gh_token|attestation_verdict/);
+  await page.route('https://raw.githubusercontent.com/0xwonj/mount-db/main/manifest.json', route => route.fulfill({ status: 503, body: 'offline' }));
+  await page.route('https://raw.githubusercontent.com/0xwonj/mount-db/main/fresh.md', route => route.fulfill({ status: 404, body: 'gone' }));
   await page.reload({ waitUntil: 'networkidle' });
-  await expect(page.locator('input[type="text"]')).toBeVisible({ timeout: 10000 });
-  await runCommand(page, 'echo commit-new > commit-new.md');
-  await runCommand(page, 'echo changed > docs/old.md');
-  await runCommand(page, 'rm -r docs');
-  await runCommand(page, 'sync commit qa commit', 'sync: committed 3 files');
-  await runCommand(page, 'sync status', 'working tree clean');
+  await expect(page.locator('[data-reader-body]')).toContainText('not found');
+  await page.route('**/content/manifest.json', route => route.fulfill({ status: 503, body: 'root offline' }));
+  await page.reload({ waitUntil: 'networkidle' });
+  await expect(page.getByRole('heading', { name: 'Route unconfirmed' })).toBeVisible();
+  await expect(page.locator('[data-reader-body]')).toHaveCount(0);
+});
 
-  const baseQuery = graphqlRequests.find((request) => request.kind === 'manifest-base');
-  const commitMutation = graphqlRequests.find((request) => request.kind === 'commit');
-  expect(baseQuery).toBeTruthy();
-  expect(commitMutation).toBeTruthy();
-  expect(baseQuery.kind).toBe('manifest-base');
-  expect(baseQuery.authorization).toBe('bearer qa-token');
-  expect(baseQuery.variables.manifestExpression).toBe(`${expectedHead}:content/manifest.json`);
 
-  expect(commitMutation.kind).toBe('commit');
-  const { authorization, input } = commitMutation;
-  expect(authorization).toBe('bearer qa-token');
-  expect(input.branch.repositoryNameWithOwner).toBe('0xwonj/websh');
-  expect(input.branch.branchName).toBe('main');
-  expect(input.message.headline).toBe('qa commit');
-  expect(input.expectedHeadOid).toBe(expectedHead);
-  const additions = input.fileChanges.additions.map((addition) => addition.path).sort();
-  const deletions = input.fileChanges.deletions.map((deletion) => deletion.path).sort();
-  expect(additions).toEqual(['content/commit-new.md', 'content/manifest.json']);
-  expect(deletions).toEqual(['content/docs/deep/old.md', 'content/docs/old.md']);
-  expect(committedManifest.entries.map((entry) => entry.path)).toContain('remote-only.md');
+test('two tabs keep the newer started mount observation when an older refresh finishes last', async ({ page, context }) => {
+  const mountUrl = 'https://raw.githubusercontent.com/0xwonj/mount-db/main/manifest.json';
+  await page.goto(`${baseUrl}/#/db/fresh`, { waitUntil: 'networkidle' });
+  await expect.poll(async () => (await cacheRecords(page)).length).toBe(1);
+  const gate = deferred();
+  const started = deferred();
+  const older = manifestDocument([dirEntry('', 'DB'), fileEntry('fresh.md', 'Older response')]);
+  const newer = manifestDocument([dirEntry('', 'DB'), fileEntry('fresh.md', 'Newer response')]);
+  await page.route(mountUrl, async route => { started.resolve(); await gate.promise; await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(older) }); });
+  await page.goto(`${baseUrl}/#/websh`);
+  await runCommand(page, 'refresh /db');
+  await started.promise;
+  const second = await context.newPage();
+  const serveFixture = async route => {
+    const url = new URL(route.request().url());
+    const body = url.href === mountUrl ? JSON.stringify(newer) : rawResponses.get(fixturePathname(url));
+    await route.fulfill({ status: body === undefined ? 404 : 200, contentType: contentTypeForPath(url.pathname), body: body === undefined ? 'missing' : body });
+  };
+  await second.route('**/content/**', serveFixture);
+  await second.route('https://raw.githubusercontent.com/**', serveFixture);
+  await second.goto(`${baseUrl}/#/db/fresh`, { waitUntil: 'networkidle' });
+  await expect.poll(async () => (await cacheRecords(second))[0]?.manifest_json).toContain('Newer response');
+  const accepted = (await cacheRecords(second))[0];
+  gate.resolve();
+  await expect(page.locator('body')).toContainText('reloaded');
+  // Wait for the first tab's cache compare transaction, not just its visible publication.
+  await expect.poll(async () => (await cacheRecords(page))[0]?.request_started_at_ms).toBe(accepted.request_started_at_ms);
+  await page.waitForTimeout(250);
+  expect((await cacheRecords(page))[0].manifest_json).toContain('Newer response');
+  await second.close();
+});
 
-  expect(pageErrors).toEqual([]);
-  expect(consoleErrors).toEqual([]);
+test('404 and malformed refresh preserve the current body; a valid empty listing confirms removal', async ({ page }) => {
+  const mountUrl = 'https://raw.githubusercontent.com/0xwonj/mount-db/main/manifest.json';
+  let bodyReads = 0;
+  page.on('request', request => { if (request.url().endsWith('/mount-db/main/fresh.md')) bodyReads++; });
+  await page.goto(`${baseUrl}/#/db/fresh`, { waitUntil: 'networkidle' });
+  await expect(page.getByRole('heading', { name: 'Fresh', exact: true }).first()).toBeVisible();
+  const initialReads = bodyReads;
+  const before = (await cacheRecords(page))[0];
+  let response = { status: 404, body: 'missing manifest' };
+  await page.route(mountUrl, route => route.fulfill(response));
+  await page.goto(`${baseUrl}/#/websh`);
+  await runCommand(page, 'refresh /db');
+  await expect(page.locator('body')).toContainText('not found');
+  await page.goto(`${baseUrl}/#/db/fresh`);
+  await expect(page.getByRole('heading', { name: 'Fresh', exact: true }).first()).toBeVisible();
+  await expect(page.locator('[data-mount-status]')).toContainText('Refresh failed');
+  response = { status: 200, contentType: 'application/json', body: '{invalid' };
+  await page.getByRole('button', { name: 'Refresh listing' }).click();
+  await expect(page.locator('[data-mount-status]')).toContainText('Refresh failed');
+  expect(bodyReads).toBe(initialReads);
+  expect((await cacheRecords(page))[0].manifest_json).toBe(before.manifest_json);
+  response = { status: 200, contentType: 'application/json', body: JSON.stringify({ entries: [] }) };
+  await page.getByRole('button', { name: 'Refresh listing' }).click();
+  await expect(page.getByRole('heading', { name: /not found/i })).toBeVisible();
 });

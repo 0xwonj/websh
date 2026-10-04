@@ -7,15 +7,11 @@ use thiserror::Error;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsValue;
 
-use crate::config::{
-    DEFAULT_LANG, DEFAULT_USER_VARS, LANG_ENV_KEY, USER_VAR_PREFIX, WALLET_SESSION_KEY,
-};
+use crate::config::{DEFAULT_LANG, LANG_ENV_KEY, USER_VAR_PREFIX, WALLET_SESSION_KEY};
 #[cfg(target_arch = "wasm32")]
 use websh_core::support::normalize_locale_tag;
 
 pub use websh_core::runtime::RuntimeStateSnapshot;
-
-const GITHUB_TOKEN_KEY: &str = "websh.gh_token";
 
 #[derive(Debug, Clone, Error)]
 pub enum EnvironmentError {
@@ -32,14 +28,12 @@ pub enum EnvironmentError {
 #[derive(Clone, Default)]
 struct BrowserRuntimeStateLoad {
     pub env: BTreeMap<String, String>,
-    pub github_token: Option<String>,
     pub wallet_session: bool,
 }
 
 #[derive(Clone, Default)]
 struct RuntimeState {
     env: BTreeMap<String, String>,
-    github_token: Option<String>,
     wallet_session: bool,
 }
 
@@ -47,7 +41,6 @@ impl RuntimeState {
     fn snapshot(&self) -> RuntimeStateSnapshot {
         RuntimeStateSnapshot {
             env: self.env.clone(),
-            github_token_present: self.github_token.is_some(),
             wallet_session: self.wallet_session,
         }
     }
@@ -57,7 +50,6 @@ impl From<BrowserRuntimeStateLoad> for RuntimeState {
     fn from(value: BrowserRuntimeStateLoad) -> Self {
         Self {
             env: value.env,
-            github_token: value.github_token,
             wallet_session: value.wallet_session,
         }
     }
@@ -76,6 +68,10 @@ fn with_state<R>(f: impl FnOnce(&mut RuntimeState) -> R) -> R {
 }
 
 pub fn install_browser_persistence() {
+    // Retire the old credential key without ever loading its value.
+    if let Some(storage) = session_storage() {
+        let _ = storage.remove_item("websh.gh_token");
+    }
     RUNTIME_STATE.with(|slot| *slot.borrow_mut() = None);
 }
 
@@ -115,32 +111,6 @@ pub fn init_default_env() {
     if get_env_var(LANG_ENV_KEY).is_none() {
         let _ = set_env_var(LANG_ENV_KEY, &browser_default_lang());
     }
-
-    for (key, value) in DEFAULT_USER_VARS {
-        if get_env_var(key).is_none() {
-            let _ = set_env_var(key, value);
-        }
-    }
-}
-
-pub fn github_token_for_commit() -> Option<String> {
-    with_state(|state| state.github_token.clone())
-}
-
-pub fn set_github_token(token: &str) -> Result<RuntimeStateSnapshot, EnvironmentError> {
-    persist_github_token(token)?;
-    with_state(|state| {
-        state.github_token = Some(token.to_string());
-    });
-    Ok(snapshot())
-}
-
-pub fn clear_github_token() -> Result<RuntimeStateSnapshot, EnvironmentError> {
-    remove_github_token()?;
-    with_state(|state| {
-        state.github_token = None;
-    });
-    Ok(snapshot())
 }
 
 pub fn has_wallet_session() -> bool {
@@ -196,12 +166,8 @@ fn load_from_browser_storage() -> BrowserRuntimeStateLoad {
         }
     }
 
-    let github_token =
-        session_storage().and_then(|storage| storage.get_item(GITHUB_TOKEN_KEY).ok().flatten());
-
     BrowserRuntimeStateLoad {
         env,
-        github_token,
         wallet_session,
     }
 }
@@ -217,20 +183,6 @@ fn remove_env_var(key: &str) -> Result<(), EnvironmentError> {
     let storage = local_storage().ok_or(EnvironmentError::StorageUnavailable)?;
     storage
         .remove_item(&format!("{USER_VAR_PREFIX}{key}"))
-        .map_err(|_| EnvironmentError::RemoveFailed)
-}
-
-fn persist_github_token(token: &str) -> Result<(), EnvironmentError> {
-    let storage = session_storage().ok_or(EnvironmentError::StorageUnavailable)?;
-    storage
-        .set_item(GITHUB_TOKEN_KEY, token)
-        .map_err(|_| EnvironmentError::SaveFailed)
-}
-
-fn remove_github_token() -> Result<(), EnvironmentError> {
-    let storage = session_storage().ok_or(EnvironmentError::StorageUnavailable)?;
-    storage
-        .remove_item(GITHUB_TOKEN_KEY)
         .map_err(|_| EnvironmentError::RemoveFailed)
 }
 

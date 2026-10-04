@@ -223,6 +223,7 @@ async function runWithPlaywright() {
     console.log(resultLines.length > 0 ? resultLines.join("\n") : bodyText);
 
     if (!/test result: ok\./.test(bodyText)) {
+      console.error(bodyText);
       throw new Error("wasm browser tests did not report success");
     }
   } finally {

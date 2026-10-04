@@ -73,7 +73,7 @@ impl ReaderMeta {
 
 pub fn reader_meta(ctx: AppContext, frame: &ReaderFrame) -> ReaderMeta {
     let intent = &frame.intent;
-    ctx.view_global_fs.with(|fs| {
+    ctx.global_fs.with(|fs| {
         if let Some(context) = frame.resolution.bundle_variant.as_ref() {
             let bundle_path = &context.bundle_path;
             let variant_id = &context.variant_id;

@@ -1,23 +1,18 @@
 //! Application-owned runtime services.
 
 use leptos::prelude::*;
-use std::collections::BTreeMap;
 use wasm_bindgen_futures::spawn_local;
 use websh_core::attestation::ledger::CONTENT_LEDGER_CONTENT_PATH;
-use websh_core::domain::{ChangeSet, VirtualPath, WalletState};
-use websh_core::ports::{CommitOutcome, StorageBackendRef};
-use websh_core::runtime::{self as core_runtime, RuntimeStateSnapshot};
+use websh_core::domain::{VirtualPath, WalletState};
+use websh_core::runtime::RuntimeStateSnapshot;
 
 use crate::render::theme;
-use crate::runtime::{drafts, loader, state, storage_state, wallet};
+use crate::runtime::{loader, state, wallet};
 
-use super::{
-    AppContext, CommitServiceError, CommitServiceResult, RuntimeServiceError, RuntimeServiceResult,
-    ThemeError,
-};
+use super::{AppContext, RuntimeServiceError, RuntimeServiceResult, ThemeError};
+use crate::runtime::EnvironmentError;
 use crate::runtime::loader::RuntimeLoad;
-use crate::runtime::mounts::{MountLoadStatus, MountScanJob, MountScanResult};
-use crate::runtime::{EnvironmentError, RuntimeLoadError};
+use crate::runtime::mounts::{MountLoadStatus, MountScanJob};
 
 #[derive(Clone, Copy)]
 pub struct RuntimeServices {
@@ -77,36 +72,36 @@ impl RuntimeServices {
         Ok(theme_id)
     }
 
-    pub fn set_github_token(&self, token: &str) -> Result<(), EnvironmentError> {
-        let snapshot = state::set_github_token(token)?;
-        self.ctx.runtime_state.set(snapshot);
-        Ok(())
-    }
-
-    pub fn clear_github_token(&self) -> Result<(), EnvironmentError> {
-        let snapshot = state::clear_github_token()?;
-        self.ctx.runtime_state.set(snapshot);
-        Ok(())
-    }
-
-    pub fn github_token_for_commit(&self) -> Option<String> {
-        state::github_token_for_commit()
-    }
-
     pub async fn reload_runtime(&self) -> RuntimeServiceResult {
-        self.ctx.clear_text_cache();
-        self.mark_root_mount_loading();
-        let load = match self.load_runtime().await {
-            Ok(load) => load,
-            Err(error) => {
-                self.apply_failed_root_mount_load(error.to_string());
-                return Err(error.into());
+        let sequence = self.ctx.begin_root_request();
+        let result = loader::reload_runtime().await;
+        self.finish_root_load(sequence, result)
+    }
+
+    fn finish_root_load(
+        &self,
+        sequence: u64,
+        result: Result<RuntimeLoad, crate::runtime::RuntimeLoadError>,
+    ) -> RuntimeServiceResult {
+        // Both successful and failed older requests are obsolete at the same boundary.
+        if !self.ctx.accepts_root_request(sequence) {
+            return Ok(());
+        }
+        match result {
+            Ok(load) => {
+                let jobs = load.mounts.scan_jobs.clone();
+                let generation = self.ctx.apply_runtime_load(load);
+                self.start_ledger_prefetch(generation);
+                self.start_mount_scans(generation, jobs);
+                Ok(())
             }
-        };
-        let jobs = load.mounts.scan_jobs.clone();
-        let generation = self.apply_successful_root_mount_load(load);
-        self.start_mount_scans(generation, jobs);
-        Ok(())
+            Err(error) => {
+                let _ = self
+                    .ctx
+                    .mark_mount_failed(&VirtualPath::root(), error.to_string());
+                Err(error.into())
+            }
+        }
     }
 
     pub async fn reload_runtime_mount(&self, mount_root: VirtualPath) -> RuntimeServiceResult {
@@ -114,81 +109,37 @@ impl RuntimeServices {
             return self.reload_runtime().await;
         }
 
-        self.ctx.evict_text_cache_mount(&mount_root);
         let backend = self
             .ctx
             .backend_for_mount_root(&mount_root)
-            .ok_or_else(|| {
-                RuntimeServiceError::Commit(CommitServiceError::NoBackend {
-                    mount_root: mount_root.clone(),
-                })
+            .ok_or_else(|| RuntimeServiceError::NoBackend {
+                mount_root: mount_root.clone(),
             })?;
         let generation = self.ctx.runtime_generation();
         let (declared_mount, epoch) = self.ctx.mark_mount_loading(&mount_root)?;
-        let result = loader::scan_mount(MountScanJob {
-            mount: declared_mount,
-            backend,
-            epoch,
-        })
-        .await;
-        self.apply_mount_scan_result(generation, result)?;
-        Ok(())
-    }
-
-    pub async fn load_runtime(&self) -> Result<RuntimeLoad, RuntimeLoadError> {
-        let mut load = loader::reload_runtime().await?;
-        load.remote_heads = hydrate_remote_heads(&load.mounts.effective_mounts()).await;
-        Ok(load)
-    }
-
-    pub fn apply_runtime_load(&self, load: RuntimeLoad) -> u64 {
-        self.ctx.apply_runtime_load(load)
-    }
-
-    pub(crate) fn apply_successful_root_mount_load(&self, load: RuntimeLoad) -> u64 {
-        let generation = self.apply_runtime_load(load);
-        self.start_ledger_prefetch(generation);
-        generation
-    }
-
-    pub(crate) fn mark_root_mount_loading(&self) {
-        let root = VirtualPath::root();
-        if let Err(error) = self.ctx.mark_mount_loading(&root) {
-            leptos::logging::warn!("runtime: failed to mark root mount loading: {error}");
-        }
-    }
-
-    fn mark_root_mount_failed(&self, error: impl Into<String>) {
-        let root = VirtualPath::root();
-        if let Err(error) = self.ctx.mark_mount_failed(&root, error) {
-            leptos::logging::warn!("runtime: failed to mark root mount failed: {error}");
-        }
-    }
-
-    pub(crate) fn apply_failed_root_mount_load(&self, error: impl Into<String>) -> u64 {
-        let generation = self.apply_runtime_load(loader::bootstrap_runtime_load());
-        self.mark_root_mount_failed(error);
-        generation
+        crate::runtime::mount_refresh::refresh_mount(
+            self.ctx,
+            generation,
+            MountScanJob {
+                mount: declared_mount,
+                backend,
+                epoch,
+            },
+        )
+        .await
     }
 
     pub fn start_mount_scans(&self, generation: u64, jobs: Vec<MountScanJob>) {
         for job in jobs {
-            let services = *self;
+            let ctx = self.ctx;
             spawn_local(async move {
-                let result = loader::scan_mount(job).await;
-                if let Err(error) = services.apply_mount_scan_result(generation, result) {
+                if let Err(error) =
+                    crate::runtime::mount_refresh::refresh_mount(ctx, generation, job).await
+                {
                     leptos::logging::warn!("runtime: mount apply failed: {error}");
                 }
             });
         }
-    }
-
-    pub fn apply_mount_scan_result(
-        &self,
-        generation: u64,
-        result: MountScanResult,
-    ) -> RuntimeServiceResult {
-        self.ctx.apply_mount_scan_result(generation, result)
     }
 
     fn start_ledger_prefetch(&self, generation: u64) {
@@ -198,11 +149,11 @@ impl RuntimeServices {
         let root = VirtualPath::root();
         if !matches!(
             ctx.mount_status_for(&root),
-            Some(MountLoadStatus::Loaded { .. })
+            Some(MountLoadStatus::Available { .. })
         ) {
             return;
         }
-        if !ctx.view_global_fs.with_untracked(|fs| fs.exists(&path)) {
+        if !ctx.global_fs.with_untracked(|fs| fs.exists(&path)) {
             return;
         }
 
@@ -212,9 +163,6 @@ impl RuntimeServices {
             }
 
             let _ = ctx.read_text(&path).await;
-            if ctx.runtime_generation() != generation {
-                ctx.evict_text_cache_path(&path);
-            }
         });
     }
 
@@ -359,96 +307,6 @@ impl RuntimeServices {
                 chain_listener,
             ));
     }
-
-    pub async fn hydrate_global_draft(&self) -> websh_core::ports::StorageResult<ChangeSet> {
-        drafts::hydrate_global().await
-    }
-
-    pub fn schedule_global_draft(&self, changes: ChangeSet) {
-        drafts::schedule_global(changes);
-    }
-
-    pub async fn commit_staged(
-        &self,
-        mount_root: VirtualPath,
-        message: String,
-    ) -> CommitServiceResult {
-        let changes = self.ctx.changes.with_untracked(|changes| changes.clone());
-        let auth_token = self.github_token_for_commit();
-        let outcome = self
-            .commit_changes(mount_root.clone(), changes, message, auth_token)
-            .await?;
-        self.record_commit_outcome(&mount_root, &outcome).await;
-        Ok(outcome)
-    }
-
-    pub async fn commit_changes(
-        &self,
-        mount_root: VirtualPath,
-        changes: ChangeSet,
-        message: String,
-        auth_token: Option<String>,
-    ) -> CommitServiceResult {
-        let backend = self.backend_for_mount_root(&mount_root)?;
-        let expected_head = self.ctx.remote_head_for_path(&mount_root);
-        core_runtime::commit_backend(
-            backend,
-            mount_root,
-            changes,
-            message,
-            expected_head,
-            auth_token,
-        )
-        .await
-        .map_err(Into::into)
-    }
-
-    pub async fn record_commit_outcome(&self, mount_root: &VirtualPath, outcome: &CommitOutcome) {
-        for path in &outcome.committed_paths {
-            self.ctx.evict_text_cache_path(path);
-        }
-        self.ctx.evict_text_cache_mount(mount_root);
-
-        self.ctx.remote_heads.update(|map| {
-            map.insert(mount_root.clone(), outcome.new_head.clone());
-        });
-
-        let mounts = self.ctx.runtime_mounts_snapshot();
-        let storage_id = storage_state::storage_id_for_mount_root(&mounts, mount_root);
-
-        if let Err(error) = storage_state::persist_remote_head(&storage_id, &outcome.new_head).await
-        {
-            leptos::logging::warn!(
-                "runtime: persist remote_head for {} failed: {error}",
-                mount_root.as_str()
-            );
-        }
-    }
-
-    fn backend_for_mount_root(
-        &self,
-        mount_root: &VirtualPath,
-    ) -> Result<StorageBackendRef, CommitServiceError> {
-        self.ctx
-            .backend_for_mount_root(mount_root)
-            .ok_or_else(|| CommitServiceError::NoBackend {
-                mount_root: mount_root.clone(),
-            })
-    }
-}
-
-async fn hydrate_remote_heads(
-    runtime_mounts: &[websh_core::domain::RuntimeMount],
-) -> BTreeMap<VirtualPath, String> {
-    let mut out = BTreeMap::new();
-
-    for mount in runtime_mounts {
-        if let Ok(Some(head)) = storage_state::hydrate_remote_head(&mount.storage_id()).await {
-            out.insert(mount.root.clone(), head);
-        }
-    }
-
-    out
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
@@ -502,6 +360,47 @@ mod tests {
             );
 
             let _ = storage.remove_item(theme::STORAGE_KEY);
+        });
+    }
+    #[wasm_bindgen_test]
+    fn latest_root_dispatch_controls_both_success_and_failure() {
+        let owner = Owner::new();
+        owner.with(|| {
+            let ctx = AppContext::new();
+            let services = RuntimeServices::new(ctx);
+            let stale = ctx.begin_root_request();
+            let current = ctx.begin_root_request();
+            let mut load = loader::bootstrap_runtime_load();
+            let root = VirtualPath::root();
+            let declared = load.mounts.declared(&root).unwrap();
+            load.mounts.insert_loaded(declared, 7);
+            services
+                .finish_root_load(current, Ok(load.clone()))
+                .unwrap();
+            let generation = ctx.runtime_generation();
+            services
+                .finish_root_load(stale, Ok(loader::bootstrap_runtime_load()))
+                .unwrap();
+            let failure = || crate::runtime::RuntimeLoadError::BootstrapMount {
+                label: "~".into(),
+                source: websh_core::ports::StorageError::Network {
+                    message: "offline".into(),
+                },
+            };
+            services.finish_root_load(stale, Err(failure())).unwrap();
+            assert_eq!(ctx.runtime_generation(), generation);
+            assert!(matches!(
+                ctx.mount_status_for(&root),
+                Some(MountLoadStatus::Available {
+                    total_files: 7,
+                    refresh: crate::runtime::mounts::RefreshState::Idle,
+                    ..
+                })
+            ));
+            let latest = ctx.begin_root_request();
+            assert!(services.finish_root_load(latest, Err(failure())).is_err());
+            assert_eq!(ctx.runtime_generation(), generation);
+            assert!(ctx.mount_is_loaded(&root));
         });
     }
 }

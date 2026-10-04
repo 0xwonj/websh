@@ -1,4 +1,4 @@
-//! Absolute Unix-style path newtype used as the key in `ChangeSet` and storage layers.
+//! Absolute Unix-style path newtype used by filesystem and storage layers.
 //!
 //! Constructed via `from_absolute` which enforces canonical absolute paths.
 //! String-based subtree lookups remain available internally where relative paths are required.

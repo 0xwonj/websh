@@ -344,36 +344,6 @@ pub struct ImageDim {
     pub height: u32,
 }
 
-/// Builders for minimal `NodeMetadata` fixtures used by sibling tests
-/// across the crate.
-#[cfg(test)]
-pub(crate) mod test_support {
-    use super::*;
-
-    pub fn blank_meta(kind: NodeKind) -> NodeMetadata {
-        NodeMetadata {
-            schema: SCHEMA_VERSION,
-            kind,
-            bundle: None,
-            authored: Fields::default(),
-            derived: Fields::default(),
-        }
-    }
-
-    pub fn directory_meta(title: &str) -> NodeMetadata {
-        NodeMetadata {
-            schema: SCHEMA_VERSION,
-            kind: NodeKind::Directory,
-            bundle: None,
-            authored: Fields {
-                title: Some(title.to_string()),
-                ..Fields::default()
-            },
-            derived: Fields::default(),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -39,9 +39,9 @@ enum RootContentReadiness {
 
 fn root_content_readiness(ctx: AppContext) -> RootContentReadiness {
     match ctx.mount_status_for(&VirtualPath::root()) {
-        Some(MountLoadStatus::Loaded { .. }) => RootContentReadiness::Loaded,
+        Some(MountLoadStatus::Available { .. }) => RootContentReadiness::Loaded,
         Some(MountLoadStatus::Failed { .. }) => RootContentReadiness::Failed,
-        Some(MountLoadStatus::Loading { .. }) | None => RootContentReadiness::Loading,
+        Some(MountLoadStatus::Loading) | None => RootContentReadiness::Loading,
     }
 }
 
@@ -51,6 +51,7 @@ pub fn HomePage(route: Memo<RouteFrame>) -> impl IntoView {
         <SiteSurface class=css::home>
             <SiteChrome route=route />
             <SiteContentFrame class=css::page>
+                <crate::shared::components::MountStatusNotice path=Signal::derive(VirtualPath::root) />
                 <HeroHeader />
                 <HomepageMetaTable />
                 <AbstractSection />
@@ -184,11 +185,13 @@ fn AbstractSection() -> impl IntoView {
 #[component]
 fn NowSection() -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
+    let root_version = Memo::new(move |_| ctx.read_version(&VirtualPath::root()));
     let now = LocalResource::new(move || {
-        let readiness = root_content_readiness(ctx);
+        let _version = root_version.get();
+        let readiness = untrack(|| root_content_readiness(ctx));
         let path = VirtualPath::from_absolute("/.site/now.toml").expect("constant path");
         let should_read = readiness == RootContentReadiness::Loaded
-            && ctx.view_global_fs.with(|fs| fs.exists(&path));
+            && ctx.global_fs.with_untracked(|fs| fs.exists(&path));
 
         async move {
             if !should_read {
@@ -239,7 +242,7 @@ fn TocSection() -> impl IntoView {
             <ol>
                 {move || {
                     let readiness = root_content_readiness(ctx);
-                    ctx.view_global_fs.with(|fs| {
+                    ctx.global_fs.with(|fs| {
                         TOC_ITEMS.iter().map(|item| {
                             let meta = toc_item_meta_for_readiness(fs, item, readiness);
                             view! {
@@ -299,7 +302,7 @@ fn RecentFeed() -> impl IntoView {
         if root_content_readiness(ctx) != RootContentReadiness::Loaded {
             return Vec::new();
         }
-        ctx.view_global_fs.with(|fs| recent_items_from_fs(fs))
+        ctx.global_fs.with(recent_items_from_fs)
     });
 
     view! {

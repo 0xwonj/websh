@@ -1,7 +1,6 @@
 //! Data models and types for the application.
 
 mod bundle;
-mod changes;
 mod filesystem;
 mod manifest;
 mod mempool;
@@ -16,12 +15,9 @@ pub use bundle::{
     BundleVariant, validate_bundle_metadata, validate_bundle_metadata_with_targets,
     validate_bundle_variant, validate_bundle_variant_id, validate_relative_bundle_path,
 };
-pub use changes::{ChangeSet, ChangeType, Entry as ChangeEntry, Summary as ChangeSummary};
 pub use filesystem::{DirEntry, DisplayPermissions, EntryExtensions, FileType, FsEntry};
 pub use manifest::{ContentManifestDocument, ContentManifestEntry};
 pub use mempool::{MempoolFields, MempoolStatus, Priority};
-#[cfg(test)]
-pub(crate) use metadata::test_support;
 pub use metadata::{
     AccessFilter, Fields, ImageDim, LinkRef, NodeKind, NodeMetadata, PageSize, Recipient,
     RendererKind, SCHEMA_VERSION, TrustLevel,

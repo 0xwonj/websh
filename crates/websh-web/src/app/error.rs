@@ -1,6 +1,4 @@
 use websh_core::domain::VirtualPath;
-use websh_core::ports::{CommitOutcome, StorageError};
-use websh_core::runtime::CommitError;
 
 use crate::render::theme;
 use crate::runtime::{EnvironmentError, RuntimeLoadError, WalletError};
@@ -27,29 +25,25 @@ impl ThemeError {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum CommitServiceError {
-    #[error("sync: no backend registered at mount root {mount_root}")]
-    NoBackend { mount_root: VirtualPath },
-    #[error(transparent)]
-    Commit(#[from] CommitError),
-}
-
-#[derive(Debug, thiserror::Error)]
 pub enum RuntimeServiceError {
     #[error(transparent)]
     Theme(#[from] ThemeError),
     #[error(transparent)]
     RuntimeLoad(#[from] RuntimeLoadError),
-    #[error(transparent)]
-    Commit(#[from] CommitServiceError),
-    #[error(transparent)]
-    Draft(#[from] StorageError),
+    #[error("refresh failed: {message}")]
+    RefreshFailed { message: String },
+    #[error("no backend registered at mount root {mount_root}")]
+    NoBackend { mount_root: VirtualPath },
     #[error(transparent)]
     Environment(#[from] EnvironmentError),
     #[error(transparent)]
     Wallet(#[from] WalletError),
-    #[error("sync: no runtime mount declared at {root}")]
+    #[error("no runtime mount declared at {root}")]
     MissingDeclaration { root: VirtualPath },
+    #[error("invalid mounted routes: {source}")]
+    InvalidRoutes {
+        source: websh_core::filesystem::RouteCatalogError,
+    },
     #[error("mount {label}: {source}")]
     ReplaceScannedSubtree {
         label: String,
@@ -59,4 +53,3 @@ pub enum RuntimeServiceError {
 }
 
 pub type RuntimeServiceResult<T = ()> = Result<T, RuntimeServiceError>;
-pub type CommitServiceResult<T = CommitOutcome> = Result<T, CommitServiceError>;

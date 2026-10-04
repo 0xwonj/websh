@@ -220,15 +220,6 @@ impl RouteFrame {
     }
 }
 
-/// Returns true if `req` is the synthetic `/new` mempool authoring route.
-///
-/// `RouteRequest::new` always normalizes to a leading `/`, so the practical
-/// inputs are `/new`, `/new/`, and `/new/<rest>`. The trim defends against
-/// the `new`-no-slash shape too, but that path doesn't currently arise.
-pub fn is_new_request_path(req: &RouteRequest) -> bool {
-    req.url_path.trim_matches('/') == "new"
-}
-
 pub fn route_request_targets_runtime_overlay(request: &RouteRequest) -> bool {
     let trimmed = request.url_path.trim_matches('/');
     if is_runtime_state_request(trimmed) {
@@ -1776,22 +1767,6 @@ mod tests {
             request_path_for_canonical_path(&path, RouteSurface::Shell),
             "/websh/blog/hello.md"
         );
-    }
-
-    #[test]
-    fn is_new_request_path_matches_canonical_new_route() {
-        assert!(is_new_request_path(&RouteRequest::new("/new")));
-        assert!(is_new_request_path(&RouteRequest::new("/new/")));
-        assert!(is_new_request_path(&RouteRequest::new("new")));
-    }
-
-    #[test]
-    fn is_new_request_path_rejects_non_matches() {
-        assert!(!is_new_request_path(&RouteRequest::new("/news")));
-        assert!(!is_new_request_path(&RouteRequest::new("/new/foo")));
-        assert!(!is_new_request_path(&RouteRequest::new("/")));
-        assert!(!is_new_request_path(&RouteRequest::new("/edit")));
-        assert!(!is_new_request_path(&RouteRequest::new("/ledger")));
     }
 
     #[test]

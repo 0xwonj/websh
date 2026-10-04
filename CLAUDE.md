@@ -15,22 +15,24 @@ Four crates live under `crates/`:
 
 ## Active Architecture Boundaries
 
-- `websh-core::engine` is private. External crates import from `websh_core::{domain, filesystem, runtime, shell, mempool, attestation, crypto, ports, support, errors}`.
+- `websh-core::engine` is private. External crates import from `websh_core::{domain, filesystem, runtime, shell, mempool, attestation, crypto, ports, support}`.
 - `VirtualPath` is the only engine path type for canonical filesystem paths.
 - Runtime overlay paths are owned by `runtime_state_root()` and `is_runtime_overlay_path()`.
 - `StorageBackend` is a local, non-`Send` browser-friendly port using `Rc<dyn StorageBackend>`.
 - CLI command modules should parse arguments and delegate to `workflows`.
 - CLI `infra` owns process execution and typed wrappers around `git`, `gh`, `gpg`, and `trunk`.
 - Web feature code should use `AppContext` and `RuntimeServices`; browser storage belongs in `runtime`, browser APIs in `platform`.
-- Do not expose raw GitHub tokens through rendered runtime state.
+- Browser content is read-only; wallet connection grants no write privilege.
+- Cache only accepted external listings in `websh-cache`; do not access or delete legacy `websh-state`.
+- Reject retired credential commands before echo/history; never expose their payloads.
 
 ## Current Module Map
 
 `websh-core`:
 
-- `domain/`: stable data contracts, paths, manifests, metadata, mounts, wallet, changes.
+- `domain/`: stable data contracts, paths, manifests, metadata, mounts, wallet.
 - `engine/`: private implementation modules.
-- `filesystem.rs`, `runtime.rs`, `shell.rs`, `mempool.rs`, `attestation.rs`, `crypto.rs`, `ports/`, `support/`, `errors.rs`: public facades.
+- `lib.rs`: public `filesystem`, `runtime`, `shell`, `mempool`, `attestation`, and `crypto` facades; `ports/` and `support/`: storage/read and support contracts. Errors belong to their owning facades.
 
 `websh-cli`:
 
@@ -42,7 +44,7 @@ Four crates live under `crates/`:
 `websh-web`:
 
 - `app/`: root component, context, services, terminal state.
-- `runtime/`: loader, mounts, browser persistence, wallet, storage state, draft persistence.
+- `runtime/`: loader, mount refresh/state, bounded mount/text caches, browser preference persistence, and wallet.
 - `platform/`: DOM, fetch, object URL, redirect, time, breakpoint helpers.
 - `features/`: chrome, home, ledger, mempool, reader, router, terminal.
 - `shared/`: reusable UI components.
@@ -58,7 +60,6 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo check -p websh-core --target wasm32-unknown-unknown
 cargo check -p websh-web --target wasm32-unknown-unknown
-cargo test -p websh-core --features mock --test commit_integration
 cargo run -p websh-cli -- <subcommand> [args...]
 npm run lint:css
 npm run docs:drift
@@ -77,7 +78,7 @@ Use focused checks while developing, then run the relevant wider gate before fin
 2. `cargo run --quiet -p websh-cli -- content manifest`.
 3. `cargo run --quiet -p websh-cli -- attest build`.
 
-Do not edit generated sidecars, `content/manifest.json`, `content/ledger.json`, `assets/bundle.css`, or `assets/crypto/attestations.json` as if they were hand-authored unless the task explicitly targets generated outputs. Prefer running the owning command.
+Do not edit generated sidecars, `content/manifest.json`, `content/.websh/ledger.json`, `assets/bundle.css`, or `assets/crypto/attestations.json` as if they were hand-authored unless the task explicitly targets generated outputs. Prefer running the owning command.
 
 `attest build` skips non-release Trunk profiles unless forced. `WEBSH_NO_SIGN=1` disables signing and leaves subjects pending.
 

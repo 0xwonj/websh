@@ -4,14 +4,13 @@
 //! of reaching directly into core storage or runtime adapter internals.
 
 pub(crate) mod content_cache;
-pub(crate) mod drafts;
 mod error;
 pub(crate) mod github_backend;
-pub(crate) mod idb;
 pub(crate) mod loader;
+pub(crate) mod mount_cache;
+pub(crate) mod mount_refresh;
 pub(crate) mod mounts;
 pub(crate) mod state;
-pub(crate) mod storage_state;
 mod system;
 pub(crate) mod wallet;
 

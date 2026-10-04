@@ -16,7 +16,6 @@ use super::mounts::{MountLoadSet, MountLoadStatus, MountScanJob, MountScanResult
 pub struct RuntimeLoad {
     pub global_fs: GlobalFs,
     pub backends: BackendRegistry,
-    pub remote_heads: BTreeMap<VirtualPath, String>,
     pub total_files: usize,
     pub mounts: MountLoadSet,
 }
@@ -45,7 +44,6 @@ pub fn bootstrap_runtime_load() -> RuntimeLoad {
     RuntimeLoad {
         global_fs,
         backends: bootstrap_backends(),
-        remote_heads: BTreeMap::new(),
         total_files,
         mounts,
     }
@@ -80,12 +78,13 @@ pub async fn load_runtime() -> Result<RuntimeLoad, RuntimeLoadError> {
         mounts.insert_loaded(mount, root_total_files);
     }
     apply_runtime_conventions(&mut global_fs, &mut backends, &mut mounts).await?;
+    websh_core::filesystem::RouteCatalog::from_global_fs(&global_fs)
+        .map_err(|source| RuntimeLoadError::InvalidRoutes { source })?;
     let total_files = count_files(&global_fs, &VirtualPath::root());
 
     Ok(RuntimeLoad {
         global_fs,
         backends,
-        remote_heads: BTreeMap::new(),
         total_files,
         mounts,
     })
@@ -147,6 +146,7 @@ struct ExternalMountCandidate {
     mount: RuntimeMount,
     backend: Option<StorageBackendRef>,
     build_error: Option<String>,
+    descriptor: Option<super::mount_cache::CacheDescriptor>,
 }
 
 struct FailedMountDeclaration {
@@ -208,7 +208,13 @@ fn register_external_mounts(
         }
 
         backends.insert(candidate.mount.root.clone(), backend.clone());
+        let root = candidate.mount.root.clone();
         mounts.insert_loading(candidate.mount, backend);
+        mounts
+            .entries
+            .get_mut(&root)
+            .expect("accepted mount")
+            .cache_descriptor = candidate.descriptor;
     }
 
     reserve_failed_mount_points(global, mounts);
@@ -237,11 +243,12 @@ fn external_mount_candidates(
                 }
 
                 match github_backend::build_backend_for_declaration(&declaration) {
-                    Ok(Some((mount, backend))) => out.push(ExternalMountCandidate {
+                    Ok(Some((mount, backend, descriptor))) => out.push(ExternalMountCandidate {
                         order,
                         mount,
                         backend: Some(backend),
                         build_error: None,
+                        descriptor,
                     }),
                     Ok(None) => {}
                     Err(error) => out.push(ExternalMountCandidate {
@@ -249,6 +256,7 @@ fn external_mount_candidates(
                         mount: fallback_mount_for_declaration(&declaration, mount_root),
                         backend: None,
                         build_error: Some(error.to_string()),
+                        descriptor: None,
                     }),
                 }
             }
@@ -264,6 +272,7 @@ fn external_mount_candidates(
                     mount: failed.mount,
                     backend: None,
                     build_error: Some(failed.error),
+                    descriptor: None,
                 });
             }
         }
@@ -328,12 +337,7 @@ fn fallback_mount_for_declaration(
         .name
         .clone()
         .unwrap_or_else(|| mount_label_for_root(&mount_root));
-    RuntimeMount::new(
-        mount_root,
-        label,
-        RuntimeBackendKind::GitHub,
-        declaration.writable,
-    )
+    RuntimeMount::new(mount_root, label, RuntimeBackendKind::GitHub)
 }
 
 fn reserve_failed_mount_points(global: &mut GlobalFs, mounts: &MountLoadSet) {
@@ -436,13 +440,8 @@ fn recover_failed_mount_declaration(
         .filter(|name| !name.trim().is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| mount_label_for_root(&mount_root));
-    let writable = value
-        .get("writable")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-
     Some(FailedMountDeclaration {
-        mount: RuntimeMount::new(mount_root, label, RuntimeBackendKind::GitHub, writable),
+        mount: RuntimeMount::new(mount_root, label, RuntimeBackendKind::GitHub),
         error: format!("parse {}: {source}", path.as_str()),
     })
 }
@@ -513,7 +512,6 @@ mod tests {
             branch: Some("main".to_string()),
             root: Some("content".to_string()),
             name: Some(name.to_string()),
-            writable: true,
             ..Default::default()
         }
     }
@@ -539,10 +537,7 @@ mod tests {
 
         let db = VirtualPath::from_absolute("/db").expect("db");
         let nested = VirtualPath::from_absolute("/db/sub").expect("nested");
-        assert!(matches!(
-            mounts.status(&db),
-            Some(MountLoadStatus::Loading { .. })
-        ));
+        assert!(matches!(mounts.status(&db), Some(MountLoadStatus::Loading)));
         assert!(matches!(
             mounts.status(&nested),
             Some(MountLoadStatus::Failed { .. })
@@ -558,13 +553,13 @@ mod tests {
     }
 
     #[wasm_bindgen_test]
-    fn missing_required_writable_becomes_failed_mount_declaration() {
+    fn invalid_branch_type_becomes_failed_mount_declaration() {
         let path = VirtualPath::from_absolute("/.websh/mounts/db.mount.json").expect("path");
         let body = r#"{
             "backend": "github",
             "mount_at": "/db",
             "repo": "0xwonj/db",
-            "branch": "main",
+            "branch": 123,
             "root": "content"
         }"#;
         let source = serde_json::from_str::<MountDeclaration>(body).unwrap_err();
@@ -573,8 +568,7 @@ mod tests {
 
         assert_eq!(failed.mount.root.as_str(), "/db");
         assert_eq!(failed.mount.label, "db");
-        assert!(!failed.mount.writable);
-        assert!(failed.error.contains("missing field `writable`"));
+        assert!(failed.error.contains("invalid type"));
 
         let mut global = GlobalFs::empty();
         let mut backends = BTreeMap::new();
@@ -591,7 +585,7 @@ mod tests {
         assert!(matches!(
             mounts.status(&db),
             Some(MountLoadStatus::Failed { ref error, .. })
-                if error.contains("missing field `writable`")
+                if error.contains("invalid type")
         ));
         assert!(global.is_directory(&db));
         assert!(backends.is_empty());

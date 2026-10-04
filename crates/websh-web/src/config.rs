@@ -30,11 +30,6 @@ pub const LANG_ENV_KEY: &str = "LANG";
 /// Fallback language when browser preference is unavailable or invalid.
 pub const DEFAULT_LANG: &str = "en";
 
-/// Default user variables initialized on first visit.
-/// `LANG` is initialized from the browser language separately. `THEME` is
-/// omitted: the theme system writes `user.THEME` directly.
-pub const DEFAULT_USER_VARS: &[(&str, &str)] = &[("EDITOR", "vim")];
-
 /// Maximum number of terminal output lines to keep in history.
 pub const MAX_TERMINAL_HISTORY: usize = 1000;
 

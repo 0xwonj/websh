@@ -4,7 +4,7 @@ This is the authoritative architecture document for the current repository.
 
 ## System Shape
 
-Websh is a verifiable personal archive backed by a Rust/WASM runtime and a browser-native virtual filesystem. It assembles content manifests and runtime mounts into one canonical tree rooted at `/`, renders that tree through Leptos, and offers reader, ledger, and terminal views for navigation and staged writes.
+Websh is a verifiable personal archive backed by a Rust/WASM runtime and a browser-native virtual filesystem. It assembles content manifests and runtime mounts into one canonical tree rooted at `/`, renders that tree through Leptos, and offers reader, ledger, and terminal views for read-only navigation. Content authoring and publishing remain native CLI/Git workflows.
 
 The workspace has four crates:
 
@@ -56,7 +56,7 @@ types are exported from the facade that owns the capability; there is no global
 
 All engine paths are `VirtualPath` values. They are canonical absolute paths and reject relative or non-canonical input at construction and deserialization.
 
-Runtime overlay paths are centralized through `runtime_state_root()` and `is_runtime_overlay_path()`. Shell writes and exports must reject runtime overlay mutation.
+Runtime overlay paths are centralized through `runtime_state_root()` and `is_runtime_overlay_path()`. Synthetic environment and wallet/session files use that namespace; refresh rejects runtime-overlay paths.
 
 ## URL Model
 
@@ -66,29 +66,15 @@ Generated in-app links are hash-only (`#/ledger`, `#/writing/example`) so they p
 
 ## Runtime Model
 
-The web app boots a `RuntimeLoad`:
+The web app loads the root manifest and current declarations, assembles a content `GlobalFs`, then starts concurrent cache restore and public refresh for accepted external mounts. A separate system projection adds wallet, session, and environment files. There is no browser editor, write overlay, draft persistence, GitHub credential flow, or commit protocol.
 
-1. Read bundled `content/manifest.json`.
-2. Read declared runtime mounts.
-3. Assemble a `GlobalFs`.
-4. Start remote mount scans.
-5. Hydrate browser runtime state and drafts.
-6. Derive the rendered view filesystem from base filesystem, staged `ChangeSet`, wallet state, and runtime state.
+`StorageBackend` exposes only `backend_type`, `scan`, `read_text`, `read_bytes`, and `public_read_url`. It remains a local non-`Send` port shared through `Rc`.
 
-Drafts persist in IndexedDB after successful hydration. The browser writes pathwise draft deltas so a single edited file does not rewrite every draft record.
+Optional IndexedDB database `websh-cache` stores bounded external manifest listings. The old `websh-state` database is left untouched. Listing cache does not provide offline document bodies or offline root startup. Root sequences, mount epochs, and content revisions prevent stale publication while preserving available content during failed refreshes. See [runtime architecture](runtime.md) for identities, limits, and failure semantics.
 
-## Commit Model
+## Authoring Boundary
 
-Writes are staged as canonical `ChangeSet` entries. Commit preparation:
-
-1. validates staged paths are inside one mount root,
-2. rejects unsupported binary changes,
-3. normalizes directory deletes and descendant changes,
-4. expands directory deletes to concrete file deletions,
-5. builds a backend-neutral `CommitDelta`,
-6. submits through a strict mount-root `StorageBackend`.
-
-GitHub commits use compare-and-swap with the expected remote head.
+Use local source files, Git, and `websh-cli` content/mempool commands to author and publish. Browser wallet connection supports identity and advisory read display. It grants no write capability. Terminal `refresh [path]` reloads the owning mount; `>` and `>>` in `echo` are literal text.
 
 ## Build And Attestation
 
@@ -100,8 +86,12 @@ Trunk pre-build hooks run in this order:
 
 `attest build` is release-profile aware. It skips non-release Trunk profiles unless `--force` is passed. `WEBSH_NO_SIGN=1` disables signing while still refreshing pending subjects.
 
-Generated content artifacts include `content/manifest.json`, `content/ledger.json`, sidecar metadata, and `assets/crypto/attestations.json`.
+Generated content artifacts include `content/manifest.json`, `content/.websh/ledger.json`, sidecar metadata, and `assets/crypto/attestations.json`.
 
 ## Verification
 
 The local gate is `just verify`. The command list is mirrored in [verification.md](verification.md) and checked by `npm run docs:drift`.
+
+## Migration Design
+
+The [read-only browser design and implementation plan](../plans/read-only-browser/README.md) records the migration decisions. Source implementation and release verification are tracked in [progress and evidence](../plans/read-only-browser/progress.md).

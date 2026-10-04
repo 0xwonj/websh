@@ -2,6 +2,7 @@
 //!
 //! Handles the initial terminal animation and applies the pure runtime loader.
 
+use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
 use crate::app::AppContext;
@@ -53,14 +54,17 @@ pub fn run(ctx: AppContext) {
             format_elapsed(elapsed())
         )));
 
-        services.mark_root_mount_loading();
-        match services.load_runtime().await {
-            Ok(load) => {
-                let total_files = load.total_files;
-                let failed_mounts = load.mounts.failed_entries();
-                let scan_jobs = load.mounts.scan_jobs.clone();
-                let generation = services.apply_successful_root_mount_load(load);
-                services.start_mount_scans(generation, scan_jobs);
+        match services.reload_runtime().await {
+            Ok(()) => {
+                let total_files = ctx.mounts.with_untracked(|mounts| {
+                    match mounts.status(&websh_core::domain::VirtualPath::root()) {
+                        Some(crate::runtime::MountLoadStatus::Available {
+                            total_files, ..
+                        }) => total_files,
+                        _ => 0,
+                    }
+                });
+                let failed_mounts = ctx.mounts.with_untracked(|mounts| mounts.failed_entries());
                 ctx.terminal.push_output(OutputLine::success(format!(
                     "{} Total: {} files mounted",
                     format_elapsed(elapsed()),
@@ -77,7 +81,6 @@ pub fn run(ctx: AppContext) {
                 }
             }
             Err(error) => {
-                services.apply_failed_root_mount_load(error.to_string());
                 ctx.terminal.push_output(OutputLine::error(format!(
                     "{} Failed to mount filesystems: {}",
                     format_elapsed(elapsed()),

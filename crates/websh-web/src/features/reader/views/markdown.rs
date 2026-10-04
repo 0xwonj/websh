@@ -1,4 +1,4 @@
-//! Markdown view (rendered) and edit (textarea).
+//! Rendered Markdown view.
 //!
 //! The viewer renders Comrak-output sanitized HTML through `MarkdownView`
 //! and pairs it with a paper-style outline sidebar (h2 / h3 only). The
@@ -22,24 +22,6 @@ pub fn MarkdownReaderView(rendered: Signal<RenderedMarkdown>) -> impl IntoView {
             <TocSide entries=outline />
             <MarkdownView rendered=rendered class=css::mdBody />
         </div>
-    }
-}
-
-#[component]
-pub fn MarkdownEditorView(
-    draft_body: RwSignal<String>,
-    on_input_dirty: Callback<()>,
-) -> impl IntoView {
-    view! {
-        <textarea
-            class=css::editorTextarea
-            aria-label="Markdown source"
-            prop:value=move || draft_body.get()
-            on:input=move |ev| {
-                draft_body.set(event_target_value(&ev));
-                on_input_dirty.run(());
-            }
-        />
     }
 }
 

@@ -32,7 +32,7 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-websh-core = { workspace = true, features = ["mock", "eth-verify"] }
+websh-core = { workspace = true, features = ["eth-verify"] }
 k256 = { workspace = true }
 alloy-primitives = { workspace = true }
 rand08 = { workspace = true }

@@ -8,14 +8,17 @@ use websh_core::domain::{
 use websh_core::ports::StorageBackendRef;
 
 mod client;
-mod graphql;
 mod path;
 
 pub use client::{GitHubBackend, GitHubBackendConfigError};
 
 use path::{RepoPathError, normalize_repo_prefix};
 
-type DeclaredBackend = (RuntimeMount, StorageBackendRef);
+type DeclaredBackend = (
+    RuntimeMount,
+    StorageBackendRef,
+    Option<super::mount_cache::CacheDescriptor>,
+);
 const RAW_GITHUB_GATEWAY: &str = "https://raw.githubusercontent.com";
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -24,6 +27,8 @@ pub enum GitHubBackendDeclarationError {
     MissingRepo { mount_at: String },
     #[error("invalid mount_at: {mount_at}")]
     InvalidMountAt { mount_at: String },
+    #[error("reserved runtime mount_at: {mount_at}")]
+    ReservedMountAt { mount_at: String },
     #[error("noncanonical mount_at: {mount_at}")]
     NoncanonicalMountAt { mount_at: String },
     #[error("invalid root for {mount_at}: {source}")]
@@ -48,13 +53,12 @@ pub fn build_backend_for_bootstrap_site(source: &BootstrapSiteSource) -> Storage
         .expect("bootstrap site source must use a browser-allowed gateway");
 
     Rc::new(
-        GitHubBackend::new_with_manifest_policy(
+        GitHubBackend::new(
             source.repo_with_owner,
             source.branch,
             source.mount_root(),
             prefix,
             gateway,
-            false,
         )
         .expect("bootstrap site source must have a valid content root"),
     )
@@ -80,6 +84,11 @@ pub fn build_backend_for_declaration(
                         mount_at: declaration.mount_at.clone(),
                     }
                 })?;
+            if websh_core::domain::is_runtime_overlay_path(&mount_root) {
+                return Err(GitHubBackendDeclarationError::ReservedMountAt {
+                    mount_at: declaration.mount_at.clone(),
+                });
+            }
             if !is_canonical_mount_root(&mount_root) {
                 return Err(GitHubBackendDeclarationError::NoncanonicalMountAt {
                     mount_at: declaration.mount_at.clone(),
@@ -104,12 +113,7 @@ pub fn build_backend_for_declaration(
                     .unwrap_or_else(|| mount_root.as_str().to_string())
             });
 
-            let mount = RuntimeMount::new(
-                mount_root.clone(),
-                label,
-                RuntimeBackendKind::GitHub,
-                declaration.writable,
-            );
+            let mount = RuntimeMount::new(mount_root.clone(), label, RuntimeBackendKind::GitHub);
 
             let backend = GitHubBackend::new(repo, branch, mount_root, prefix, gateway).map_err(
                 |source| GitHubBackendDeclarationError::InvalidBackend {
@@ -118,7 +122,8 @@ pub fn build_backend_for_declaration(
                 },
             )?;
 
-            Ok(Some((mount, Rc::new(backend))))
+            let descriptor = backend.cache_descriptor();
+            Ok(Some((mount, Rc::new(backend), descriptor)))
         }
         _ => Ok(None),
     }
@@ -168,9 +173,10 @@ mod tests {
             ..Default::default()
         };
 
-        let (mount, backend) = build_backend_for_declaration(&declaration)
+        let (mount, backend, descriptor) = build_backend_for_declaration(&declaration)
             .expect("valid declaration")
             .expect("backend");
+        assert!(descriptor.is_some());
         assert_eq!(mount.root.as_str(), "/db");
         assert_eq!(mount.label, "db");
         assert_eq!(backend.backend_type(), "github");
@@ -231,6 +237,23 @@ mod tests {
                 mount_at,
                 gateway,
             } if mount_at == "/db" && gateway == "https://example.com/raw"
+        ));
+    }
+    #[wasm_bindgen_test]
+    fn descriptor_ignores_label_and_legacy_write_flag_and_normalizes_defaults() {
+        let minimal: MountDeclaration =
+            serde_json::from_str(r#"{"backend":"github","mount_at":"/db","repo":"owner/repo"}"#)
+                .unwrap();
+        let explicit: MountDeclaration = serde_json::from_str(r#"{"backend":"github","mount_at":"/db","repo":"owner/repo","branch":"main","root":"/","gateway":"https://raw.githubusercontent.com/","name":"different label","writable":true}"#).unwrap();
+        assert_eq!(
+            build_backend_for_declaration(&minimal).unwrap().unwrap().2,
+            build_backend_for_declaration(&explicit).unwrap().unwrap().2
+        );
+        let mut reserved = minimal;
+        reserved.mount_at = "/.websh/state".into();
+        assert!(matches!(
+            build_backend_for_declaration(&reserved),
+            Err(GitHubBackendDeclarationError::ReservedMountAt { .. })
         ));
     }
 }

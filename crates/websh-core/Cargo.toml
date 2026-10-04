@@ -23,14 +23,9 @@ getrandom02 = { workspace = true, optional = true }
 [features]
 default = ["eth-verify"]
 eth-verify = ["dep:alloy-primitives", "dep:getrandom02"]
-mock = []
 
 [dev-dependencies]
 tokio = { workspace = true }
-
-[[test]]
-name = "commit_integration"
-required-features = ["mock"]
 
 [package.metadata.cargo-machete]
 ignored = ["getrandom02"]

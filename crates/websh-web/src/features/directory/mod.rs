@@ -29,7 +29,7 @@ pub fn DirectoryPage(route: Memo<RouteFrame>) -> impl IntoView {
             ctx.system_global_fs
                 .with(|fs| build_directory_model(fs, &frame.resolution.node_path))
         } else {
-            ctx.view_global_fs.with(|fs| {
+            ctx.global_fs.with(|fs| {
                 build_directory_model_with_bundle_context(
                     fs,
                     &frame.resolution.node_path,
@@ -54,6 +54,7 @@ pub fn DirectoryPage(route: Memo<RouteFrame>) -> impl IntoView {
         <SiteSurface class=css::surface>
             <SiteChrome route=route />
             <SiteContentFrame class=css::page>
+                <crate::shared::components::MountStatusNotice path=Signal::derive(move || node_path.get()) />
                 {move || view! {
                     <div class=css::content>
                         <DirectoryIdentifier model=model.get() />

@@ -343,7 +343,6 @@
   border-color: var(--accent);
 }
 
-.variantDisabled,
 .linkDisabled {
   opacity: 0.55;
   cursor: default;
@@ -707,130 +706,7 @@
   font-size: 12px;
 }
 
-.errorBanner {
-  background: rgba(201, 56, 56, 0.12);
-  border: 1px solid var(--terminal-red);
-  color: var(--terminal-red);
-  padding: 6px 10px;
-  font-size: 12px;
-  margin-bottom: 14px;
-}
 
-/* ─── Toolbar — footnote-mark variant ─────────────────────────── */
-.modefn {
-  margin-top: 6px;
-  margin-bottom: -20px;
-  padding-top: 0;
-  font-size: 11px;
-  color: var(--text-dim);
-}
-
-.modefnRow {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  line-height: 1.6;
-  flex-wrap: wrap;
-}
-
-.modefnMark {
-  color: var(--accent);
-  margin-right: 2px;
-}
-
-.modefnLab {
-  color: var(--text-muted);
-  margin-right: 4px;
-}
-
-.modefnOpt {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  color: var(--text-dim);
-  cursor: pointer;
-  font: inherit;
-  line-height: inherit;
-  margin: 0;
-  user-select: none;
-  padding: 0 2px;
-}
-
-.modefnOpt:hover {
-  color: var(--text-primary);
-}
-
-.modefnOpt:focus-visible {
-  outline: 1px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.modefnOpt:disabled {
-  cursor: default;
-  opacity: 0.65;
-}
-
-.modefnOptOn {
-  color: var(--accent);
-  border-bottom: 1px solid var(--accent);
-  cursor: default;
-}
-
-.modefnOptOn:hover {
-  color: var(--accent);
-}
-
-.modefnKbd {
-  margin-left: 5px;
-  color: var(--text-muted);
-  font-size: 9.5px;
-  border: 1px solid var(--border-subtle);
-  padding: 0 3px;
-  border-radius: var(--radius-xs);
-}
-
-.modefnSep {
-  color: var(--text-muted);
-  margin: 0 1px;
-}
-
-.modefnSpacer {
-  flex: 1;
-}
-
-.modefnState {
-  font-size: 10.5px;
-  color: var(--terminal-green);
-}
-
-.modefnState::before {
-  content: "● ";
-}
-
-.modefnStateDirty {
-  color: var(--terminal-yellow);
-}
-
-/* ─── Editor textarea ─────────────────────────────────────────── */
-.editorTextarea {
-  width: 100%;
-  min-height: 60vh;
-  background: var(--bg-inset);
-  color: var(--text-primary);
-  border: 1px solid var(--border-subtle);
-  padding: 12px 14px;
-  font-family: inherit;
-  font-size: 13px;
-  line-height: 1.65;
-  resize: vertical;
-  white-space: pre;
-  tab-size: 2;
-}
-
-.editorTextarea:focus {
-  outline: 1px solid var(--accent);
-  border-color: var(--accent);
-}
 
 @media (max-width: 760px) {
   .page {

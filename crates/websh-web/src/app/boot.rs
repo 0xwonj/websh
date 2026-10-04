@@ -1,9 +1,8 @@
 //! Application boot component and root effects.
 
 use leptos::prelude::*;
-use wasm_bindgen_futures::spawn_local;
 
-use super::{AppContext, AppEditModal, RuntimeServices};
+use super::{AppContext, RuntimeServices};
 use crate::features::RouterView;
 use crate::shared::components::{
     ErrorPageActionButton, ErrorPageActionLink, ErrorPageActions, ErrorPageBody, ErrorPageDetails,
@@ -20,30 +19,6 @@ pub fn App() -> impl IntoView {
         web_sys::console::error_1(&format!("theme hydration: {error}").into());
     }
     services.install_wallet_event_listeners();
-
-    let changes_signal = ctx.changes;
-    let drafts_hydrated = ctx.drafts_hydrated;
-    spawn_local(async move {
-        match RuntimeServices::new(ctx).hydrate_global_draft().await {
-            Ok(cs) => {
-                if !cs.is_empty() {
-                    changes_signal.set(cs);
-                }
-                drafts_hydrated.set(true);
-            }
-            Err(e) => web_sys::console::error_1(
-                &format!("hydrate drafts failed; draft persistence disabled: {e}").into(),
-            ),
-        }
-    });
-
-    Effect::new(move |_| {
-        if !ctx.drafts_hydrated.get() {
-            return;
-        }
-        let snapshot = ctx.changes.get();
-        RuntimeServices::new(ctx).schedule_global_draft(snapshot);
-    });
 
     let boot_started = StoredValue::new(false);
     Effect::new(move |_| {
@@ -89,7 +64,6 @@ pub fn App() -> impl IntoView {
             }
         >
             <RouterView />
-            <AppEditModal />
         </ErrorBoundary>
     }
 }

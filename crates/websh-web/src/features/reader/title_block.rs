@@ -178,7 +178,6 @@ pub fn TitleBlock(
     intent: Memo<ReaderIntent>,
     meta: Memo<ReaderMeta>,
     actions: ReaderActionsBindings,
-    variants_disabled: Signal<bool>,
     set_preferred_locale: Callback<String>,
 ) -> impl IntoView {
     view! {
@@ -191,14 +190,13 @@ pub fn TitleBlock(
                 let i = intent.get();
                 let m = meta.get();
                 let rows = rows_for(&i, &m);
-                let disabled = variants_disabled.get();
                 if rows.is_empty() {
                     None
                 } else {
                     Some(view! {
                         <MetaTable class=css::metaTable aria_label="file metadata">
                             {rows.into_iter()
-                                .map(|row| render_row(row, disabled, set_preferred_locale))
+                                .map(|row| render_row(row, set_preferred_locale))
                                 .collect_view()}
                         </MetaTable>
                     })
@@ -208,11 +206,7 @@ pub fn TitleBlock(
     }
 }
 
-fn render_row(
-    spec: RowSpec,
-    variants_disabled: bool,
-    set_preferred_locale: Callback<String>,
-) -> AnyView {
+fn render_row(spec: RowSpec, set_preferred_locale: Callback<String>) -> AnyView {
     match spec {
         RowSpec::Type { tag, hint } => view! {
             <MetaRow
@@ -285,7 +279,6 @@ fn render_row(
                     {items.into_iter()
                         .map(|variant| render_variant_link(
                             variant,
-                            variants_disabled,
                             set_preferred_locale,
                         ))
                         .collect_view()}
@@ -309,20 +302,11 @@ fn render_row(
 
 fn render_variant_link(
     variant: ReaderVariantLink,
-    disabled: bool,
     set_preferred_locale: Callback<String>,
 ) -> AnyView {
     if variant.active {
         return view! {
             <span class=format!("{} {}", css::variantChip, css::variantActive) aria-current="true">
-                {variant.label}
-            </span>
-        }
-        .into_any();
-    }
-    if disabled {
-        return view! {
-            <span class=format!("{} {}", css::variantChip, css::variantDisabled) aria-disabled="true">
                 {variant.label}
             </span>
         }

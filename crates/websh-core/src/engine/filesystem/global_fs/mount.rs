@@ -109,7 +109,7 @@ impl GlobalFs {
     pub fn replace_subtree(&mut self, mount_at: VirtualPath, subtree: FsEntry) {
         self.remove_subtree(&mount_at);
         if subtree.is_directory() {
-            self.pending_text
+            self.inline_text
                 .retain(|path, _| !path.starts_with(&mount_at));
         }
         insert_tree_entry(&mut self.root, &mount_at, subtree)

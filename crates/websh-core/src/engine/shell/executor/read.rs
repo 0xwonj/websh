@@ -1,18 +1,16 @@
-use crate::domain::{DirEntry, RuntimeMount, VirtualPath, WalletState};
+use crate::domain::{DirEntry, VirtualPath, WalletState};
 use crate::engine::filesystem::{
     GlobalFs, RouteRequest, RouteSurface, request_path_for_canonical_path,
 };
-use crate::engine::shell::{AccessPolicy, CommandResult, OutputLine, PathArg};
+use crate::engine::shell::{CommandResult, OutputLine, PathArg};
 
-use super::{can_write_path, resolve_path_arg};
+use super::resolve_path_arg;
 
 /// Execute `ls` command.
 pub(super) fn execute_ls(
     path: Option<PathArg>,
     long: bool,
     wallet_state: &WalletState,
-    access_policy: &AccessPolicy,
-    runtime_mounts: &[RuntimeMount],
     fs: &GlobalFs,
     cwd: &VirtualPath,
 ) -> CommandResult {
@@ -23,14 +21,7 @@ pub(super) fn execute_ls(
     };
 
     if let Some(entries) = fs.list_dir(&resolved) {
-        return CommandResult::output(format_ls_output(
-            &entries,
-            long,
-            wallet_state,
-            access_policy,
-            runtime_mounts,
-            fs,
-        ));
+        return CommandResult::output(format_ls_output(&entries, long, wallet_state, fs));
     }
 
     if fs.exists(&resolved) {
@@ -47,8 +38,6 @@ fn format_ls_output(
     entries: &[DirEntry],
     long: bool,
     wallet_state: &WalletState,
-    access_policy: &AccessPolicy,
-    runtime_mounts: &[RuntimeMount],
     fs: &GlobalFs,
 ) -> Vec<OutputLine> {
     if long {
@@ -56,10 +45,8 @@ fn format_ls_output(
             .iter()
             .map(|entry| {
                 let fs_entry = fs.get_entry(&entry.path);
-                let writable =
-                    can_write_path(wallet_state, access_policy, runtime_mounts, &entry.path);
                 let perms = fs_entry
-                    .map(|e| fs.get_permissions(e, wallet_state, writable))
+                    .map(|e| fs.get_permissions(e, wallet_state))
                     .unwrap_or_default();
                 OutputLine::long_entry(entry, &perms)
             })

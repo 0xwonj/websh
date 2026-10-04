@@ -28,6 +28,7 @@ use crate::features::reader::{Reader, ReaderFrame};
 use crate::features::terminal::Shell;
 use crate::platform::dom::{current_route_request, focus_terminal_input, replace_request_path};
 use crate::runtime::MountLoadStatus;
+use crate::runtime::mounts::{RefreshState, SnapshotOrigin};
 use crate::shared::components::{
     AttestationSigFooter, ErrorPageActionButton, ErrorPageActionLink, ErrorPageActions,
     ErrorPageBody, ErrorPageDetails, ErrorPageFrame, ErrorPageTone, SiteContentFrame, SiteSurface,
@@ -40,15 +41,13 @@ const NOT_FOUND_CONTENT_PATH: &str = "/.site/errors/404.md";
 ///
 /// Each variant corresponds to a reserved URL prefix (or full path) the
 /// router handles directly. The engine never resolves these — it does not
-/// know about UI-level concerns like compose mode or ledger filter views.
+/// know about UI-level concerns like ledger filter views.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BuiltinRoute {
     /// `/` — homepage.
     Home,
     /// `/ledger` and `/<category>` — ledger filter views.
     LedgerFilter,
-    /// `/new` — mempool compose flow.
-    NewCompose,
 }
 
 impl BuiltinRoute {
@@ -61,9 +60,6 @@ impl BuiltinRoute {
         if is_ledger_filter_route_segment(request.url_path.trim_matches('/')) {
             return Some(Self::LedgerFilter);
         }
-        if is_new_request_path(request) {
-            return Some(Self::NewCompose);
-        }
         None
     }
 }
@@ -71,8 +67,7 @@ use websh_core::domain::VirtualPath;
 use websh_core::filesystem::{
     GlobalFs, RenderIntent, ResolvedKind, RouteCatalogError, RouteFrame, RouteRequest,
     RouteResolution, RouteRole, RouteSurface, build_render_intent, bundle_variant_href,
-    content_route_for_path, is_new_request_path, route_request_targets_runtime_overlay,
-    try_resolve_route,
+    content_route_for_path, route_request_targets_runtime_overlay, try_resolve_route,
 };
 
 /// Main application router.
@@ -117,9 +112,9 @@ pub fn RouterView() -> impl IntoView {
     let route = Memo::new(move |_| {
         let request = _raw_request.get();
         let fs = if route_request_targets_runtime_overlay(&request) {
-            ctx.system_global_fs.get()
+            ctx.system_global_fs.with(|fs| fs.as_ref().clone())
         } else {
-            ctx.view_global_fs.get()
+            ctx.global_fs.get()
         };
         let Some(resolution) = try_resolve_route(&fs, &request)? else {
             return Ok(None);
@@ -161,14 +156,6 @@ pub fn RouterView() -> impl IntoView {
                     <LedgerPage route=Memo::new(move |_| ledger_filter_frame(_raw_request.get())) />
                 }
                 .into_any(),
-                Some(BuiltinRoute::NewCompose) => {
-                    let reader_frame = ReaderFrame::try_from(new_compose_frame())
-                        .expect("compose route always produces a Reader-bound intent");
-                    view! {
-                        <Reader frame=Memo::new(move |_| reader_frame.clone()) />
-                    }
-                    .into_any()
-                }
                 None => match route_state.ok().flatten() {
                     Some(frame) => match frame.intent {
                         RenderIntent::TerminalApp { .. } => {
@@ -201,36 +188,52 @@ pub fn RouterView() -> impl IntoView {
     }
 }
 
-fn unresolved_route_view(ctx: AppContext, request: RouteRequest) -> AnyView {
-    match ctx.mount_status_for(&VirtualPath::root()) {
-        Some(MountLoadStatus::Loaded { .. }) => view! { <NotFound request=request /> }.into_any(),
-        Some(MountLoadStatus::Failed { error, .. }) => {
-            view! { <RootMountFailed request=request error=error /> }.into_any()
-        }
-        Some(MountLoadStatus::Loading { .. }) | None => {
-            view! { <RoutePending request=request /> }.into_any()
-        }
+#[derive(Debug, PartialEq, Eq)]
+enum MissingRouteState {
+    ConfirmedMissing,
+    Pending,
+    Unconfirmed(String),
+}
+
+fn missing_route_state(status: Option<MountLoadStatus>) -> MissingRouteState {
+    match status {
+        Some(MountLoadStatus::Available {
+            origin: SnapshotOrigin::Network,
+            refresh: RefreshState::Idle,
+            ..
+        }) => MissingRouteState::ConfirmedMissing,
+        Some(MountLoadStatus::Failed { error })
+        | Some(MountLoadStatus::Available {
+            refresh: RefreshState::Failed(error),
+            ..
+        }) => MissingRouteState::Unconfirmed(error),
+        _ => MissingRouteState::Pending,
     }
 }
 
-fn new_compose_frame() -> RouteFrame {
-    let request = RouteRequest::new("/new");
-    let request_path = request.url_path.clone();
-    let node_path = VirtualPath::root();
-    RouteFrame {
-        request: request.clone(),
-        resolution: RouteResolution {
-            request_path,
-            route_path: "/new".to_string(),
-            surface: RouteSurface::Content,
-            route_owner_path: node_path.clone(),
-            node_path: node_path.clone(),
-            route_role: RouteRole::ContentNode,
-            kind: ResolvedKind::Document,
-            params: BTreeMap::new(),
-            bundle_variant: None,
-        },
-        intent: RenderIntent::MarkdownContent { node_path },
+fn request_mount_path(request: &RouteRequest) -> VirtualPath {
+    let path = request
+        .url_path
+        .strip_prefix("/websh/")
+        .map(|tail| format!("/{tail}"))
+        .unwrap_or_else(|| request.url_path.clone());
+    VirtualPath::from_absolute(path).unwrap_or_else(|_| VirtualPath::root())
+}
+
+fn unresolved_route_view(ctx: AppContext, request: RouteRequest) -> AnyView {
+    let entry = ctx
+        .mounts
+        .with(|mounts| mounts.owner(&request_mount_path(&request)).cloned());
+    let root = entry
+        .as_ref()
+        .map(|entry| entry.declared.root.clone())
+        .unwrap_or_else(VirtualPath::root);
+    match missing_route_state(entry.map(|entry| entry.status)) {
+        MissingRouteState::ConfirmedMissing => view! { <NotFound request=request /> }.into_any(),
+        MissingRouteState::Unconfirmed(error) => {
+            view! { <MountRouteUnconfirmed request=request error=error root=root /> }.into_any()
+        }
+        MissingRouteState::Pending => view! { <RoutePending request=request /> }.into_any(),
     }
 }
 
@@ -349,7 +352,7 @@ fn install_bundle_locale_selector_effect(
         let RenderIntent::BundleLocaleSelector { bundle_path } = frame.intent else {
             return;
         };
-        let fs = ctx.view_global_fs.get();
+        let fs = ctx.global_fs.get();
         let runtime_state = ctx.runtime_state.get();
         let lang = runtime_state.env.get(LANG_ENV_KEY).map(String::as_str);
         let Some(href) = locale_selected_bundle_variant_href(&fs, &bundle_path, lang) else {
@@ -445,16 +448,17 @@ fn RoutePending(request: RouteRequest) -> impl IntoView {
 }
 
 #[component]
-fn RootMountFailed(request: RouteRequest, error: String) -> impl IntoView {
+fn MountRouteUnconfirmed(request: RouteRequest, error: String, root: VirtualPath) -> impl IntoView {
     let request_path = request.url_path.clone();
+    let ctx = use_context::<AppContext>().expect("AppContext must be provided");
 
     view! {
         <RouteErrorPage request=request>
             <ErrorPageBody
                 tone=ErrorPageTone::Failure
                 code="mount"
-                title="Root mount failed"
-                message="The content filesystem could not be mounted, so this route cannot be resolved."
+                title="Route unconfirmed"
+                message="The latest listing could not be loaded. This route may exist; refresh its mount to check again."
             >
                 <ErrorPageDetails summary="Request path" open=true>
                     <code>{request_path}</code>
@@ -464,11 +468,12 @@ fn RootMountFailed(request: RouteRequest, error: String) -> impl IntoView {
                 </ErrorPageDetails>
                 <ErrorPageActions>
                     <ErrorPageActionButton on_click=Callback::new(move |()| {
-                        if let Some(window) = web_sys::window() {
-                            let _ = window.location().reload();
-                        }
+                        let root = root.clone();
+                        wasm_bindgen_futures::spawn_local(async move {
+                            let _ = crate::app::RuntimeServices::new(ctx).reload_runtime_mount(root).await;
+                        });
                     })>
-                        "Reload page"
+                        "Refresh listing"
                     </ErrorPageActionButton>
                     <ErrorPageActionLink href=HOME_HREF>"Go home"</ErrorPageActionLink>
                 </ErrorPageActions>
@@ -479,6 +484,8 @@ fn RootMountFailed(request: RouteRequest, error: String) -> impl IntoView {
 
 #[component]
 fn RouteCatalogInvalid(request: RouteRequest, error: RouteCatalogError) -> impl IntoView {
+    let ctx = use_context::<AppContext>().expect("AppContext must be provided");
+    let root = VirtualPath::root();
     let request_path = request.url_path.clone();
     let error = error.to_string();
 
@@ -498,11 +505,12 @@ fn RouteCatalogInvalid(request: RouteRequest, error: RouteCatalogError) -> impl 
                 </ErrorPageDetails>
                 <ErrorPageActions>
                     <ErrorPageActionButton on_click=Callback::new(move |()| {
-                        if let Some(window) = web_sys::window() {
-                            let _ = window.location().reload();
-                        }
+                        let root = root.clone();
+                        wasm_bindgen_futures::spawn_local(async move {
+                            let _ = crate::app::RuntimeServices::new(ctx).reload_runtime_mount(root).await;
+                        });
                     })>
-                        "Reload page"
+                        "Refresh listing"
                     </ErrorPageActionButton>
                     <ErrorPageActionLink href=HOME_HREF>"Go home"</ErrorPageActionLink>
                 </ErrorPageActions>
@@ -528,7 +536,7 @@ mod builtin_route_tests {
             ("/papers", Some(BuiltinRoute::LedgerFilter)),
             ("/talks", Some(BuiltinRoute::LedgerFilter)),
             ("/misc", Some(BuiltinRoute::LedgerFilter)),
-            ("/new", Some(BuiltinRoute::NewCompose)),
+            ("/new", None),
         ];
 
         for (path, expected) in cases {
@@ -576,5 +584,39 @@ mod builtin_route_tests {
                 "expected content fs for {path}"
             );
         }
+    }
+    #[wasm_bindgen_test]
+    fn missing_route_is_only_404_after_confirmed_live_listing() {
+        let available = |origin, refresh| {
+            Some(MountLoadStatus::Available {
+                total_files: 0,
+                observed_at_ms: 1,
+                origin,
+                refresh,
+            })
+        };
+        assert_eq!(
+            missing_route_state(available(SnapshotOrigin::Cache, RefreshState::Running)),
+            MissingRouteState::Pending
+        );
+        assert_eq!(
+            missing_route_state(available(SnapshotOrigin::Network, RefreshState::Running)),
+            MissingRouteState::Pending
+        );
+        assert_eq!(
+            missing_route_state(available(SnapshotOrigin::Network, RefreshState::Idle)),
+            MissingRouteState::ConfirmedMissing
+        );
+        assert!(matches!(
+            missing_route_state(available(
+                SnapshotOrigin::Cache,
+                RefreshState::Failed("offline".into())
+            )),
+            MissingRouteState::Unconfirmed(_)
+        ));
+        assert_eq!(
+            request_mount_path(&RouteRequest::new("/websh/db/missing")).as_str(),
+            "/db/missing"
+        );
     }
 }

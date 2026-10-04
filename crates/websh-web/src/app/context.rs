@@ -10,9 +10,7 @@ use super::{RuntimeServiceError, TerminalState};
 use crate::config::APP_NAME;
 use crate::runtime::content_cache::{ContentTextCache, ContentTextCacheKey};
 use crate::runtime::{self, RuntimeLoad};
-use websh_core::domain::{
-    ChangeSet, RuntimeMount, VirtualPath, WalletState, is_runtime_overlay_path,
-};
+use websh_core::domain::{RuntimeMount, VirtualPath, WalletState, is_runtime_overlay_path};
 use websh_core::filesystem::{ContentReadError, GlobalFs, display_path_for};
 use websh_core::ports::{LocalBoxFuture, StorageBackendRef};
 use websh_core::runtime::RuntimeStateSnapshot;
@@ -54,14 +52,7 @@ pub struct AppContext {
     /// Terminal state (history, commands).
     pub terminal: TerminalState,
 
-    /// Staged + working-tree edits awaiting commit.
-    pub changes: RwSignal<ChangeSet>,
-    /// IndexedDB draft hydration has completed. Draft persistence is gated on
-    /// this so the initial empty ChangeSet cannot overwrite a stored draft.
-    pub drafts_hydrated: RwSignal<bool>,
-    /// Content filesystem with local `changes` overlaid.
-    pub view_global_fs: Signal<Rc<GlobalFs>, LocalStorage>,
-    /// System filesystem with content changes plus synthetic `/.websh/state`.
+    /// System filesystem with content plus synthetic `/.websh/state`.
     pub system_global_fs: Signal<Rc<GlobalFs>, LocalStorage>,
     /// Backend registry keyed by canonical mount roots.
     backends: StoredValue<BTreeMap<VirtualPath, StorageBackendRef>, LocalStorage>,
@@ -69,17 +60,14 @@ pub struct AppContext {
     content_text_cache: StoredValue<ContentTextCache, LocalStorage>,
     /// Backend text reads already in flight, keyed like the text cache.
     content_text_inflight: StoredValue<BTreeMap<ContentTextCacheKey, SharedTextRead>, LocalStorage>,
-    /// Runtime mount declarations, effective write status, and scan jobs.
+    /// Runtime mount declarations, load status, and scan jobs.
     pub mounts: RwSignal<runtime::MountLoadSet, LocalStorage>,
-    /// Remote HEAD registry keyed by canonical mount roots.
-    pub remote_heads: RwSignal<BTreeMap<VirtualPath, String>>,
     /// Runtime generation used to ignore stale background mount scans.
-    runtime_generation: StoredValue<u64, LocalStorage>,
+    runtime_generation: RwSignal<u64>,
+    root_request_sequence: StoredValue<u64, LocalStorage>,
+    mount_cache: StoredValue<runtime::mount_cache::MountCacheRef, LocalStorage>,
     /// Browser-hydrated runtime state rendered under `/.websh/state`.
     pub runtime_state: RwSignal<RuntimeStateSnapshot>,
-
-    /// When `Some(path)`, the `EditModal` is open editing that path. `None` = closed.
-    pub editor_open: RwSignal<Option<websh_core::domain::VirtualPath>>,
 }
 
 impl AppContext {
@@ -93,23 +81,13 @@ impl AppContext {
         super::RuntimeServices::install_browser_persistence();
         let initial_load = super::RuntimeServices::bootstrap_runtime_load();
         let global_fs = RwSignal::new(initial_load.global_fs);
-        let changes = RwSignal::new(ChangeSet::new());
-        let drafts_hydrated = RwSignal::new(false);
         let wallet = RwSignal::new(WalletState::default());
         let wallet_event_listeners = StoredValue::new_local(None);
         let runtime_state = RwSignal::new(super::RuntimeServices::runtime_state_snapshot());
-        let view_global_fs = Signal::derive_local(move || {
-            Rc::new(global_fs.with(|base| {
-                changes.with(|cs| websh_core::runtime::build_content_view_global_fs(base, cs))
-            }))
-        });
         let system_global_fs = Signal::derive_local(move || {
             Rc::new(global_fs.with(|base| {
-                changes.with(|cs| {
-                    wallet.with(|ws| {
-                        runtime_state
-                            .with(|rs| websh_core::runtime::build_view_global_fs(base, cs, ws, rs))
-                    })
+                wallet.with(|ws| {
+                    runtime_state.with(|rs| websh_core::runtime::build_view_global_fs(base, ws, rs))
                 })
             }))
         });
@@ -119,11 +97,9 @@ impl AppContext {
         let content_text_cache = StoredValue::new_local(ContentTextCache::default());
         let content_text_inflight = StoredValue::new_local(BTreeMap::new());
         let mounts = RwSignal::new_local(initial_load.mounts);
-        let remote_heads = RwSignal::new(initial_load.remote_heads);
-        let runtime_generation = StoredValue::new_local(0_u64);
+        let runtime_generation = RwSignal::new(0_u64);
+        let root_request_sequence = StoredValue::new_local(0_u64);
         let theme = RwSignal::new(crate::render::theme::initial_theme());
-
-        let editor_open = RwSignal::new(None);
 
         Self {
             // Shared state
@@ -137,21 +113,18 @@ impl AppContext {
             // Terminal state
             terminal: TerminalState::new(),
 
-            // Runtime filesystem/write state
-            changes,
-            drafts_hydrated,
-            view_global_fs,
+            // Runtime read state
             system_global_fs,
             backends,
             content_text_cache,
             content_text_inflight,
             mounts,
-            remote_heads,
             runtime_generation,
+            root_request_sequence,
+            mount_cache: StoredValue::new_local(Rc::new(
+                runtime::mount_cache::BrowserMountCache::default(),
+            )),
             runtime_state,
-
-            // Editor state
-            editor_open,
         }
     }
 
@@ -190,52 +163,74 @@ impl AppContext {
         format!("{}@{}:{}", username, APP_NAME, display_path)
     }
 
-    /// Best-effort lookup for the backend responsible for a canonical path.
-    /// Falls back to a parent mount via longest-prefix match — appropriate
-    /// for *read* paths where missing a deeper mount means falling back to
-    /// the parent's view is acceptable. **Do not use this for writes**: see
-    /// `backend_for_mount_root` for the strict variant required by commits.
+    /// Look up the most specific registered public backend.
     pub fn backend_for_path(&self, path: &VirtualPath) -> Option<StorageBackendRef> {
-        self.backends.with_value(|map| {
-            map.iter()
-                .filter(|(root, _)| path.starts_with(root))
-                .max_by_key(|(root, _)| root.as_str().len())
-                .map(|(_, backend)| backend.clone())
-        })
+        let owner = self
+            .mounts
+            .with_untracked(|mounts| mounts.owner(path).map(|entry| entry.declared.root.clone()))?;
+        self.backend_for_mount_root(&owner)
     }
 
-    /// Strict lookup for the backend whose mount root *exactly* matches the
-    /// supplied root. Used by commit / write flows so that a write to
-    /// `/mempool/...` cannot silently fall back to the parent `/` mount when
-    /// `/mempool` itself is unregistered. Returns `None` when no backend is
-    /// registered at exactly `root`.
+    /// Look up the backend at an exact accepted mount root.
     pub fn backend_for_mount_root(&self, root: &VirtualPath) -> Option<StorageBackendRef> {
         self.backends.with_value(|map| map.get(root).cloned())
     }
 
-    pub async fn read_text(&self, path: &VirtualPath) -> Result<String, ContentReadError> {
-        let generation = self.runtime_generation();
-        let result = self.read_text_for_generation(path, generation).await;
-        if self.runtime_generation() == generation {
-            return result;
-        }
-
-        self.read_text_for_generation(path, self.runtime_generation())
-            .await
+    /// Reactive content identity. Refresh progress and failures do not change this value.
+    pub fn read_version(&self, path: &VirtualPath) -> (u64, u64) {
+        (
+            self.runtime_generation.get(),
+            self.mounts
+                .with(|mounts| mounts.owner(path).map_or(0, |entry| entry.content_revision)),
+        )
     }
 
-    async fn read_text_for_generation(
+    pub(crate) fn current_read_version(&self, path: &VirtualPath) -> (u64, u64) {
+        (
+            self.runtime_generation(),
+            self.mounts.with_untracked(|mounts| {
+                mounts.owner(path).map_or(0, |entry| entry.content_revision)
+            }),
+        )
+    }
+
+    pub async fn read_text(&self, path: &VirtualPath) -> Result<String, ContentReadError> {
+        for _ in 0..2 {
+            let version = self.current_read_version(path);
+            let result = self.read_text_at_version(path, version).await;
+            if self.current_read_version(path) == version {
+                return result;
+            }
+        }
+        Err(ContentReadError::Obsolete { path: path.clone() })
+    }
+
+    async fn read_text_at_version(
         &self,
         path: &VirtualPath,
-        generation: u64,
-    ) -> Result<String, ContentReadError> {
+        version: (u64, u64),
+    ) -> TextReadResult {
         let fs = self.view_fs_for_path(path);
-        if let Some(text) = fs.read_pending_text(path) {
+        if let Some(text) = fs.read_inline_text(path) {
             return Ok(text);
         }
-
-        let backends = self.backends.with_value(|map| map.clone());
-        let cache_key = content_cache_key_for_path(generation, &backends, path)?;
+        let mount_root = self
+            .mounts
+            .with_untracked(|mounts| mounts.owner(path).map(|entry| entry.declared.root.clone()))
+            .ok_or_else(|| ContentReadError::NoBackend { path: path.clone() })?;
+        // Failed declaration boundaries must never fall through to an ancestor backend.
+        if self.backend_for_mount_root(&mount_root).is_none() {
+            return Err(ContentReadError::NoBackend { path: path.clone() });
+        }
+        let cache_key = ContentTextCacheKey {
+            generation: version.0,
+            revision: version.1,
+            rel_path: path
+                .strip_prefix(&mount_root)
+                .expect("owning mount contains path")
+                .to_string(),
+            mount_root,
+        };
         let mut cached = None;
         self.content_text_cache
             .update_value(|cache| cached = cache.get(&cache_key));
@@ -249,36 +244,52 @@ impl AppContext {
                 read = Some(existing.clone());
                 return;
             }
-
+            let backends = self.backends.with_value(Clone::clone);
             let shared = shared_text_read(fs, backends, path.clone());
             inflight.insert(cache_key.clone(), shared.clone());
             read = Some(shared);
         });
-
-        let result = read
-            .expect("text read future must be installed before await")
-            .await;
-
+        let read = read.expect("text read installed before await");
+        let result = read.clone().await;
         if let Ok(text) = &result
-            && self.runtime_generation() == generation
+            && self.current_read_version(path) == version
         {
             self.content_text_cache
                 .update_value(|cache| cache.insert(cache_key.clone(), text.clone()));
         }
         self.content_text_inflight.update_value(|inflight| {
-            let _ = inflight.remove(&cache_key);
+            // Another waiter may already have removed this request and installed a retry.
+            if inflight
+                .get(&cache_key)
+                .is_some_and(|current| current.ptr_eq(&read))
+            {
+                inflight.remove(&cache_key);
+            }
         });
         result
     }
 
     pub async fn read_bytes(&self, path: &VirtualPath) -> Result<Vec<u8>, ContentReadError> {
-        let fs = self.view_fs_for_path(path);
-        let backends = self.backends.with_value(|map| map.clone());
-        websh_core::filesystem::read_bytes(&fs, &backends, path).await
+        for _ in 0..2 {
+            let version = self.current_read_version(path);
+            let fs = self.view_fs_for_path(path);
+            if fs.read_inline_text(path).is_none() && self.backend_for_path(path).is_none() {
+                return Err(ContentReadError::NoBackend { path: path.clone() });
+            }
+            let backends = self.backends.with_value(Clone::clone);
+            let result = websh_core::filesystem::read_bytes(&fs, &backends, path).await;
+            if self.current_read_version(path) == version {
+                return result;
+            }
+        }
+        Err(ContentReadError::Obsolete { path: path.clone() })
     }
 
     pub fn public_read_url(&self, path: &VirtualPath) -> Result<Option<String>, ContentReadError> {
         let fs = self.view_fs_for_path(path);
+        if fs.read_inline_text(path).is_none() && self.backend_for_path(path).is_none() {
+            return Err(ContentReadError::NoBackend { path: path.clone() });
+        }
         let backends = self.backends.with_value(|map| map.clone());
         websh_core::filesystem::public_read_url(&fs, &backends, path)
     }
@@ -287,7 +298,7 @@ impl AppContext {
         if is_runtime_overlay_path(path) {
             self.system_global_fs.get()
         } else {
-            self.view_global_fs.get()
+            Rc::new(self.global_fs.get())
         }
     }
 
@@ -296,18 +307,6 @@ impl AppContext {
             .into_iter()
             .filter(|mount| mount.contains(path))
             .max_by_key(|mount| mount.root.as_str().len())
-    }
-
-    /// Best-effort lookup for the last known remote HEAD responsible for a
-    /// canonical path. Reads untracked: callers (commit flows in
-    /// `spawn_local`) want a one-shot snapshot, not a subscription.
-    pub fn remote_head_for_path(&self, path: &VirtualPath) -> Option<String> {
-        self.remote_heads.with_untracked(|map| {
-            map.iter()
-                .filter(|(root, _)| path.starts_with(root))
-                .max_by_key(|(root, _)| root.as_str().len())
-                .map(|(_, head)| head.clone())
-        })
     }
 
     pub fn declared_mount_for_root(&self, root: &VirtualPath) -> Option<RuntimeMount> {
@@ -320,13 +319,6 @@ impl AppContext {
         self.content_text_inflight.update_value(BTreeMap::clear);
     }
 
-    pub fn evict_text_cache_path(&self, path: &VirtualPath) {
-        self.content_text_cache
-            .update_value(|cache| cache.evict_path(path));
-        self.content_text_inflight
-            .update_value(|inflight| evict_inflight_path(inflight, path));
-    }
-
     pub fn evict_text_cache_mount(&self, mount_root: &VirtualPath) {
         self.content_text_cache
             .update_value(|cache| cache.evict_mount(mount_root));
@@ -335,7 +327,7 @@ impl AppContext {
     }
 
     pub fn runtime_generation(&self) -> u64 {
-        self.runtime_generation.get_value()
+        self.runtime_generation.get_untracked()
     }
 
     pub fn mark_mount_loading(
@@ -366,23 +358,86 @@ impl AppContext {
         }
     }
 
+    pub fn begin_root_request(&self) -> u64 {
+        let sequence = self.root_request_sequence.get_value().saturating_add(1);
+        self.root_request_sequence.set_value(sequence);
+        let _ = self.mark_mount_loading(&VirtualPath::root());
+        sequence
+    }
+
+    pub fn accepts_root_request(&self, sequence: u64) -> bool {
+        self.root_request_sequence.get_value() == sequence
+    }
+
     pub fn apply_runtime_load(&self, load: RuntimeLoad) -> u64 {
-        let generation = self.runtime_generation.get_value().saturating_add(1);
-        self.runtime_generation.set_value(generation);
-        self.global_fs.set(load.global_fs);
-        self.backends.set_value(load.backends);
-        self.mounts.set(load.mounts);
-        self.remote_heads.set(load.remote_heads);
+        let generation = self.runtime_generation().saturating_add(1);
+        batch(|| {
+            self.clear_text_cache();
+            self.backends.set_value(load.backends);
+            self.runtime_generation.set(generation);
+            self.global_fs.set(load.global_fs);
+            self.mounts.set(load.mounts);
+        });
         generation
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_mount_cache(&self, cache: runtime::mount_cache::MountCacheRef) {
+        self.mount_cache.set_value(cache);
+    }
+
+    pub fn mount_cache(&self) -> runtime::mount_cache::MountCacheRef {
+        self.mount_cache.get_value()
+    }
+
+    pub fn mount_cache_descriptor(
+        &self,
+        root: &VirtualPath,
+    ) -> Option<runtime::mount_cache::CacheDescriptor> {
+        self.mounts.with_untracked(|mounts| {
+            mounts
+                .entries
+                .get(root)
+                .and_then(|entry| entry.cache_descriptor.clone())
+        })
+    }
+
+    pub fn mount_attempt_is_current(
+        &self,
+        generation: u64,
+        root: &VirtualPath,
+        epoch: u64,
+    ) -> bool {
+        generation == self.runtime_generation()
+            && self
+                .mounts
+                .with_untracked(|mounts| mounts.accepts_result(root, epoch))
     }
 
     pub fn apply_mount_scan_result(
         &self,
         generation: u64,
         result: runtime::MountScanResult,
-    ) -> Result<(), RuntimeServiceError> {
+    ) -> Result<bool, RuntimeServiceError> {
+        self.apply_mount_snapshot(
+            generation,
+            result,
+            runtime::mounts::SnapshotOrigin::Network,
+            crate::platform::time::current_timestamp(),
+            runtime::mounts::RefreshState::Idle,
+        )
+    }
+
+    pub fn apply_mount_snapshot(
+        &self,
+        generation: u64,
+        result: runtime::MountScanResult,
+        origin: runtime::mounts::SnapshotOrigin,
+        observed_at_ms: u64,
+        refresh: runtime::mounts::RefreshState,
+    ) -> Result<bool, RuntimeServiceError> {
         if generation != self.runtime_generation() {
-            return Ok(());
+            return Ok(false);
         }
 
         let root = result.mount.root.clone();
@@ -392,19 +447,28 @@ impl AppContext {
             .mounts
             .with_untracked(|mounts| mounts.accepts_result(&root, epoch))
         {
-            return Ok(());
+            return Ok(false);
+        }
+
+        if origin == runtime::mounts::SnapshotOrigin::Cache
+            && !self
+                .mounts
+                .with_untracked(|mounts| mounts.accepts_cache(&root, epoch))
+        {
+            return Ok(false);
         }
 
         match result.scan {
             Ok(scan) => {
                 let total_files = scan.files.len();
-                self.evict_text_cache_mount(&root);
                 let mut global = self.global_fs.get_untracked();
                 if let Err(error) = global.replace_scanned_subtree(root.clone(), &scan) {
                     let message = format!("mount {label}: {error}");
-                    self.mounts.update(|mounts| {
-                        mounts.mark_failed_if_current(&root, epoch, message.clone());
-                    });
+                    if origin == runtime::mounts::SnapshotOrigin::Network {
+                        self.mounts.update(|mounts| {
+                            mounts.mark_failed_if_current(&root, epoch, message.clone());
+                        });
+                    }
                     return Err(RuntimeServiceError::ReplaceScannedSubtree {
                         label,
                         source: error,
@@ -416,49 +480,34 @@ impl AppContext {
                 for failed_root in failed_descendants {
                     let _ = global.reserve_mount_point(failed_root);
                 }
-                self.global_fs.set(global);
-                self.backends.update_value(|backends| {
-                    backends.insert(root.clone(), result.backend);
+                if let Err(source) = websh_core::filesystem::RouteCatalog::from_global_fs(&global) {
+                    if origin == runtime::mounts::SnapshotOrigin::Network {
+                        self.mounts.update(|mounts| {
+                            mounts.mark_failed_if_current(&root, epoch, source.to_string());
+                        });
+                    }
+                    return Err(RuntimeServiceError::InvalidRoutes { source });
+                }
+                batch(|| {
+                    self.evict_text_cache_mount(&root);
+                    self.backends.update_value(|backends| {
+                        backends.insert(root.clone(), result.backend);
+                    });
+                    self.global_fs.set(global);
+                    self.mounts.update(|mounts| {
+                        mounts.publish(&root, epoch, total_files, observed_at_ms, origin, refresh);
+                    });
                 });
-                self.mounts.update(|mounts| {
-                    mounts.mark_loaded_if_current(&root, epoch, total_files);
-                });
-                Ok(())
+                Ok(true)
             }
             Err(error) => {
-                self.evict_text_cache_mount(&root);
                 self.mounts.update(|mounts| {
                     mounts.mark_failed_if_current(&root, epoch, error.to_string());
                 });
-                Ok(())
+                Ok(false)
             }
         }
     }
-}
-
-fn content_cache_key_for_path(
-    generation: u64,
-    backends: &BTreeMap<VirtualPath, StorageBackendRef>,
-    path: &VirtualPath,
-) -> Result<ContentTextCacheKey, ContentReadError> {
-    let mount_root = backends
-        .keys()
-        .filter(|root| path.starts_with(root))
-        .max_by_key(|root| root.as_str().len())
-        .cloned()
-        .ok_or_else(|| ContentReadError::NoBackend { path: path.clone() })?;
-    let rel_path = path
-        .strip_prefix(&mount_root)
-        .ok_or_else(|| ContentReadError::PathOutsideBackendRoot {
-            path: path.clone(),
-            root: mount_root.clone(),
-        })?
-        .to_string();
-    Ok(ContentTextCacheKey {
-        generation,
-        mount_root,
-        rel_path,
-    })
 }
 
 fn shared_text_read(
@@ -469,25 +518,6 @@ fn shared_text_read(
     let read: LocalBoxFuture<'static, TextReadResult> =
         Box::pin(async move { websh_core::filesystem::read_text(&fs, &backends, &path).await });
     read.shared()
-}
-
-fn evict_inflight_path(
-    inflight: &mut BTreeMap<ContentTextCacheKey, SharedTextRead>,
-    path: &VirtualPath,
-) {
-    let keys = inflight
-        .keys()
-        .filter(|key| {
-            path.starts_with(&key.mount_root)
-                && path
-                    .strip_prefix(&key.mount_root)
-                    .is_some_and(|rel| rel == key.rel_path)
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    for key in keys {
-        inflight.remove(&key);
-    }
 }
 
 fn evict_inflight_mount(
@@ -521,8 +551,7 @@ mod tests {
     use websh_core::domain::{EntryExtensions, Fields, NodeKind, NodeMetadata, SCHEMA_VERSION};
     use websh_core::filesystem::MountError;
     use websh_core::ports::{
-        CommitOutcome, CommitRequest, LocalBoxFuture, ScannedSubtree, StorageBackend,
-        StorageBackendRef, StorageError, StorageResult,
+        LocalBoxFuture, ScannedSubtree, StorageBackend, StorageBackendRef, StorageResult,
     };
 
     wasm_bindgen_test_configure!(run_in_browser);
@@ -559,20 +588,9 @@ mod tests {
 
         fn read_bytes<'a>(
             &'a self,
-            _rel_path: &'a str,
+            rel_path: &'a str,
         ) -> LocalBoxFuture<'a, StorageResult<Vec<u8>>> {
-            Box::pin(async { Ok(Vec::new()) })
-        }
-
-        fn commit<'a>(
-            &'a self,
-            _request: &'a CommitRequest,
-        ) -> LocalBoxFuture<'a, StorageResult<CommitOutcome>> {
-            Box::pin(async {
-                Err(StorageError::InvalidRequest {
-                    message: "unused".to_string(),
-                })
-            })
+            Box::pin(async move { self.read_text(rel_path).await.map(String::into_bytes) })
         }
     }
 
@@ -589,7 +607,6 @@ mod tests {
             VirtualPath::root(),
             "~",
             websh_core::domain::RuntimeBackendKind::GitHub,
-            true,
         )
     }
 
@@ -602,7 +619,6 @@ mod tests {
         ctx.apply_runtime_load(RuntimeLoad {
             global_fs: GlobalFs::empty(),
             backends,
-            remote_heads: BTreeMap::new(),
             total_files: 0,
             mounts,
         });
@@ -619,7 +635,7 @@ mod tests {
     }
 
     #[wasm_bindgen_test(async)]
-    async fn read_text_caches_backend_results_within_generation_and_pending_text_bypasses_cache() {
+    async fn read_text_caches_backend_results_within_generation_and_inline_text_bypasses_cache() {
         let owner = Owner::new();
         let reads = Rc::new(Cell::new(0));
         let path = VirtualPath::from_absolute("/cached.txt").expect("path");
@@ -708,7 +724,7 @@ mod tests {
 
             assert!(matches!(
                 ctx.mount_status_for(&root),
-                Some(runtime::MountLoadStatus::Loading { .. })
+                Some(runtime::MountLoadStatus::Loading)
             ));
             assert!(!ctx.mount_is_loaded(&root));
 
@@ -718,7 +734,7 @@ mod tests {
             assert!(ctx.mount_is_loaded(&root));
             assert!(matches!(
                 ctx.mount_status_for(&root),
-                Some(runtime::MountLoadStatus::Loaded { .. })
+                Some(runtime::MountLoadStatus::Available { .. })
             ));
 
             let mut failed_mounts = runtime::MountLoadSet::empty();
@@ -726,7 +742,6 @@ mod tests {
             ctx.apply_runtime_load(RuntimeLoad {
                 global_fs: GlobalFs::empty(),
                 backends: BTreeMap::new(),
-                remote_heads: BTreeMap::new(),
                 total_files: 0,
                 mounts: failed_mounts,
             });
@@ -750,7 +765,6 @@ mod tests {
                 root.clone(),
                 "db",
                 websh_core::domain::RuntimeBackendKind::GitHub,
-                true,
             );
             let backend = counting_backend(Rc::new(Cell::new(0)), "", 0);
 
@@ -789,5 +803,232 @@ mod tests {
                 Some(runtime::MountLoadStatus::Failed { .. })
             ));
         });
+    }
+    #[wasm_bindgen_test]
+    fn invalid_refresh_keeps_installed_tree_until_valid_empty_replacement() {
+        let owner = Owner::new();
+        owner.with(|| {
+            let ctx = AppContext::new();
+            let backend = counting_backend(Rc::new(Cell::new(0)), "body", 0);
+            apply_loaded_root_backend(ctx, backend.clone());
+            let path = VirtualPath::from_absolute("/kept.md").unwrap();
+            ctx.global_fs.update(|fs| {
+                fs.upsert_file(
+                    path.clone(),
+                    "kept".into(),
+                    data_meta(),
+                    EntryExtensions::default(),
+                )
+            });
+            let version = ctx.current_read_version(&path);
+            let (mount, epoch) = ctx.mark_mount_loading(&VirtualPath::root()).unwrap();
+            let scan = ScannedSubtree {
+                files: vec![websh_core::ports::ScannedFile {
+                    path: "../outside".into(),
+                    meta: data_meta(),
+                    extensions: EntryExtensions::default(),
+                }],
+                directories: vec![],
+            };
+            assert!(
+                ctx.apply_mount_scan_result(
+                    ctx.runtime_generation(),
+                    runtime::MountScanResult {
+                        mount,
+                        epoch,
+                        backend: backend.clone(),
+                        scan: Ok(scan)
+                    }
+                )
+                .is_err()
+            );
+            assert_eq!(ctx.current_read_version(&path), version);
+            assert!(
+                ctx.global_fs
+                    .with_untracked(|fs| fs.get_entry(&path).is_some())
+            );
+            assert!(matches!(
+                ctx.mount_status_for(&VirtualPath::root()),
+                Some(runtime::MountLoadStatus::Available {
+                    refresh: runtime::mounts::RefreshState::Failed(_),
+                    ..
+                })
+            ));
+            publish_root(ctx, backend);
+            assert!(
+                ctx.global_fs
+                    .with_untracked(|fs| fs.get_entry(&path).is_none())
+            );
+            assert_ne!(ctx.current_read_version(&path), version);
+            assert!(matches!(
+                ctx.mount_status_for(&VirtualPath::root()),
+                Some(runtime::MountLoadStatus::Available {
+                    total_files: 0,
+                    refresh: runtime::mounts::RefreshState::Idle,
+                    ..
+                })
+            ));
+        });
+    }
+
+    fn publish_root(ctx: AppContext, backend: StorageBackendRef) {
+        let (mount, epoch) = ctx.mark_mount_loading(&VirtualPath::root()).unwrap();
+        assert!(
+            ctx.apply_mount_scan_result(
+                ctx.runtime_generation(),
+                runtime::MountScanResult {
+                    mount,
+                    backend,
+                    epoch,
+                    scan: Ok(ScannedSubtree::default()),
+                }
+            )
+            .unwrap()
+        );
+    }
+
+    #[wasm_bindgen_test(async)]
+    async fn refresh_start_and_failure_keep_content_revision_and_cached_body() {
+        let owner = Owner::new();
+        let reads = Rc::new(Cell::new(0));
+        let backend = counting_backend(reads.clone(), "kept", 0);
+        let ctx = owner.with(|| {
+            let ctx = AppContext::new();
+            apply_loaded_root_backend(ctx, backend.clone());
+            ctx
+        });
+        let path = VirtualPath::from_absolute("/kept.txt").unwrap();
+        assert_eq!(ctx.read_text(&path).await.unwrap(), "kept");
+        let version = ctx.current_read_version(&path);
+        let (mount, epoch) = ctx.mark_mount_loading(&VirtualPath::root()).unwrap();
+        assert_eq!(ctx.current_read_version(&path), version);
+        assert_eq!(ctx.read_text(&path).await.unwrap(), "kept");
+        ctx.apply_mount_scan_result(
+            ctx.runtime_generation(),
+            runtime::MountScanResult {
+                mount,
+                backend,
+                epoch,
+                scan: Err(websh_core::ports::StorageError::Network {
+                    message: "offline".into(),
+                }),
+            },
+        )
+        .unwrap();
+        assert_eq!(ctx.current_read_version(&path), version);
+        assert_eq!(ctx.read_text(&path).await.unwrap(), "kept");
+        assert_eq!(reads.get(), 1);
+        assert!(matches!(
+            ctx.mount_status_for(&VirtualPath::root()),
+            Some(runtime::MountLoadStatus::Available {
+                refresh: runtime::mounts::RefreshState::Failed(_),
+                ..
+            })
+        ));
+    }
+
+    #[wasm_bindgen_test(async)]
+    async fn accepted_refresh_retries_old_reads_against_new_revision() {
+        let owner = Owner::new();
+        let reads = Rc::new(Cell::new(0));
+        let ctx = owner.with(|| {
+            let ctx = AppContext::new();
+            apply_loaded_root_backend(ctx, counting_backend(reads.clone(), "old", 40));
+            ctx
+        });
+        let path = VirtualPath::from_absolute("/updated.txt").unwrap();
+        let generation = ctx.runtime_generation();
+        let refresh = async {
+            while reads.get() == 0 {
+                TimeoutFuture::new(1).await;
+            }
+            publish_root(ctx, counting_backend(Rc::new(Cell::new(0)), "new", 0));
+        };
+        let (result, ()) = futures_util::join!(ctx.read_text(&path), refresh);
+        assert_eq!(result.unwrap(), "new");
+        assert_eq!(ctx.runtime_generation(), generation);
+        assert_eq!(ctx.read_text(&path).await.unwrap(), "new");
+    }
+
+    #[wasm_bindgen_test(async)]
+    async fn accepted_refresh_retries_binary_read_against_current_revision() {
+        let owner = Owner::new();
+        let reads = Rc::new(Cell::new(0));
+        let ctx = owner.with(|| {
+            let ctx = AppContext::new();
+            apply_loaded_root_backend(ctx, counting_backend(reads.clone(), "old bytes", 30));
+            ctx
+        });
+        let path = VirtualPath::from_absolute("/image.png").unwrap();
+        let refresh = async {
+            while reads.get() == 0 {
+                TimeoutFuture::new(1).await;
+            }
+            publish_root(ctx, counting_backend(Rc::new(Cell::new(0)), "new bytes", 0));
+        };
+        let (result, ()) = futures_util::join!(ctx.read_bytes(&path), refresh);
+        assert_eq!(result.unwrap(), b"new bytes");
+    }
+
+    #[wasm_bindgen_test(async)]
+    async fn twice_obsoleted_read_returns_cancellation_instead_of_stale_text() {
+        let owner = Owner::new();
+        let first = Rc::new(Cell::new(0));
+        let second = Rc::new(Cell::new(0));
+        let ctx = owner.with(|| {
+            let ctx = AppContext::new();
+            apply_loaded_root_backend(ctx, counting_backend(first.clone(), "old", 25));
+            ctx
+        });
+        let path = VirtualPath::from_absolute("/changing.txt").unwrap();
+        let refresh = async {
+            while first.get() == 0 {
+                TimeoutFuture::new(1).await;
+            }
+            publish_root(ctx, counting_backend(second.clone(), "middle", 25));
+            while second.get() == 0 {
+                TimeoutFuture::new(1).await;
+            }
+            publish_root(ctx, counting_backend(Rc::new(Cell::new(0)), "latest", 0));
+        };
+        let (result, ()) = futures_util::join!(ctx.read_text(&path), refresh);
+        assert!(matches!(result, Err(ContentReadError::Obsolete { .. })));
+        assert_eq!(ctx.read_text(&path).await.unwrap(), "latest");
+    }
+
+    #[wasm_bindgen_test(async)]
+    async fn failed_declaration_never_reads_ancestor_backend() {
+        let owner = Owner::new();
+        let reads = Rc::new(Cell::new(0));
+        let ctx = owner.with(|| {
+            let ctx = AppContext::new();
+            apply_loaded_root_backend(ctx, counting_backend(reads.clone(), "wrong source", 0));
+            ctx
+        });
+        let root = VirtualPath::from_absolute("/invalid").unwrap();
+        ctx.mounts.update(|mounts| {
+            mounts.insert_failed(
+                RuntimeMount::new(
+                    root,
+                    "invalid",
+                    websh_core::domain::RuntimeBackendKind::GitHub,
+                ),
+                "bad declaration",
+            )
+        });
+        let path = VirtualPath::from_absolute("/invalid/file.txt").unwrap();
+        assert!(matches!(
+            ctx.read_text(&path).await,
+            Err(ContentReadError::NoBackend { .. })
+        ));
+        assert!(matches!(
+            ctx.read_bytes(&path).await,
+            Err(ContentReadError::NoBackend { .. })
+        ));
+        assert!(matches!(
+            ctx.public_read_url(&path),
+            Err(ContentReadError::NoBackend { .. })
+        ));
+        assert_eq!(reads.get(), 0);
     }
 }

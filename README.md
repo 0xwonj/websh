@@ -111,20 +111,11 @@ Common read commands:
 - `export` / `unset` for user environment variables
 - `login` / `logout` for wallet session state
 
-Admin write commands stage local changes in IndexedDB:
+`refresh [path]` re-fetches the owning mount's listing; root refresh also reloads mount declarations. Available content remains visible if a refresh fails. The browser has no editor, save/compose controls, GitHub credential input, or content-writing commands. `echo` treats `>` and `>>` as literal text.
 
-- `touch <path>`
-- `mkdir <path>`
-- `rm [-r] <path>`
-- `rmdir <path>`
-- `edit <path>`
-- `echo "body" > <path>`
-- `sync status`
-- `sync commit <message>`
-- `sync refresh`
-- `sync auth set <github_pat>` / `sync auth clear`
+Author through local source files, Git, and native CLI workflows. Wallet connection, restoration, identity display, read pipelines, and preferences remain available.
 
-Commits go through the strict mount-root backend and use GitHub compare-and-swap with the expected remote head. If the remote moved, the commit fails instead of clobbering newer content.
+External listings may start from the disposable `websh-cache` IndexedDB cache while refreshing. Only public manifest metadata is persisted; document bodies and root discovery require live reads. The old `websh-state` draft database is left untouched. See [runtime architecture](docs/architecture/runtime.md) and the [legacy recovery procedure](docs/plans/read-only-browser/implementation-plan.md#legacy-data-recovery-and-retirement).
 
 ## Deploy
 
