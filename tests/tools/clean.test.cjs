@@ -18,17 +18,17 @@ function fixture(t) {
 
 test("cleanup scopes and dry-run preserve tools, receipts, and author data", (t) => {
   const { root, write, exists } = fixture(t);
-  const generated = ["dist/index.html", "target/verify/source/index.html", "assets/bundle.css"];
+  const generated = ["dist/index.html", "dist-preview/index.html", "target/verify/source/index.html", "assets/bundle.css"];
   const cached = [
     "target/debug/app",
     "target/wasm32-unknown-unknown/release/app.wasm",
     "target/wasm-bindgen/release/app.js",
     "target/wasm-opt/release/app.wasm",
   ];
-  const retained = ["target/tools/bin/just", "target/unowned/data", ".last-cid", ".env", ".websh/local/key", "content/post.md", "docs/notes/draft.md"];
+  const retained = ["target/tools/bin/just", "target/unowned/data", ".last-cid", ".env", ".websh/local/key", "content/post.md", "docs/notes/draft.md", "dist-note.txt"];
   for (const file of [...generated, ...cached, ...retained]) write(file);
 
-  assert.deepEqual(clean(root, "outputs", true), ["dist", "target/verify", "assets/bundle.css"]);
+  assert.deepEqual(clean(root, "outputs", true), ["dist", "target/verify", "assets/bundle.css", "dist-preview"]);
   for (const file of [...generated, ...cached, ...retained]) assert.ok(exists(file), file);
   clean(root, "outputs");
   for (const file of generated) assert.ok(!exists(file), file);
@@ -48,6 +48,12 @@ test("cleanup rejects redirected paths before deleting any output", (t) => {
   fs.symlinkSync(external.root, path.join(root, "target"), "dir");
 
   assert.throws(() => clean(root, "cache"), /Refusing cleanup through symlink/);
+  assert.ok(exists("dist/index.html"));
+  assert.ok(external.exists("verify/keep"));
+
+  fs.unlinkSync(path.join(root, "target"));
+  fs.symlinkSync(external.root, path.join(root, "dist-preview"), "dir");
+  assert.throws(() => clean(root, "outputs"), /Refusing cleanup through symlink/);
   assert.ok(exists("dist/index.html"));
   assert.ok(external.exists("verify/keep"));
 });

@@ -3,7 +3,6 @@ const path = require("node:path");
 
 const outputs = [
   "dist",
-  "dist-dev",
   "target/verify",
   "test-results",
   "playwright-report",
@@ -28,7 +27,15 @@ const caches = [
 function clean(root, scope, dryRun = false) {
   if (!["outputs", "cache"].includes(scope)) throw new Error(`Unknown cleanup scope: ${scope}`);
   root = fs.realpathSync(root);
-  const paths = (scope === "cache" ? [...outputs, ...caches] : outputs).filter((relative) => {
+  // Deployment reserves root-level dist-<name> directories for site outputs.
+  // Include symlinks in the plan so validation rejects them before deleting.
+  const bundles = fs.readdirSync(root, { withFileTypes: true })
+    .filter((entry) => /^dist-[A-Za-z0-9_-]+$/.test(entry.name)
+      && (entry.isDirectory() || entry.isSymbolicLink()))
+    .map((entry) => entry.name)
+    .sort();
+  const candidates = [...outputs, ...bundles, ...(scope === "cache" ? caches : [])];
+  const paths = candidates.filter((relative) => {
     let current = root;
     for (const part of relative.split("/")) {
       current = path.join(current, part);

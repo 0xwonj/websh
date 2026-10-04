@@ -55,20 +55,23 @@ Four crates live under `crates/`:
 ## Commands
 
 ```bash
-trunk serve
-trunk build --release
-cargo check --workspace
-cargo test --workspace
-cargo clippy --workspace --all-targets -- -D warnings
-cargo check -p websh-core --target wasm32-unknown-unknown
-cargo check -p websh-web --target wasm32-unknown-unknown
-cargo run -p websh-cli -- <subcommand> [args...]
-npm run lint:css
-npm run docs:drift
-npm run perf:budgets -- dist
-npm run e2e
+just --list
+just serve
+just build
 just verify
+just test-wasm [filter]
+just test-tools
+just build-check
+just e2e [filter]
+just size [dist]
+just clean --dry-run
+cargo test --locked -p websh-cli
+cargo run --locked -p websh-cli -- <subcommand> [args...]
 ```
+
+`justfile` owns the executable gate. See `docs/architecture/tooling.md` for bootstrap,
+output ownership, and scoped cleanup. Do not load deployment `.env` into general
+checks or development commands.
 
 Use focused checks while developing, then run the relevant wider gate before finishing. Browser runtime changes should include `cargo check -p websh-web --target wasm32-unknown-unknown`; native `cargo check` can miss wasm-only imports.
 
@@ -79,15 +82,15 @@ focused commands in `docs/architecture/verification.md`.
 
 ## Trunk And Generated Artifacts
 
-`Trunk.toml` pre-build hooks run:
+`Trunk.toml` runs independent Stylance and `websh-cli prepare` hooks. Same-stage
+hooks may run concurrently; `prepare` is the only content artifact writer. Development
+refreshes the manifest; release prepares manifest, ledger, and attestation subjects once.
+Use `websh-cli attest` for an explicit full preparation outside Trunk.
 
-1. Stylance to regenerate `assets/bundle.css`.
-2. `cargo run --quiet -p websh-cli -- content manifest`.
-3. `cargo run --quiet -p websh-cli -- attest build`.
-
-Do not edit generated sidecars, `content/manifest.json`, `content/.websh/ledger.json`, `assets/bundle.css`, or `assets/crypto/attestations.json` as if they were hand-authored unless the task explicitly targets generated outputs. Prefer running the owning command.
-
-`attest build` skips non-release Trunk profiles unless forced. `WEBSH_NO_SIGN=1` disables new signing. Unchanged subjects retain their attestations; new or changed unsigned subjects remain pending.
+Do not hand-edit generated sidecars, `content/manifest.json`,
+`content/.websh/ledger.json`, `assets/bundle.css`, or `assets/crypto/attestations.json`.
+Use the owning command. `WEBSH_NO_SIGN=1` disables new signing; unchanged subjects
+retain their attestations and new or changed unsigned subjects remain pending.
 
 ## Security Notes
 

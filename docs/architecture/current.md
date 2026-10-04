@@ -8,10 +8,12 @@ Websh is a verifiable personal archive backed by a Rust/WASM runtime and a brows
 
 The workspace has four crates:
 
-- `websh-core`: shared domain types, filesystem, shell, runtime orchestration, mempool helpers, attestation primitives, and storage ports.
-- `websh-site`: deployed-site identity and policy constants that are not generic engine logic.
-- `websh-cli`: native command adapter for content generation, attestation, deploy, mempool, and mount workflows.
-- `websh-web`: Leptos/WASM browser adapter, runtime services, feature views, platform APIs, and styling.
+| Crate | Target | Owns | Must not own |
+| --- | --- | --- | --- |
+| `websh-core` | host + wasm | Shared domain contracts, filesystem, shell, runtime coordination, crypto, storage ports | Browser APIs, host processes, Leptos state |
+| `websh-site` | host + wasm | Deployed identity, public keys, acknowledgement artifacts, site policy | Generic engine behavior, command workflows |
+| `websh-cli` | host | Argument adapters, native workflows, process/filesystem adapters | Browser state, generic domain rules |
+| `websh-web` | wasm | Leptos app, browser runtime, wallet, storage, rendering, styles | Host processes, private core internals |
 
 The dependency direction is:
 
@@ -78,19 +80,22 @@ Use local source files, Git, and `websh-cli` content/mempool commands to author 
 
 ## Build And Attestation
 
-Trunk pre-build hooks run in this order:
+Trunk runs two independent pre-build hooks: Stylance generates the CSS bundle and
+`websh-cli prepare` owns content preparation. Hooks in the same phase may run
+concurrently; no two hooks write content artifacts.
 
-1. `stylance --output-file assets/bundle.css crates/websh-web`
-2. `cargo run --quiet -p websh-cli -- content manifest`
-3. `cargo run --quiet -p websh-cli -- attest build`
-
-`attest build` is release-profile aware. It skips non-release Trunk profiles unless `--force` is passed. `WEBSH_NO_SIGN=1` disables new signing; unchanged subjects retain their attestations, while new or changed unsigned subjects remain pending.
+`prepare` refreshes the content manifest in development and runs the full content,
+ledger, and attestation workflow in release. `websh-cli attest` runs that full workflow
+explicitly outside Trunk. `WEBSH_NO_SIGN=1` disables new signing; unchanged subjects
+retain their attestations, while new or changed unsigned subjects remain pending.
 
 Generated content artifacts include `content/manifest.json`, `content/.websh/ledger.json`, sidecar metadata, and `assets/crypto/attestations.json`.
 
 ## Verification
 
-The local gate is `just verify`. The command list is mirrored in [verification.md](verification.md) and checked by `npm run docs:drift`.
+The local gate is `just verify`; its executable definition lives only in `justfile`.
+See [verification](verification.md) for test ownership and focused checks, and
+[tooling](tooling.md) for build, environment, and cleanup ownership.
 
 ## Current Model
 
@@ -101,5 +106,4 @@ labels remain part of the signed protocol. IndexedDB retains its required struct
 version 1. Dependency and tool versions are pinned for reproducible builds.
 
 See [migration operations](../migrations/README.md) for the external mempool patch and
-one-time browser preference maintenance, and [refactor evidence](../plans/native-refactor.md)
-for this cleanup session's checks and commits.
+one-time browser preference maintenance. Completed refactor reports live in Git history.

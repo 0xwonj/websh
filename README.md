@@ -24,19 +24,21 @@ Architecture docs live in [docs/architecture/current.md](docs/architecture/curre
 
 ## Prerequisites
 
-Install Rust through rustup, Node 25.9.0, npm 11.12.1, and Binaryen 129 (`wasm-opt` on
-`PATH`). Rust 1.98.0 and the WASM target are selected by `rust-toolchain.toml`. Then run:
+Install Rust through rustup, Node matching `.node-version`, npm matching the
+`packageManager` pin in `package.json`, and Binaryen matching `scripts/tools.json`
+(`wasm-opt` on `PATH`). `rust-toolchain.toml` selects Rust and the WASM target.
+Bootstrap the remaining tools with:
 
 ```bash
 npm run setup
 export PATH="$PWD/target/tools/bin:$PATH"
-npm run tools:check
 ```
 
-Setup installs locked npm dependencies, pinned native tools from `scripts/tools.json`,
-the wasm-bindgen runner matching `Cargo.lock`, and Playwright Chromium. Native tools are
-installed under `target/tools/bin`; add that directory to your shell's path to invoke
-`just`. Verification checks these prerequisites without installing anything.
+Setup installs locked npm dependencies, missing pinned native tools, the WASM test
+runner matching `Cargo.lock`, and Playwright Chromium. It reuses matching tools
+already on `PATH`; otherwise native binaries go under `target/tools/bin`.
+After bootstrap, use `just --list` for developer tasks and `just setup` to refresh tools.
+Verification checks prerequisites without installing anything.
 
 Release signing and deployment use local tools: `gpg` is optional for PGP signatures, the Pinata CLI is required for `just pin`, and `gh` is required for mount/bootstrap workflows that touch GitHub repositories.
 
@@ -46,7 +48,7 @@ Release signing and deployment use local tools: `gpg` is optional for PGP signat
 just serve
 ```
 
-The dev server listens on `http://127.0.0.1:8080` and writes dev artifacts to `dist-dev/`. The pre-build hook chain runs Stylance, `websh-cli content manifest`, and `websh-cli attest build`. Development Trunk profiles skip the full attestation build unless `--force` is passed to the CLI command directly.
+The dev server listens on `http://127.0.0.1:8080` and writes to `dist-dev/`. Stylance generates CSS and `websh-cli prepare` refreshes the content manifest. Development shares the normal Cargo cache and skips ledger generation and signing.
 
 The browser app is hash-routed. The canonical root URL is `/#/`; content and app routes use the same hash model, for example `/#/ledger` and `/#/writing/example`. Clean deep paths such as `/writing/example` are best-effort only and require a host-level fallback to `index.html`; IPFS/path-gateway deployments should use hash URLs.
 
@@ -68,35 +70,35 @@ Focused checks:
 
 ```bash
 just deps-check
-just web-wasm-test
-npm run lint:css
-npm run docs:drift
-npm run perf:budgets
-npm run perf:content
-npm run e2e
+just test-wasm
+just lint-css
+just docs-check
+just build-check
+just size
+just e2e
 ```
 
-`npm run perf:budgets` expects a release `dist/` tree. `npm run e2e` uses
-`target/verify/dist`; prepare it with `npm run build:check`. `npm run perf:content`
-expects a running app at `http://127.0.0.1:4173` unless `WEBSH_PERF_BASE_URL` or
-`WEBSH_E2E_BASE_URL` is set.
+`just build-check` creates an unsigned release in `target/verify/dist` without
+modifying source artifacts. Both `just size` and `just e2e` use that build.
+`just clean` removes generated outputs; `just clean-cache` also removes compilation
+caches while preserving installed tools and local author data. Both accept `--dry-run`.
 
-See [docs/architecture/verification.md](docs/architecture/verification.md) for the maintained command list behind `just verify`.
+See [verification](docs/architecture/verification.md) for test ownership and
+[tooling](docs/architecture/tooling.md) for environment, output, and cleanup contracts.
 
 ## Content And Attestations
 
 Content lives under `content/`. The manifest pipeline parses frontmatter, computes derived fields, keeps sidecars current, and writes `content/manifest.json`.
 
 ```bash
-cargo run --bin websh-cli -- content manifest
+cargo run --locked -p websh-cli -- content manifest
 ```
 
 The attestation pipeline refreshes sidecars, `content/.websh/ledger.json`, subjects, and `assets/crypto/attestations.json`. It signs missing PGP attestations when the expected signing key is available.
 
 ```bash
-cargo run --bin websh-cli -- attest
-cargo run --bin websh-cli -- attest build --force
-WEBSH_NO_SIGN=1 cargo run --bin websh-cli -- attest build --force
+cargo run --locked -p websh-cli -- attest
+cargo run --locked -p websh-cli -- attest --no-sign
 ```
 
 ## Browser Shell
@@ -138,7 +140,7 @@ CSS uses Stylance modules and a token hierarchy:
 - `assets/base.css`
 - `crates/websh-web/src/**/*.module.css`
 
-Component CSS should use semantic tokens. `npm run lint:css` enforces the current token policy.
+Component CSS should use semantic tokens. `just lint-css` enforces the current token policy.
 
 ## License
 

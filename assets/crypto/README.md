@@ -7,10 +7,10 @@ footer.
 Use `websh-cli attest` after changing homepage source or files under
 `content/`. The command runs the same manifest builder as
 `websh-cli content manifest`, rebuilds all route subjects, and writes
-`assets/crypto/attestations.json`. If
-`content/.site/keys/wonjae.asc` exists, it also asks local `gpg` to create detached PGP
-signatures with `Wonjae Choi <wonjae@snu.ac.kr>` and stores the verified results
-in the same JSON file.
+`assets/crypto/attestations.json`. When the expected local GPG secret key is
+available and signing is enabled, it creates detached PGP signatures and stores
+verified results in that file. `--no-sign` or `WEBSH_NO_SIGN=1` disables new signing;
+unchanged subjects keep existing attestations, while changed unsigned subjects stay pending.
 
 Use `websh-cli content manifest` when only `content/manifest.json` needs to be
 refreshed and no attestations should be touched.
