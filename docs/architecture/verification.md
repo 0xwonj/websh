@@ -54,6 +54,41 @@ Use these when the change is narrow:
 - Docs: `npm run docs:drift`
 - Bundle budgets: `npm run perf:budgets -- dist`
 
+## Test Ownership
+
+| Layer | Location | Responsibility |
+| --- | --- | --- |
+| Core unit tests | Next to the owning Rust module | Current contracts, algorithms, paths, routing, crypto vectors |
+| Native workflows | `crates/websh-cli/tests/cli/` | Actual CLI processes, generated files, signing/verification |
+| Browser WASM | `websh-web` module tests; runner in `tests/wasm/` | Browser adapters, cache transactions, async ordering, renderer safety |
+| Browser E2E | `tests/e2e/` feature specs | User flows and integration through a built app |
+| Repository tools | `tests/tools/` | Test-result validation, architecture inspection, maintenance operations |
+
+Test current observable behavior at its owning layer. Delete tests for removed features
+and historical formats; retain representative invalid-input checks for current boundaries.
+Use small input tables for variants of one contract. Avoid constructor/getter/derived-trait
+tests, standard-library retests, and assertions tied only to internal implementation.
+Keep separate race tests when event ordering is the behavior under test.
+
+CLI tests share self-cleaning temporary directories and run environment-sensitive checks
+in child processes. E2E fixtures own their response maps per test, report unexpected
+browser errors automatically, and retain traces/screenshots only on failure. Browser
+WASM mode is configured once at the crate root. Maintenance-script tests remain with
+their executable tools until those tools are retired.
+
+Run the smallest relevant scope while editing:
+
+```bash
+cargo test --locked -p websh-core engine::shell
+cargo test --locked -p websh-cli --test cli attest
+just web-wasm-test runtime::wallet
+npm run e2e -- cache.spec.js
+npm run test:tools
+```
+
+Use `just verify` before completing changes across layers. Test counts are an outcome,
+not a coverage target; fewer cases should mean less duplication, not weaker contracts.
+
 ## CSS Gate
 
 `npm run lint:css` enforces the token policy for component CSS modules. Component CSS should use semantic tokens instead of raw pixel, color, or duration literals unless the lint rule intentionally allows the file.
@@ -64,7 +99,7 @@ Use these when the change is narrow:
 
 ## Browser Gate
 
-`npm run e2e` serves the existing `target/verify/dist` on `127.0.0.1:4173` unless `WEBSH_E2E_BASE_URL` is set. Run `npm run build:check` first. Browser WASM tests use Playwright Chromium with the exact locked wasm-bindgen runner; there is no ChromeDriver fallback or runner cache discovery. Use `WEBSH_LIVE_MEMPOOL=1` only when intentionally testing the live mempool backend; fixture mode is the default. Browser smoke tests fail on same-origin asset 404s and cover root-host plus simulated `/ipfs/<cid>/` hash navigation.
+`npm run e2e` serves the existing `target/verify/dist` on `127.0.0.1:4173` unless `WEBSH_E2E_BASE_URL` is set. Run `npm run build:check` first. Browser WASM tests use Playwright Chromium with the exact locked wasm-bindgen runner; there is no ChromeDriver fallback or runner cache discovery. External content and wallet requests use local fixtures; the suite never switches to live external data. Browser smoke tests fail on same-origin asset 404s and cover root-host plus simulated `/ipfs/<cid>/` hash navigation.
 
 ## Trunk And Attestation Gate
 

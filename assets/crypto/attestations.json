@@ -89,8 +89,8 @@
         },
         {
           "path": "crates/websh-web/src/features/home/model.rs",
-          "sha256": "0x9bf9d49b50d3bac52ae586df3de03f14222bf0b560eee514daf6e71d659f4a21",
-          "bytes": 15115
+          "sha256": "0x561751ad9f254dfd321c8992c92688e697b58a9becaa5172d19e846ec1d104bb",
+          "bytes": 15064
         },
         {
           "path": "crates/websh-web/src/features/home/sections.rs",

@@ -72,6 +72,11 @@ just verify
 
 Use focused checks while developing, then run the relevant wider gate before finishing. Browser runtime changes should include `cargo check -p websh-web --target wasm32-unknown-unknown`; native `cargo check` can miss wasm-only imports.
 
+Keep tests focused on current behavior at the owning layer. Remove obsolete and duplicate
+cases; do not retain historical-format galleries or tests of trivial wrappers/derived traits.
+Share small scoped fixtures, not a generic testing framework. See the test ownership and
+focused commands in `docs/architecture/verification.md`.
+
 ## Trunk And Generated Artifacts
 
 `Trunk.toml` pre-build hooks run:
