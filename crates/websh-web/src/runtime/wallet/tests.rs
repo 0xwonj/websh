@@ -160,6 +160,31 @@ async fn late_name_cannot_restore_a_replaced_account() {
 }
 
 #[wasm_bindgen_test]
+async fn same_tick_account_and_chain_events_preserve_the_new_chain() {
+    let _browser = TestBrowser::install();
+    let (_owner, wallet) = setup();
+    let (result, ()) = join(wallet.connect(), async {
+        wait_for("eth_requestAccounts").await;
+        release("eth_requestAccounts", "0xfirst");
+        wait_for("ens:0xfirst").await;
+        // No await between provider events: enrichment has not been polled yet.
+        emit("accountsChanged", "0xsecond");
+        emit("chainChanged", "0x89");
+        wait_for("ens:0xsecond").await;
+        release("ens:0xfirst", "first.eth");
+        release("ens:0xsecond", "second.eth");
+        TimeoutFuture::new(5).await;
+    })
+    .await;
+    assert!(result.unwrap().is_none());
+    assert!(
+        matches!(wallet.state.get_untracked(), WalletState::Connected {
+        address, chain_id: Some(137), ens_name: Some(name),
+    } if address == "0xsecond" && name == "second.eth")
+    );
+}
+
+#[wasm_bindgen_test]
 async fn late_name_cannot_undo_logout() {
     let _browser = TestBrowser::install();
     let (_owner, wallet) = setup();

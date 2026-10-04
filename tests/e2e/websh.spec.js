@@ -1294,7 +1294,7 @@ test('math markdown lazy-loads KaTeX once', async ({ page }) => {
   expect(consoleErrors).toEqual([]);
 });
 
-test('attested renderer page shows the route sigchip', async ({ page }) => {
+test('unsigned content hides the signature chip and homepage exposes pending status', async ({ page }) => {
   const bundle = {
     default_variant: { strategy: 'locale', fallback: 'en' },
     variants: [
@@ -1320,11 +1320,14 @@ test('attested renderer page shows the route sigchip', async ({ page }) => {
   const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
   await page.goto(`${baseUrl}/#/writing/zk-proofs-from-a-compiler-perspective`, { waitUntil: 'networkidle' });
   await page.waitForURL('**/#/writing/zk-proofs-from-a-compiler-perspective/en');
+  // The verification artifact is deliberately unsigned. Never borrow the owner's
+  // release signatures or depend on whether a signing key happens to be installed.
+  await expect(page.getByRole('button', { name: 'Signature of this page' })).toHaveCount(0);
+  await page.goto(`${baseUrl}/#/`, { waitUntil: 'networkidle' });
   const sigchip = page.getByRole('button', { name: 'Signature of this page' });
-  await expect(sigchip).toBeVisible({ timeout: 10000 });
+  await expect(sigchip).toBeVisible();
   await sigchip.click();
-  await expect(page.locator('body')).toContainText('/writing/zk-proofs-from-a-compiler-perspective');
-  await expect(page.locator('body')).toContainText('OpenPGP');
+  await expect(page.locator('body')).toContainText('pending signatures');
 
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);

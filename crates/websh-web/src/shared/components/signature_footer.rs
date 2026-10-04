@@ -436,3 +436,47 @@ fn footer_row(key: &str, value: &str, kind: FooterSigValueKind) -> FooterSigRow 
 fn footer_divider() -> FooterSigRow {
     footer_row("", "", FooterSigValueKind::Divider)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wasm_bindgen_test::*;
+
+    const SIGNED_BUNDLE: &str = include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/fixtures/signed-bundle.json"
+    ));
+
+    #[wasm_bindgen_test]
+    fn signed_bundle_variants_inherit_the_parent_signature_display() {
+        // A captured public, signed v1 subject. Presentation consumes the stored
+        // verification result; cryptographic verification is covered by the CLI.
+        let artifact: AttestationArtifact = serde_json::from_str(SIGNED_BUNDLE).unwrap();
+        let path =
+            VirtualPath::from_absolute("/writing/zk-proofs-from-a-compiler-perspective/en.md")
+                .unwrap();
+        let route =
+            nearest_attestation_route_for_content_path_in_artifact(&artifact, &path).unwrap();
+        assert_eq!(route, "/writing/zk-proofs-from-a-compiler-perspective");
+        let summary = footer_sig_summary_for_subject(artifact.subject_for_route(&route).unwrap());
+        assert!(summary.verified);
+        assert!(
+            summary
+                .rows
+                .iter()
+                .any(|row| row.key == "scheme" && row.value == "OpenPGP · detached signature")
+        );
+        assert!(
+            summary
+                .rows
+                .iter()
+                .any(|row| row.key == "signature" && !row.value.is_empty())
+        );
+        assert!(
+            !summary
+                .rows
+                .iter()
+                .any(|row| row.value == "pending signatures")
+        );
+    }
+}

@@ -149,7 +149,8 @@ impl Wallet {
             return None;
         }
         let persistence_error = self.preferences.set_wallet_session(true).err();
-        self.enrich(request, &address).await;
+        let chain_revision = self.chain_revision.get_value();
+        self.enrich(request, &address, chain_revision).await;
         if !self.is_current(request) {
             return None;
         }
@@ -168,13 +169,12 @@ impl Wallet {
         })
     }
 
-    async fn enrich(self, request: u64, address: &str) {
-        let revision = self.chain_revision.get_value();
+    async fn enrich(self, request: u64, address: &str, chain_revision: u64) {
         let chain_id = provider::chain_id().await;
         if !self.is_current(request) {
             return;
         }
-        if self.chain_revision.get_value() == revision {
+        if self.chain_revision.get_value() == chain_revision {
             self.value.update(|state| {
                 if let WalletState::Connected {
                     chain_id: current, ..
@@ -223,8 +223,10 @@ impl Wallet {
         let request = self.advance();
         self.publish_account(request, &address);
         let _ = self.preferences.set_wallet_session(true);
+        // Capture before scheduling: another provider event can fire in this JS turn.
+        let chain_revision = self.chain_revision.get_value();
         spawn_local(async move {
-            self.enrich(request, &address).await;
+            self.enrich(request, &address, chain_revision).await;
         });
     }
 

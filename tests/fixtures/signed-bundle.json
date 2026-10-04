@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "scheme": "websh.attestations.v1",
+  "subjects": [
+    {
+      "kind": "bundle",
+      "route": "/writing/zk-proofs-from-a-compiler-perspective",
+      "issued_at": "2026-05-20",
+      "content_files": [
+        {
+          "path": "content/writing/zk-proofs-from-a-compiler-perspective/_index.dir.json",
+          "sha256": "0x16af4a039e3d50b87bbf713f19a35d53456c3e9cf23fb5ea226e3209b3129f0d",
+          "bytes": 987
+        },
+        {
+          "path": "content/writing/zk-proofs-from-a-compiler-perspective/en.md",
+          "sha256": "0x028d827981ab38991e1ae77626fc08877460e775cffda6f01f9dceea90e9f610",
+          "bytes": 25411
+        },
+        {
+          "path": "content/writing/zk-proofs-from-a-compiler-perspective/en.meta.json",
+          "sha256": "0x324a8c96a1c6d991210327997b5166e203df2edebbe88624479bdd94da866177",
+          "bytes": 607
+        },
+        {
+          "path": "content/writing/zk-proofs-from-a-compiler-perspective/ko.md",
+          "sha256": "0x68c65139572943632cec6a612c3f6db68d73f194ee626636d40ee726326a2709",
+          "bytes": 30288
+        },
+        {
+          "path": "content/writing/zk-proofs-from-a-compiler-perspective/ko.meta.json",
+          "sha256": "0x09dc798fd6fd8bc2b37cedb1754360cc88d709bcb19d28d85c874f816d13c053",
+          "bytes": 656
+        }
+      ],
+      "attestations": [
+        {
+          "type": "pgp",
+          "signer": "Wonjae Choi <wonjae@snu.ac.kr>",
+          "fingerprint": "6CA8E0E8E0F9B9EE2F92EE49BEE7501AEA7758AD",
+          "key_path": "content/.site/keys/wonjae.asc",
+          "signature": "-----BEGIN PGP SIGNATURE-----\n\niKMEABYKAEsWIQRsqODo4Pm57i+S7km+51Aa6ndYrQUCag1CXBsUgAAAAAAEAA5t\nYW51MiwyLjUrMS4xMiwwLDMRHHdvbmphZUBzbnUuYWMua3IACgkQvudQGup3WK3Y\n0AD/er7Fvz1S7w4CnFIv5eEgyG34wmmqNgC0+XeK4GUWLsMBAMBBy94G16eXR8dp\nndqQN3AE8pKP3EhJ7AAnU4SiXogI\n=J3me\n-----END PGP SIGNATURE-----\n",
+          "signature_path": ".websh/local/crypto/attestations/writing-zk-proofs-from-a-compiler-perspective.sig.asc",
+          "message_sha256": "0xce43c8526c1a8823fcd1e2bf38239b100dc9301a26c3c7d4e1f771c5a46ccc84",
+          "verified": true
+        }
+      ]
+    }
+  ]
+}
