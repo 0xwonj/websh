@@ -160,7 +160,6 @@ mod tests {
     use websh_core::ports::{
         LocalBoxFuture, ScannedSubtree, StorageBackend, StorageError, StorageResult,
     };
-    wasm_bindgen_test_configure!(run_in_browser);
 
     struct FakeCache {
         delay: u32,

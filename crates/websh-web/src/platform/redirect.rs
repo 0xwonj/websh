@@ -92,76 +92,45 @@ fn is_domain_allowed(host: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wasm_bindgen_test::*;
-
-    wasm_bindgen_test_configure!(run_in_browser);
+    use wasm_bindgen_test::wasm_bindgen_test;
 
     #[wasm_bindgen_test]
-    fn allows_exact_allowed_domains() {
-        assert!(matches!(
-            validate_redirect_url("https://github.com/user/repo"),
-            UrlValidation::Valid(_)
-        ));
-        assert!(matches!(
-            validate_redirect_url("http://twitter.com/user"),
-            UrlValidation::Valid(_)
-        ));
+    fn accepts_allowed_hosts_and_subdomains() {
+        for url in [
+            "https://github.com/user/repo",
+            "http://twitter.com/user",
+            "https://www.github.com/user",
+            "https://api.github.com:443/repos",
+        ] {
+            assert!(
+                matches!(validate_redirect_url(url), UrlValidation::Valid(_)),
+                "{url}"
+            );
+        }
     }
 
     #[wasm_bindgen_test]
-    fn allows_www_and_subdomains() {
-        assert!(matches!(
-            validate_redirect_url("https://www.github.com/user"),
-            UrlValidation::Valid(_)
-        ));
-        assert!(matches!(
-            validate_redirect_url("https://api.github.com/repos"),
-            UrlValidation::Valid(_)
-        ));
-    }
-
-    #[wasm_bindgen_test]
-    fn rejects_invalid_protocols() {
-        assert!(matches!(
-            validate_redirect_url("ftp://example.com"),
-            UrlValidation::Invalid(UrlValidationError::InvalidProtocol)
-        ));
-        assert!(matches!(
-            validate_redirect_url("javascript:alert(1)"),
-            UrlValidation::Invalid(UrlValidationError::InvalidProtocol)
-        ));
-    }
-
-    #[wasm_bindgen_test]
-    fn rejects_empty_urls() {
+    fn rejects_invalid_or_untrusted_destinations() {
         assert!(matches!(
             validate_redirect_url(""),
             UrlValidation::Invalid(UrlValidationError::Empty)
         ));
-    }
-
-    #[wasm_bindgen_test]
-    fn rejects_blocked_domains() {
+        for url in ["ftp://example.com", "javascript:alert(1)"] {
+            assert!(
+                matches!(
+                    validate_redirect_url(url),
+                    UrlValidation::Invalid(UrlValidationError::InvalidProtocol)
+                ),
+                "{url}"
+            );
+        }
+        assert!(matches!(
+            validate_redirect_url("https://"),
+            UrlValidation::Invalid(_)
+        ));
         assert!(matches!(
             validate_redirect_url("https://evil.com/phishing"),
             UrlValidation::Invalid(UrlValidationError::DomainNotAllowed(_))
         ));
-    }
-
-    #[wasm_bindgen_test]
-    fn extracts_hosts_for_validation() {
-        assert_eq!(
-            extract_host("https://github.com/user"),
-            Some("github.com".to_string())
-        );
-        assert_eq!(
-            extract_host("https://www.github.com/user"),
-            Some("github.com".to_string())
-        );
-        assert_eq!(
-            extract_host("https://api.github.com:443/repos"),
-            Some("api.github.com".to_string())
-        );
-        assert_eq!(extract_host("https://"), None);
     }
 }

@@ -457,8 +457,6 @@ mod tests {
     };
     use websh_core::ports::{ScannedDirectory, ScannedFile, ScannedSubtree};
 
-    wasm_bindgen_test_configure!(run_in_browser);
-
     fn meta(kind: NodeKind, title: Option<&str>) -> NodeMetadata {
         NodeMetadata {
             kind,

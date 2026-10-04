@@ -466,8 +466,6 @@ mod tests {
     use super::*;
     use wasm_bindgen_test::*;
 
-    wasm_bindgen_test_configure!(run_in_browser);
-
     fn declaration(mount_at: &str, name: &str) -> MountDeclaration {
         MountDeclaration {
             backend: "github".to_string(),

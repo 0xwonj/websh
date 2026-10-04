@@ -17,8 +17,6 @@ mod tests {
     use wasm_bindgen_test::*;
     use websh_core::mempool::LEDGER_CATEGORIES;
 
-    wasm_bindgen_test_configure!(run_in_browser);
-
     #[wasm_bindgen_test]
     fn filter_routes_contain_ledger_then_each_category() {
         assert_eq!(LEDGER_FILTER_ROUTES[0], LEDGER_ROUTE);

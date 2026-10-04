@@ -360,8 +360,6 @@ mod tests {
     use wasm_bindgen_test::*;
     use websh_core::domain::VirtualPath;
 
-    wasm_bindgen_test_configure!(run_in_browser);
-
     fn vp(path: &str) -> VirtualPath {
         VirtualPath::from_absolute(path).expect("test path")
     }

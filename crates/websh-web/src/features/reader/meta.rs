@@ -293,8 +293,6 @@ mod tests {
     use super::*;
     use wasm_bindgen_test::*;
 
-    wasm_bindgen_test_configure!(run_in_browser);
-
     fn vp(path: &str) -> VirtualPath {
         VirtualPath::from_absolute(path).expect("test path")
     }

@@ -433,8 +433,6 @@ mod tests {
         BundleMetadata, BundleVariant, EntryExtensions, Fields, ImageDim, NodeKind, RendererKind,
     };
 
-    wasm_bindgen_test_configure!(run_in_browser);
-
     fn labels(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_string()).collect()
     }

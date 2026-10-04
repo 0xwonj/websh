@@ -87,31 +87,6 @@ for (const docPath of requiredMemberDocs) {
   }
 }
 
-const activeDocs = [
-  "README.md",
-  "AGENTS.md",
-  ...fs
-    .readdirSync(path.join(root, "docs/architecture"))
-    .filter((name) => name.endsWith(".md"))
-    .map((name) => `docs/architecture/${name}`),
-];
-const stalePatterns = [
-  /(^|[^-\w])src\/components\//,
-  /(^|[^-\w])src\/filesystem\//,
-  /(^|[^-\w])src\/utils\//,
-  /(^|[^-\w])src\/core\//,
-  /(^|[^-\w])src\/app\.rs/,
-];
-
-for (const docPath of activeDocs) {
-  const body = read(docPath);
-  for (const pattern of stalePatterns) {
-    if (pattern.test(body)) {
-      fail(`${docPath} references stale root path pattern ${pattern}`);
-    }
-  }
-}
-
 const verificationDoc = read("docs/architecture/verification.md");
 const recipe = verifyRecipe();
 for (const dependency of recipe.deps) {

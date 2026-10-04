@@ -11,3 +11,6 @@ pub mod platform;
 pub mod render;
 pub mod runtime;
 pub mod shared;
+
+#[cfg(test)]
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);

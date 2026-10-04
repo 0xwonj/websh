@@ -151,7 +151,6 @@ mod tests {
     use super::*;
     use wasm_bindgen::prelude::*;
     use wasm_bindgen_test::*;
-    wasm_bindgen_test_configure!(run_in_browser);
 
     #[wasm_bindgen(
         inline_js = "export function stallBody() { const old = globalThis.fetch; globalThis.fetch = async () => new Response(new ReadableStream({start() {}}), {status: 200}); return () => { globalThis.fetch = old; }; }"

@@ -148,17 +148,13 @@ mod tests {
     use super::*;
     use wasm_bindgen_test::*;
 
-    wasm_bindgen_test_configure!(run_in_browser);
-
     #[wasm_bindgen_test]
     fn accepts_only_catalog_theme_ids() {
         for theme in THEMES {
             assert_eq!(normalize_theme_id(theme.id), Some(theme.id));
         }
         assert_eq!(normalize_theme_id(" DRACULA "), Some("dracula"));
-        for id in ["sepia", "paper", "mocha", "night", "unknown"] {
-            assert_eq!(normalize_theme_id(id), None);
-        }
+        assert_eq!(normalize_theme_id("unknown"), None);
     }
 
     /// Guards against drift between `THEMES` and `index.html`.

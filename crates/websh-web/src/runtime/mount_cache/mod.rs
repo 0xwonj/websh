@@ -115,7 +115,6 @@ pub type MountCacheRef = Rc<dyn MountCache>;
 mod tests {
     use super::*;
     use wasm_bindgen_test::*;
-    wasm_bindgen_test_configure!(run_in_browser);
 
     pub fn descriptor() -> CacheDescriptor {
         CacheDescriptor {

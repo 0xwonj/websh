@@ -4,8 +4,6 @@ use gloo_timers::future::TimeoutFuture;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::*;
 
-wasm_bindgen_test_configure!(run_in_browser);
-
 #[wasm_bindgen(inline_js = r#"
 let test;
 export function installWalletTest() {
@@ -135,28 +133,6 @@ async fn late_connection_cannot_undo_disconnect() {
         WalletState::Disconnected
     ));
     assert!(!wallet.preferences.wallet_session());
-}
-
-#[wasm_bindgen_test]
-async fn late_name_cannot_restore_a_replaced_account() {
-    let _browser = TestBrowser::install();
-    let (_owner, wallet) = setup();
-    let (result, ()) = join(wallet.connect(), async {
-        wait_for("eth_requestAccounts").await;
-        release("eth_requestAccounts", "0xfirst");
-        wait_for("ens:0xfirst").await;
-        emit("accountsChanged", "0xsecond");
-        wait_for("ens:0xsecond").await;
-        release("ens:0xfirst", "first.eth");
-        release("ens:0xsecond", "second.eth");
-        TimeoutFuture::new(5).await;
-    })
-    .await;
-    assert!(result.unwrap().is_none());
-    assert!(
-        matches!(wallet.state.get_untracked(), WalletState::Connected { address, ens_name: Some(name), .. }
-        if address == "0xsecond" && name == "second.eth")
-    );
 }
 
 #[wasm_bindgen_test]

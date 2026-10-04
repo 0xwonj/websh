@@ -162,8 +162,6 @@ mod tests {
     use super::*;
     use wasm_bindgen_test::*;
 
-    wasm_bindgen_test_configure!(run_in_browser);
-
     fn meta_with_kind(kind: NodeKind) -> FileMeta {
         FileMeta {
             kind,

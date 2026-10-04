@@ -527,8 +527,6 @@ mod builtin_route_tests {
     use super::*;
     use wasm_bindgen_test::*;
 
-    wasm_bindgen_test_configure!(run_in_browser);
-
     #[wasm_bindgen_test]
     fn detects_builtin_routes() {
         let cases = [

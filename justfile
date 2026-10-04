@@ -26,8 +26,8 @@ perf-content:
     npm run perf:content
 
 # Browser-owned wasm-bindgen tests.
-web-wasm-test:
-    node tests/web-wasm-test.cjs
+web-wasm-test filter="":
+    node tests/wasm/run.cjs {{quote(filter)}}
 
 # CSS lint (token enforcement)
 lint-css:

@@ -197,8 +197,6 @@ mod tests {
     use super::build_segment_path;
     use wasm_bindgen_test::*;
 
-    wasm_bindgen_test_configure!(run_in_browser);
-
     #[wasm_bindgen_test]
     fn build_segment_path_cases() {
         let cases = [

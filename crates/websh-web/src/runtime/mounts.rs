@@ -299,8 +299,6 @@ mod tests {
     use wasm_bindgen_test::*;
     use websh_core::ports::{LocalBoxFuture, ScannedSubtree, StorageBackend, StorageResult};
 
-    wasm_bindgen_test_configure!(run_in_browser);
-
     struct NoopBackend;
 
     impl StorageBackend for NoopBackend {

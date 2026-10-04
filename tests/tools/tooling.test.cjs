@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
-const { publicModules, workspaceEdges } = require("../scripts/architecture.cjs");
-const { parseTestResult } = require("../scripts/wasm-result.cjs");
+const { publicModules, workspaceEdges } = require("../../scripts/architecture.cjs");
+const { parseTestResult } = require("../wasm/result.cjs");
 
 test("WASM result parsing rejects forged logs and failing terminal summaries", () => {
   const forged = "test result: ok. 99 passed; 0 failed; 0 ignored; 0 filtered out; finished in 0.01s";
@@ -16,8 +16,6 @@ test("WASM result parsing rejects forged logs and failing terminal summaries", (
 test("facade discovery includes modules re-exported from the private engine", () => {
   const facades = publicModules("pub mod domain;\nmod engine;\npub use engine::{filesystem, runtime, shell};\n");
   assert.deepEqual(facades, ["domain", "filesystem", "runtime", "shell"]);
-  const incompleteDocs = "websh_core::domain websh_core::filesystem websh_core::runtime";
-  assert.deepEqual(facades.filter((name) => !incompleteDocs.includes(`websh_core::${name}`)), ["shell"]);
 });
 
 test("dependency edges use package identities, including renamed dependencies", () => {

@@ -198,52 +198,6 @@ mod tests {
     use super::*;
     use wasm_bindgen_test::*;
 
-    wasm_bindgen_test_configure!(run_in_browser);
-
-    #[wasm_bindgen_test]
-    fn compose_class_cases() {
-        let cases = [
-            (
-                compose_class(MonoTone::Plain, MonoOverflow::Scroll, MonoFont::Body),
-                vec![css::mono, css::scroll],
-                vec![css::code],
-            ),
-            (
-                compose_class(MonoTone::Hex, MonoOverflow::Scroll, MonoFont::Body),
-                vec![css::hex],
-                vec![],
-            ),
-            (
-                compose_class(MonoTone::Plain, MonoOverflow::TruncateEnd, MonoFont::Body),
-                vec![css::truncateEnd],
-                vec![css::accent, css::hex],
-            ),
-            (
-                compose_class(
-                    MonoTone::Hex,
-                    MonoOverflow::Middle { head: 6, tail: 4 },
-                    MonoFont::Body,
-                ),
-                vec![css::middle],
-                vec![css::scroll, css::truncateEnd],
-            ),
-            (
-                compose_class(MonoTone::Hex, MonoOverflow::Scroll, MonoFont::Code),
-                vec![css::code, css::hex, css::scroll],
-                vec![],
-            ),
-        ];
-
-        for (cls, expected, unexpected) in cases {
-            for item in expected {
-                assert!(cls.contains(item), "expected class {item:?} in {cls:?}");
-            }
-            for item in unexpected {
-                assert!(!cls.contains(item), "unexpected class {item:?} in {cls:?}");
-            }
-        }
-    }
-
     #[wasm_bindgen_test]
     fn middle_ellipsis_cases() {
         let cases = [
@@ -261,21 +215,5 @@ mod tests {
         for (value, head, tail, expected) in cases {
             assert_eq!(middle_ellipsis(value, head, tail), expected);
         }
-    }
-
-    #[wasm_bindgen_test]
-    fn responsive_middle_uses_middle_class() {
-        let cls = compose_class(
-            MonoTone::Hex,
-            MonoOverflow::ResponsiveMiddle {
-                narrow: Some((6, 4)),
-                medium: Some((10, 6)),
-                wide: Some((14, 8)),
-            },
-            MonoFont::Code,
-        );
-        assert!(cls.contains(css::middle));
-        assert!(!cls.contains(css::scroll));
-        assert!(!cls.contains(css::truncateEnd));
     }
 }

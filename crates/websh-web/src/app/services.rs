@@ -149,8 +149,6 @@ mod tests {
     use leptos::prelude::*;
     use wasm_bindgen_test::*;
 
-    wasm_bindgen_test_configure!(run_in_browser);
-
     #[wasm_bindgen_test]
     async fn set_theme_persists_user_theme_and_runtime_snapshot() {
         super::super::boot::init_test_renderer();

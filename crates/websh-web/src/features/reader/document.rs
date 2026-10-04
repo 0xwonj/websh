@@ -192,8 +192,6 @@ mod tests {
     use super::*;
     use wasm_bindgen_test::*;
 
-    wasm_bindgen_test_configure!(run_in_browser);
-
     #[wasm_bindgen_test]
     fn pdf_direct_url_allows_relative_and_githubusercontent_sources() {
         assert!(can_embed_pdf_url("./content/docs/file.pdf"));

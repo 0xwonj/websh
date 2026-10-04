@@ -170,8 +170,6 @@ mod tests {
     use wasm_bindgen_test::*;
     use websh_core::domain::{Fields, NodeKind};
 
-    wasm_bindgen_test_configure!(run_in_browser);
-
     fn loaded(
         path: &str,
         title: &str,

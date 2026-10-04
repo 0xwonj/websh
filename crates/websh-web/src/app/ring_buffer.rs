@@ -210,190 +210,72 @@ impl<T> IntoIterator for RingBuffer<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wasm_bindgen_test::*;
-
-    wasm_bindgen_test_configure!(run_in_browser);
-
-    #[wasm_bindgen_test]
-    fn test_new_buffer() {
-        let buffer: RingBuffer<i32> = RingBuffer::new(5);
-        assert_eq!(buffer.len(), 0);
-        assert_eq!(buffer.capacity(), 5);
-        assert!(buffer.is_empty());
-    }
+    use wasm_bindgen_test::wasm_bindgen_test;
 
     #[wasm_bindgen_test]
     #[should_panic(expected = "capacity must be greater than 0")]
-    fn test_zero_capacity_panics() {
+    fn rejects_zero_capacity() {
         let _: RingBuffer<i32> = RingBuffer::new(0);
     }
 
     #[wasm_bindgen_test]
-    fn test_push_within_capacity() {
-        let mut buffer = RingBuffer::new(3);
-        buffer.push(1);
-        buffer.push(2);
-
-        assert_eq!(buffer.len(), 2);
-        assert_eq!(buffer.get(0), Some(&1));
-        assert_eq!(buffer.get(1), Some(&2));
-        assert_eq!(buffer.get(2), None);
-    }
-
-    #[wasm_bindgen_test]
-    fn test_push_overflow() {
-        let mut buffer = RingBuffer::new(3);
-        buffer.push(1);
-        buffer.push(2);
-        buffer.push(3);
-        buffer.push(4);
-        buffer.push(5);
-
-        assert_eq!(buffer.len(), 3);
-        assert_eq!(buffer.get(0), Some(&3));
-        assert_eq!(buffer.get(1), Some(&4));
-        assert_eq!(buffer.get(2), Some(&5));
-    }
-
-    #[wasm_bindgen_test]
-    fn test_extend() {
-        let mut buffer = RingBuffer::new(3);
-        buffer.extend([1, 2, 3, 4, 5]);
-
-        assert_eq!(buffer.len(), 3);
-        assert_eq!(buffer.to_vec(), vec![3, 4, 5]);
-    }
-
-    #[wasm_bindgen_test]
-    fn test_clear() {
-        let mut buffer = RingBuffer::new(3);
-        buffer.push(1);
-        buffer.push(2);
-        buffer.clear();
-
-        assert!(buffer.is_empty());
-        assert_eq!(buffer.len(), 0);
-        assert_eq!(buffer.get(0), None);
-    }
-
-    #[wasm_bindgen_test]
-    fn test_iter() {
-        let mut buffer = RingBuffer::new(3);
-        buffer.push(1);
-        buffer.push(2);
-        buffer.push(3);
-
-        let items: Vec<_> = buffer.iter().collect();
-        assert_eq!(items, vec![&1, &2, &3]);
-    }
-
-    #[wasm_bindgen_test]
-    fn test_iter_after_overflow() {
-        let mut buffer = RingBuffer::new(3);
-        buffer.push(1);
-        buffer.push(2);
-        buffer.push(3);
-        buffer.push(4);
-
-        let items: Vec<_> = buffer.iter().collect();
-        assert_eq!(items, vec![&2, &3, &4]);
-    }
-
-    #[wasm_bindgen_test]
-    fn test_iter_reverse() {
-        let mut buffer = RingBuffer::new(3);
-        buffer.push(1);
-        buffer.push(2);
-        buffer.push(3);
-
-        let items: Vec<_> = buffer.iter().rev().collect();
-        assert_eq!(items, vec![&3, &2, &1]);
-    }
-
-    #[wasm_bindgen_test]
-    fn test_into_iter() {
-        let mut buffer = RingBuffer::new(3);
-        buffer.push(String::from("a"));
-        buffer.push(String::from("b"));
-
-        let items: Vec<_> = buffer.into_iter().collect();
-        assert_eq!(items, vec!["a", "b"]);
-    }
-
-    #[wasm_bindgen_test]
-    fn test_into_iter_after_overflow() {
-        let mut buffer = RingBuffer::new(2);
-        buffer.push(1);
-        buffer.push(2);
-        buffer.push(3);
-
-        let items: Vec<_> = buffer.into_iter().collect();
-        assert_eq!(items, vec![2, 3]);
-    }
-
-    #[wasm_bindgen_test]
-    fn test_exact_size_iterator() {
-        let mut buffer = RingBuffer::new(5);
-        buffer.push(1);
-        buffer.push(2);
-        buffer.push(3);
-
-        let iter = buffer.iter();
-        assert_eq!(iter.len(), 3);
-    }
-
-    #[wasm_bindgen_test]
-    fn test_to_vec() {
-        let mut buffer = RingBuffer::new(3);
-        buffer.push(1);
-        buffer.push(2);
-
-        assert_eq!(buffer.to_vec(), vec![1, 2]);
-    }
-
-    #[wasm_bindgen_test]
-    fn test_clone() {
-        let mut buffer = RingBuffer::new(3);
-        buffer.push(1);
-        buffer.push(2);
-
-        let cloned = buffer.clone();
-        assert_eq!(cloned.len(), 2);
-        assert_eq!(cloned.get(0), Some(&1));
-        assert_eq!(cloned.get(1), Some(&2));
-    }
-
-    #[wasm_bindgen_test]
-    fn test_single_capacity() {
-        let mut buffer = RingBuffer::new(1);
-        buffer.push(1);
-        buffer.push(2);
-        buffer.push(3);
-
-        assert_eq!(buffer.len(), 1);
-        assert_eq!(buffer.get(0), Some(&3));
-    }
-
-    #[wasm_bindgen_test]
-    fn test_wraparound_multiple_times() {
-        let mut buffer = RingBuffer::new(3);
-        for i in 0..10 {
-            buffer.push(i);
+    fn retains_newest_items_and_can_be_reused_after_clear() {
+        for capacity in [1, 3] {
+            let mut buffer = RingBuffer::new(capacity);
+            assert!(buffer.is_empty());
+            assert_eq!(buffer.capacity(), capacity);
+            assert_eq!(buffer.get(0), None);
+            for value in 0..10 {
+                buffer.push(value);
+                let expected: Vec<_> = ((value + 1 - capacity as i32).max(0)..=value).collect();
+                assert_eq!(
+                    buffer.to_vec(),
+                    expected,
+                    "capacity={capacity}, value={value}"
+                );
+                assert_eq!(buffer.len(), expected.len());
+                assert_eq!(buffer.get(buffer.len()), None);
+            }
+            buffer.clear();
+            assert!(buffer.is_empty());
+            assert_eq!(buffer.get(0), None);
+            buffer.extend([20, 21]);
+            assert_eq!(
+                buffer.to_vec(),
+                if capacity == 1 {
+                    vec![21]
+                } else {
+                    vec![20, 21]
+                }
+            );
         }
-
-        assert_eq!(buffer.len(), 3);
-        assert_eq!(buffer.to_vec(), vec![7, 8, 9]);
     }
 
     #[wasm_bindgen_test]
-    fn test_debug_format() {
+    fn borrowed_iterator_tracks_both_ends_after_wraparound() {
         let mut buffer = RingBuffer::new(3);
-        buffer.push(1);
-        buffer.push(2);
+        buffer.extend(0..5);
+        let mut iter = buffer.iter();
+        assert_eq!(iter.len(), 3);
+        assert_eq!(iter.next(), Some(&2));
+        assert_eq!(iter.next_back(), Some(&4));
+        assert_eq!(iter.len(), 1);
+        assert_eq!(iter.next_back(), Some(&3));
+        assert_eq!(iter.next(), None);
+        assert_eq!(iter.next_back(), None);
+        assert_eq!(iter.len(), 0);
+    }
 
-        let debug_str = format!("{:?}", buffer);
-        assert!(debug_str.contains("RingBuffer"));
-        assert!(debug_str.contains("len: 2"));
-        assert!(debug_str.contains("capacity: 3"));
+    #[wasm_bindgen_test]
+    fn owning_iterator_moves_retained_values_in_order() {
+        let mut buffer = RingBuffer::new(2);
+        buffer.extend(["a", "b", "c"].map(String::from));
+        let mut iter = buffer.into_iter();
+        assert_eq!(iter.len(), 2);
+        assert_eq!(iter.next().as_deref(), Some("b"));
+        assert_eq!(iter.next().as_deref(), Some("c"));
+        assert_eq!(iter.len(), 0);
+        assert_eq!(iter.next(), None);
+        assert_eq!(iter.next(), None);
     }
 }

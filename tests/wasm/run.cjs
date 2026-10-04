@@ -1,6 +1,6 @@
 const { spawn } = require("node:child_process");
-const { env, requireVersion, wasmBindgenVersion } = require("../scripts/tools.cjs");
-const { parseTestResult } = require("../scripts/wasm-result.cjs");
+const { root, env, requireVersion, wasmBindgenVersion } = require("../../scripts/tools.cjs");
+const { parseTestResult } = require("./result.cjs");
 
 function startInteractiveServer() {
   return new Promise((resolve, reject) => {
@@ -20,9 +20,9 @@ function startInteractiveServer() {
 
     const child = spawn(
       "cargo",
-      ["test", "--locked", "-p", "websh-web", "--target", "wasm32-unknown-unknown"],
+      ["test", "--locked", "-p", "websh-web", "--lib", "--target", "wasm32-unknown-unknown", ...process.argv.slice(2)],
       {
-        cwd: process.cwd(),
+        cwd: root,
         env: {
           ...env,
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: runner,
@@ -112,11 +112,14 @@ function stopServer(child) {
 async function runWithPlaywright() {
   const { child, url } = await startInteractiveServer();
   let browser;
+  let page;
+  const browserErrors = [];
 
   try {
     const { chromium } = require("@playwright/test");
     browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage();
+    page = await browser.newPage();
+    page.on("pageerror", (error) => browserErrors.push(error.message));
     // Wait for the runner's actual promise, not text a test could print early.
     await page.route("**/run.js", async (route) => {
       const response = await route.fetch();
@@ -131,7 +134,8 @@ async function runWithPlaywright() {
       );`);
       await route.fulfill({ response, body });
     });
-    await page.goto(url, { waitUntil: "load" });
+    // The runner promise owns completion; unrelated page resources do not.
+    await page.goto(url, { waitUntil: "domcontentloaded" });
     await page.waitForFunction(
       () => window.__webshTestResult?.complete,
       null,
@@ -152,6 +156,11 @@ async function runWithPlaywright() {
     console.log(resultLines.length > 0 ? resultLines.join("\n") : bodyText);
 
     parseTestResult(bodyText);
+  } catch (error) {
+    const output = await page?.locator("#output").textContent({ timeout: 1000 }).catch(() => "");
+    if (output) console.error(output.slice(-8000));
+    if (browserErrors.length) console.error(browserErrors.join("\n"));
+    throw error;
   } finally {
     try {
       if (browser) await browser.close();

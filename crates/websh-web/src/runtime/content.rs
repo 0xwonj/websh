@@ -427,8 +427,6 @@ mod tests {
         LocalBoxFuture, ScannedSubtree, StorageBackend, StorageBackendRef, StorageResult,
     };
 
-    wasm_bindgen_test_configure!(run_in_browser);
-
     struct CountingBackend {
         reads: Rc<Cell<u32>>,
         text: String,

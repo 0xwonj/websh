@@ -231,8 +231,6 @@ mod tests {
     use super::*;
     use wasm_bindgen_test::*;
 
-    wasm_bindgen_test_configure!(run_in_browser);
-
     #[wasm_bindgen_test]
     fn http_401_maps_auth_failed() {
         assert_eq!(map_http_status(401, None), StorageError::AuthFailed);
