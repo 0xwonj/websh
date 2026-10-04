@@ -22,7 +22,7 @@ function installedVersion(command) {
 function requireVersion(command, version) {
   const actual = installedVersion(command);
   if (actual !== version) {
-    throw new Error(`${command}: expected ${version}, found ${actual ?? "not installed"}. Run npm run setup.`);
+    throw new Error(`${command}: expected ${version}, found ${actual ?? "not installed"}. Run just setup (npm run setup to bootstrap).`);
   }
 }
 
@@ -52,7 +52,7 @@ function check() {
   checkHost();
   for (const [command, { version }] of Object.entries(requirements())) requireVersion(command, version);
   const { chromium } = require("@playwright/test");
-  if (!fs.existsSync(chromium.executablePath())) throw new Error("Chromium is missing. Run npm run setup.");
+  if (!fs.existsSync(chromium.executablePath())) throw new Error("Chromium is missing. Run just setup.");
   console.log("Pinned build and browser tools are ready.");
 }
 

@@ -3,10 +3,9 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const zlib = require("node:zlib");
-const { spawnSync } = require("node:child_process");
 
-const DEFAULT_DIST_DIR = "dist";
-const TARGET_EXTENSIONS = new Set([".wasm", ".js", ".css", ".woff2", ".ttf"]);
+const DEFAULT_DIST_DIR = "target/verify/dist";
+const FONT_EXTENSIONS = new Set([".woff2", ".woff", ".ttf", ".otf"]);
 const TRUNK_DEV_PATTERNS = [
   {
     label: "Trunk websocket endpoint",
@@ -16,10 +15,6 @@ const TRUNK_DEV_PATTERNS = [
     label: "Trunk websocket template placeholder",
     pattern: /__TRUNK_(?:ADDRESS|WS_BASE)__/,
   },
-  {
-    label: "Trunk dev WebSocket client",
-    pattern: /\.well-known\/trunk\/ws[\s\S]*new\s+WebSocket\(/,
-  },
 ];
 
 const distDir = path.resolve(
@@ -27,22 +22,19 @@ const distDir = path.resolve(
 );
 const jsonMode = parseBoolean(process.env.WEBSH_SIZE_JSON);
 const budgets = {
-  wasmBrotliBytes: parseOptionalBytes(process.env.WEBSH_WASM_BROTLI_BUDGET),
-  jsBrotliBytes: parseOptionalBytes(process.env.WEBSH_JS_BROTLI_BUDGET),
-  cssBrotliBytes: parseOptionalBytes(process.env.WEBSH_CSS_BROTLI_BUDGET),
-  fontBrotliBytes: parseOptionalBytes(process.env.WEBSH_FONT_BROTLI_BUDGET),
-  vendorBrotliBytes: parseOptionalBytes(process.env.WEBSH_VENDOR_BROTLI_BUDGET),
-  totalBrotliBytes: parseOptionalBytes(process.env.WEBSH_TOTAL_BROTLI_BUDGET),
+  wasmBrotliBytes: parseBytes(process.env.WEBSH_WASM_BROTLI_BUDGET ?? "1.05MiB"),
+  jsBrotliBytes: parseBytes(process.env.WEBSH_JS_BROTLI_BUDGET ?? "90KiB"),
+  cssBrotliBytes: parseBytes(process.env.WEBSH_CSS_BROTLI_BUDGET ?? "45KiB"),
+  fontBrotliBytes: parseBytes(process.env.WEBSH_FONT_BROTLI_BUDGET ?? "500KiB"),
+  vendorBrotliBytes: parseBytes(process.env.WEBSH_VENDOR_BROTLI_BUDGET ?? "400KiB"),
+  totalBrotliBytes: parseBytes(process.env.WEBSH_TOTAL_BROTLI_BUDGET ?? "1.65MiB"),
 };
 
 function parseBoolean(value) {
   return value === "1" || value === "true" || value === "yes";
 }
 
-function parseOptionalBytes(value) {
-  if (!value) {
-    return null;
-  }
+function parseBytes(value) {
   const match = String(value).trim().match(/^(\d+(?:\.\d+)?)(b|kib|kb|mib|mb)?$/i);
   if (!match) {
     throw new Error(`invalid byte budget: ${value}`);
@@ -66,6 +58,8 @@ function listFiles(dir) {
       out.push(...listFiles(fullPath));
     } else if (entry.isFile()) {
       out.push(fullPath);
+    } else {
+      throw new Error(`unsupported deployment entry: ${fullPath}`);
     }
   }
   return out;
@@ -102,50 +96,20 @@ function formatBytes(bytes) {
 }
 
 function assetKind(filePath) {
-  const ext = path.extname(filePath).slice(1);
-  return ext === "woff2" || ext === "ttf" ? "font" : ext;
-}
-
-function hasTrunkHash(relativePath) {
-  return /-[0-9a-f]{8,}(?:_bg)?\.(?:css|js|wasm)$/i.test(relativePath);
+  const ext = path.extname(filePath).toLowerCase();
+  return FONT_EXTENSIONS.has(ext) ? "font" : ext.slice(1) || "other";
 }
 
 function auditAsset(filePath) {
   const buffer = fs.readFileSync(filePath);
   const relativePath = relPath(filePath);
-  const rootAsset = !relativePath.includes("/");
   return {
     path: relativePath,
     kind: assetKind(relativePath),
-    rootAsset,
-    trunkHashed: rootAsset ? hasTrunkHash(relativePath) : null,
+    scope: relativePath.startsWith("content/") ? "content" : "runtime",
     bytes: buffer.length,
     gzipBytes: gzipSize(buffer),
     brotliBytes: brotliSize(buffer),
-  };
-}
-
-function commandAvailability(command, args) {
-  const result = spawnSync(command, args, {
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-
-  if (result.error) {
-    return {
-      command,
-      available: false,
-      version: null,
-      note: result.error.code === "ENOENT" ? "not found" : result.error.message,
-    };
-  }
-
-  const output = `${result.stdout || ""}${result.stderr || ""}`.trim();
-  return {
-    command,
-    available: result.status === 0,
-    version: output.split(/\r?\n/).find(Boolean) || null,
-    note: result.status === 0 ? null : `exited ${result.status}`,
   };
 }
 
@@ -192,15 +156,11 @@ function brotliSum(assets, predicate) {
 }
 
 function vendorAsset(asset) {
-  return (
-    asset.path.includes("/vendor/") ||
-    asset.path.startsWith("vendor/") ||
-    /(?:vendor|third[-_]party)/i.test(asset.path)
-  );
+  return asset.path.startsWith("assets/vendor/");
 }
 
 function enforceBudget(issues, label, actual, budget) {
-  if (budget !== null && actual > budget) {
+  if (actual > budget) {
     issues.push(
       `${label} brotli size ${formatBytes(actual)} exceeds budget ${formatBytes(
         budget
@@ -215,7 +175,6 @@ function buildReport() {
   }
 
   const assets = listFiles(distDir)
-    .filter((filePath) => TARGET_EXTENSIONS.has(path.extname(filePath)))
     .map(auditAsset)
     .sort((a, b) => {
       if (a.kind !== b.kind) {
@@ -225,10 +184,10 @@ function buildReport() {
     });
 
   const index = inspectIndexHtml();
-  const tools = [
-    commandAvailability("twiggy", ["--version"]),
-    commandAvailability("wasm-opt", ["--version"]),
-  ];
+  // Count every deployed file. Application budgets exclude only authored content
+  // and its generated metadata under content/, reported separately below.
+  const runtimeAssets = assets.filter((asset) => asset.scope === "runtime");
+  const contentAssets = assets.filter((asset) => asset.scope === "content");
 
   const issues = [];
   if (!index.exists) {
@@ -241,94 +200,85 @@ function buildReport() {
       )}`
     );
   }
-  if (!assets.some((asset) => asset.kind === "wasm")) {
+  if (!runtimeAssets.some((asset) => asset.kind === "wasm")) {
     issues.push("no .wasm asset found in dist");
   }
-  const wasmBrotli = assets
-    .filter((asset) => asset.kind === "wasm")
-    .reduce((total, asset) => total + asset.brotliBytes, 0);
-  const totals = sumAssets(assets);
-  enforceBudget(issues, "wasm", wasmBrotli, budgets.wasmBrotliBytes);
+  const runtime = sumAssets(runtimeAssets);
+  enforceBudget(
+    issues,
+    "wasm",
+    brotliSum(runtimeAssets, (asset) => asset.kind === "wasm"),
+    budgets.wasmBrotliBytes
+  );
   enforceBudget(
     issues,
     "javascript",
-    brotliSum(assets, (asset) => asset.kind === "js"),
+    brotliSum(runtimeAssets, (asset) => asset.kind === "js"),
     budgets.jsBrotliBytes
   );
   enforceBudget(
     issues,
     "css",
-    brotliSum(assets, (asset) => asset.kind === "css"),
+    brotliSum(runtimeAssets, (asset) => asset.kind === "css"),
     budgets.cssBrotliBytes
   );
   enforceBudget(
     issues,
     "font",
-    brotliSum(assets, (asset) => asset.kind === "font"),
+    brotliSum(runtimeAssets, (asset) => asset.kind === "font"),
     budgets.fontBrotliBytes
   );
   enforceBudget(
     issues,
     "vendor",
-    brotliSum(assets, vendorAsset),
+    brotliSum(runtimeAssets, vendorAsset),
     budgets.vendorBrotliBytes
   );
-  enforceBudget(issues, "total", totals.brotliBytes, budgets.totalBrotliBytes);
+  enforceBudget(issues, "runtime total", runtime.brotliBytes, budgets.totalBrotliBytes);
 
   return {
     distDir,
     generatedAt: new Date().toISOString(),
     assets,
-    totals,
+    runtime,
+    content: sumAssets(contentAssets),
+    deployment: sumAssets(assets),
     index,
-    tools,
     budgets,
     issues,
   };
 }
 
 function printHuman(report) {
-  console.log(`WASM size audit: ${report.distDir}`);
-
-  console.log("\nTool availability:");
-  for (const tool of report.tools) {
-    const status = tool.available ? "available" : "missing";
-    const detail = tool.version || tool.note || "";
-    console.log(`  ${tool.command}: ${status}${detail ? ` (${detail})` : ""}`);
-  }
+  console.log(`Asset size audit: ${report.distDir}`);
+  console.log("Budgets cover all runtime files. Only content/ is reported separately.");
 
   console.log("\nAssets:");
-  for (const kind of ["wasm", "js", "css", "font"]) {
-    const assets = report.assets.filter((asset) => asset.kind === kind);
-    if (assets.length === 0) {
-      console.log(`  .${kind}: none`);
-      continue;
-    }
-
+  const runtimeAssets = report.assets.filter((asset) => asset.scope === "runtime");
+  for (const kind of new Set(runtimeAssets.map((asset) => asset.kind))) {
+    const assets = runtimeAssets.filter((asset) => asset.kind === kind);
     console.log(`  .${kind}:`);
     const width = Math.max(...assets.map((asset) => asset.path.length));
     for (const asset of assets) {
-      const hashStatus =
-        asset.trunkHashed === null
-          ? ""
-          : asset.trunkHashed
-            ? " hashed"
-            : " unhashed-root";
       console.log(
         `    ${asset.path.padEnd(width)}  raw=${formatBytes(
           asset.bytes
         ).padStart(9)} gzip=${formatBytes(asset.gzipBytes).padStart(
           9
-        )} brotli=${formatBytes(asset.brotliBytes).padStart(9)}${hashStatus}`
+        )} brotli=${formatBytes(asset.brotliBytes).padStart(9)}`
       );
     }
   }
 
-  console.log(
-    `\nTotals: raw=${formatBytes(report.totals.bytes)} gzip=${formatBytes(
-      report.totals.gzipBytes
-    )} brotli=${formatBytes(report.totals.brotliBytes)}`
-  );
+  for (const [label, totals] of [
+    ["Runtime", report.runtime],
+    ["Content", report.content],
+    ["Deployment", report.deployment],
+  ]) {
+    console.log(
+      `\n${label}: raw=${formatBytes(totals.bytes)} gzip=${formatBytes(totals.gzipBytes)} brotli=${formatBytes(totals.brotliBytes)}`
+    );
+  }
 
   if (report.index.hasTrunkDevWebsocket) {
     console.log(

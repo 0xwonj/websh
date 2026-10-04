@@ -6,7 +6,7 @@ const root = fs.realpathSync(process.argv[2] || "target/verify/dist");
 const port = Number(process.argv[3] || 4173);
 const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".wasm": "application/wasm", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".woff2": "font/woff2", ".pdf": "application/pdf" };
 
-if (!fs.existsSync(path.join(root, "index.html"))) throw new Error("Build verification assets with npm run build:check first.");
+if (!fs.existsSync(path.join(root, "index.html"))) throw new Error("Build verification assets with just build-check first.");
 
 http.createServer((request, response) => {
   if (request.method !== "GET" && request.method !== "HEAD") {

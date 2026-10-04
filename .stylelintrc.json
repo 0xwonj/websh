@@ -33,49 +33,7 @@
       "files": ["crates/websh-web/src/**/*.module.css"],
       "rules": {
         "color-no-hex": true,
-        "unit-allowed-list": [
-          ["%", "rem", "em", "ch", "vh", "vw", "vmin", "vmax", "fr", "deg", "px", "s", "ms"],
-          {
-            "ignoreProperties": {
-              "px": [
-                "border",
-                "border-width",
-                "border-top",
-                "border-right",
-                "border-bottom",
-                "border-left",
-                "border-top-width",
-                "border-right-width",
-                "border-bottom-width",
-                "border-left-width",
-                "outline",
-                "outline-width",
-                "box-shadow",
-                "text-shadow",
-                "background-size",
-                "transform",
-                "translate",
-                "background-position",
-                "stroke-width",
-                "letter-spacing",
-                "width",
-                "height",
-                "min-width",
-                "min-height",
-                "max-width",
-                "max-height",
-                "grid-template-columns",
-                "grid-template-rows",
-                "flex",
-                "flex-basis",
-                "top",
-                "right",
-                "bottom",
-                "left"
-              ]
-            }
-          }
-        ],
+        "unit-allowed-list": ["%", "rem", "em", "ch", "vh", "vw", "vmin", "vmax", "fr", "deg", "px", "s", "ms"],
         "declaration-property-value-allowed-list": {
           "z-index": ["/^var\\(--z-/", "auto"],
           "transition-duration": ["/^var\\(--duration-/", "0s"],
