@@ -192,7 +192,7 @@ fn build_segment_path(segments: &[&str], idx: usize) -> String {
     segments[start_idx..=idx].join("/")
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(test)]
 mod tests {
     use super::build_segment_path;
     use wasm_bindgen_test::*;

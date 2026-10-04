@@ -14,7 +14,7 @@ use websh_core::shell::OutputLine;
 pub const DEFAULT_THEME: &str = "kanagawa-wave";
 /// localStorage key for the active theme. Runtime services persist this through
 /// the user environment as `$THEME` and `/.websh/state/env/THEME`.
-pub const STORAGE_KEY: &str = "user.THEME";
+pub use crate::runtime::state::THEME_KEY as STORAGE_KEY;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ThemeDescriptor {
@@ -119,82 +119,31 @@ pub fn theme_output_lines() -> Vec<OutputLine> {
 }
 
 pub fn normalize_theme_id(raw: &str) -> Option<&'static str> {
-    let normalized = raw.trim().to_ascii_lowercase();
-    let normalized = normalized.replace('_', "-");
-
-    match normalized.as_str() {
-        "sepia" | "sepia-dark" | "flexoki" | "flexoki-dark" | "dark-paper" => Some("sepia-dark"),
-        "black" | "black-ink" | "ink" | "paper" | "paper-light" | "flexoki-light" => {
-            Some("black-ink")
-        }
-        "gruvbox" | "gruvbox-dark" => Some("gruvbox-dark"),
-        "tokyonight" | "tokyo-night" | "tokyonight-night" | "night" => Some("tokyonight-night"),
-        "solarized" | "solarized-light" | "light" => Some("solarized-light"),
-        "dracula" | "vampire" => Some("dracula"),
-        "catppuccin" | "catppuccin-mocha" | "mocha" => Some("catppuccin-mocha"),
-        "catppuccin-latte" | "latte" => Some("catppuccin-latte"),
-        "nord" | "nordic" | "arctic" => Some("nord"),
-        "rose-pine" | "rosepine" | "rose" | "pine" => Some("rose-pine"),
-        "kanagawa" | "kanagawa-wave" | "wave" => Some("kanagawa-wave"),
-        _ => None,
-    }
-}
-
-pub fn initial_theme() -> &'static str {
-    let Some(saved) = stored_theme() else {
-        return DEFAULT_THEME;
-    };
-    normalize_theme_id(&saved).unwrap_or(DEFAULT_THEME)
+    let id = raw.trim().to_ascii_lowercase();
+    THEMES
+        .iter()
+        .find(|theme| theme.id == id)
+        .map(|theme| theme.id)
 }
 
 pub fn apply_theme_to_document(theme_id: &str) {
-    #[cfg(target_arch = "wasm32")]
-    {
-        let Some(window) = web_sys::window() else {
-            return;
-        };
-
-        if let Some(document) = window.document() {
-            if let Some(root) = document.document_element() {
-                let _ = root.set_attribute("data-theme", theme_id);
-            }
-
-            if let Some(meta) = document
-                .query_selector(r#"meta[name="theme-color"]"#)
-                .ok()
-                .flatten()
-            {
-                let meta_color = THEMES
-                    .iter()
-                    .find(|theme| theme.id == theme_id)
-                    .map(|theme| theme.meta_color)
-                    .unwrap_or("#1f1f28");
-                let _ = meta.set_attribute("content", meta_color);
-            }
-        }
+    let Some(document) = web_sys::window().and_then(|window| window.document()) else {
+        return;
+    };
+    if let Some(root) = document.document_element() {
+        let _ = root.set_attribute("data-theme", theme_id);
     }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let _ = theme_id;
+    if let Ok(Some(meta)) = document.query_selector(r#"meta[name="theme-color"]"#) {
+        let color = THEMES
+            .iter()
+            .find(|theme| theme.id == theme_id)
+            .map(|theme| theme.meta_color)
+            .unwrap_or("#1f1f28");
+        let _ = meta.set_attribute("content", color);
     }
 }
 
-fn stored_theme() -> Option<String> {
-    #[cfg(target_arch = "wasm32")]
-    {
-        web_sys::window()
-            .and_then(|window| window.local_storage().ok().flatten())
-            .and_then(|storage| storage.get_item(STORAGE_KEY).ok().flatten())
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        None
-    }
-}
-
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use wasm_bindgen_test::*;
@@ -202,25 +151,13 @@ mod tests {
     wasm_bindgen_test_configure!(run_in_browser);
 
     #[wasm_bindgen_test]
-    fn normalizes_theme_aliases() {
-        let cases = [
-            ("sepia", Some("sepia-dark")),
-            ("paper", Some("black-ink")),
-            ("tokyo-night", Some("tokyonight-night")),
-            ("light", Some("solarized-light")),
-            ("dracula", Some("dracula")),
-            ("catppuccin", Some("catppuccin-mocha")),
-            ("mocha", Some("catppuccin-mocha")),
-            ("latte", Some("catppuccin-latte")),
-            ("nord", Some("nord")),
-            ("rose-pine", Some("rose-pine")),
-            ("rosepine", Some("rose-pine")),
-            ("kanagawa", Some("kanagawa-wave")),
-            ("unknown", None),
-        ];
-
-        for (input, expected) in cases {
-            assert_eq!(normalize_theme_id(input), expected, "input: {input}");
+    fn accepts_only_catalog_theme_ids() {
+        for theme in THEMES {
+            assert_eq!(normalize_theme_id(theme.id), Some(theme.id));
+        }
+        assert_eq!(normalize_theme_id(" DRACULA "), Some("dracula"));
+        for id in ["sepia", "paper", "mocha", "night", "unknown"] {
+            assert_eq!(normalize_theme_id(id), None);
         }
     }
 

@@ -38,7 +38,7 @@ enum RootContentReadiness {
 }
 
 fn root_content_readiness(ctx: AppContext) -> RootContentReadiness {
-    match ctx.mount_status_for(&VirtualPath::root()) {
+    match ctx.content.mount_status_for(&VirtualPath::root()) {
         Some(MountLoadStatus::Available { .. }) => RootContentReadiness::Loaded,
         Some(MountLoadStatus::Failed { .. }) => RootContentReadiness::Failed,
         Some(MountLoadStatus::Loading) | None => RootContentReadiness::Loading,
@@ -185,13 +185,13 @@ fn AbstractSection() -> impl IntoView {
 #[component]
 fn NowSection() -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
-    let root_version = Memo::new(move |_| ctx.read_version(&VirtualPath::root()));
+    let root_version = Memo::new(move |_| ctx.content.read_version(&VirtualPath::root()));
     let now = LocalResource::new(move || {
         let _version = root_version.get();
         let readiness = untrack(|| root_content_readiness(ctx));
         let path = VirtualPath::from_absolute("/.site/now.toml").expect("constant path");
         let should_read = readiness == RootContentReadiness::Loaded
-            && ctx.global_fs.with_untracked(|fs| fs.exists(&path));
+            && ctx.content.with_fs_untracked(|fs| fs.exists(&path));
 
         async move {
             if !should_read {
@@ -242,7 +242,7 @@ fn TocSection() -> impl IntoView {
             <ol>
                 {move || {
                     let readiness = root_content_readiness(ctx);
-                    ctx.global_fs.with(|fs| {
+                    ctx.content.with_fs(|fs| {
                         TOC_ITEMS.iter().map(|item| {
                             let meta = toc_item_meta_for_readiness(fs, item, readiness);
                             view! {
@@ -302,7 +302,7 @@ fn RecentFeed() -> impl IntoView {
         if root_content_readiness(ctx) != RootContentReadiness::Loaded {
             return Vec::new();
         }
-        ctx.global_fs.with(recent_items_from_fs)
+        ctx.content.with_fs(recent_items_from_fs)
     });
 
     view! {

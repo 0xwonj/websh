@@ -7,7 +7,7 @@ const appOrigin = new URL(appBaseUrl).origin;
 const walletAddress = '0x2c4b04a4aeb6e18c2f8a5c8b4a3f62c0cf33795a';
 const themeStorageKey = 'user.THEME';
 const langStorageKey = 'user.LANG';
-const readerTextScaleStorageKey = 'reader.TEXT_SCALE';
+const readerTextScaleStorageKey = 'websh.reader.scale';
 const tinyPng = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
   'base64'
@@ -28,7 +28,6 @@ function nodeMetadata(kind, { title, description = null, date = null, tags = [],
   if (childCount !== null) derived.child_count = childCount;
 
   const metadata = {
-    schema: 1,
     kind,
     authored,
     derived
@@ -1518,28 +1517,49 @@ test('theme selection applies globally and persists', async ({ page }) => {
   expect(consoleErrors).toEqual([]);
 });
 
-test('retired credential input never reaches output, history, storage, or requests', async ({ page }) => {
+test('unsupported command input never reaches output, history, storage, or requests', async ({ page }) => {
   const { pageErrors, consoleErrors } = await collectBrowserErrors(page);
   const requests = [];
   page.on('request', request => requests.push(request.url() + JSON.stringify(request.headers()) + (request.postData() || '')));
   await page.addInitScript(() => {
-    sessionStorage.setItem('websh.gh_token', 'legacy-token-sentinel');
     localStorage.setItem('user.LANG', 'ko');
   });
   await page.goto(`${baseUrl}/#/websh`, { waitUntil: 'networkidle' });
   await expect(page.locator('body')).toContainText('guest@wonjae.eth:~');
   for (const command of ['sync auth set credential-sentinel', '  SyNc   AUTH  SET credential-sentinel  ', 'echo hi | sync auth set credential-sentinel']) {
     await runCommand(page, command);
-    await expect(page.locator('body')).toContainText('Browser authoring is no longer supported');
+    await expect(page.locator('body')).toContainText('Unsupported command or syntax.');
     await expect(page.locator('body')).not.toContainText('credential-sentinel');
     await page.keyboard.press('ArrowUp');
     await expect(page.locator('input[type="text"]')).not.toHaveValue(/credential-sentinel/);
   }
-  expect(await page.evaluate(() => sessionStorage.getItem('websh.gh_token'))).toBeNull();
   expect(await page.evaluate(() => localStorage.getItem('user.LANG'))).toBe('ko');
-  expect(requests.join(' ')).not.toMatch(/credential-sentinel|legacy-token-sentinel/);
-  expect(consoleErrors.join(' ')).not.toMatch(/credential-sentinel|legacy-token-sentinel/);
+  expect(requests.join(' ')).not.toMatch(/credential-sentinel/);
+  expect(consoleErrors.join(' ')).not.toMatch(/credential-sentinel/);
   expect(pageErrors).toEqual([]);
+});
+
+test('history replay retains executed arguments across repeated references', async ({ page }) => {
+  await page.goto(`${baseUrl}/#/websh`, { waitUntil: 'networkidle' });
+  await expect(page.locator('body')).toContainText('guest@wonjae.eth:~');
+  const repeated = page.getByText('history-result', { exact: true });
+  await runCommand(page, 'echo history-result');
+  await expect(repeated).toHaveCount(1);
+  await runCommand(page, '!!');
+  await expect(repeated).toHaveCount(2);
+  await runCommand(page, '!!');
+  await expect(repeated).toHaveCount(3);
+
+  await runCommand(page, `export MESSAGE="literal \\$VALUE | !!"`);
+  await runCommand(page, 'echo "$MESSAGE"');
+  const literal = page.getByText('literal $VALUE | !!', { exact: true });
+  await expect(literal).toHaveCount(1);
+  await runCommand(page, '!!');
+  await expect(literal).toHaveCount(2);
+  await runCommand(page, '!-1');
+  await expect(literal).toHaveCount(3);
+  await page.keyboard.press('ArrowUp');
+  await expect(page.locator('input[type="text"]')).toHaveValue("echo 'literal $VALUE | !!'");
 });
 
 test('wallet sessions remain usable but writing commands and redirection cannot edit content', async ({ page }) => {
@@ -1569,48 +1589,6 @@ test('new is an ordinary content route and the reader has no editing controls', 
   await expect(page.getByRole('heading', { name: 'Ordinary New' }).first()).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'Markdown source' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /^(edit|save|compose)$/i })).toHaveCount(0);
-});
-
-test('legacy draft database is neither opened nor changed by application startup', async ({ page }) => {
-  await page.goto(`${baseUrl}/#/websh`, { waitUntil: 'networkidle' });
-  await page.evaluate(() => new Promise((resolve, reject) => {
-    const request = indexedDB.open('websh-state', 3);
-    request.onupgradeneeded = () => { request.result.createObjectStore('draft_changes', { keyPath: 'key' }); request.result.createObjectStore('drafts', { keyPath: 'key' }); };
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => {
-      const db = request.result;
-      const tx = db.transaction(['draft_changes', 'drafts'], 'readwrite');
-      tx.objectStore('drafts').put({ key: 'old-format', raw: 'PRESERVE OLDER DRAFT' });
-      tx.objectStore('draft_changes').put({ key: 'global:/legacy.md', body: 'KEEP THIS EXACTLY' });
-      tx.oncomplete = () => { db.close(); resolve(); };
-      tx.onerror = () => reject(tx.error);
-    };
-  }));
-  await page.addInitScript(() => {
-    window.__legacyOperations = [];
-    for (const method of ['open', 'deleteDatabase']) {
-      const original = IDBFactory.prototype[method];
-      IDBFactory.prototype[method] = function(name, ...args) {
-        if (name === 'websh-state') window.__legacyOperations.push(method);
-        return original.call(this, name, ...args);
-      };
-    }
-  });
-  await page.reload({ waitUntil: 'networkidle' });
-  await expect(page.locator('body')).toContainText('guest@wonjae.eth:~');
-  expect(await page.evaluate(() => window.__legacyOperations)).toEqual([]);
-  const record = await page.evaluate(() => new Promise((resolve, reject) => {
-    const request = indexedDB.open('websh-state');
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => {
-      const db = request.result;
-      const tx = db.transaction(['draft_changes', 'drafts'], 'readonly');
-      const older = tx.objectStore('drafts').get('old-format');
-      const read = tx.objectStore('draft_changes').get('global:/legacy.md');
-      tx.oncomplete = () => { db.close(); resolve({ version: db.version, record: read.result, older: older.result }); };
-    };
-  }));
-  expect(record).toEqual({ version: 3, older: { key: 'old-format', raw: 'PRESERVE OLDER DRAFT' }, record: { key: 'global:/legacy.md', body: 'KEEP THIS EXACTLY' } });
 });
 
 test('warm external cache serves a known listing during failed refresh and retries in place', async ({ page }) => {
@@ -1704,7 +1682,7 @@ test('cached metadata never invents an unavailable body or repairs a failed cold
   await page.goto(`${baseUrl}/#/db/fresh`, { waitUntil: 'networkidle' });
   await expect.poll(async () => (await cacheRecords(page)).length).toBe(1);
   const records = await cacheRecords(page);
-  expect(records.every(record => !record.descriptor.canonical_mount_root.startsWith('/.websh'))).toBe(true);
+  expect(records.every(record => !record.descriptor.root.startsWith('/.websh'))).toBe(true);
   expect(JSON.stringify(records)).not.toMatch(/# Fresh|websh\.wallet_session|gh_token|attestation_verdict/);
   await page.route('https://raw.githubusercontent.com/0xwonj/mount-db/main/manifest.json', route => route.fulfill({ status: 503, body: 'offline' }));
   await page.route('https://raw.githubusercontent.com/0xwonj/mount-db/main/fresh.md', route => route.fulfill({ status: 404, body: 'gone' }));

@@ -89,7 +89,7 @@ fn is_domain_allowed(host: &str) -> bool {
         .any(|allowed| host_lower == *allowed || host_lower.ends_with(&format!(".{allowed}")))
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use wasm_bindgen_test::*;

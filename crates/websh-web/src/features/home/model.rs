@@ -108,21 +108,13 @@ fn latest_attestation_issued_at(artifact: &AttestationArtifact) -> Option<String
 }
 
 pub(super) fn current_homepage_date() -> String {
-    #[cfg(target_arch = "wasm32")]
-    {
-        let date = js_sys::Date::new_0();
-        format!(
-            "{:04}-{:02}-{:02}",
-            date.get_full_year(),
-            date.get_month() + 1,
-            date.get_date()
-        )
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        websh_core::support::format::format_date_iso(crate::platform::current_timestamp() / 1000)
-    }
+    let date = js_sys::Date::new_0();
+    format!(
+        "{:04}-{:02}-{:02}",
+        date.get_full_year(),
+        date.get_month() + 1,
+        date.get_date()
+    )
 }
 
 pub(super) fn compact_homepage_date(date: &str) -> String {
@@ -340,7 +332,7 @@ fn category_label_for_path(path: &str) -> Option<String> {
     Some(label.to_string())
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use wasm_bindgen_test::*;
@@ -421,11 +413,10 @@ text = "also ignored"
 
     #[wasm_bindgen_test]
     fn recent_items_use_folder_category_metadata_and_content_route() {
-        use websh_core::domain::{EntryExtensions, Fields, NodeKind, NodeMetadata, SCHEMA_VERSION};
+        use websh_core::domain::{EntryExtensions, Fields, NodeKind, NodeMetadata};
         use websh_core::ports::{ScannedFile, ScannedSubtree};
 
         let make_meta = |date: &str, tags: &[&str]| NodeMetadata {
-            schema: SCHEMA_VERSION,
             kind: NodeKind::Page,
             bundle: None,
             authored: Fields {
@@ -465,11 +456,10 @@ text = "also ignored"
 
     #[wasm_bindgen_test]
     fn toc_counts_visible_content_files_under_each_directory() {
-        use websh_core::domain::{EntryExtensions, Fields, NodeKind, NodeMetadata, SCHEMA_VERSION};
+        use websh_core::domain::{EntryExtensions, Fields, NodeKind, NodeMetadata};
         use websh_core::ports::{ScannedFile, ScannedSubtree};
 
         let blank = || NodeMetadata {
-            schema: SCHEMA_VERSION,
             kind: NodeKind::Page,
             bundle: None,
             authored: Fields::default(),

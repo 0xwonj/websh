@@ -5,7 +5,7 @@
 
 use super::intent::ReaderIntent;
 
-pub const TEXT_SCALE_STORAGE_KEY: &str = "reader.TEXT_SCALE";
+use crate::runtime::state::{self, READER_SCALE_KEY};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReaderTextScale {
@@ -49,7 +49,7 @@ pub fn parse_text_scale(raw: &str) -> Option<ReaderTextScale> {
         "small" => Some(ReaderTextScale::Small),
         "normal" => Some(ReaderTextScale::Normal),
         "large" => Some(ReaderTextScale::Large),
-        "xlarge" | "extra-large" | "extra_large" => Some(ReaderTextScale::XLarge),
+        "xlarge" => Some(ReaderTextScale::XLarge),
         _ => None,
     }
 }
@@ -59,19 +59,7 @@ pub fn initial_text_scale() -> ReaderTextScale {
 }
 
 pub fn persist_text_scale(scale: ReaderTextScale) {
-    #[cfg(target_arch = "wasm32")]
-    {
-        if let Some(storage) =
-            web_sys::window().and_then(|window| window.local_storage().ok().flatten())
-        {
-            let _ = storage.set_item(TEXT_SCALE_STORAGE_KEY, scale.attr());
-        }
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let _ = scale;
-    }
+    let _ = state::write(READER_SCALE_KEY, scale.attr());
 }
 
 pub fn intent_supports_text_scale(intent: &ReaderIntent) -> bool {
@@ -86,21 +74,10 @@ pub fn intent_supports_text_scale(intent: &ReaderIntent) -> bool {
 }
 
 fn stored_text_scale() -> Option<ReaderTextScale> {
-    #[cfg(target_arch = "wasm32")]
-    {
-        web_sys::window()
-            .and_then(|window| window.local_storage().ok().flatten())
-            .and_then(|storage| storage.get_item(TEXT_SCALE_STORAGE_KEY).ok().flatten())
-            .and_then(|value| parse_text_scale(&value))
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        None
-    }
+    state::read(READER_SCALE_KEY).and_then(|value| parse_text_scale(&value))
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use wasm_bindgen_test::*;
@@ -117,10 +94,7 @@ mod tests {
         assert_eq!(parse_text_scale("small"), Some(ReaderTextScale::Small));
         assert_eq!(parse_text_scale("NORMAL"), Some(ReaderTextScale::Normal));
         assert_eq!(parse_text_scale("large"), Some(ReaderTextScale::Large));
-        assert_eq!(
-            parse_text_scale("extra-large"),
-            Some(ReaderTextScale::XLarge)
-        );
+        assert_eq!(parse_text_scale("xlarge"), Some(ReaderTextScale::XLarge));
         assert_eq!(parse_text_scale("unknown"), None);
     }
 

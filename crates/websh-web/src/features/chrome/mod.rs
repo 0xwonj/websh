@@ -287,9 +287,9 @@ pub fn SiteChromeWalletButton() -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
     let (open, set_open) = signal(false);
 
-    let session = Signal::derive(move || ctx.wallet.with(|w| w.display_name()));
+    let session = Signal::derive(move || ctx.wallet.state.with(|w| w.display_name()));
     let network = Signal::derive(move || {
-        ctx.wallet.with(|wallet| {
+        ctx.wallet.state.with(|wallet| {
             wallet
                 .chain_id()
                 .map(|id| websh_core::domain::chain_name(id).to_ascii_lowercase())
@@ -346,16 +346,14 @@ fn SiteChromeWalletMenu(set_open: WriteSignal<bool>) -> impl IntoView {
         ev.stop_propagation();
         close();
         spawn_local(async move {
-            let _ = RuntimeServices::new(ctx)
-                .connect_wallet_with_session()
-                .await;
+            let _ = ctx.wallet.connect().await;
         });
     };
 
     let on_disconnect = move |ev: ev::MouseEvent| {
         ev.stop_propagation();
         close();
-        let _ = RuntimeServices::new(ctx).disconnect_wallet();
+        let _ = ctx.wallet.disconnect();
     };
 
     let stop_inside = move |ev: ev::MouseEvent| ev.stop_propagation();
@@ -368,7 +366,7 @@ fn SiteChromeWalletMenu(set_open: WriteSignal<bool>) -> impl IntoView {
 
     view! {
         <div class=css::walletMenu aria-label="Wallet" on:click=stop_inside on:keydown=close_on_escape>
-            {move || ctx.wallet.with(|state| match state {
+            {move || ctx.wallet.state.with(|state| match state {
                 WalletState::Disconnected => view! {
                     <button
                         class=css::walletMenuItem
@@ -429,7 +427,7 @@ pub fn SiteChromeDivider() -> impl IntoView {
 }
 
 #[component]
-pub fn SiteChromePalettePicker(theme: RwSignal<&'static str>) -> impl IntoView {
+pub fn SiteChromePalettePicker(theme: Memo<&'static str>) -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
     let (palette_open, set_palette_open) = signal(false);
     let toggle_palette = move |_| {

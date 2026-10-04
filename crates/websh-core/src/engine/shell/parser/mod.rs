@@ -52,6 +52,22 @@ pub struct Pipeline {
 }
 
 impl Pipeline {
+    /// A safely quoted command line containing the arguments actually executed.
+    /// History stores this form so replay never expands variables or history twice.
+    pub fn command_line(&self) -> String {
+        self.commands
+            .iter()
+            .map(|command| {
+                std::iter::once(&command.name)
+                    .chain(&command.args)
+                    .map(|word| quote_word(word))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .collect::<Vec<_>>()
+            .join(" | ")
+    }
+
     /// Whether this input consists only of current commands and pipe filters.
     /// Call before echoing or retaining input supplied by the user.
     pub fn is_supported(&self) -> bool {
@@ -80,6 +96,18 @@ impl Pipeline {
     #[cfg(test)]
     pub fn has_error(&self) -> bool {
         self.error.is_some()
+    }
+}
+
+fn quote_word(word: &str) -> String {
+    if !word.is_empty()
+        && word
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "_./:@%+=,-".contains(c))
+    {
+        word.to_string()
+    } else {
+        format!("'{}'", word.replace('\'', "'\"'\"'"))
     }
 }
 
@@ -307,5 +335,46 @@ mod tests {
         let env = BTreeMap::from([("CMD".into(), "sync".into())]);
         assert!(!parse_input_with_env("$CMD auth set payload", &[], &env).is_supported());
         assert!(!parse_input("!!", &["sync auth set payload".into()]).is_supported());
+    }
+
+    #[test]
+    fn history_repeats_executed_commands_without_nested_expansion() {
+        let env = BTreeMap::from([("MESSAGE".into(), "literal $OTHER | !!".into())]);
+        let mut history = vec![parse_input_with_env("echo \"$MESSAGE\"", &[], &env).command_line()];
+        for input in ["!!", "!!", "!-1", "!0"] {
+            let replay = parse_input_with_env(input, &history, &BTreeMap::new());
+            assert!(replay.is_supported());
+            assert_eq!(replay.commands.len(), 1);
+            assert_eq!(replay.commands[0].name, "echo");
+            assert_eq!(replay.commands[0].args, ["literal $OTHER | !!"]);
+            history.push(replay.command_line());
+        }
+    }
+
+    #[test]
+    fn command_line_preserves_quoted_arguments_and_pipeline_boundaries() {
+        let pipeline = Pipeline {
+            commands: vec![
+                ParsedCommand {
+                    name: "echo".into(),
+                    args: vec![
+                        String::new(),
+                        "don't $expand !0 | split\\this\n한국어".into(),
+                    ],
+                },
+                ParsedCommand {
+                    name: "grep".into(),
+                    args: vec!["$expand".into()],
+                },
+            ],
+            error: None,
+        };
+        let replay = parse_input(&pipeline.command_line(), &[]);
+        assert_eq!(replay.commands.len(), pipeline.commands.len());
+        for (actual, expected) in replay.commands.iter().zip(&pipeline.commands) {
+            assert_eq!(actual.name, expected.name);
+            assert_eq!(actual.args, expected.args);
+        }
+        assert_eq!(parse_input("ls -l docs", &[]).command_line(), "ls -l docs");
     }
 }

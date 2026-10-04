@@ -421,7 +421,7 @@ impl LedgerFilter {
     }
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use wasm_bindgen_test::*;
@@ -431,7 +431,6 @@ mod tests {
     use websh_core::attestation::subject::ContentFile;
     use websh_core::domain::{
         BundleMetadata, BundleVariant, EntryExtensions, Fields, ImageDim, NodeKind, RendererKind,
-        SCHEMA_VERSION,
     };
 
     wasm_bindgen_test_configure!(run_in_browser);
@@ -460,7 +459,6 @@ mod tests {
 
     fn meta(kind: NodeKind) -> NodeMetadata {
         NodeMetadata {
-            schema: SCHEMA_VERSION,
             kind,
             bundle: None,
             authored: Fields::default(),

@@ -17,12 +17,9 @@ fn handle_login(ctx: AppContext) {
         ctx.terminal
             .push_output(OutputLine::info("Connecting to wallet..."));
 
-        match RuntimeServices::new(ctx)
-            .connect_wallet_with_session()
-            .await
-        {
-            Ok(outcome) => {
-                if let Some(error) = outcome.session_persist_error {
+        match ctx.wallet.connect().await {
+            Ok(Some(outcome)) => {
+                if let Some(error) = outcome.persistence_error {
                     ctx.terminal.push_output(OutputLine::error(format!(
                         "login: failed to persist session: {error}"
                     )));
@@ -43,6 +40,7 @@ fn handle_login(ctx: AppContext) {
                         .push_output(OutputLine::success(format!("ENS: {}", ens)));
                 }
             }
+            Ok(None) => {}
             Err(e) => ctx
                 .terminal
                 .push_output(OutputLine::error(format!("Connection failed: {}", e))),
@@ -51,8 +49,12 @@ fn handle_login(ctx: AppContext) {
 }
 
 fn handle_logout(ctx: &AppContext) {
-    if ctx.wallet.with(|w| w.is_connected()) {
-        match RuntimeServices::new(*ctx).disconnect_wallet() {
+    if ctx
+        .wallet
+        .state
+        .with(|state| !matches!(state, websh_core::domain::WalletState::Disconnected))
+    {
+        match ctx.wallet.disconnect() {
             Ok(()) => ctx
                 .terminal
                 .push_output(OutputLine::success("Disconnected from wallet.")),
@@ -68,12 +70,16 @@ fn handle_logout(ctx: &AppContext) {
 
 pub(super) fn create_submit_callback(ctx: AppContext, route_ctx: RouteContext) -> Callback<String> {
     Callback::new(move |input: String| {
-        // Reject retired credential input before echo, history, or parsing.
-        if contains_retired_credential_command(&input) {
+        let runtime_state = ctx.preferences.snapshot.get();
+        let pipeline = ctx
+            .terminal
+            .command_history
+            .with(|history| parse_input_with_env(&input, history, &runtime_state.env));
+        // Only the current command grammar may enter the visible session history.
+        if !pipeline.is_supported() {
             ctx.terminal.history_index.set(None);
-            ctx.terminal.push_output(OutputLine::error(
-                "Browser authoring is no longer supported.",
-            ));
+            ctx.terminal
+                .push_output(OutputLine::error("Unsupported command or syntax."));
             return;
         }
         let current_frame = route_ctx.0.get();
@@ -83,17 +89,12 @@ pub(super) fn create_submit_callback(ctx: AppContext, route_ctx: RouteContext) -
         if !input.is_empty() {
             ctx.terminal
                 .push_output(OutputLine::command(prompt, &input));
-            ctx.terminal.add_to_command_history(&input);
+            ctx.terminal
+                .add_to_command_history(&pipeline.command_line());
         }
 
-        let runtime_state = ctx.runtime_state.get();
-        let pipeline = ctx
-            .terminal
-            .command_history
-            .with(|history| parse_input_with_env(&input, history, &runtime_state.env));
-
-        let wallet_state = ctx.wallet.get();
-        let runtime_mounts = ctx.runtime_mounts_snapshot();
+        let wallet_state = ctx.wallet.state.get();
+        let runtime_mounts = ctx.content.runtime_mounts_snapshot();
         let execution_context = shell_execution_context(&runtime_state);
         let result = ctx.system_global_fs.with(|current_fs| {
             execute_pipeline_with_context(
@@ -170,41 +171,6 @@ pub(crate) fn dispatch_side_effect(ctx: &AppContext, effect: SideEffect) {
     }
 }
 
-fn contains_retired_credential_command(input: &str) -> bool {
-    // Inspect only each stage's leading words, accepting the old quote/escape spelling.
-    // The credential payload is never parsed, copied into history, or logged.
-    input.split('|').any(|segment| {
-        let mut chars = segment.trim_start().chars().peekable();
-        for expected in ["sync", "auth", "set"] {
-            while chars.peek().is_some_and(|c| c.is_whitespace()) {
-                chars.next();
-            }
-            let mut word = String::new();
-            let mut quote = None;
-            while let Some(c) = chars.next() {
-                if c.is_whitespace() && quote.is_none() {
-                    break;
-                }
-                if c == '\\' && quote != Some('\'') {
-                    if let Some(escaped) = chars.next() {
-                        word.push(escaped);
-                    }
-                } else if quote == Some(c) {
-                    quote = None;
-                } else if quote.is_none() && matches!(c, '\'' | '"') {
-                    quote = Some(c);
-                } else {
-                    word.push(c);
-                }
-            }
-            if !word.eq_ignore_ascii_case(expected) {
-                return false;
-            }
-        }
-        true
-    })
-}
-
 pub(super) fn create_history_nav_callback(ctx: AppContext) -> Callback<i32, Option<String>> {
     Callback::new(move |direction: i32| ctx.terminal.navigate_history(direction))
 }
@@ -229,30 +195,4 @@ pub(super) fn create_hint_callback(
         ctx.system_global_fs
             .with(|current_fs| get_hint(&input, &cwd, current_fs))
     })
-}
-
-#[cfg(all(test, target_arch = "wasm32"))]
-mod tests {
-    use super::*;
-    use wasm_bindgen_test::*;
-
-    wasm_bindgen_test_configure!(run_in_browser);
-
-    #[wasm_bindgen_test]
-    fn retired_credential_input_is_detected_before_echo_or_history() {
-        for input in [
-            "sync auth set placeholder",
-            "sync \"auth\" 'set' placeholder",
-            "\"sync\" auth set placeholder",
-            r"s\ync auth set placeholder",
-            "  SYNC\tAUTH  SET placeholder",
-            "echo hello | sync auth set placeholder",
-            "sync auth set",
-        ] {
-            assert!(contains_retired_credential_command(input));
-        }
-        for input in ["refresh", "login", "echo sync auth set", "sync auth clear"] {
-            assert!(!contains_retired_credential_command(input));
-        }
-    }
 }

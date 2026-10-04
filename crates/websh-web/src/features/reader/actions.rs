@@ -233,7 +233,6 @@ enum ClipboardError {
     Write { message: String },
 }
 
-#[cfg(target_arch = "wasm32")]
 fn install_reader_actions_escape(open: ReadSignal<bool>, set_open: WriteSignal<bool>) {
     use crate::platform::wasm_cleanup::WasmCleanup;
     use leptos::prelude::on_cleanup;
@@ -260,6 +259,3 @@ fn install_reader_actions_escape(open: ReadSignal<bool>, set_open: WriteSignal<b
         }
     });
 }
-
-#[cfg(not(target_arch = "wasm32"))]
-fn install_reader_actions_escape(_open: ReadSignal<bool>, _set_open: WriteSignal<bool>) {}

@@ -96,37 +96,10 @@
                 "catppuccin-latte": "#eff1f5",
                 "solarized-light": "#fdf6e3"
             };
-            const aliases = {
-                "sepia": "sepia-dark",
-                "flexoki": "sepia-dark",
-                "flexoki-dark": "sepia-dark",
-                "dark-paper": "sepia-dark",
-                "black": "black-ink",
-                "ink": "black-ink",
-                "paper": "black-ink",
-                "paper-light": "black-ink",
-                "flexoki-light": "black-ink",
-                "gruvbox": "gruvbox-dark",
-                "tokyonight": "tokyonight-night",
-                "tokyo-night": "tokyonight-night",
-                "night": "tokyonight-night",
-                "solarized": "solarized-light",
-                "light": "solarized-light",
-                "vampire": "dracula",
-                "catppuccin": "catppuccin-mocha",
-                "mocha": "catppuccin-mocha",
-                "latte": "catppuccin-latte",
-                "nordic": "nord",
-                "arctic": "nord",
-                "rosepine": "rose-pine",
-                "rose": "rose-pine",
-                "pine": "rose-pine",
-                "kanagawa": "kanagawa-wave",
-                "wave": "kanagawa-wave"
-            };
-            const raw = localStorage.getItem(key) || "kanagawa-wave";
-            const normalized = raw.trim().toLowerCase().replaceAll("_", "-");
-            const theme = themes[normalized] ? normalized : aliases[normalized] || "kanagawa-wave";
+            let raw = "kanagawa-wave";
+            try { raw = localStorage.getItem(key) || raw; } catch {}
+            const normalized = raw.trim().toLowerCase();
+            const theme = themes[normalized] ? normalized : "kanagawa-wave";
             document.documentElement.setAttribute("data-theme", theme);
             document.querySelector('meta[name="theme-color"]')?.setAttribute("content", themes[theme]);
         })();

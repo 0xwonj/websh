@@ -11,7 +11,7 @@ pub fn is_ledger_filter_route_segment(segment: &str) -> bool {
     LEDGER_FILTER_ROUTES.contains(&segment)
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use wasm_bindgen_test::*;

@@ -3,6 +3,7 @@
 //! UI features should call this module for browser-side runtime work instead
 //! of reaching directly into core storage or runtime adapter internals.
 
+pub(crate) mod content;
 pub(crate) mod content_cache;
 mod error;
 pub(crate) mod github_backend;
@@ -14,9 +15,8 @@ pub(crate) mod state;
 mod system;
 pub(crate) mod wallet;
 
-pub use error::RuntimeLoadError;
+pub use error::{RuntimeError, RuntimeLoadError, RuntimeResult};
 pub use loader::RuntimeLoad;
-pub use mounts::{MountEntry, MountLoadSet, MountLoadStatus, MountScanJob, MountScanResult};
+pub use mounts::{MountLoadSet, MountLoadStatus, MountScanResult};
 pub use state::EnvironmentError;
 pub use system::shell_execution_context;
-pub use wallet::{ConnectOutcome, WalletError};

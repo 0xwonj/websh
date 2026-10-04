@@ -12,7 +12,6 @@ const genesisHash = '0x000000000000000000000000000000000000000000000000000000000
 
 function nodeMetadata(kind, { title, renderer = null } = {}) {
   return {
-    schema: 1,
     kind,
     authored: title ? { title } : {},
     derived: renderer ? { renderer } : {}

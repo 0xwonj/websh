@@ -69,45 +69,12 @@ pub async fn fetch_json<T: DeserializeOwned>(url: &str) -> Result<T, FetchError>
     serde_json::from_str(&text).map_err(|e| FetchError::JsonParseError(e.to_string()))
 }
 
-pub async fn fetch_content(url: &str) -> Result<String, FetchError> {
-    fetch_url(url).await
-}
-
 async fn fetch_url(url: &str) -> Result<String, FetchError> {
-    let window = web_sys::window().ok_or(FetchError::NoWindow)?;
-
-    let opts = RequestInit::new();
-    opts.set_method("GET");
-    opts.set_mode(RequestMode::Cors);
-    let abort = AbortController::new().map_err(|_| FetchError::AbortControllerFailed)?;
-    let signal = abort.signal();
-    opts.set_signal(Some(&signal));
-
-    let request = Request::new_with_str_and_init(url, &opts)
-        .map_err(|_| FetchError::RequestCreationFailed)?;
-
-    let fetch_promise = window.fetch_with_request(&request);
-
-    match race_with_timeout(fetch_promise, FETCH_TIMEOUT_MS).await {
-        RaceResult::TimedOut => {
-            abort.abort();
-            Err(FetchError::Timeout)
-        }
-        RaceResult::Error(msg) => Err(FetchError::NetworkError(msg)),
-        RaceResult::Completed(result) => {
-            let resp: Response = result.dyn_into().map_err(|_| FetchError::InvalidContent)?;
-
-            if !resp.ok() {
-                return Err(FetchError::HttpError(resp.status()));
-            }
-
-            let text = JsFuture::from(resp.text().map_err(|_| FetchError::ResponseReadFailed)?)
-                .await
-                .map_err(|_| FetchError::ResponseReadFailed)?;
-
-            text.as_string().ok_or(FetchError::InvalidContent)
-        }
+    let response = fetch_text(url, FETCH_TIMEOUT_MS as u32, web_sys::RequestCache::Default).await?;
+    if !(200..300).contains(&response.status) {
+        return Err(FetchError::HttpError(response.status));
     }
+    Ok(response.body)
 }
 
 pub struct TextResponse {
@@ -119,20 +86,28 @@ pub struct TextResponse {
 /// A single deadline covers headers AND the complete body. Abort is best effort;
 /// the runtime's generation/epoch checks remain authoritative after cancellation.
 pub async fn fetch_manifest(url: &str, timeout_ms: u32) -> Result<TextResponse, FetchError> {
+    fetch_text(url, timeout_ms, web_sys::RequestCache::NoCache).await
+}
+
+async fn fetch_text(
+    url: &str,
+    timeout_ms: u32,
+    cache: web_sys::RequestCache,
+) -> Result<TextResponse, FetchError> {
     use futures_util::future::{Either, select};
     let window = web_sys::window().ok_or(FetchError::NoWindow)?;
     let abort = AbortController::new().map_err(|_| FetchError::AbortControllerFailed)?;
     let options = RequestInit::new();
     options.set_method("GET");
     options.set_mode(RequestMode::Cors);
-    options.set_cache(web_sys::RequestCache::NoCache);
+    options.set_cache(cache);
     options.set_signal(Some(&abort.signal()));
     let request = Request::new_with_str_and_init(url, &options)
         .map_err(|_| FetchError::RequestCreationFailed)?;
     let operation = Box::pin(async move {
         let response: Response = JsFuture::from(window.fetch_with_request(&request))
             .await
-            .map_err(|_| FetchError::NetworkError("manifest fetch failed".into()))?
+            .map_err(|_| FetchError::NetworkError("fetch failed".into()))?
             .dyn_into()
             .map_err(|_| FetchError::InvalidContent)?;
         let status = response.status();

@@ -1,20 +1,13 @@
-const HIGH_SCORE_KEY: &str = "websh.dino_game.high_score.v1";
+use crate::runtime::state::{self, DINO_SCORE_KEY};
 
 pub fn load_high_score() -> u32 {
-    local_storage()
-        .and_then(|storage| storage.get_item(HIGH_SCORE_KEY).ok().flatten())
+    state::read(DINO_SCORE_KEY)
         .and_then(|value| parse_high_score(&value))
         .unwrap_or(0)
 }
 
 pub fn save_high_score(score: u32) {
-    if let Some(storage) = local_storage() {
-        let _ = storage.set_item(HIGH_SCORE_KEY, &format_high_score(score));
-    }
-}
-
-fn local_storage() -> Option<web_sys::Storage> {
-    web_sys::window()?.local_storage().ok()?
+    let _ = state::write(DINO_SCORE_KEY, &format_high_score(score));
 }
 
 fn parse_high_score(value: &str) -> Option<u32> {
@@ -25,7 +18,7 @@ fn format_high_score(score: u32) -> String {
     score.to_string()
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use wasm_bindgen_test::wasm_bindgen_test;

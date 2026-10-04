@@ -32,9 +32,9 @@ const LEDGER_RENDER_LIMIT: usize = 200;
 pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
     let root_source = Memo::new(move |_| {
-        let version = ctx.read_version(&VirtualPath::root());
+        let version = ctx.content.read_version(&VirtualPath::root());
         // Cold failure changes readiness; an available refresh failure preserves the same source.
-        let ready = match ctx.mount_status_for(&VirtualPath::root()) {
+        let ready = match ctx.content.mount_status_for(&VirtualPath::root()) {
             Some(MountLoadStatus::Available { .. }) => Ok(true),
             Some(MountLoadStatus::Failed { error }) => Err(error),
             _ => Ok(false),
@@ -78,7 +78,7 @@ pub fn LedgerPage(route: Memo<RouteFrame>) -> impl IntoView {
                                         &frame.request.url_path,
                                         &frame.resolution.node_path,
                                     );
-                                    let model = ctx.global_fs.with(|fs| {
+                                    let model = ctx.content.with_fs(|fs| {
                                         build_ledger_model(fs, &artifact, &filter)
                                     });
                                     let filter_shape = match &filter {

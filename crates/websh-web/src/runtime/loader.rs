@@ -2,19 +2,19 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-use websh_core::domain::{MountDeclaration, RuntimeBackendKind, RuntimeMount, VirtualPath};
-use websh_core::filesystem::{BackendRegistry, GlobalFs};
+use websh_core::domain::{MountDeclaration, RuntimeMount, VirtualPath};
+use websh_core::filesystem::{BackendRegistry, GlobalFs, Snapshot};
 use websh_core::ports::StorageBackendRef;
 use websh_core::runtime as core_runtime;
 use websh_site::BOOTSTRAP_SITE;
 
 use super::error::RuntimeLoadError;
 use super::github_backend;
-use super::mounts::{MountLoadSet, MountLoadStatus, MountScanJob, MountScanResult};
+use super::mounts::{MountLoadSet, MountScanJob, MountScanResult};
 
 #[derive(Clone)]
 pub struct RuntimeLoad {
-    pub global_fs: GlobalFs,
+    pub snapshot: Snapshot,
     pub backends: BackendRegistry,
     pub total_files: usize,
     pub mounts: MountLoadSet,
@@ -42,7 +42,7 @@ pub fn bootstrap_runtime_load() -> RuntimeLoad {
         mounts.insert_declared_loading(mount);
     }
     RuntimeLoad {
-        global_fs,
+        snapshot: Snapshot::new(global_fs).expect("bootstrap has valid routes"),
         backends: bootstrap_backends(),
         total_files,
         mounts,
@@ -77,21 +77,17 @@ pub async fn load_runtime() -> Result<RuntimeLoad, RuntimeLoadError> {
     for mount in bootstrap_runtime_mounts() {
         mounts.insert_loaded(mount, root_total_files);
     }
-    apply_runtime_conventions(&mut global_fs, &mut backends, &mut mounts).await?;
-    websh_core::filesystem::RouteCatalog::from_global_fs(&global_fs)
-        .map_err(|source| RuntimeLoadError::InvalidRoutes { source })?;
+    load_external_mounts(&mut global_fs, &mut backends, &mut mounts).await?;
     let total_files = count_files(&global_fs, &VirtualPath::root());
+    let snapshot =
+        Snapshot::new(global_fs).map_err(|source| RuntimeLoadError::InvalidRoutes { source })?;
 
     Ok(RuntimeLoad {
-        global_fs,
+        snapshot,
         backends,
         total_files,
         mounts,
     })
-}
-
-pub async fn reload_runtime() -> Result<RuntimeLoad, RuntimeLoadError> {
-    load_runtime().await
 }
 
 pub async fn scan_mount(job: MountScanJob) -> MountScanResult {
@@ -104,31 +100,15 @@ pub async fn scan_mount(job: MountScanJob) -> MountScanResult {
     }
 }
 
-async fn apply_runtime_conventions(
+async fn load_external_mounts(
     global: &mut GlobalFs,
     backends: &mut BackendRegistry,
     mounts: &mut MountLoadSet,
 ) -> Result<(), RuntimeLoadError> {
-    core_runtime::seed_bootstrap_routes(global);
-
     let bootstrap_roots = bootstrap_runtime_mounts()
         .into_iter()
         .map(|mount| mount.root)
         .collect::<Vec<_>>();
-    let stale_roots = backends
-        .keys()
-        .filter(|root| {
-            !bootstrap_roots
-                .iter()
-                .any(|bootstrap_root| bootstrap_root == *root)
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    for stale_root in stale_roots {
-        backends.remove(&stale_root);
-        global.remove_subtree(&stale_root);
-    }
-
     register_external_mounts(
         global,
         backends,
@@ -137,7 +117,6 @@ async fn apply_runtime_conventions(
         &bootstrap_roots,
     );
 
-    core_runtime::seed_bootstrap_routes(global);
     Ok(())
 }
 
@@ -210,11 +189,7 @@ fn register_external_mounts(
         backends.insert(candidate.mount.root.clone(), backend.clone());
         let root = candidate.mount.root.clone();
         mounts.insert_loading(candidate.mount, backend);
-        mounts
-            .entries
-            .get_mut(&root)
-            .expect("accepted mount")
-            .cache_descriptor = candidate.descriptor;
+        mounts.set_cache_descriptor(&root, candidate.descriptor);
     }
 
     reserve_failed_mount_points(global, mounts);
@@ -337,16 +312,11 @@ fn fallback_mount_for_declaration(
         .name
         .clone()
         .unwrap_or_else(|| mount_label_for_root(&mount_root));
-    RuntimeMount::new(mount_root, label, RuntimeBackendKind::GitHub)
+    RuntimeMount::new(mount_root, label)
 }
 
 fn reserve_failed_mount_points(global: &mut GlobalFs, mounts: &MountLoadSet) {
-    let mut roots = mounts
-        .entries
-        .iter()
-        .filter(|(_, entry)| matches!(entry.status, MountLoadStatus::Failed { .. }))
-        .map(|(root, _)| root.clone())
-        .collect::<Vec<_>>();
+    let mut roots = mounts.failed_roots_under(&VirtualPath::root());
     roots.sort_by_key(|root| root.as_str().len());
     for root in roots {
         let _ = global.reserve_mount_point(root);
@@ -441,17 +411,10 @@ fn recover_failed_mount_declaration(
         .map(str::to_string)
         .unwrap_or_else(|| mount_label_for_root(&mount_root));
     Some(FailedMountDeclaration {
-        mount: RuntimeMount::new(mount_root, label, RuntimeBackendKind::GitHub),
+        mount: RuntimeMount::new(mount_root, label),
         error: format!("parse {}: {source}", path.as_str()),
     })
 }
-
-// Sidecar metadata is no longer fetched at runtime. The CLI
-// `content manifest` step pre-bakes every node's full `NodeMetadata`
-// into the bundled `manifest.json`, and the manifest scan deserializes
-// it directly into each `FsEntry`. This eliminates the previous
-// per-file `.meta.json` fetches (and the rate-limit failures they were
-// prone to).
 
 async fn read_backend_text(
     backend: &StorageBackendRef,
@@ -497,8 +460,9 @@ fn count_files(global: &GlobalFs, root: &VirtualPath) -> usize {
     collect_file_paths(global, root).len()
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(test)]
 mod tests {
+    use super::super::MountLoadStatus;
     use super::*;
     use wasm_bindgen_test::*;
 

@@ -1,7 +1,5 @@
 //! Manifest-driven projection of `/mempool` entries — no body fetch.
 
-use leptos::prelude::With;
-
 use super::model::LoadedMempoolFile;
 use crate::app::AppContext;
 use websh_core::domain::{FsEntry, VirtualPath};
@@ -12,7 +10,7 @@ use websh_core::mempool::mempool_root;
 /// body-fetch fallback) — regenerate the source manifest with the native CLI to repopulate.
 pub fn load_mempool_files(ctx: AppContext) -> Vec<LoadedMempoolFile> {
     let root = mempool_root();
-    ctx.global_fs.with(|fs| collect_loaded(fs, root))
+    ctx.content.with_fs(|fs| collect_loaded(fs, root))
 }
 
 fn collect_loaded(fs: &GlobalFs, root: &VirtualPath) -> Vec<LoadedMempoolFile> {

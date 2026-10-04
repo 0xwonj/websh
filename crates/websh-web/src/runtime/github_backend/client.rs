@@ -101,14 +101,12 @@ impl GitHubBackend {
             .ok()?
             .href();
         Some(super::super::mount_cache::CacheDescriptor {
-            descriptor_version: 1,
-            backend_kind: "github".into(),
-            canonical_mount_root: self.mount_root.to_string(),
-            repository_owner_and_name: self.repo_with_owner.clone(),
-            branch_or_ref: self.branch.clone(),
-            normalized_content_prefix: self.content_prefix.clone(),
-            resolved_manifest_url: manifest,
-            resolved_content_base_url: base,
+            root: self.mount_root.to_string(),
+            repo: self.repo_with_owner.clone(),
+            reference: self.branch.clone(),
+            prefix: self.content_prefix.clone(),
+            manifest_url: manifest,
+            content_url: base,
         })
     }
 
@@ -169,10 +167,6 @@ fn retry_after_header(resp: &gloo_net::http::Response) -> Option<u64> {
 }
 
 impl StorageBackend for GitHubBackend {
-    fn backend_type(&self) -> &'static str {
-        "github"
-    }
-
     fn scan(&self) -> LocalBoxFuture<'_, StorageResult<ScannedSubtree>> {
         Box::pin(async move { self.load_manifest_snapshot().await })
     }
@@ -232,7 +226,7 @@ impl StorageBackend for GitHubBackend {
     }
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use wasm_bindgen_test::*;
@@ -365,7 +359,7 @@ mod tests {
             .cache_descriptor_for_base("https://site.test/ipfs/second/")
             .unwrap();
         assert_eq!(
-            first.resolved_manifest_url,
+            first.manifest_url,
             "https://site.test/ipfs/first/content/manifest.json"
         );
         assert_ne!(first.key(), second.key());

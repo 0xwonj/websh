@@ -103,7 +103,7 @@ impl BrowserMountCache {
             if let Ok(db) = event.database() {
                 let mut params = ObjectStoreParams::new();
                 params.key_path(Some(KeyPath::new_single("key")));
-                // Only the new cache database is ever opened. No legacy schema migration.
+                // This store contains only disposable external listings.
                 if db.create_object_store(STORE, params).is_err() {
                     db.close();
                 }
@@ -392,7 +392,7 @@ mod tests {
     }
     fn record(root: &str, started: u64, observed: u64) -> CacheRecord {
         let mut descriptor = super::super::tests::descriptor();
-        descriptor.canonical_mount_root = root.into();
+        descriptor.root = root.into();
         CacheRecord::from_scan(descriptor, &ScannedSubtree::default(), started, observed).unwrap()
     }
     fn write(record: CacheRecord) -> CacheWrite {
@@ -462,10 +462,10 @@ mod tests {
     async fn codec_preserves_bundles_metadata_extensions_and_empty_directories() {
         let cache = isolated("websh-cache-test-round-trip");
         let scan = parse_manifest_snapshot(r#"{"entries":[
-            {"path":"empty","metadata":{"schema":1,"kind":"directory","authored":{},"derived":{}}},
-            {"path":"article","metadata":{"schema":1,"kind":"bundle","bundle":{"default_variant":{"strategy":"static","id":"en"},"variants":[{"id":"en","path":"en.md","label":"English"},{"id":"ko","path":"ko.md","label":"Korean"}]},"authored":{"title":"Article"},"derived":{}}},
-            {"path":"article/en.md","metadata":{"schema":1,"kind":"page","authored":{"title":"English","access":{"recipients":[{"address":"0xabc"}]}},"derived":{"size_bytes":123}},"mempool":{"status":"review","priority":"high","category":"writing"}},
-            {"path":"article/ko.md","metadata":{"schema":1,"kind":"page","authored":{"title":"한국어"},"derived":{}}}
+            {"path":"empty","metadata":{"kind":"directory","authored":{},"derived":{}}},
+            {"path":"article","metadata":{"kind":"bundle","bundle":{"default_variant":{"strategy":"static","id":"en"},"variants":[{"id":"en","path":"en.md","label":"English"},{"id":"ko","path":"ko.md","label":"Korean"}]},"authored":{"title":"Article"},"derived":{}}},
+            {"path":"article/en.md","metadata":{"kind":"page","authored":{"title":"English","access":{"recipients":[{"address":"0xabc"}]}},"derived":{"size_bytes":123}},"mempool":{"status":"review","priority":"high","category":"writing"}},
+            {"path":"article/ko.md","metadata":{"kind":"page","authored":{"title":"한국어"},"derived":{}}}
         ]}"#).unwrap();
         let now = crate::platform::time::current_timestamp();
         let record =
@@ -487,7 +487,7 @@ mod tests {
         let mut descriptors = vec![];
         for index in 0..5 {
             let mut descriptor = super::super::tests::descriptor();
-            descriptor.canonical_mount_root = format!("/bytes{index}");
+            descriptor.root = format!("/bytes{index}");
             let record = CacheRecord::from_scan(
                 descriptor.clone(),
                 &scan,

@@ -157,7 +157,7 @@ pub fn file_meta_for_entry(entry: &FsEntry) -> Option<FileMeta> {
     }
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use wasm_bindgen_test::*;

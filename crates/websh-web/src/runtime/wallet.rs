@@ -1,210 +1,240 @@
-//! Browser wallet runtime adapter.
+//! Wallet connection lifecycle. Only this owner can publish wallet state.
 
-use js_sys::{Array, Function, Object, Promise, Reflect};
-use serde::Deserialize;
-use thiserror::Error;
-use wasm_bindgen::JsCast;
-use wasm_bindgen::JsValue;
-use wasm_bindgen::prelude::Closure;
-use wasm_bindgen_futures::JsFuture;
+use crate::platform::wallet as provider;
+#[cfg(test)]
+mod tests;
 
-use crate::config::WALLET_TIMEOUT_MS;
-use crate::platform::fetch::{RaceResult, fetch_json, race_with_timeout};
-use crate::platform::js_value_message;
+use leptos::prelude::*;
+use wasm_bindgen_futures::spawn_local;
+use websh_core::domain::WalletState;
 
-use super::state::EnvironmentError;
-
-#[derive(Debug, Clone, Error)]
-pub enum WalletError {
-    #[error("browser window not available")]
-    NoWindow,
-    #[error("no wallet provider detected; install a browser wallet extension")]
-    NotInstalled,
-    #[error("failed to create wallet request")]
-    RequestCreationFailed,
-    #[error("wallet request rejected: {0}")]
-    RequestRejected(String),
-    #[error("no account returned from wallet")]
-    NoAccount,
-}
-
-fn get_ethereum() -> Result<Object, WalletError> {
-    let window = web_sys::window().ok_or(WalletError::NoWindow)?;
-    Reflect::get(&window, &"ethereum".into())
-        .ok()
-        .and_then(|v| v.dyn_into::<Object>().ok())
-        .ok_or(WalletError::NotInstalled)
-}
-
-async fn ethereum_request(method: &str) -> Result<JsValue, WalletError> {
-    let ethereum = get_ethereum()?;
-
-    let args = Object::new();
-    Reflect::set(&args, &"method".into(), &method.into())
-        .map_err(|_| WalletError::RequestCreationFailed)?;
-
-    let request = Reflect::get(&ethereum, &"request".into())
-        .map_err(|_| WalletError::RequestCreationFailed)?
-        .dyn_into::<Function>()
-        .map_err(|_| WalletError::RequestCreationFailed)?;
-
-    let promise: Promise = request
-        .call1(&ethereum, &args)
-        .map_err(|_| WalletError::RequestCreationFailed)?
-        .into();
-
-    JsFuture::from(promise)
-        .await
-        .map_err(|error| WalletError::RequestRejected(js_value_message(&error)))
-}
-
-pub fn is_available() -> bool {
-    get_ethereum().is_ok()
-}
-
-pub async fn get_chain_id() -> Option<u64> {
-    let result = ethereum_request("eth_chainId").await.ok()?;
-    let hex_str = result.as_string()?;
-    u64::from_str_radix(hex_str.trim_start_matches("0x"), 16).ok()
-}
-
-pub async fn connect() -> Result<String, WalletError> {
-    let result = ethereum_request("eth_requestAccounts").await?;
-    let accounts = Array::from(&result);
-
-    accounts.get(0).as_string().ok_or(WalletError::NoAccount)
-}
-
-pub async fn get_account() -> Option<String> {
-    let ethereum = get_ethereum().ok()?;
-
-    let args = Object::new();
-    Reflect::set(&args, &"method".into(), &"eth_accounts".into()).ok()?;
-
-    let request_fn = Reflect::get(&ethereum, &"request".into())
-        .ok()?
-        .dyn_into::<Function>()
-        .ok()?;
-
-    let request_promise: Promise = request_fn.call1(&ethereum, &args).ok()?.into();
-
-    match race_with_timeout(request_promise, WALLET_TIMEOUT_MS).await {
-        RaceResult::Completed(result) => Array::from(&result).get(0).as_string(),
-        RaceResult::TimedOut | RaceResult::Error(_) => None,
-    }
-}
-
-#[derive(Deserialize)]
-struct EnsResponse {
-    name: Option<String>,
-}
-
-pub async fn resolve_ens(address: &str) -> Option<String> {
-    let url = format!("https://api.ensideas.com/ens/resolve/{address}");
-
-    match fetch_json::<EnsResponse>(&url).await {
-        Ok(response) => response.name,
-        Err(_) => None,
-    }
-}
+use super::state::{EnvironmentError, Preferences};
+pub use provider::WalletError;
 
 #[derive(Debug, Clone)]
-pub struct ConnectOutcome {
+pub struct Connection {
     pub address: String,
     pub chain_id: Option<u64>,
     pub ens_name: Option<String>,
-    pub session_persist_error: Option<EnvironmentError>,
+    pub persistence_error: Option<EnvironmentError>,
 }
 
-pub struct WalletEventListeners {
-    _accounts: WalletEventListener,
-    _chain: WalletEventListener,
+#[derive(Clone, Copy)]
+pub struct Wallet {
+    pub state: ReadSignal<WalletState>,
+    value: RwSignal<WalletState>,
+    request: StoredValue<u64>,
+    chain_revision: StoredValue<u64>,
+    listeners: StoredValue<Option<provider::Listeners>, LocalStorage>,
+    preferences: Preferences,
 }
 
-impl WalletEventListeners {
-    pub fn new(accounts: WalletEventListener, chain: WalletEventListener) -> Self {
+impl Wallet {
+    pub fn new(preferences: Preferences) -> Self {
+        let value = RwSignal::new(WalletState::Disconnected);
         Self {
-            _accounts: accounts,
-            _chain: chain,
+            state: value.read_only(),
+            value,
+            preferences,
+            request: StoredValue::new(0),
+            chain_revision: StoredValue::new(0),
+            listeners: StoredValue::new_local(None),
         }
     }
-}
 
-pub struct WalletEventListener {
-    ethereum: Object,
-    event: &'static str,
-    closure: Closure<dyn Fn(JsValue)>,
-}
-
-impl Drop for WalletEventListener {
-    fn drop(&mut self) {
-        remove_wallet_listener(&self.ethereum, self.event, self.closure.as_ref());
+    pub fn can_restore(self) -> bool {
+        provider::is_available()
+            && self.preferences.wallet_session()
+            && self
+                .value
+                .with_untracked(|state| matches!(state, WalletState::Disconnected))
     }
-}
 
-pub fn on_accounts_changed(
-    callback: impl Fn(Option<String>) + 'static,
-) -> Result<WalletEventListener, WalletError> {
-    let ethereum = get_ethereum()?;
-
-    let closure = Closure::wrap(Box::new(move |accounts: JsValue| {
-        let account = Array::from(&accounts).get(0).as_string();
-        callback(account);
-    }) as Box<dyn Fn(JsValue)>);
-
-    let on_fn = Reflect::get(&ethereum, &"on".into())
-        .map_err(|_| WalletError::RequestCreationFailed)?
-        .dyn_into::<Function>()
-        .map_err(|_| WalletError::RequestCreationFailed)?;
-
-    on_fn
-        .call2(&ethereum, &"accountsChanged".into(), closure.as_ref())
-        .map_err(|_| WalletError::RequestCreationFailed)?;
-
-    Ok(WalletEventListener {
-        ethereum,
-        event: "accountsChanged",
-        closure,
-    })
-}
-
-pub fn on_chain_changed(
-    callback: impl Fn(String) + 'static,
-) -> Result<WalletEventListener, WalletError> {
-    let ethereum = get_ethereum()?;
-
-    let closure = Closure::wrap(Box::new(move |chain_id: JsValue| {
-        if let Some(id) = chain_id.as_string() {
-            callback(id);
+    pub async fn connect(self) -> Result<Option<Connection>, WalletError> {
+        if !provider::is_available() {
+            return Err(WalletError::NotInstalled);
         }
-    }) as Box<dyn Fn(JsValue)>);
-
-    let on_fn = Reflect::get(&ethereum, &"on".into())
-        .map_err(|_| WalletError::RequestCreationFailed)?
-        .dyn_into::<Function>()
-        .map_err(|_| WalletError::RequestCreationFailed)?;
-
-    on_fn
-        .call2(&ethereum, &"chainChanged".into(), closure.as_ref())
-        .map_err(|_| WalletError::RequestCreationFailed)?;
-
-    Ok(WalletEventListener {
-        ethereum,
-        event: "chainChanged",
-        closure,
-    })
-}
-
-fn remove_wallet_listener(ethereum: &Object, event: &'static str, closure: &JsValue) {
-    for method in ["removeListener", "off"] {
-        let Ok(value) = Reflect::get(ethereum, &method.into()) else {
-            continue;
+        let request = self.begin();
+        let address = match provider::connect().await {
+            Ok(address) => address,
+            Err(error) => {
+                if !self.is_current(request) {
+                    return Ok(None);
+                }
+                self.value.set(WalletState::Disconnected);
+                return Err(error);
+            }
         };
-        let Ok(function) = value.dyn_into::<Function>() else {
-            continue;
-        };
-        if function.call2(ethereum, &event.into(), closure).is_ok() {
+        Ok(self.finish(request, address).await)
+    }
+
+    pub async fn restore(self) -> Option<Connection> {
+        if !self.can_restore() {
+            return None;
+        }
+        let request = self.begin();
+        match provider::account().await {
+            Some(address) => self.finish(request, address).await,
+            None => {
+                if self.is_current(request) {
+                    let _ = self.disconnect();
+                }
+                None
+            }
+        }
+    }
+
+    pub fn disconnect(self) -> Result<(), EnvironmentError> {
+        self.advance();
+        self.value.set(WalletState::Disconnected);
+        self.preferences.set_wallet_session(false)
+    }
+
+    pub fn install_listeners(self) {
+        if self.listeners.with_value(Option::is_some) {
             return;
         }
+        let accounts =
+            match provider::on_accounts_changed(move |address| self.account_changed(address)) {
+                Ok(listener) => listener,
+                Err(error) => {
+                    leptos::logging::warn!("wallet: {error}");
+                    return;
+                }
+            };
+        let chain = match provider::on_chain_changed(move |value| {
+            let chain = u64::from_str_radix(value.trim_start_matches("0x"), 16).ok();
+            self.chain_changed(chain);
+        }) {
+            Ok(listener) => listener,
+            Err(error) => {
+                leptos::logging::warn!("wallet: {error}");
+                return;
+            }
+        };
+        self.listeners
+            .set_value(Some(provider::Listeners::new(accounts, chain)));
+    }
+
+    fn advance(self) -> u64 {
+        let request = self.request.get_value().wrapping_add(1);
+        self.request.set_value(request);
+        request
+    }
+
+    fn begin(self) -> u64 {
+        let request = self.advance();
+        self.value.set(WalletState::Connecting);
+        request
+    }
+
+    fn is_current(self, request: u64) -> bool {
+        self.request.get_value() == request
+    }
+
+    fn publish_account(self, request: u64, address: &str) -> bool {
+        if !self.is_current(request) {
+            return false;
+        }
+        self.value.set(WalletState::Connected {
+            address: address.into(),
+            chain_id: None,
+            ens_name: None,
+        });
+        true
+    }
+
+    async fn finish(self, request: u64, address: String) -> Option<Connection> {
+        if !self.publish_account(request, &address) {
+            return None;
+        }
+        let persistence_error = self.preferences.set_wallet_session(true).err();
+        self.enrich(request, &address).await;
+        if !self.is_current(request) {
+            return None;
+        }
+        self.value.with_untracked(|state| match state {
+            WalletState::Connected {
+                address,
+                chain_id,
+                ens_name,
+            } => Some(Connection {
+                address: address.clone(),
+                chain_id: *chain_id,
+                ens_name: ens_name.clone(),
+                persistence_error,
+            }),
+            _ => None,
+        })
+    }
+
+    async fn enrich(self, request: u64, address: &str) {
+        let revision = self.chain_revision.get_value();
+        let chain_id = provider::chain_id().await;
+        if !self.is_current(request) {
+            return;
+        }
+        if self.chain_revision.get_value() == revision {
+            self.value.update(|state| {
+                if let WalletState::Connected {
+                    chain_id: current, ..
+                } = state
+                {
+                    *current = chain_id;
+                }
+            });
+        }
+        self.resolve_name(request, address).await;
+    }
+
+    async fn resolve_name(self, request: u64, address: &str) {
+        let name = provider::resolve_ens(address).await;
+        self.publish_name(request, address, name);
+    }
+
+    fn publish_name(self, request: u64, address: &str, name: Option<String>) {
+        if !self.is_current(request) {
+            return;
+        }
+        self.value.update(|state| {
+            if let WalletState::Connected {
+                address: current,
+                ens_name,
+                ..
+            } = state
+                && current == address
+            {
+                *ens_name = name;
+            }
+        });
+    }
+
+    fn account_changed(self, address: Option<String>) {
+        if self
+            .value
+            .with_untracked(|state| matches!(state, WalletState::Disconnected))
+        {
+            return;
+        }
+        let Some(address) = address else {
+            let _ = self.disconnect();
+            return;
+        };
+        let request = self.advance();
+        self.publish_account(request, &address);
+        let _ = self.preferences.set_wallet_session(true);
+        spawn_local(async move {
+            self.enrich(request, &address).await;
+        });
+    }
+
+    fn chain_changed(self, chain: Option<u64>) {
+        self.chain_revision
+            .update_value(|revision| *revision = revision.wrapping_add(1));
+        self.value.update(|state| {
+            if let WalletState::Connected { chain_id, .. } = state {
+                *chain_id = chain;
+            }
+        });
     }
 }

@@ -164,11 +164,11 @@ fn sort_entries(entries: &mut [MempoolEntry]) {
     });
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use wasm_bindgen_test::*;
-    use websh_core::domain::{Fields, NodeKind, SCHEMA_VERSION};
+    use websh_core::domain::{Fields, NodeKind};
 
     wasm_bindgen_test_configure!(run_in_browser);
 
@@ -182,7 +182,6 @@ mod tests {
         LoadedMempoolFile {
             path: VirtualPath::from_absolute(path).unwrap(),
             meta: NodeMetadata {
-                schema: SCHEMA_VERSION,
                 kind: NodeKind::Page,
                 bundle: None,
                 authored: Fields {

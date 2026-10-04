@@ -130,7 +130,6 @@ pub fn PdfReaderView(
 
 /// Mirror the browser's fullscreen state into `is_fullscreen` so Esc /
 /// native exit also flip the label.
-#[cfg(target_arch = "wasm32")]
 fn install_fullscreen_sync(frame_ref: NodeRef<leptos::html::Div>, is_fullscreen: RwSignal<bool>) {
     use crate::platform::wasm_cleanup::WasmCleanup;
     use leptos::prelude::on_cleanup;
@@ -167,10 +166,6 @@ fn install_fullscreen_sync(frame_ref: NodeRef<leptos::html::Div>, is_fullscreen:
     });
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-fn install_fullscreen_sync(_frame_ref: NodeRef<leptos::html::Div>, _is_fullscreen: RwSignal<bool>) {
-}
-
 fn exit_fullscreen_or_collapse(is_fullscreen: RwSignal<bool>, collapsed: RwSignal<bool>) {
     if is_fullscreen.get_untracked() {
         exit_fullscreen();
@@ -179,7 +174,6 @@ fn exit_fullscreen_or_collapse(is_fullscreen: RwSignal<bool>, collapsed: RwSigna
     }
 }
 
-#[cfg(target_arch = "wasm32")]
 fn exit_fullscreen() {
     let Some(document) = web_sys::window().and_then(|w| w.document()) else {
         return;
@@ -189,10 +183,6 @@ fn exit_fullscreen() {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-fn exit_fullscreen() {}
-
-#[cfg(target_arch = "wasm32")]
 fn toggle_fullscreen(frame_ref: NodeRef<leptos::html::Div>) {
     use wasm_bindgen::JsCast;
 
@@ -206,6 +196,3 @@ fn toggle_fullscreen(frame_ref: NodeRef<leptos::html::Div>) {
         let _ = element.request_fullscreen();
     }
 }
-
-#[cfg(not(target_arch = "wasm32"))]
-fn toggle_fullscreen(_frame_ref: NodeRef<leptos::html::Div>) {}

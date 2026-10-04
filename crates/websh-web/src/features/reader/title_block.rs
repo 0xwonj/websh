@@ -354,7 +354,7 @@ fn is_safe_metadata_link(url: &str) -> bool {
         || url.starts_with('#')
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use wasm_bindgen_test::*;

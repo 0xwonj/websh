@@ -5,7 +5,7 @@ use websh_core::ports::{ScannedSubtree, StorageBackendRef, StorageError};
 
 #[derive(Clone, Default)]
 pub struct MountLoadSet {
-    pub entries: BTreeMap<VirtualPath, MountEntry>,
+    entries: BTreeMap<VirtualPath, MountEntry>,
     pub scan_jobs: Vec<MountScanJob>,
     rejected_entries: Vec<MountEntry>,
 }
@@ -14,9 +14,9 @@ pub struct MountLoadSet {
 pub struct MountEntry {
     pub declared: RuntimeMount,
     /// Request identity changes on refresh; content identity changes only on publication.
-    pub epoch: u64,
-    pub content_revision: u64,
-    pub cache_descriptor: Option<super::mount_cache::CacheDescriptor>,
+    pub(crate) epoch: u64,
+    pub(crate) content_revision: u64,
+    cache_descriptor: Option<super::mount_cache::CacheDescriptor>,
     pub status: MountLoadStatus,
 }
 
@@ -51,13 +51,13 @@ pub enum MountLoadStatus {
 pub struct MountScanJob {
     pub mount: RuntimeMount,
     pub backend: StorageBackendRef,
-    pub epoch: u64,
+    pub(crate) epoch: u64,
 }
 
 pub struct MountScanResult {
     pub mount: RuntimeMount,
     pub backend: StorageBackendRef,
-    pub epoch: u64,
+    pub(crate) epoch: u64,
     pub scan: Result<ScannedSubtree, StorageError>,
 }
 
@@ -149,6 +149,29 @@ impl MountLoadSet {
                 error: error.into(),
             },
         ));
+    }
+
+    pub(crate) fn set_cache_descriptor(
+        &mut self,
+        root: &VirtualPath,
+        descriptor: Option<super::mount_cache::CacheDescriptor>,
+    ) {
+        if let Some(entry) = self.entries.get_mut(root) {
+            entry.cache_descriptor = descriptor;
+        }
+    }
+
+    pub fn cache_descriptor(
+        &self,
+        root: &VirtualPath,
+    ) -> Option<super::mount_cache::CacheDescriptor> {
+        self.entries
+            .get(root)
+            .and_then(|entry| entry.cache_descriptor.clone())
+    }
+
+    pub fn revision(&self, path: &VirtualPath) -> u64 {
+        self.owner(path).map_or(0, |entry| entry.content_revision)
     }
 
     pub fn effective_mounts(&self) -> Vec<RuntimeMount> {
@@ -243,22 +266,6 @@ impl MountLoadSet {
         true
     }
 
-    pub fn mark_loaded_if_current(
-        &mut self,
-        root: &VirtualPath,
-        epoch: u64,
-        total_files: usize,
-    ) -> bool {
-        self.publish(
-            root,
-            epoch,
-            total_files,
-            js_sys::Date::now() as u64,
-            SnapshotOrigin::Network,
-            RefreshState::Idle,
-        )
-    }
-
     pub fn mark_failed_if_current(
         &mut self,
         root: &VirtualPath,
@@ -284,13 +291,12 @@ impl MountLoadSet {
     }
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(test)]
 mod tests {
     use std::rc::Rc;
 
     use super::*;
     use wasm_bindgen_test::*;
-    use websh_core::domain::RuntimeBackendKind;
     use websh_core::ports::{LocalBoxFuture, ScannedSubtree, StorageBackend, StorageResult};
 
     wasm_bindgen_test_configure!(run_in_browser);
@@ -298,10 +304,6 @@ mod tests {
     struct NoopBackend;
 
     impl StorageBackend for NoopBackend {
-        fn backend_type(&self) -> &'static str {
-            "noop"
-        }
-
         fn scan(&self) -> LocalBoxFuture<'_, StorageResult<ScannedSubtree>> {
             Box::pin(async { Ok(ScannedSubtree::default()) })
         }
@@ -325,7 +327,6 @@ mod tests {
         RuntimeMount::new(
             VirtualPath::from_absolute(root).expect("mount root"),
             root.trim_start_matches('/'),
-            RuntimeBackendKind::GitHub,
         )
     }
 
@@ -333,11 +334,7 @@ mod tests {
     fn declared_loading_mount_does_not_queue_scan_job() {
         let mut set = MountLoadSet::empty();
         let root = VirtualPath::root();
-        set.insert_declared_loading(RuntimeMount::new(
-            root.clone(),
-            "~",
-            RuntimeBackendKind::GitHub,
-        ));
+        set.insert_declared_loading(RuntimeMount::new(root.clone(), "~"));
 
         assert!(matches!(set.status(&root), Some(MountLoadStatus::Loading)));
         assert!(set.scan_jobs.is_empty());
@@ -348,7 +345,7 @@ mod tests {
         let mut set = MountLoadSet::empty();
         set.insert_loading(mount("/db"), Rc::new(NoopBackend));
         let root = VirtualPath::from_absolute("/db").expect("root");
-        assert!(set.mark_loaded_if_current(&root, 0, 3));
+        assert!(set.publish(&root, 0, 3, 1, SnapshotOrigin::Network, RefreshState::Idle));
 
         let effective = set.effective_mounts();
         assert_eq!(effective[0].root, root);

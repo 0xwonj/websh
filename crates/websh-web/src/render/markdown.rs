@@ -330,7 +330,6 @@ fn strip_paragraph_wrapper(html: &str) -> &str {
         .unwrap_or(html)
 }
 
-#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen::prelude::wasm_bindgen]
 extern "C" {
     #[wasm_bindgen::prelude::wasm_bindgen(js_namespace = katex, js_name = render, catch)]
@@ -341,7 +340,6 @@ extern "C" {
     ) -> Result<(), wasm_bindgen::JsValue>;
 }
 
-#[cfg(target_arch = "wasm32")]
 pub fn hydrate_math(root: &web_sys::Element) {
     let Ok(nodes) = root.query_selector_all("[data-math-style]:not([data-katex-rendered])") else {
         return;
@@ -362,10 +360,6 @@ pub fn hydrate_math(root: &web_sys::Element) {
     });
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-pub fn hydrate_math(_root: &web_sys::Element) {}
-
-#[cfg(target_arch = "wasm32")]
 fn render_math_nodes(root: &web_sys::Element) {
     use wasm_bindgen::JsCast;
 
@@ -400,13 +394,11 @@ fn render_math_nodes(root: &web_sys::Element) {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
 thread_local! {
     static KATEX_LOAD_PROMISE: std::cell::RefCell<Option<js_sys::Promise>> =
         const { std::cell::RefCell::new(None) };
 }
 
-#[cfg(target_arch = "wasm32")]
 fn ensure_katex_loaded() -> js_sys::Promise {
     KATEX_LOAD_PROMISE.with(|slot| {
         if let Some(promise) = slot.borrow().as_ref() {
@@ -419,7 +411,6 @@ fn ensure_katex_loaded() -> js_sys::Promise {
     })
 }
 
-#[cfg(target_arch = "wasm32")]
 fn reset_katex_loader() {
     KATEX_LOAD_PROMISE.with(|slot| {
         *slot.borrow_mut() = None;
@@ -431,7 +422,6 @@ fn reset_katex_loader() {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
 fn create_katex_load_promise() -> js_sys::Promise {
     use wasm_bindgen::JsCast;
 
@@ -489,7 +479,6 @@ fn create_katex_load_promise() -> js_sys::Promise {
     })
 }
 
-#[cfg(target_arch = "wasm32")]
 fn inject_katex_css(document: &web_sys::Document) {
     if document.get_element_by_id("websh-katex-css").is_some() {
         return;
@@ -505,7 +494,6 @@ fn inject_katex_css(document: &web_sys::Document) {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
 fn create_katex_script(
     document: &web_sys::Document,
 ) -> Result<web_sys::Element, wasm_bindgen::JsValue> {
@@ -519,7 +507,6 @@ fn create_katex_script(
     Ok(script)
 }
 
-#[cfg(target_arch = "wasm32")]
 fn katex_render_available() -> bool {
     let Some(window) = web_sys::window() else {
         return false;
@@ -537,7 +524,6 @@ fn katex_render_available() -> bool {
     render.is_function()
 }
 
-#[cfg(target_arch = "wasm32")]
 fn katex_options(display_mode: bool) -> wasm_bindgen::JsValue {
     use wasm_bindgen::JsValue;
 
@@ -552,12 +538,11 @@ fn katex_options(display_mode: bool) -> wasm_bindgen::JsValue {
     options.into()
 }
 
-#[cfg(target_arch = "wasm32")]
 fn set_js_option(options: &js_sys::Object, key: &str, value: wasm_bindgen::JsValue) {
     let _ = js_sys::Reflect::set(options, &wasm_bindgen::JsValue::from_str(key), &value);
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use wasm_bindgen_test::*;

@@ -56,7 +56,7 @@ pub fn run(ctx: AppContext) {
 
         match services.reload_runtime().await {
             Ok(()) => {
-                let total_files = ctx.mounts.with_untracked(|mounts| {
+                let total_files = ctx.content.mounts.with_untracked(|mounts| {
                     match mounts.status(&websh_core::domain::VirtualPath::root()) {
                         Some(crate::runtime::MountLoadStatus::Available {
                             total_files, ..
@@ -64,7 +64,10 @@ pub fn run(ctx: AppContext) {
                         _ => 0,
                     }
                 });
-                let failed_mounts = ctx.mounts.with_untracked(|mounts| mounts.failed_entries());
+                let failed_mounts = ctx
+                    .content
+                    .mounts
+                    .with_untracked(|mounts| mounts.failed_entries());
                 ctx.terminal.push_output(OutputLine::success(format!(
                     "{} Total: {} files mounted",
                     format_elapsed(elapsed()),
@@ -89,57 +92,35 @@ pub fn run(ctx: AppContext) {
             }
         }
 
-        if services.wallet_available() && services.has_wallet_session() {
+        if ctx.wallet.can_restore() {
             ctx.terminal.push_output(OutputLine::text(format!(
                 "{} Restoring wallet session...",
                 format_elapsed(elapsed())
             )));
-
-            match services.wallet_account().await {
-                Some(address) => {
-                    let short_addr = format_eth_address(&address);
-                    ctx.terminal.push_output(OutputLine::success(format!(
-                        "{} Connected: {}",
+            if let Some(connection) = ctx.wallet.restore().await {
+                ctx.terminal.push_output(OutputLine::success(format!(
+                    "{} Connected: {}",
+                    format_elapsed(elapsed()),
+                    format_eth_address(&connection.address)
+                )));
+                if let Some(id) = connection.chain_id {
+                    ctx.terminal.push_output(OutputLine::info(format!(
+                        "{} Network: {} (chain_id={})",
                         format_elapsed(elapsed()),
-                        short_addr
+                        websh_core::domain::chain_name(id),
+                        id
                     )));
-
-                    let chain_id = services.wallet_chain_id().await;
-                    if let Some(id) = chain_id {
-                        ctx.terminal.push_output(OutputLine::info(format!(
-                            "{} Network: {} (chain_id={})",
-                            format_elapsed(elapsed()),
-                            websh_core::domain::chain_name(id),
-                            id
-                        )));
-                    }
-
-                    let ens_name = services.resolve_wallet_ens(&address).await;
-                    if let Some(ref name) = ens_name {
-                        ctx.terminal.push_output(OutputLine::success(format!(
-                            "{} ENS resolved: {}",
-                            format_elapsed(elapsed()),
-                            name
-                        )));
-                    }
-
-                    match services.restore_wallet_session(address, chain_id, ens_name) {
-                        Ok(()) => {}
-                        Err(error) => ctx.terminal.push_output(OutputLine::error(format!(
-                            "wallet: failed to persist session: {error}"
-                        ))),
-                    }
                 }
-                None => {
-                    match services.disconnect_wallet() {
-                        Ok(()) => {}
-                        Err(error) => ctx.terminal.push_output(OutputLine::error(format!(
-                            "wallet: failed to clear session: {error}"
-                        ))),
-                    }
-                    ctx.terminal.push_output(OutputLine::text(format!(
-                        "{} Wallet session expired",
-                        format_elapsed(elapsed())
+                if let Some(name) = connection.ens_name {
+                    ctx.terminal.push_output(OutputLine::success(format!(
+                        "{} ENS resolved: {}",
+                        format_elapsed(elapsed()),
+                        name
+                    )));
+                }
+                if let Some(error) = connection.persistence_error {
+                    ctx.terminal.push_output(OutputLine::error(format!(
+                        "wallet: failed to persist session: {error}"
                     )));
                 }
             }

@@ -65,7 +65,6 @@ fn TocSide(entries: Signal<Vec<HeadingEntry>>) -> impl IntoView {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
 fn scroll_to_anchor(id: &str) {
     let Some(window) = web_sys::window() else {
         return;
@@ -80,6 +79,3 @@ fn scroll_to_anchor(id: &str) {
     // `<a href="#anchor">`: place the heading at the top of the viewport.
     element.scroll_into_view_with_bool(true);
 }
-
-#[cfg(not(target_arch = "wasm32"))]
-fn scroll_to_anchor(_id: &str) {}

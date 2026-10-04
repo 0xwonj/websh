@@ -193,7 +193,7 @@ fn middle_ellipsis(value: &str, head: usize, tail: usize) -> String {
     format!("{head_part}…{tail_part}")
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use wasm_bindgen_test::*;

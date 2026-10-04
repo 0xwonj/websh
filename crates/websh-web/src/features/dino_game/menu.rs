@@ -111,7 +111,7 @@ fn rect_contains(rect: Rect, x: f32, y: f32) -> bool {
     x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use wasm_bindgen_test::wasm_bindgen_test;

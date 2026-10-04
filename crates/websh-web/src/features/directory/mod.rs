@@ -29,7 +29,7 @@ pub fn DirectoryPage(route: Memo<RouteFrame>) -> impl IntoView {
             ctx.system_global_fs
                 .with(|fs| build_directory_model(fs, &frame.resolution.node_path))
         } else {
-            ctx.global_fs.with(|fs| {
+            ctx.content.with_fs(|fs| {
                 build_directory_model_with_bundle_context(
                     fs,
                     &frame.resolution.node_path,

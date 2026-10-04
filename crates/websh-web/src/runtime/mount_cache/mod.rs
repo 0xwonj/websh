@@ -23,21 +23,19 @@ const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CacheDescriptor {
-    pub descriptor_version: u32,
-    pub backend_kind: String,
-    pub canonical_mount_root: String,
-    pub repository_owner_and_name: String,
-    pub branch_or_ref: String,
-    pub normalized_content_prefix: String,
-    pub resolved_manifest_url: String,
-    pub resolved_content_base_url: String,
+    pub root: String,
+    pub repo: String,
+    pub reference: String,
+    pub prefix: String,
+    pub manifest_url: String,
+    pub content_url: String,
 }
 
 impl CacheDescriptor {
     pub fn key(&self) -> String {
         // Struct field order provides a deterministic encoding; no unordered map is involved.
         let bytes = serde_json::to_vec(self).expect("string descriptor is serializable");
-        format!("mount-v1:{}", hex::encode(Sha256::digest(bytes)))
+        format!("mount:{}", hex::encode(Sha256::digest(bytes)))
     }
 }
 
@@ -45,7 +43,6 @@ impl CacheDescriptor {
 #[serde(deny_unknown_fields)]
 pub struct CacheRecord {
     pub key: String,
-    pub record_version: u32,
     pub descriptor: CacheDescriptor,
     pub manifest_json: String,
     pub manifest_bytes: usize,
@@ -63,7 +60,6 @@ impl CacheRecord {
         let manifest_json = serialize_manifest_snapshot(scan).ok()?;
         let record = Self {
             key: descriptor.key(),
-            record_version: 1,
             descriptor,
             manifest_bytes: manifest_json.len(),
             manifest_json,
@@ -75,10 +71,7 @@ impl CacheRecord {
     }
 
     pub fn validate(&self, descriptor: &CacheDescriptor, now: u64) -> Option<ScannedSubtree> {
-        if self.record_version != 1
-            || descriptor.descriptor_version != 1
-            || descriptor.backend_kind != "github"
-            || descriptor.canonical_mount_root == "/"
+        if descriptor.root == "/"
             || &self.descriptor != descriptor
             || self.key != descriptor.key()
             || self.manifest_bytes != self.manifest_json.len()
@@ -126,16 +119,13 @@ mod tests {
 
     pub fn descriptor() -> CacheDescriptor {
         CacheDescriptor {
-            descriptor_version: 1,
-            backend_kind: "github".into(),
-            canonical_mount_root: "/db".into(),
-            repository_owner_and_name: "owner/repo".into(),
-            branch_or_ref: "Main".into(),
-            normalized_content_prefix: "content".into(),
-            resolved_manifest_url:
-                "https://raw.githubusercontent.com/owner/repo/Main/content/manifest.json".into(),
-            resolved_content_base_url: "https://raw.githubusercontent.com/owner/repo/Main/content/"
+            root: "/db".into(),
+            repo: "owner/repo".into(),
+            reference: "Main".into(),
+            prefix: "content".into(),
+            manifest_url: "https://raw.githubusercontent.com/owner/repo/Main/content/manifest.json"
                 .into(),
+            content_url: "https://raw.githubusercontent.com/owner/repo/Main/content/".into(),
         }
     }
 
@@ -150,18 +140,15 @@ mod tests {
                 variants.push(n);
             }};
         }
-        vary!(canonical_mount_root, "/elsewhere");
-        vary!(repository_owner_and_name, "owner/other");
-        vary!(branch_or_ref, "main");
-        vary!(normalized_content_prefix, "~");
+        vary!(root, "/elsewhere");
+        vary!(repo, "owner/other");
+        vary!(reference, "main");
+        vary!(prefix, "~");
         vary!(
-            resolved_manifest_url,
+            manifest_url,
             "https://example.org/ipfs/new/content/manifest.json"
         );
-        vary!(
-            resolved_content_base_url,
-            "https://example.org/ipfs/new/content/"
-        );
+        vary!(content_url, "https://example.org/ipfs/new/content/");
         for changed in variants {
             assert_ne!(d.key(), changed.key());
         }

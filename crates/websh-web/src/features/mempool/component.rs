@@ -16,7 +16,7 @@ const MEMPOOL_RENDER_LIMIT: usize = 100;
 #[component]
 pub fn Mempool(model: MempoolModel, collapsed: RwSignal<bool>) -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
-    let mount_status = Signal::derive(move || ctx.mount_status_for(mempool_root()));
+    let mount_status = Signal::derive(move || ctx.content.mount_status_for(mempool_root()));
 
     let header = render_header(collapsed, &model);
     let rows = render_rows(&model, mount_status);

@@ -448,13 +448,12 @@ fn title_for_path(path: &VirtualPath) -> String {
         .unwrap_or_else(|| path.as_str().trim_matches('/').to_string())
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use wasm_bindgen_test::*;
     use websh_core::domain::{
         BundleMetadata, BundleVariant, EntryExtensions, Fields, ImageDim, NodeMetadata,
-        SCHEMA_VERSION,
     };
     use websh_core::ports::{ScannedDirectory, ScannedFile, ScannedSubtree};
 
@@ -462,7 +461,6 @@ mod tests {
 
     fn meta(kind: NodeKind, title: Option<&str>) -> NodeMetadata {
         NodeMetadata {
-            schema: SCHEMA_VERSION,
             kind,
             bundle: None,
             authored: Fields {
@@ -478,7 +476,6 @@ mod tests {
 
     fn bundle_meta(title: &str) -> NodeMetadata {
         NodeMetadata {
-            schema: SCHEMA_VERSION,
             kind: NodeKind::Bundle,
             bundle: Some(BundleMetadata {
                 default_variant: websh_core::domain::BundleDefaultVariant::Static {

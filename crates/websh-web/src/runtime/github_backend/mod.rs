@@ -2,9 +2,7 @@
 
 use std::rc::Rc;
 
-use websh_core::domain::{
-    BootstrapSiteSource, MountDeclaration, RuntimeBackendKind, RuntimeMount, VirtualPath,
-};
+use websh_core::domain::{BootstrapSiteSource, MountDeclaration, RuntimeMount, VirtualPath};
 use websh_core::ports::StorageBackendRef;
 
 mod client;
@@ -89,7 +87,7 @@ pub fn build_backend_for_declaration(
                     mount_at: declaration.mount_at.clone(),
                 });
             }
-            if !is_canonical_mount_root(&mount_root) {
+            if !is_root(&mount_root) {
                 return Err(GitHubBackendDeclarationError::NoncanonicalMountAt {
                     mount_at: declaration.mount_at.clone(),
                 });
@@ -113,7 +111,7 @@ pub fn build_backend_for_declaration(
                     .unwrap_or_else(|| mount_root.as_str().to_string())
             });
 
-            let mount = RuntimeMount::new(mount_root.clone(), label, RuntimeBackendKind::GitHub);
+            let mount = RuntimeMount::new(mount_root.clone(), label);
 
             let backend = GitHubBackend::new(repo, branch, mount_root, prefix, gateway).map_err(
                 |source| GitHubBackendDeclarationError::InvalidBackend {
@@ -141,7 +139,7 @@ fn normalized_gateway_for_error(gateway: &str) -> String {
     gateway.trim_end_matches('/').to_string()
 }
 
-fn is_canonical_mount_root(path: &VirtualPath) -> bool {
+fn is_root(path: &VirtualPath) -> bool {
     if path.is_root() || path.as_str().contains('\\') {
         return false;
     }
@@ -155,7 +153,7 @@ fn is_canonical_mount_root(path: &VirtualPath) -> bool {
     format!("/{}", segments.join("/")) == path.as_str()
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use wasm_bindgen_test::*;
@@ -173,17 +171,16 @@ mod tests {
             ..Default::default()
         };
 
-        let (mount, backend, descriptor) = build_backend_for_declaration(&declaration)
+        let (mount, _backend, descriptor) = build_backend_for_declaration(&declaration)
             .expect("valid declaration")
             .expect("backend");
         assert!(descriptor.is_some());
         assert_eq!(mount.root.as_str(), "/db");
         assert_eq!(mount.label, "db");
-        assert_eq!(backend.backend_type(), "github");
     }
 
     #[wasm_bindgen_test]
-    fn declaration_rejects_noncanonical_mount_root() {
+    fn declaration_rejects_nonroot() {
         let declaration = MountDeclaration {
             backend: "github".to_string(),
             mount_at: "/db/../bad".to_string(),
@@ -240,11 +237,11 @@ mod tests {
         ));
     }
     #[wasm_bindgen_test]
-    fn descriptor_ignores_label_and_legacy_write_flag_and_normalizes_defaults() {
+    fn descriptor_ignores_label_and_normalizes_defaults() {
         let minimal: MountDeclaration =
             serde_json::from_str(r#"{"backend":"github","mount_at":"/db","repo":"owner/repo"}"#)
                 .unwrap();
-        let explicit: MountDeclaration = serde_json::from_str(r#"{"backend":"github","mount_at":"/db","repo":"owner/repo","branch":"main","root":"/","gateway":"https://raw.githubusercontent.com/","name":"different label","writable":true}"#).unwrap();
+        let explicit: MountDeclaration = serde_json::from_str(r#"{"backend":"github","mount_at":"/db","repo":"owner/repo","branch":"main","root":"/","gateway":"https://raw.githubusercontent.com/","name":"different label"}"#).unwrap();
         assert_eq!(
             build_backend_for_declaration(&minimal).unwrap().unwrap().2,
             build_backend_for_declaration(&explicit).unwrap().unwrap().2

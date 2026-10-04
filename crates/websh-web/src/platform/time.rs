@@ -1,25 +1,10 @@
-//! Wall-clock current time as Unix milliseconds.
-//!
-//! On `wasm32`, uses `js_sys::Date::now()` (browser clock).
-//! On non-wasm targets (the `cargo test` runner on the host), uses `SystemTime`.
-//! Both return `u64` milliseconds since the Unix epoch. The non-wasm fallback
-//! keeps host builds compiling while production and wasm tests use the browser.
+//! Browser wall clock in milliseconds since the Unix epoch.
 
-#[cfg(target_arch = "wasm32")]
 pub fn current_timestamp() -> u64 {
     js_sys::Date::now() as u64
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-pub fn current_timestamp() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
-
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use wasm_bindgen_test::*;

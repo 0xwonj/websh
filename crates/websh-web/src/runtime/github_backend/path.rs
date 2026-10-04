@@ -1,7 +1,4 @@
-// Repo path helpers. `encoded_repo_relative_path`/`percent_encode_segment`
-// are consumed by the wasm-only GitHub client; on host they look dead but
-// remain reachable when compiled for wasm32 or under `cargo test`.
-#![cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+//! Repository-relative URL path validation and encoding.
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum RepoPathError {
@@ -84,7 +81,7 @@ fn percent_encode_segment(segment: &str) -> String {
     out
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use wasm_bindgen_test::*;

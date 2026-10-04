@@ -13,10 +13,8 @@
 use std::collections::BTreeMap;
 
 use leptos::prelude::*;
-#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::Closure;
 
-#[cfg(target_arch = "wasm32")]
 use crate::app::AppContext;
 use crate::config::LANG_ENV_KEY;
 use crate::features::chrome::{HOME_HREF, SiteChrome};
@@ -79,14 +77,12 @@ use websh_core::filesystem::{
 /// - other `#/*` paths → content route resolution against `/`
 #[component]
 pub fn RouterView() -> impl IntoView {
-    #[cfg(target_arch = "wasm32")]
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
 
     // Raw request from URL hash (updated on hashchange).
     let _raw_request = RwSignal::new(current_route_request());
 
     // Set up hashchange event listener (runs once on mount).
-    #[cfg(target_arch = "wasm32")]
     {
         use crate::platform::wasm_cleanup::WasmCleanup;
         use leptos::prelude::on_cleanup;
@@ -108,31 +104,38 @@ pub fn RouterView() -> impl IntoView {
     }
 
     // Resolved route frame: re-runs whenever the hash changes OR fs loads/changes.
-    #[cfg(target_arch = "wasm32")]
     let route = Memo::new(move |_| {
         let request = _raw_request.get();
-        let fs = if route_request_targets_runtime_overlay(&request) {
-            ctx.system_global_fs.with(|fs| fs.as_ref().clone())
-        } else {
-            ctx.global_fs.get()
-        };
-        let Some(resolution) = try_resolve_route(&fs, &request)? else {
-            return Ok(None);
-        };
-        let Some(intent) = build_render_intent(&fs, &resolution) else {
-            return Ok(None);
-        };
-        Ok(Some(RouteFrame {
-            request,
-            resolution,
-            intent,
-        }))
+        if route_request_targets_runtime_overlay(&request) {
+            // Synthetic session files are projected independently of the content catalog.
+            return ctx.system_global_fs.with(|fs| {
+                let Some(resolution) = try_resolve_route(fs, &request)? else {
+                    return Ok(None);
+                };
+                Ok(
+                    build_render_intent(fs, &resolution).map(|intent| RouteFrame {
+                        request,
+                        resolution,
+                        intent,
+                    }),
+                )
+            });
+        }
+        ctx.content.snapshot.with(|snapshot| {
+            let Some(resolution) = snapshot.resolve(&request) else {
+                return Ok(None);
+            };
+            Ok(
+                build_render_intent(snapshot.fs(), &resolution).map(|intent| RouteFrame {
+                    request,
+                    resolution,
+                    intent,
+                }),
+            )
+        })
     });
-    #[cfg(not(target_arch = "wasm32"))]
-    let route = Memo::new(move |_| Ok(None::<RouteFrame>));
 
     install_terminal_focus_effect(_raw_request, route);
-    #[cfg(target_arch = "wasm32")]
     install_bundle_locale_selector_effect(ctx, route);
 
     view! {
@@ -222,6 +225,7 @@ fn request_mount_path(request: &RouteRequest) -> VirtualPath {
 
 fn unresolved_route_view(ctx: AppContext, request: RouteRequest) -> AnyView {
     let entry = ctx
+        .content
         .mounts
         .with(|mounts| mounts.owner(&request_mount_path(&request)).cloned());
     let root = entry
@@ -340,7 +344,6 @@ fn install_terminal_focus_effect(
     });
 }
 
-#[cfg(target_arch = "wasm32")]
 fn install_bundle_locale_selector_effect(
     ctx: AppContext,
     route: Memo<Result<Option<RouteFrame>, RouteCatalogError>>,
@@ -352,10 +355,10 @@ fn install_bundle_locale_selector_effect(
         let RenderIntent::BundleLocaleSelector { bundle_path } = frame.intent else {
             return;
         };
-        let fs = ctx.global_fs.get();
-        let runtime_state = ctx.runtime_state.get();
+        let fs = ctx.content.snapshot.get();
+        let runtime_state = ctx.preferences.snapshot.get();
         let lang = runtime_state.env.get(LANG_ENV_KEY).map(String::as_str);
-        let Some(href) = locale_selected_bundle_variant_href(&fs, &bundle_path, lang) else {
+        let Some(href) = locale_selected_bundle_variant_href(fs.fs(), &bundle_path, lang) else {
             return;
         };
         let target_path = href.strip_prefix('#').unwrap_or(&href);
@@ -519,7 +522,7 @@ fn RouteCatalogInvalid(request: RouteRequest, error: RouteCatalogError) -> impl 
     }
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(test)]
 mod builtin_route_tests {
     use super::*;
     use wasm_bindgen_test::*;

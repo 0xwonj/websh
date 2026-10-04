@@ -11,7 +11,7 @@ stylance::import_crate_style!(css, "src/shared/components/mount_status.module.cs
 pub fn MountStatusNotice(path: Signal<VirtualPath>) -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
     view! { {move || {
-        let entry = ctx.mounts.with(|mounts| mounts.owner(&path.get()).cloned());
+        let entry = ctx.content.mounts.with(|mounts| mounts.owner(&path.get()).cloned());
         let entry = entry?;
         let (message, busy) = match entry.status {
             MountLoadStatus::Loading => (format!("Loading {} listing…", entry.declared.label), true),

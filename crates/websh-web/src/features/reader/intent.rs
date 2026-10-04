@@ -91,7 +91,7 @@ impl TryFrom<RouteFrame> for ReaderFrame {
     }
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use wasm_bindgen_test::*;

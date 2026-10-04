@@ -7,16 +7,13 @@ use gloo_timers::future::TimeoutFuture;
 use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
+use super::RuntimeResult;
+use super::content::Content;
 use super::mount_cache::{CacheRecord, CacheWrite, RESTORE_TIMEOUT_MS};
 use super::mounts::{MountScanJob, MountScanResult, RefreshState, SnapshotOrigin};
-use crate::app::{AppContext, RuntimeServiceResult};
 use crate::platform::time::current_timestamp;
 
-pub async fn refresh_mount(
-    ctx: AppContext,
-    generation: u64,
-    job: MountScanJob,
-) -> RuntimeServiceResult {
+pub async fn refresh_mount(ctx: Content, generation: u64, job: MountScanJob) -> RuntimeResult {
     let descriptor = ctx.mount_cache_descriptor(&job.mount.root);
     let allow_restore = !ctx
         .mounts
@@ -82,9 +79,6 @@ pub async fn refresh_mount(
                 let record = descriptor.clone().and_then(|descriptor| {
                     CacheRecord::from_scan(descriptor, &scan, started, observed)
                 });
-                let previous_status = ctx
-                    .mounts
-                    .with_untracked(|mounts| mounts.status(&job.mount.root));
                 let publication = ctx.apply_mount_snapshot(
                     generation,
                     MountScanResult {
@@ -104,16 +98,13 @@ pub async fn refresh_mount(
                             Some(websh_core::ports::StorageError::RemoteRejected {
                                 message: error.to_string(),
                             });
-                        if !cache_done.get()
-                            && ctx.mount_attempt_is_current(generation, &job.mount.root, job.epoch)
-                        {
-                            ctx.mounts.update(|mounts| {
-                                if let Some(entry) = mounts.entries.get_mut(&job.mount.root)
-                                    && let Some(status) = previous_status
-                                {
-                                    entry.status = status;
-                                }
-                            });
+                        if cache_done.get() {
+                            ctx.fail_attempt(
+                                generation,
+                                &job.mount.root,
+                                job.epoch,
+                                error.to_string(),
+                            );
                         }
                         return Err(error);
                     }
@@ -149,7 +140,7 @@ pub async fn refresh_mount(
                         },
                     )?;
                 }
-                return Err(crate::app::RuntimeServiceError::RefreshFailed { message });
+                return Err(super::RuntimeError::RefreshFailed { message });
             }
         }
         Ok(())
@@ -164,7 +155,7 @@ mod tests {
     use crate::runtime::mount_cache::{CacheDescriptor, CachedSnapshot, MountCache};
     use crate::runtime::{MountLoadSet, MountLoadStatus, RuntimeLoad};
     use wasm_bindgen_test::*;
-    use websh_core::domain::{RuntimeBackendKind, RuntimeMount, VirtualPath};
+    use websh_core::domain::{RuntimeMount, VirtualPath};
     use websh_core::filesystem::GlobalFs;
     use websh_core::ports::{
         LocalBoxFuture, ScannedSubtree, StorageBackend, StorageError, StorageResult,
@@ -194,23 +185,40 @@ mod tests {
             })
         }
     }
+    #[derive(Clone, Copy)]
+    enum ScanOutcome {
+        Valid,
+        Unavailable,
+        ConflictingRoutes,
+    }
+
     struct ScanBackend {
         delay: u32,
-        fails: bool,
+        outcome: ScanOutcome,
     }
     impl StorageBackend for ScanBackend {
-        fn backend_type(&self) -> &'static str {
-            "test"
-        }
         fn scan(&self) -> LocalBoxFuture<'_, StorageResult<ScannedSubtree>> {
             Box::pin(async move {
                 TimeoutFuture::new(self.delay).await;
-                if self.fails {
-                    Err(StorageError::Network {
+                match self.outcome {
+                    ScanOutcome::Unavailable => Err(StorageError::Network {
                         message: "offline".into(),
-                    })
-                } else {
-                    Ok(ScannedSubtree::default())
+                    }),
+                    ScanOutcome::Valid => Ok(ScannedSubtree::default()),
+                    ScanOutcome::ConflictingRoutes => Ok(ScannedSubtree {
+                        files: ["same.md", "same.html"]
+                            .into_iter()
+                            .map(|path| websh_core::ports::ScannedFile {
+                                path: path.into(),
+                                meta: websh_core::domain::NodeMetadata {
+                                    kind: websh_core::domain::NodeKind::Page,
+                                    ..Default::default()
+                                },
+                                extensions: Default::default(),
+                            })
+                            .collect(),
+                        directories: vec![],
+                    }),
                 }
             })
         }
@@ -226,34 +234,35 @@ mod tests {
         cache_delay: u32,
         cache_hit: bool,
         network_delay: u32,
-        fails: bool,
-    ) -> (Owner, AppContext, MountScanJob, Rc<Cell<u32>>) {
+        outcome: ScanOutcome,
+    ) -> (Owner, Content, MountScanJob, Rc<Cell<u32>>) {
         let owner = Owner::new();
         let writes = Rc::new(Cell::new(0));
         let (ctx, job) = owner.with(|| {
-            let ctx = AppContext::new();
+            let ctx = Content::new(super::super::loader::bootstrap_runtime_load());
             let root = VirtualPath::from_absolute("/db").unwrap();
-            let mount = RuntimeMount::new(root.clone(), "db", RuntimeBackendKind::GitHub);
+            let mount = RuntimeMount::new(root.clone(), "db");
             let backend = Rc::new(ScanBackend {
                 delay: network_delay,
-                fails,
+                outcome,
             });
             let mut mounts = MountLoadSet::empty();
             mounts.insert_loading(mount.clone(), backend.clone());
-            mounts.entries.get_mut(&root).unwrap().cache_descriptor = Some(CacheDescriptor {
-                descriptor_version: 1,
-                backend_kind: "github".into(),
-                canonical_mount_root: root.to_string(),
-                repository_owner_and_name: "owner/repo".into(),
-                branch_or_ref: "main".into(),
-                normalized_content_prefix: "".into(),
-                resolved_manifest_url: "https://example.test/manifest.json".into(),
-                resolved_content_base_url: "https://example.test/".into(),
-            });
+            mounts.set_cache_descriptor(
+                &root,
+                Some(CacheDescriptor {
+                    root: root.to_string(),
+                    repo: "owner/repo".into(),
+                    reference: "main".into(),
+                    prefix: "".into(),
+                    manifest_url: "https://example.test/manifest.json".into(),
+                    content_url: "https://example.test/".into(),
+                }),
+            );
             let mut global_fs = GlobalFs::empty();
             global_fs.reserve_mount_point(root.clone()).unwrap();
             ctx.apply_runtime_load(RuntimeLoad {
-                global_fs,
+                snapshot: websh_core::filesystem::Snapshot::new(global_fs).unwrap(),
                 backends: [(root, backend.clone() as _)].into(),
                 total_files: 0,
                 mounts,
@@ -277,7 +286,7 @@ mod tests {
 
     #[wasm_bindgen_test(async)]
     async fn timely_cache_survives_early_network_failure() {
-        let (_owner, ctx, job, writes) = setup(30, true, 1, true);
+        let (_owner, ctx, job, writes) = setup(30, true, 1, ScanOutcome::Unavailable);
         let root = job.mount.root.clone();
         let watch = async {
             TimeoutFuture::new(10).await;
@@ -299,8 +308,32 @@ mod tests {
     }
 
     #[wasm_bindgen_test(async)]
+    async fn rejected_network_candidate_waits_for_cache_without_publishing_failure_early() {
+        let (_owner, ctx, job, writes) = setup(35, true, 1, ScanOutcome::ConflictingRoutes);
+        let root = job.mount.root.clone();
+        let snapshot = ctx.snapshot.get_untracked();
+        let watch = async {
+            TimeoutFuture::new(10).await;
+            assert_eq!(ctx.mount_status_for(&root), Some(MountLoadStatus::Loading));
+            assert!(Rc::ptr_eq(&snapshot, &ctx.snapshot.get_untracked()));
+        };
+        let (result, ()) =
+            futures_util::join!(refresh_mount(ctx, ctx.runtime_generation(), job), watch);
+        assert!(result.is_err());
+        assert!(matches!(
+            ctx.mount_status_for(&root),
+            Some(MountLoadStatus::Available {
+                origin: SnapshotOrigin::Cache,
+                refresh: RefreshState::Failed(_),
+                ..
+            })
+        ));
+        assert_eq!(writes.get(), 0);
+    }
+
+    #[wasm_bindgen_test(async)]
     async fn fast_network_wins_over_later_cache_and_writes_once() {
-        let (_owner, ctx, job, writes) = setup(25, true, 1, false);
+        let (_owner, ctx, job, writes) = setup(25, true, 1, ScanOutcome::Valid);
         let root = job.mount.root.clone();
         refresh_mount(ctx, ctx.runtime_generation(), job)
             .await
@@ -314,17 +347,13 @@ mod tests {
                 ..
             })
         ));
-        assert_eq!(
-            ctx.mounts
-                .with_untracked(|m| m.entries[&root].content_revision),
-            1
-        );
+        assert_eq!(ctx.mounts.with_untracked(|m| m.revision(&root)), 1);
         assert_eq!(writes.get(), 1);
     }
 
     #[wasm_bindgen_test(async)]
     async fn late_cache_cannot_rescue_failed_network_after_restore_deadline() {
-        let (_owner, ctx, job, _) = setup(650, true, 1, true);
+        let (_owner, ctx, job, _) = setup(650, true, 1, ScanOutcome::Unavailable);
         let root = job.mount.root.clone();
         assert!(
             refresh_mount(ctx, ctx.runtime_generation(), job)
@@ -339,7 +368,7 @@ mod tests {
 
     #[wasm_bindgen_test(async)]
     async fn obsolete_attempt_neither_publishes_nor_persists() {
-        let (_owner, ctx, job, writes) = setup(20, true, 30, false);
+        let (_owner, ctx, job, writes) = setup(20, true, 30, ScanOutcome::Valid);
         let root = job.mount.root.clone();
         let supersede = async {
             TimeoutFuture::new(1).await;

@@ -60,7 +60,7 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
 
     let text_scale = RwSignal::new(initial_text_scale());
 
-    let content_version = Memo::new(move |_| ctx.read_version(&canonical_path.get()));
+    let content_version = Memo::new(move |_| ctx.content.read_version(&canonical_path.get()));
     let document = LocalResource::new({
         move || {
             let version = content_version.get();
@@ -69,7 +69,7 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
             let path = snapshot.resolution.node_path;
             async move {
                 let result = load_reader_document(ctx, intent).await;
-                if ctx.current_read_version(&path) != version {
+                if ctx.content.current_read_version(&path) != version {
                     // Dropping a stale document also releases its owned object URLs.
                     return Err(ReaderLoadError::Read {
                         path: path.clone(),

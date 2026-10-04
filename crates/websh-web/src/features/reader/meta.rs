@@ -3,8 +3,6 @@
 //! `reader_meta` is the public entry; `build_reader_meta` is the pure
 //! inner combinator unit-tested below.
 
-use leptos::prelude::With;
-
 use crate::app::AppContext;
 use crate::shared::components::{FileMeta, file_meta_for_path, size_summary_parts};
 use websh_core::domain::{BundleMetadata, ImageDim, LinkRef, NodeKind, PageSize, VirtualPath};
@@ -73,7 +71,7 @@ impl ReaderMeta {
 
 pub fn reader_meta(ctx: AppContext, frame: &ReaderFrame) -> ReaderMeta {
     let intent = &frame.intent;
-    ctx.global_fs.with(|fs| {
+    ctx.content.with_fs(|fs| {
         if let Some(context) = frame.resolution.bundle_variant.as_ref() {
             let bundle_path = &context.bundle_path;
             let variant_id = &context.variant_id;
@@ -290,7 +288,7 @@ pub fn type_tag_for_intent(intent: &ReaderIntent) -> Option<String> {
     }
 }
 
-#[cfg(all(test, target_arch = "wasm32"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use wasm_bindgen_test::*;
