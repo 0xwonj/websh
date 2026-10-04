@@ -6,3 +6,5 @@ mod ack;
 mod attest;
 #[path = "cli/content.rs"]
 mod content;
+#[path = "cli/deploy.rs"]
+mod deploy;

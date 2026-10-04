@@ -1,4 +1,4 @@
-//! Native build-time CLI: clap dispatchers + engine modules.
+//! Native build-time CLI: command adapters, workflows, and host infrastructure.
 
 pub mod cli;
 pub(crate) mod commands;

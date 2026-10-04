@@ -29,7 +29,6 @@ pub(crate) struct AttestAllOptions {
 }
 
 pub(crate) fn run_default(root: &Path, no_sign: bool) -> CliResult {
-    let no_sign = no_sign || no_sign_from_env();
     attest_all(
         root,
         AttestAllOptions {
@@ -41,23 +40,6 @@ pub(crate) fn run_default(root: &Path, no_sign: bool) -> CliResult {
             issued_at: None,
         },
     )
-}
-
-/// Trunk pre-build entrypoint. No-ops on dev profiles so `trunk serve`
-/// and incremental dev builds stay fast.
-pub(crate) fn attest_build(root: &Path, force: bool) -> CliResult {
-    if !force && !profile_is_release() {
-        let profile = std::env::var("TRUNK_PROFILE").unwrap_or_default();
-        println!("attest: skipped (profile={profile})");
-        return Ok(());
-    }
-    run_default(root, no_sign_from_env())
-}
-
-fn profile_is_release() -> bool {
-    std::env::var("TRUNK_PROFILE")
-        .map(|p| p == "release")
-        .unwrap_or(false)
 }
 
 fn no_sign_from_env() -> bool {
@@ -128,7 +110,7 @@ pub(crate) fn attest_all(root: &Path, options: AttestAllOptions) -> CliResult {
     write_json(&root.join(ATTESTATIONS_PATH), &artifact)?;
 
     let mut signed = 0usize;
-    if !options.no_sign {
+    if !options.no_sign && !no_sign_from_env() {
         if root.join(&options.key).exists() {
             signed = sign_missing_pgp_attestations(
                 root,

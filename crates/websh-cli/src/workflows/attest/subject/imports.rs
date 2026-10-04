@@ -9,8 +9,8 @@ use crate::CliResult;
 use crate::infra::json::write_json;
 use crate::workflows::content::{artifact_path, resolve_path};
 
-use super::super::gpg::{pgp_signer_from_key, verify_pgp_signature};
 use super::artifact::read_artifact;
+use crate::infra::pgp;
 
 pub(super) fn pgp_import(
     root: &Path,
@@ -31,8 +31,12 @@ pub(super) fn pgp_import(
     let signature_path = resolve_path(root, &signature);
     let signature_body = std::fs::read_to_string(&signature_path)
         .with_context(|| format!("read {}", signature_path.display()))?;
-    let fingerprint = verify_pgp_signature(root, &key, &signature_body, &message)?;
-    let signer = signer.or_else(|| pgp_signer_from_key(root, &key).ok().flatten());
+    let fingerprint = pgp::verify_signature(&resolve_path(root, &key), &signature_body, &message)?;
+    let signer = signer.or_else(|| {
+        pgp::read_key(&resolve_path(root, &key))
+            .ok()
+            .and_then(|key| key.user_ids.into_iter().find(|id| !id.is_empty()))
+    });
     let message_hash = message_sha256(&message);
     let key_path = artifact_path(root, &key)?;
     let signature_path = artifact_path(root, &signature).ok();

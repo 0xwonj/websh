@@ -1,3 +1,5 @@
+pub(crate) mod add;
+pub(crate) mod drop;
 pub(crate) mod list;
 pub(crate) mod manifest;
 pub(crate) mod mount;

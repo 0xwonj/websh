@@ -46,7 +46,7 @@ fn builds_ack_artifact_and_private_receipt() {
     cli(&root, &["crypto", "ack", "remove", "anonymous reviewer"]);
     assert!(!receipt.exists());
 
-    cli(&root, &["crypto", "ack", "rm", "coffee"]);
+    cli(&root, &["crypto", "ack", "remove", "coffee"]);
     cli_fails(&root, &["crypto", "ack", "verify", "--name", "coffee"]);
 
     let artifact_body = fs::read_to_string(root.join(ACK_ARTIFACT_PATH)).unwrap();

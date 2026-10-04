@@ -1,22 +1,9 @@
-use std::io;
 use std::path::Path;
 
-use anyhow::{Context, bail};
 use clap::Args;
 
-use websh_core::mempool::{
-    ComposeError, ComposeForm, LEDGER_CATEGORIES, form_to_payload, serialize_mempool_file,
-    slug_from_title, validate_form,
-};
-use websh_core::support::format::format_date_iso;
-
 use crate::CliResult;
-use crate::infra::gh::{GhResourceStatus, require_gh};
-use crate::infra::time::current_timestamp;
-
-use crate::workflows::mempool::mount::read_mempool_mount_declaration;
-use crate::workflows::mempool::path::MempoolEntryPath;
-use crate::workflows::mempool::remote::{add_to_mempool_via_gh, gh_path_status};
+use crate::workflows::mempool::add::{self, AddOptions};
 
 #[derive(Args)]
 pub(super) struct AddArgs {
@@ -48,164 +35,17 @@ pub(super) struct AddArgs {
 }
 
 pub(super) fn add(root: &Path, args: AddArgs) -> CliResult {
-    let mount = read_mempool_mount_declaration(root)?;
-    require_gh()?;
-
-    let body = read_body_source(&args.body)?;
-    let form = build_form(&args, &body)?;
-
-    let errors = validate_form(&form);
-    if !errors.is_empty() {
-        let messages: Vec<String> = errors.iter().map(humanize_compose_error).collect();
-        bail!("invalid input:\n  - {}", messages.join("\n  - "));
-    }
-
-    let repo_path = format!("{}/{}.md", form.category, form.slug);
-    let entry_path = MempoolEntryPath::parse(&repo_path)
-        .with_context(|| format!("invalid mempool entry path `{repo_path}`"))?;
-    match gh_path_status(&mount, entry_path.as_str())? {
-        GhResourceStatus::Exists => {
-            bail!(
-                "{} already exists in {}@{} — pass a different --slug or edit the source file in the repository",
-                entry_path,
-                mount.repo,
-                mount.branch
-            );
-        }
-        GhResourceStatus::Missing => {}
-    }
-
-    let file_body = serialize_mempool_file(&form_to_payload(&form));
-
-    eprintln!("preflight: ok ({}/{})", form.category, form.slug);
-    eprintln!("write:     {} ({} bytes)", entry_path, file_body.len());
-
-    add_to_mempool_via_gh(&mount, entry_path.as_str(), &file_body)?;
-
-    println!(
-        "mempool add: {} → {}@{}",
-        entry_path, mount.repo, mount.branch
-    );
-    Ok(())
-}
-
-/// Read the markdown body from `--body` argument: `-` means stdin, anything
-/// else is a filesystem path.
-fn read_body_source(spec: &str) -> CliResult<String> {
-    if spec == "-" {
-        let mut buf = String::new();
-        io::Read::read_to_string(&mut io::stdin(), &mut buf).context("read body from stdin")?;
-        Ok(buf)
-    } else {
-        std::fs::read_to_string(spec).with_context(|| format!("read body from {spec}"))
-    }
-}
-
-/// Build a `ComposeForm` from the parsed CLI args. Auto-derives slug from
-/// title when `--slug` is omitted, defaults `modified` to today.
-fn build_form(args: &AddArgs, body: &str) -> CliResult<ComposeForm> {
-    let slug = args
-        .slug
-        .clone()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| slug_from_title(&args.title));
-
-    let modified = args
-        .modified
-        .clone()
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| format_date_iso(current_timestamp() / 1000));
-
-    let tags: Vec<String> = args
-        .tags
-        .split(',')
-        .map(|t| t.trim().to_string())
-        .filter(|t| !t.is_empty())
-        .collect();
-
-    let priority = args.priority.clone().filter(|s| !s.is_empty());
-
-    Ok(ComposeForm {
-        title: args.title.trim().to_string(),
-        category: args.category.clone(),
-        slug,
-        status: args.status.clone(),
-        modified,
-        priority,
-        tags,
-        body: body.to_string(),
-    })
-}
-
-/// Translate a single `ComposeError` into a CLI-friendly message. Mirrors the
-/// shared compose validation rules.
-fn humanize_compose_error(err: &ComposeError) -> String {
-    match err {
-        ComposeError::TitleEmpty => "title is required".to_string(),
-        ComposeError::TitleHasReservedChars => {
-            "title cannot contain \" \\ : or newlines".to_string()
-        }
-        ComposeError::SlugInvalid => {
-            "slug must be kebab-case ASCII (a-z, 0-9, hyphens)".to_string()
-        }
-        ComposeError::StatusUnknown => "status must be `draft` or `review`".to_string(),
-        ComposeError::ModifiedNotIso => "modified must be YYYY-MM-DD".to_string(),
-        ComposeError::CategoryUnknown => {
-            format!("category must be one of {}", LEDGER_CATEGORIES.join(", "))
-        }
-        ComposeError::PriorityUnknown => "priority must be `low`, `med`, or `high`".to_string(),
-        ComposeError::TagHasReservedChars => {
-            "tags cannot contain `[ ] \" ,` or newlines".to_string()
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn sample_add_args() -> AddArgs {
-        AddArgs {
-            category: "writing".into(),
-            slug: None,
-            title: "On writing slow".into(),
-            status: "draft".into(),
-            priority: None,
-            tags: String::new(),
-            modified: Some("2026-04-28".into()),
-            body: "/dev/null".into(),
-        }
-    }
-
-    #[test]
-    fn build_form_auto_derives_slug_from_title() {
-        let args = sample_add_args();
-        let form = build_form(&args, "body").unwrap();
-        assert_eq!(form.slug, "on-writing-slow");
-        assert_eq!(form.category, "writing");
-        assert_eq!(form.title, "On writing slow");
-        assert_eq!(form.modified, "2026-04-28");
-        assert_eq!(form.status, "draft");
-        assert!(form.priority.is_none());
-        assert!(form.tags.is_empty());
-        assert_eq!(form.body, "body");
-    }
-
-    #[test]
-    fn build_form_normalizes_options() {
-        let mut args = sample_add_args();
-        args.slug = Some("custom-slug".into());
-        args.tags = "essay, slow , ,zk,".into();
-        args.priority = Some("med".into());
-        let form = build_form(&args, "").unwrap();
-        assert_eq!(form.slug, "custom-slug");
-        assert_eq!(form.tags, vec!["essay", "slow", "zk"]);
-        assert_eq!(form.priority.as_deref(), Some("med"));
-
-        args.tags = ", , ".into();
-        args.priority = Some(String::new());
-        let form = build_form(&args, "").unwrap();
-        assert!(form.tags.is_empty());
-        assert!(form.priority.is_none());
-    }
+    add::add(
+        root,
+        AddOptions {
+            category: args.category,
+            slug: args.slug,
+            title: args.title,
+            status: args.status,
+            priority: args.priority,
+            tags: args.tags,
+            modified: args.modified,
+            body: args.body,
+        },
+    )
 }

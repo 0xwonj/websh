@@ -8,11 +8,10 @@ use websh_site::ATTESTATIONS_PATH;
 use crate::CliResult;
 use crate::infra::json::write_json;
 
-use super::gpg::{
-    gpg_secret_key_fingerprint, pgp_fingerprint_from_key, sign_subject_with_gpg,
-    verify_pgp_signature,
-};
+use super::pgp::sign_subject_with_gpg;
 use super::subject::read_artifact;
+use crate::infra::{gpg, pgp};
+use crate::workflows::content::resolve_path;
 
 pub(super) fn sign_missing_pgp_attestations(
     root: &Path,
@@ -48,7 +47,7 @@ pub(super) fn sign_missing_pgp_attestations(
     // gpg detection: missing binary or absent secret key on a release build
     // must not fail trunk. Warn and leave subjects pending so the build
     // produces a dist with `pending` markers — author re-signs later.
-    let Some(active_fingerprint) = gpg_secret_key_fingerprint(gpg_key) else {
+    let Some(active_fingerprint) = gpg::secret_key_fingerprint(gpg_key) else {
         println!(
             "attest: gpg unavailable or signer key not in keyring; \
              {} subject(s) left pending",
@@ -60,7 +59,7 @@ pub(super) fn sign_missing_pgp_attestations(
     // Fingerprint guard: refuse to sign with a key that isn't the project
     // identity. Protects forks / co-authors from accidentally writing
     // attestations under their own keys.
-    let expected_fingerprint = pgp_fingerprint_from_key(root, key)?;
+    let expected_fingerprint = pgp::read_key(&resolve_path(root, key))?.fingerprint;
     if normalize_fingerprint(&active_fingerprint) != expected_fingerprint {
         bail!(
             "attest: active gpg key fingerprint does not match the supplied public key.\n  \
@@ -113,10 +112,12 @@ fn subject_has_valid_pgp(root: &Path, subject: &Subject) -> CliResult<bool> {
         };
         *verified
             && message_sha256 == &message_hash
-            && verify_pgp_signature(root, Path::new(key_path), signature, &message)
-                .map(|verified_fingerprint| {
-                    verified_fingerprint == normalize_fingerprint(fingerprint)
-                })
-                .unwrap_or(false)
+            && pgp::verify_signature(
+                &resolve_path(root, Path::new(key_path)),
+                signature,
+                &message,
+            )
+            .map(|verified_fingerprint| verified_fingerprint == normalize_fingerprint(fingerprint))
+            .unwrap_or(false)
     }))
 }

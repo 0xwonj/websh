@@ -6,7 +6,7 @@ use websh_site::PUBLIC_KEY_PATH;
 
 use crate::CliResult;
 use crate::workflows::attest::{
-    AttestAllOptions, DEFAULT_GPG_SIGNER, DEFAULT_SIGNATURE_DIR, attest_all, attest_build, verify,
+    AttestAllOptions, DEFAULT_GPG_SIGNER, DEFAULT_SIGNATURE_DIR, attest_all, verify,
 };
 use crate::workflows::content::DEFAULT_CONTENT_DIR;
 
@@ -43,17 +43,6 @@ enum AttestSubcommand {
         #[arg(long)]
         route: Option<String>,
     },
-    /// Trunk pre-build entrypoint. Refreshes manifest / ledger / attestation
-    /// JSON and signs newly-changed subjects. Skips silently when
-    /// `TRUNK_PROFILE` is not `release`, so dev builds and `trunk serve`
-    /// stay fast.
-    Build {
-        /// Run the flow regardless of `TRUNK_PROFILE`. Useful when running
-        /// the command outside of trunk (e.g. ad-hoc refresh before
-        /// `websh-cli deploy --no-build`).
-        #[arg(long)]
-        force: bool,
-    },
 }
 
 pub(crate) fn run(root: &Path, command: AttestCommand) -> CliResult {
@@ -70,7 +59,6 @@ pub(crate) fn run(root: &Path, command: AttestCommand) -> CliResult {
     match command {
         Some(AttestSubcommand::Subject(command)) => subject::subject(root, command),
         Some(AttestSubcommand::Verify { route }) => verify(root, route),
-        Some(AttestSubcommand::Build { force }) => attest_build(root, force),
         None => attest_all(
             root,
             AttestAllOptions {

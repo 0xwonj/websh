@@ -9,10 +9,10 @@ use websh_core::crypto::pgp::normalize_fingerprint;
 
 use crate::CliResult;
 use crate::infra::json::read_json;
-use crate::workflows::content::build_content_files;
+use crate::workflows::content::{build_content_files, resolve_path};
 
-use super::gpg::verify_pgp_signature;
 use super::subject::{read_ack, read_artifact};
+use crate::infra::pgp::verify_signature;
 
 pub(crate) fn verify(root: &Path, route: Option<String>) -> CliResult {
     let artifact = read_artifact(root)?;
@@ -91,8 +91,11 @@ fn verify_subject(root: &Path, subject: &Subject) -> CliResult {
                 signature,
                 ..
             } => {
-                let verified_fingerprint =
-                    verify_pgp_signature(root, Path::new(key_path), signature, &message)?;
+                let verified_fingerprint = verify_signature(
+                    &resolve_path(root, Path::new(key_path)),
+                    signature,
+                    &message,
+                )?;
                 if normalize_fingerprint(fingerprint) != verified_fingerprint {
                     bail!("PGP fingerprint mismatch for {}", subject.id());
                 }

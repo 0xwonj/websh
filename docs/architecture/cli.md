@@ -36,7 +36,10 @@ Workflows used in automation must fail fast instead of prompting unless the comm
 
 `content manifest` is idempotent and safe to run from Trunk hooks. It refreshes sidecars and `content/manifest.json`.
 
-`attest build` is the Trunk pre-build entrypoint. It skips development profiles unless forced, refreshes content/ledger/subject artifacts, and signs when signing is enabled and the expected key is available.
+`prepare` is the single Trunk content pre-build entry point. It refreshes the manifest
+in development and performs the complete content/ledger/subject workflow in release.
+`attest` runs the complete workflow explicitly, independent of Trunk profiles.
+Signing requires both enabled signing and the expected local secret key.
 
 `WEBSH_NO_SIGN=1` disables new GPG signing. Unchanged subjects retain their existing
 attestations; new or changed unsigned subjects remain pending.
@@ -44,3 +47,11 @@ attestations; new or changed unsigned subjects remain pending.
 `mempool manifest --repo-dir <checkout>` regenerates an external mempool manifest from
 canonical category Markdown files, using the same current metadata builder as `mempool add`.
 It does not read or translate an earlier manifest format.
+
+## Deployment
+
+Deployment owns `.env` loading and applies it only to child processes. Build and upload
+use the same selected directory. Output paths must be root-level `dist` or
+`dist-<name>` directories and cannot be symlinks. Release builds use `--locked`.
+`--no-build` uploads an existing bundle without changing it; `.last-cid` records the
+successful upload and is preserved by routine cleanup.

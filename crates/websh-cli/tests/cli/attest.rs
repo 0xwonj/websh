@@ -64,50 +64,38 @@ fn fake_gpg(root: &Path, script: &str) -> String {
 }
 
 #[test]
-fn build_hook_respects_profiles_force_and_unsigned_mode() {
-    let root = temp_dir("attest-build-skipped");
-    for profile in [None, Some("dev"), Some("Release")] {
-        let envs = profile
-            .map(|profile| ("TRUNK_PROFILE", profile))
-            .into_iter()
-            .collect::<Vec<_>>();
-        assert!(cli_with_env(&root, &["attest", "build"], &envs).contains("skipped"));
-        assert!(!root.join(ATTESTATIONS_PATH).exists());
-        assert!(!root.join("content/manifest.json").exists());
-    }
-
-    for (profile, force, unsigned) in [
-        ("release", false, " yes "),
-        ("dev", true, "TRUE"),
-        ("", true, "1"),
-    ] {
-        let root = temp_dir("attest-build-unsigned");
+fn prepare_refreshes_development_manifest_and_unsigned_release_attestations() {
+    for profile in ["debug", "release"] {
+        let root = temp_dir("prepare");
         write_homepage_content(&root);
         let path = fake_gpg(&root, "#!/bin/sh\necho 'unexpected signing' >&2\nexit 91\n");
-        let mut args = vec!["attest", "build"];
-        if force {
-            args.push("--force");
-        }
         cli_with_env(
             &root,
-            &args,
+            &["prepare"],
             &[
                 ("TRUNK_PROFILE", profile),
-                ("WEBSH_NO_SIGN", unsigned),
+                ("WEBSH_NO_SIGN", "1"),
                 ("PATH", &path),
             ],
         );
-        let artifact: AttestationArtifact =
-            serde_json::from_str(&fs::read_to_string(root.join(ATTESTATIONS_PATH)).unwrap())
-                .unwrap();
-        assert!(artifact.subject_for_route("/").is_some());
-        assert!(
-            artifact
-                .subjects
-                .iter()
-                .all(|subject| subject.attestations().is_empty())
+        assert!(root.join("content/manifest.json").exists());
+        assert_eq!(root.join(ATTESTATIONS_PATH).exists(), profile == "release");
+        assert_eq!(
+            root.join(CONTENT_LEDGER_PATH).exists(),
+            profile == "release"
         );
-        assert!(root.join(CONTENT_LEDGER_PATH).exists());
+        if profile == "release" {
+            let artifact: AttestationArtifact =
+                serde_json::from_str(&fs::read_to_string(root.join(ATTESTATIONS_PATH)).unwrap())
+                    .unwrap();
+            assert!(artifact.subject_for_route("/").is_some());
+            assert!(
+                artifact
+                    .subjects
+                    .iter()
+                    .all(|subject| subject.attestations().is_empty())
+            );
+        }
     }
 }
 

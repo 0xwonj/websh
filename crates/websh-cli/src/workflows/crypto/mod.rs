@@ -1,3 +1,6 @@
+pub(crate) mod ack;
+pub(crate) mod pgp;
+
 use std::path::Path;
 
 use websh_core::crypto::ack::{AckArtifact, short_hash};
@@ -6,9 +9,7 @@ use websh_site::{ACK_ARTIFACT_PATH, IDENTITY_PATH};
 use crate::CliResult;
 use crate::infra::json::read_json;
 
-use super::pgp;
-
-pub(super) fn verify_all(root: &Path) -> CliResult {
+pub(crate) fn verify_all(root: &Path) -> CliResult {
     let artifact = read_json::<AckArtifact>(&root.join(ACK_ARTIFACT_PATH))?;
     artifact.validate()?;
     println!("ack: ok {}", short_hash(&artifact.combined_root));

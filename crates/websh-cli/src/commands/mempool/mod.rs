@@ -33,12 +33,10 @@ enum MempoolSubcommand {
         repo_dir: PathBuf,
     },
     /// Create a new mempool entry by committing it to the mempool repo.
-    /// CRUD-symmetry counterpart to promote/drop; lets terminal-only or
-    /// scripted workflows author drafts without opening the browser.
     Add(AddArgs),
     /// Promote a mempool entry to the canonical chain via a single local
     /// git commit on the bundle source. Optionally also drops the entry
-    /// from the mempool repo (`--drop-remote`).
+    /// from the mempool repo unless `--keep-remote` is set.
     Promote(PromoteArgs),
     /// Delete an entry from the mempool repo.
     Drop(DropArgs),

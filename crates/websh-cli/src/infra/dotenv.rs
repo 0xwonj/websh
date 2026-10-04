@@ -5,7 +5,7 @@ use anyhow::Context;
 
 use crate::CliResult;
 
-pub(super) fn load_dotenv(root: &Path) -> CliResult<Vec<(String, String)>> {
+pub(crate) fn load(root: &Path) -> CliResult<Vec<(String, String)>> {
     let path = root.join(".env");
     if !path.exists() {
         return Ok(Vec::new());

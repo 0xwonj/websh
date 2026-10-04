@@ -15,3 +15,29 @@ pub(crate) use files::{
 pub(crate) use ledger::generate_content_ledger;
 pub(crate) use manifest::{DEFAULT_CONTENT_DIR, build_manifest_from_sidecars, sync_content};
 pub(crate) use sidecar::matching_file_sidecar;
+
+use crate::CliResult;
+use std::path::Path;
+
+pub(crate) fn manifest(root: &Path, content_dir: &Path) -> CliResult {
+    let manifest = sync_content(root, content_dir)?;
+    println!(
+        "manifest: {} entries -> {}/manifest.json (sidecars refreshed)",
+        manifest.entries.len(),
+        content_dir.display()
+    );
+    Ok(())
+}
+
+pub(crate) fn ledger(root: &Path, content_dir: &Path) -> CliResult {
+    sync_content(root, content_dir)?;
+    let ledger = generate_content_ledger(root, content_dir)?;
+    let manifest = build_manifest_from_sidecars(root, content_dir)?;
+    println!(
+        "ledger: {} blocks -> {}/.websh/ledger.json; manifest: {} entries",
+        ledger.block_count,
+        content_dir.display(),
+        manifest.entries.len()
+    );
+    Ok(())
+}

@@ -24,9 +24,4 @@ command_arguments = ["--output-file", "assets/bundle.css", "crates/websh-web"]
 [[hooks]]
 stage = "pre_build"
 command = "cargo"
-command_arguments = ["run", "--locked", "--quiet", "-p", "websh-cli", "--", "content", "manifest"]
-
-[[hooks]]
-stage = "pre_build"
-command = "cargo"
-command_arguments = ["run", "--locked", "--quiet", "-p", "websh-cli", "--", "attest", "build"]
+command_arguments = ["run", "--locked", "--quiet", "-p", "websh-cli", "--", "prepare"]

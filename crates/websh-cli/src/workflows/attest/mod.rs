@@ -3,14 +3,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use websh_site::ACK_ARTIFACT_PATH;
 
 mod discover;
-mod gpg;
+mod pgp;
 mod sign;
 
 pub(crate) mod build;
 pub(crate) mod subject;
 pub(crate) mod verify;
 
-pub(crate) use build::{AttestAllOptions, attest_all, attest_build, run_default};
+pub(crate) use build::{AttestAllOptions, attest_all, run_default};
 pub(crate) use verify::verify;
 
 pub(crate) const DEFAULT_HOMEPAGE_CONTENT: &[&str] = &[

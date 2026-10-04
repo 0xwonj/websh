@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use anyhow::Context;
 use clap::{Parser, Subcommand};
 
 use crate::CliResult;
@@ -19,6 +20,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Prepare content for the current Trunk profile.
+    Prepare,
     Attest(attest::AttestCommand),
     Crypto(crypto::CryptoCommand),
     Content(content::ContentCommand),
@@ -29,8 +32,9 @@ enum Command {
 
 pub fn run() -> CliResult {
     let cli = Cli::parse();
-    let root = cli.root;
+    let root = std::path::absolute(cli.root).context("resolve project root")?;
     match cli.command {
+        Command::Prepare => crate::workflows::prepare::prepare(&root),
         Command::Attest(command) => attest::run(&root, command),
         Command::Crypto(command) => crypto::run(&root, command),
         Command::Content(command) => content::run(&root, command),

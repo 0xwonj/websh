@@ -6,11 +6,10 @@ use crate::CliResult;
 
 mod ack;
 mod pgp;
-mod verify_all;
 
+use crate::workflows::crypto::verify_all;
 use ack::AckCommand;
 use pgp::PgpCommand;
-use verify_all::verify_all;
 
 #[derive(Args)]
 pub(crate) struct CryptoCommand {
