@@ -7,7 +7,7 @@
 | `websh-core` | host + wasm | domain, public facades, filesystem, shell parser/executor, runtime coordination, mempool helpers, attestation primitives, ports | browser APIs, process execution, CLI argument parsing, Leptos signals |
 | `websh-site` | host + wasm | deployed identity, public key constants, acknowledgement data, site-specific policy/copy | generic engine rules, browser state, command workflows |
 | `websh-cli` | host | Clap adapters, workflows, process/filesystem/GitHub CLI adapters, deploy tooling | Leptos UI, browser persistence, generic domain rules |
-| `websh-web` | wasm | Leptos app, AppContext, runtime services, IndexedDB/localStorage/sessionStorage adapters, DOM/fetch/wallet integration, feature views | host process execution, generic engine internals |
+| `websh-web` | wasm | Leptos app, AppContext, runtime services, IndexedDB/localStorage adapters, DOM/fetch/wallet integration, feature views | host process execution, generic engine internals |
 
 ## Dependency Rules
 

@@ -48,7 +48,7 @@ types are exported from the facade that owns the capability; there is no global
 
 `websh-cli` owns host processes and filesystems. Clap command modules should stay thin and delegate use-case logic into `workflows`; process adapters live in `infra`.
 
-`websh-web` owns browser state, IndexedDB, local/session storage, wallet APIs, DOM APIs, object URLs, fetch cancellation, and Leptos component state. Feature modules should call `AppContext` and `RuntimeServices` instead of reading browser storage directly.
+`websh-web` owns browser state, IndexedDB, local storage, wallet APIs, DOM APIs, object URLs, fetch cancellation, and Leptos component state. Feature modules should call `AppContext` owners and `RuntimeServices` instead of reading browser storage directly.
 
 `websh-site` owns stable deployed identity: public key material, expected fingerprints, acknowledgement artifacts, site copy/policy, and content fixtures that are specific to this deployment.
 
@@ -66,11 +66,11 @@ Generated in-app links are hash-only (`#/ledger`, `#/writing/example`) so they p
 
 ## Runtime Model
 
-The web app loads the root manifest and current declarations, assembles a content `GlobalFs`, then starts concurrent cache restore and public refresh for accepted external mounts. A separate system projection adds wallet, session, and environment files. There is no browser editor, write overlay, draft persistence, GitHub credential flow, or commit protocol.
+The web app loads the root manifest and current declarations, assembles a validated `filesystem::Snapshot` containing an immutable `GlobalFs` and its route catalog, then starts concurrent cache restore and public refresh for accepted external mounts. A separate system projection adds wallet, session, and environment files. There is no browser editor, write overlay, draft persistence, GitHub credential flow, or commit protocol.
 
-`StorageBackend` exposes only `backend_type`, `scan`, `read_text`, `read_bytes`, and `public_read_url`. It remains a local non-`Send` port shared through `Rc`.
+`StorageBackend` exposes only `scan`, `read_text`, `read_bytes`, and `public_read_url`. It remains a local non-`Send` port shared through `Rc`.
 
-Optional IndexedDB database `websh-cache` stores bounded external manifest listings. The old `websh-state` database is left untouched. Listing cache does not provide offline document bodies or offline root startup. Root sequences, mount epochs, and content revisions prevent stale publication while preserving available content during failed refreshes. See [runtime architecture](runtime.md) for identities, limits, and failure semantics.
+Optional IndexedDB database `websh-cache` stores bounded external manifest listings. Listing cache does not provide offline document bodies or offline root startup. Root sequences, mount epochs, and content revisions prevent stale publication while preserving available content during failed refreshes. See [runtime architecture](runtime.md) for identities, limits, and failure semantics.
 
 ## Authoring Boundary
 
@@ -84,7 +84,7 @@ Trunk pre-build hooks run in this order:
 2. `cargo run --quiet -p websh-cli -- content manifest`
 3. `cargo run --quiet -p websh-cli -- attest build`
 
-`attest build` is release-profile aware. It skips non-release Trunk profiles unless `--force` is passed. `WEBSH_NO_SIGN=1` disables signing while still refreshing pending subjects.
+`attest build` is release-profile aware. It skips non-release Trunk profiles unless `--force` is passed. `WEBSH_NO_SIGN=1` disables new signing; unchanged subjects retain their attestations, while new or changed unsigned subjects remain pending.
 
 Generated content artifacts include `content/manifest.json`, `content/.websh/ledger.json`, sidecar metadata, and `assets/crypto/attestations.json`.
 
@@ -92,6 +92,14 @@ Generated content artifacts include `content/manifest.json`, `content/.websh/led
 
 The local gate is `just verify`. The command list is mirrored in [verification.md](verification.md) and checked by `npm run docs:drift`.
 
-## Migration Design
+## Current Model
 
-The [read-only browser design and implementation plan](../plans/read-only-browser/README.md) records the migration decisions. Source implementation and release verification are tracked in [progress and evidence](../plans/read-only-browser/progress.md).
+Mount declarations, manifests, and metadata accept only the current shape. Metadata has
+no decorative schema counter. Owned content is regenerated through the CLI; old formats
+are rejected rather than interpreted through compatibility readers. Cryptographic v1
+labels remain part of the signed protocol. IndexedDB retains its required structural
+version 1. Dependency and tool versions are pinned for reproducible builds.
+
+See [migration operations](../migrations/README.md) for the external mempool patch and
+one-time browser preference maintenance, and [refactor evidence](../plans/native-refactor.md)
+for this cleanup session's checks and commits.

@@ -8,7 +8,7 @@
 - ledger and attestation generation,
 - PGP/Ethereum attestation import and verification,
 - Pinata deploy,
-- mempool list/promote/drop,
+- mempool list/add/promote/drop/manifest,
 - mount initialization and remote operations.
 
 ## Module Boundaries
@@ -38,4 +38,9 @@ Workflows used in automation must fail fast instead of prompting unless the comm
 
 `attest build` is the Trunk pre-build entrypoint. It skips development profiles unless forced, refreshes content/ledger/subject artifacts, and signs when signing is enabled and the expected key is available.
 
-`WEBSH_NO_SIGN=1` keeps generated subjects pending rather than invoking GPG.
+`WEBSH_NO_SIGN=1` disables new GPG signing. Unchanged subjects retain their existing
+attestations; new or changed unsigned subjects remain pending.
+
+`mempool manifest --repo-dir <checkout>` regenerates an external mempool manifest from
+canonical category Markdown files, using the same current metadata builder as `mempool add`.
+It does not read or translate an earlier manifest format.

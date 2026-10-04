@@ -9,7 +9,7 @@ Four crates live under `crates/`:
 - `websh-core`: host + wasm shared library. Owns domain contracts, public facades, filesystem, shell, runtime coordination, mempool helpers, attestation primitives, storage ports, and support helpers.
 - `websh-site`: host + wasm site-policy crate. Owns deployed identity, public key constants, acknowledgement data, and site-specific copy/policy.
 - `websh-cli`: host binary. Owns Clap adapters, command workflows, process/filesystem/GitHub/GPG/Trunk adapters, deploy, mempool, mount, content, and attestation commands.
-- `websh-web`: wasm Leptos app. Owns `AppContext`, runtime services, browser storage adapters, wallet/DOM/fetch/object URL platform code, feature views, and CSS modules.
+- `websh-web`: wasm Leptos app. Owns `AppContext`, runtime owners, browser storage adapters, wallet/DOM/fetch/object URL platform code, feature views, and CSS modules.
 
 `websh-cli` and `websh-web` must not depend on each other. Both depend on `websh-core` and may use `websh-site`.
 
@@ -21,10 +21,12 @@ Four crates live under `crates/`:
 - `StorageBackend` is a local, non-`Send` browser-friendly port using `Rc<dyn StorageBackend>`.
 - CLI command modules should parse arguments and delegate to `workflows`.
 - CLI `infra` owns process execution and typed wrappers around `git`, `gh`, `gpg`, and `trunk`.
-- Web feature code should use `AppContext` and `RuntimeServices`; browser storage belongs in `runtime`, browser APIs in `platform`.
+- Web feature code should use the `Content`, `Wallet`, and `Preferences` owners composed by `AppContext`, and `RuntimeServices`; browser storage belongs in `runtime`, browser APIs in `platform`.
 - Browser content is read-only; wallet connection grants no write privilege.
-- Cache only accepted external listings in `websh-cache`; do not access or delete legacy `websh-state`.
-- Reject retired credential commands before echo/history; never expose their payloads.
+- Cache only accepted external listings in `websh-cache`. Cache data is disposable.
+- Accept only current contracts; migrate owned data rather than adding compatibility readers or aliases.
+- Validate terminal commands before echo/history; unsupported input is never retained.
+- Keep necessary cryptographic domain versions and toolchain pins; avoid decorative internal versions.
 
 ## Current Module Map
 
@@ -80,7 +82,7 @@ Use focused checks while developing, then run the relevant wider gate before fin
 
 Do not edit generated sidecars, `content/manifest.json`, `content/.websh/ledger.json`, `assets/bundle.css`, or `assets/crypto/attestations.json` as if they were hand-authored unless the task explicitly targets generated outputs. Prefer running the owning command.
 
-`attest build` skips non-release Trunk profiles unless forced. `WEBSH_NO_SIGN=1` disables signing and leaves subjects pending.
+`attest build` skips non-release Trunk profiles unless forced. `WEBSH_NO_SIGN=1` disables new signing. Unchanged subjects retain their attestations; new or changed unsigned subjects remain pending.
 
 ## Security Notes
 
@@ -92,4 +94,4 @@ Do not edit generated sidecars, `content/manifest.json`, `content/.websh/ledger.
 
 ## Documentation Rule
 
-Current architecture lives in `docs/architecture/`. Historical refactor documents under `docs/refactor/3-crate-workspace/` are useful context but do not override the current docs.
+Current architecture lives in `docs/architecture/`. Current contracts have one native representation. Completed historical proposals live in Git history, not active architecture guidance.
