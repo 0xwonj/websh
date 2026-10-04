@@ -12,6 +12,13 @@ fs.mkdirSync(stage, { recursive: true });
 for (const name of ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "Trunk.toml", "index.html", "_headers", "crates", "assets", "content", "vendor"]) {
   fs.cpSync(path.join(root, name), path.join(stage, name), { recursive: true, preserveTimestamps: true, dereference: true });
 }
+// No-sign mode retains matching signatures, so remove staged subjects before
+// the owning hook rebuilds them. Keep the header for its normal validation.
+const attestationsPath = path.join(stage, "assets", "crypto", "attestations.json");
+const attestations = JSON.parse(fs.readFileSync(attestationsPath, "utf8"));
+if (!Array.isArray(attestations.subjects)) throw new Error("Attestation subjects must be an array");
+attestations.subjects = [];
+fs.writeFileSync(attestationsPath, `${JSON.stringify(attestations, null, 2)}\n`);
 const buildEnv = { ...env, CARGO_TARGET_DIR: path.join(root, "target"), WEBSH_NO_SIGN: "1" };
 // Read the original history with paths relative to the staged content tree.
 // No Git writes run in release hooks; disable optional index refreshes as well.
