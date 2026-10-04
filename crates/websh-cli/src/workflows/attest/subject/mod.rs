@@ -80,7 +80,7 @@ fn subject_set(
         );
     }
     let content_paths = content_paths_or_default(root, &route, kind, content_paths)?;
-    let mut artifact = read_artifact(root).unwrap_or_default();
+    let mut artifact = read_artifact(root)?;
     artifact.validate_header()?;
     let subject = build_subject(
         root,

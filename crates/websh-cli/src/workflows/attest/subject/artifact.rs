@@ -1,5 +1,7 @@
 use std::path::Path;
 
+use anyhow::Context;
+
 use websh_core::attestation::artifact::{AttestationArtifact, Subject};
 use websh_core::crypto::ack::AckArtifact;
 use websh_site::{ACK_ARTIFACT_PATH, ATTESTATIONS_PATH};
@@ -9,10 +11,14 @@ use crate::infra::json::read_json;
 
 pub(in crate::workflows::attest) fn read_artifact(root: &Path) -> CliResult<AttestationArtifact> {
     let path = root.join(ATTESTATIONS_PATH);
-    if !path.exists() {
-        return Ok(AttestationArtifact::default());
-    }
-    read_json(&path)
+    let body = match std::fs::read_to_string(&path) {
+        Ok(body) => body,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(AttestationArtifact::default());
+        }
+        Err(error) => return Err(error).with_context(|| format!("read {}", path.display())),
+    };
+    serde_json::from_str(&body).with_context(|| format!("parse {}", path.display()))
 }
 
 pub(in crate::workflows::attest) fn read_ack(root: &Path) -> CliResult<AckArtifact> {

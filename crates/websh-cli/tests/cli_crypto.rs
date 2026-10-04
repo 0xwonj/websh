@@ -127,6 +127,53 @@ fn write_homepage_content(root: &Path) {
 }
 
 #[test]
+fn cli_attest_preserves_invalid_existing_artifacts_before_generating_content() {
+    for body in [
+        "corrupt artifact",
+        r#"{"version":2,"scheme":"websh.attestations.v1","subjects":[]}"#,
+    ] {
+        let root = temp_root("attest-invalid-existing");
+        write_homepage_content(&root);
+        let artifact = root.join(ATTESTATIONS_PATH);
+        fs::write(&artifact, body).unwrap();
+
+        cli_fails(&root, &["attest", "--no-sign"]);
+        cli_fails(
+            &root,
+            &[
+                "attest", "subject", "set", "--route", "/", "--kind", "homepage",
+            ],
+        );
+
+        assert_eq!(fs::read_to_string(artifact).unwrap(), body);
+        assert!(!root.join("content/manifest.json").exists());
+        assert!(!root.join(CONTENT_LEDGER_PATH).exists());
+        fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn cli_attest_does_not_treat_artifact_read_errors_as_a_new_project() {
+    let root = temp_root("attest-artifact-read-error");
+    write_homepage_content(&root);
+    let artifact = root.join(ATTESTATIONS_PATH);
+    fs::create_dir(&artifact).unwrap();
+
+    cli_fails(&root, &["attest", "--no-sign"]);
+    cli_fails(
+        &root,
+        &[
+            "attest", "subject", "set", "--route", "/", "--kind", "homepage",
+        ],
+    );
+
+    assert!(artifact.is_dir());
+    assert!(!root.join("content/manifest.json").exists());
+    assert!(!root.join(CONTENT_LEDGER_PATH).exists());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn cli_builds_ack_artifact_and_private_receipt() {
     let root = temp_root("ack");
     cli(&root, &["crypto", "ack", "init"]);

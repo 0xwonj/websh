@@ -67,6 +67,9 @@ fn no_sign_from_env() -> bool {
 }
 
 pub(crate) fn attest_all(root: &Path, options: AttestAllOptions) -> CliResult {
+    let existing = read_artifact(root)?;
+    existing.validate_header()?;
+
     let content_root = resolve_path(root, &options.content_dir);
     fs::create_dir_all(&content_root)
         .with_context(|| format!("create directory {}", content_root.display()))?;
@@ -74,9 +77,6 @@ pub(crate) fn attest_all(root: &Path, options: AttestAllOptions) -> CliResult {
     let ledger = crate::workflows::content::generate_content_ledger(root, &options.content_dir)?;
     let manifest = build_manifest_from_sidecars(root, &options.content_dir)?;
     let specs = discover_subject_specs(root, &options.content_dir)?;
-
-    let existing = read_artifact(root).unwrap_or_default();
-    existing.validate_header()?;
 
     let mut artifact = AttestationArtifact {
         version: existing.version,
