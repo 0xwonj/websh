@@ -2,14 +2,15 @@
   "name": "wonjae.eth",
   "short_name": "wonjae.eth",
   "description": "A verifiable personal archive built on a browser-native virtual filesystem.",
-  "start_url": "/",
+  "start_url": "../",
+  "scope": "../",
   "display": "standalone",
   "background_color": "#100f0f",
   "theme_color": "#100f0f",
   "orientation": "any",
   "icons": [
     {
-      "src": "/assets/favicon.svg",
+      "src": "favicon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any maskable"
