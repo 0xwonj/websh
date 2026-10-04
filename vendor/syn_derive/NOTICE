@@ -12,6 +12,8 @@ Local changes:
   macro boundary. Invalid input stops at the first diagnostic; successful
   generated code and the public macro API are unchanged.
 - Added focused diagnostic tests and retained the upstream doctests.
+- Keep a small standalone test lockfile because this excluded package is only
+  reached through the browser target in the workspace dependency graph.
 
 This source patch is needed because published rstml 0.12.1 still depends on
 syn_derive 0.2.0. Remove the patch when the supported upstream dependency graph

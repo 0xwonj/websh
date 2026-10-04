@@ -48,7 +48,7 @@ verify:
     cargo clippy --locked --workspace --all-targets -- -D warnings
     cargo clippy --locked -p websh-web --target wasm32-unknown-unknown --all-targets --all-features -- -D warnings
     cargo test --locked --workspace
-    cargo test --locked -p syn_derive
+    cargo test --locked --manifest-path vendor/syn_derive/Cargo.toml --target-dir target/vendor-tests
     cargo check --locked -p websh-core --target wasm32-unknown-unknown
     cargo check --locked -p websh-web --target wasm32-unknown-unknown
     just web-wasm-test
