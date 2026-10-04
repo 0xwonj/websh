@@ -1,0 +1,19 @@
+syn_derive 0.2.0 by Kyuuhachi <caagr98@gmail.com>
+Upstream: https://github.com/Kyuuhachi/syn_derive
+Revision: 5e4779d66a16eb2de1745fb5d1a3cb09594dfe62
+Crates.io package checksum: cdb066a04799e45f5d582e8fc6ec8e6d6896040d00898eb4e6a835196815b219
+License: MIT OR Apache-2.0, as declared by the upstream package.
+The upstream release contains no separate license text files; its authorship
+and license declaration are preserved in Cargo.toml and this notice.
+
+Local changes:
+- Removed proc-macro-error2 (RUSTSEC-2026-0173).
+- Propagate syn::Error through derive helpers and render compile_error! at the
+  macro boundary. Invalid input stops at the first diagnostic; successful
+  generated code and the public macro API are unchanged.
+- Added focused diagnostic tests and retained the upstream doctests.
+
+This source patch is needed because published rstml 0.12.1 still depends on
+syn_derive 0.2.0. Remove the patch when the supported upstream dependency graph
+no longer includes proc-macro-error2. Do not add a compatibility adapter or
+suppress the advisory instead.

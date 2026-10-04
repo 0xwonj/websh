@@ -1,84 +1,18 @@
-const { spawn, spawnSync } = require("node:child_process");
-const fs = require("node:fs");
-const os = require("node:os");
-const path = require("node:path");
-
-const CRATE_PATH = "crates/websh-web";
-const DRIVER_UNAVAILABLE = [
-  "chromedriver binaries are unavailable",
-  "failed to get chromedriver",
-  "chromedriver not found",
-];
-
-function run(cmd, args) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, {
-      cwd: process.cwd(),
-      env: process.env,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let output = "";
-
-    child.stdout.on("data", (chunk) => {
-      const text = chunk.toString();
-      output += text;
-      process.stdout.write(text);
-    });
-    child.stderr.on("data", (chunk) => {
-      const text = chunk.toString();
-      output += text;
-      process.stderr.write(text);
-    });
-    child.on("error", reject);
-    child.on("close", (code, signal) => resolve({ code, signal, output }));
-  });
-}
-
-async function tryHeadlessChrome() {
-  if (!commandExists("wasm-pack", ["--version"])) {
-    console.warn(
-      "wasm-pack is not installed; falling back to the wasm-bindgen test page via Playwright."
-    );
-    return false;
-  }
-
-  const result = await run("wasm-pack", [
-    "test",
-    "--headless",
-    "--chrome",
-    CRATE_PATH,
-  ]);
-  if (result.code === 0) {
-    return true;
-  }
-
-  const unavailable = DRIVER_UNAVAILABLE.some((needle) =>
-    result.output.toLowerCase().includes(needle)
-  );
-  if (!unavailable) {
-    process.exit(result.code ?? 1);
-  }
-
-  console.warn(
-    "ChromeDriver is unavailable here; falling back to the wasm-bindgen test page via Playwright."
-  );
-  return false;
-}
-
-function commandExists(cmd, args) {
-  const result = spawnSync(cmd, args, {
-    cwd: process.cwd(),
-    env: process.env,
-    stdio: "ignore",
-  });
-  return !result.error && result.status === 0;
-}
+const { spawn } = require("node:child_process");
+const { env, requireVersion, wasmBindgenVersion } = require("../scripts/tools.cjs");
+const { parseTestResult } = require("../scripts/wasm-result.cjs");
 
 function startInteractiveServer() {
   return new Promise((resolve, reject) => {
+    const startupMs = Number(env.WEBSH_WASM_STARTUP_TIMEOUT_MS || 600000);
+    if (!Number.isSafeInteger(startupMs) || startupMs <= 0 || startupMs > 2147483647) {
+      reject(new Error("WEBSH_WASM_STARTUP_TIMEOUT_MS must be a positive timer duration"));
+      return;
+    }
     let runner;
     try {
-      runner = findWasmBindgenTestRunner();
+      requireVersion("wasm-bindgen-test-runner", wasmBindgenVersion());
+      runner = "wasm-bindgen-test-runner";
     } catch (error) {
       reject(error);
       return;
@@ -86,11 +20,11 @@ function startInteractiveServer() {
 
     const child = spawn(
       "cargo",
-      ["test", "-p", "websh-web", "--target", "wasm32-unknown-unknown"],
+      ["test", "--locked", "-p", "websh-web", "--target", "wasm32-unknown-unknown"],
       {
         cwd: process.cwd(),
         env: {
-          ...process.env,
+          ...env,
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: runner,
           NO_HEADLESS: "1",
           WASM_BINDGEN_TEST_ONLY_WEB: "1",
@@ -100,26 +34,36 @@ function startInteractiveServer() {
       }
     );
     let output = "";
-    let resolved = false;
+    let settled = false;
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(startup);
+      stopServer(child).then(() => reject(error));
+    };
+    const startup = setTimeout(() => fail(new Error(
+      `WASM runner startup exceeded ${startupMs}ms\n${output.slice(-8000)}`
+    )), startupMs);
 
     const handleChunk = (chunk, stream) => {
       const text = chunk.toString();
       output += text;
       stream.write(text);
 
-      const match = text.match(/available at (http:\/\/127\.0\.0\.1:\d+)/);
-      if (match && !resolved) {
-        resolved = true;
+      const match = output.match(/available at (http:\/\/127\.0\.0\.1:\d+)/);
+      if (match && !settled) {
+        settled = true;
+        clearTimeout(startup);
         resolve({ child, url: match[1] });
       }
     };
 
     child.stdout.on("data", (chunk) => handleChunk(chunk, process.stdout));
     child.stderr.on("data", (chunk) => handleChunk(chunk, process.stderr));
-    child.on("error", reject);
+    child.on("error", fail);
     child.on("close", (code, signal) => {
-      if (!resolved) {
-        reject(
+      if (!settled) {
+        fail(
           new Error(
             `wasm-bindgen test server exited before it was ready (code=${code}, signal=${signal})\n${output}`
           )
@@ -129,48 +73,9 @@ function startInteractiveServer() {
   });
 }
 
-function findWasmBindgenTestRunner() {
-  const cacheRoots = [
-    path.join(os.homedir(), "Library", "Caches", ".wasm-pack"),
-    path.join(os.homedir(), ".cache", ".wasm-pack"),
-  ].filter((dir) => fs.existsSync(dir));
-  const matches = [];
-
-  for (const cacheRoot of cacheRoots) {
-    collectRunners(cacheRoot, matches, 0);
-  }
-
-  matches.sort((left, right) => right.mtimeMs - left.mtimeMs);
-  if (matches.length === 0) {
-    throw new Error(
-      "wasm-bindgen-test-runner was not found. Install wasm-pack with `cargo install wasm-pack`, or run wasm-pack once so the runner is available in its cache."
-    );
-  }
-  return matches[0].path;
-}
-
-function collectRunners(dir, matches, depth) {
-  if (depth > 4) {
-    return;
-  }
-
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      collectRunners(fullPath, matches, depth + 1);
-      continue;
-    }
-
-    if (entry.isFile() && entry.name === "wasm-bindgen-test-runner") {
-      const stat = fs.statSync(fullPath);
-      matches.push({ path: fullPath, mtimeMs: stat.mtimeMs });
-    }
-  }
-}
-
 function stopServer(child) {
   return new Promise((resolve) => {
-    if (child.exitCode !== null || child.signalCode !== null) {
+    if (!child.pid) {
       resolve();
       return;
     }
@@ -183,6 +88,12 @@ function stopServer(child) {
       }
     };
 
+    if (child.exitCode !== null || child.signalCode !== null) {
+      signalTree("SIGKILL");
+      resolve();
+      return;
+    }
+
     const timeout = setTimeout(() => {
       signalTree("SIGKILL");
       resolve();
@@ -190,6 +101,8 @@ function stopServer(child) {
 
     child.once("close", () => {
       clearTimeout(timeout);
+      // Cargo can exit before a child runner; finish the owned process group.
+      signalTree("SIGKILL");
       resolve();
     });
     signalTree("SIGTERM");
@@ -201,16 +114,32 @@ async function runWithPlaywright() {
   let browser;
 
   try {
-    const { chromium } = require("playwright");
+    const { chromium } = require("@playwright/test");
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
+    // Wait for the runner's actual promise, not text a test could print early.
+    await page.route("**/run.js", async (route) => {
+      const response = await route.fetch();
+      const source = await response.text();
+      if (!/\bmain\(tests\);\s*$/.test(source)) {
+        await route.fulfill({ status: 500, body: "Unsupported wasm-bindgen runner bootstrap" });
+        return;
+      }
+      const body = source.replace(/\bmain\(tests\);\s*$/, `main(tests).then(
+        () => { window.__webshTestResult = { complete: true }; },
+        error => { window.__webshTestResult = { complete: true, error: String(error) }; }
+      );`);
+      await route.fulfill({ response, body });
+    });
     await page.goto(url, { waitUntil: "load" });
     await page.waitForFunction(
-      () => document.body && document.body.innerText.includes("test result:"),
+      () => window.__webshTestResult?.complete,
       null,
       { timeout: 30000 }
     );
-    const bodyText = await page.textContent("body");
+    const runnerError = await page.evaluate(() => window.__webshTestResult.error);
+    if (runnerError) throw new Error(`WASM runner rejected: ${runnerError}`);
+    const bodyText = await page.textContent("#output");
     const resultLines = bodyText
       .split(/\r?\n/)
       .map((line) => line.trim())
@@ -222,24 +151,17 @@ async function runWithPlaywright() {
       );
     console.log(resultLines.length > 0 ? resultLines.join("\n") : bodyText);
 
-    if (!/test result: ok\./.test(bodyText)) {
-      console.error(bodyText);
-      throw new Error("wasm browser tests did not report success");
-    }
+    parseTestResult(bodyText);
   } finally {
-    if (browser) {
-      await browser.close();
+    try {
+      if (browser) await browser.close();
+    } finally {
+      await stopServer(child);
     }
-    await stopServer(child);
   }
 }
 
-(async () => {
-  if (await tryHeadlessChrome()) {
-    return;
-  }
-  await runWithPlaywright();
-})().catch((error) => {
+runWithPlaywright().catch((error) => {
   console.error(error);
   process.exit(1);
 });

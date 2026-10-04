@@ -140,3 +140,42 @@ fn read_pdf_dimensions(path: &Path) -> Result<(PageSize, u32, u32), PdfDimension
         rotation,
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lopdf::{Document, Object, dictionary};
+
+    #[test]
+    fn pdf_metadata_preserves_page_count_geometry_and_normalized_rotation() {
+        let mut document = Document::with_version("1.5");
+        let pages = document.new_object_id();
+        let first = document.add_object(dictionary! {
+            "Type" => "Page", "Parent" => pages,
+            "MediaBox" => vec![10.into(), 20.into(), 210.into(), 320.into()],
+            "Rotate" => 450,
+        });
+        let second = document.add_object(dictionary! {
+            "Type" => "Page", "Parent" => pages,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+        });
+        document.objects.insert(
+            pages,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages", "Kids" => vec![first.into(), second.into()], "Count" => 2,
+            }),
+        );
+        let catalog = document.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages });
+        document.trailer.set("Root", catalog);
+        let path =
+            std::env::temp_dir().join(format!("websh-pdf-metadata-{}.pdf", std::process::id()));
+        document.save(&path).unwrap();
+        let result = read_pdf_dimensions(&path);
+        std::fs::remove_file(&path).unwrap();
+        let (size, count, rotation) = result.unwrap();
+        assert_eq!(
+            (size.width, size.height, count, rotation),
+            (300, 200, 2, 90)
+        );
+    }
+}

@@ -2,6 +2,7 @@
 
 set dotenv-load
 set shell := ["bash", "-cu"]
+export PATH := justfile_directory() / "target/tools/bin" + ":" + env("PATH")
 
 # Run dev server
 serve:
@@ -11,11 +12,11 @@ serve:
 build:
     trunk build --release
 
-# Install tracked browser QA dependencies
-qa-install:
-    npm install
+# Prepare exact developer tools and locked browser QA dependencies.
+setup:
+    npm run setup
 
-# Browser end-to-end checks; Playwright starts the release Trunk server.
+# Browser checks against the unsigned verification build.
 e2e:
     npm run e2e
 
@@ -34,22 +35,28 @@ lint-css:
 
 # Rust dependency hygiene checks
 deps-check:
-    cargo deny check --hide-inclusion-graph
-    cargo machete --with-metadata --skip-target-dir
+    cargo deny --locked check --hide-inclusion-graph
+    cargo machete --with-metadata --skip-target-dir crates
+    cargo machete --skip-target-dir vendor
 
 # Full local verification gate
-verify: qa-install deps-check web-wasm-test
+verify:
+    npm run tools:check
     cargo fmt --check
-    cargo check --workspace
-    cargo clippy --workspace --all-targets -- -D warnings
-    cargo clippy -p websh-web --target wasm32-unknown-unknown --all-targets --all-features -- -D warnings
-    cargo test --workspace
-    cargo check -p websh-core --target wasm32-unknown-unknown
-    cargo check -p websh-web --target wasm32-unknown-unknown
+    just deps-check
+    cargo check --locked --workspace
+    cargo clippy --locked --workspace --all-targets -- -D warnings
+    cargo clippy --locked -p websh-web --target wasm32-unknown-unknown --all-targets --all-features -- -D warnings
+    cargo test --locked --workspace
+    cargo test --locked -p syn_derive
+    cargo check --locked -p websh-core --target wasm32-unknown-unknown
+    cargo check --locked -p websh-web --target wasm32-unknown-unknown
+    just web-wasm-test
+    npm run test:tools
     npm run lint:css
     npm run docs:drift
-    env -u NO_COLOR trunk build --release
-    npm run perf:budgets
+    npm run build:check
+    npm run perf:budgets -- target/verify/dist
     npm run e2e
 
 # Clean build artifacts

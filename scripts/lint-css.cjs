@@ -1,4 +1,3 @@
-const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
@@ -40,26 +39,26 @@ const assetFiles = [
   .map(rel)
   .sort();
 
-const stylelintBin = path.join(
-  root,
-  'node_modules',
-  '.bin',
-  process.platform === 'win32' ? 'stylelint.cmd' : 'stylelint',
-);
-
-if (!fs.existsSync(stylelintBin)) {
-  console.error('lint:css: missing node_modules/.bin/stylelint; run npm install');
-  process.exit(1);
+async function lint() {
+  const { default: stylelint } = await import('stylelint');
+  let failed = false;
+  // Enumerate files ourselves and pass source text, never filename glob input.
+  // Stylelint still applies the same repository configuration and overrides.
+  for (const file of [...moduleFiles, ...assetFiles]) {
+    const result = await stylelint.lint({
+      code: fs.readFileSync(path.join(root, file), 'utf8'),
+      codeFilename: path.join(root, file),
+      configFile: path.join(root, '.stylelintrc.json'),
+      cwd: root,
+      formatter: 'string',
+    });
+    if (result.report) process.stdout.write(result.report);
+    failed ||= result.errored;
+  }
+  if (failed) process.exitCode = 1;
 }
 
-const result = spawnSync(stylelintBin, [...moduleFiles, ...assetFiles], {
-  cwd: root,
-  stdio: 'inherit',
+lint().catch((error) => {
+  console.error(`lint:css: ${error.message}`);
+  process.exitCode = 1;
 });
-
-if (result.error) {
-  console.error(`lint:css: failed to run stylelint: ${result.error.message}`);
-  process.exit(1);
-}
-
-process.exit(result.status ?? 1);

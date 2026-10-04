@@ -2,6 +2,8 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { execFileSync } = require("node:child_process");
+const { publicModules, workspaceEdges } = require("./architecture.cjs");
 
 const root = process.cwd();
 const failures = [];
@@ -19,40 +21,6 @@ function read(relativePath) {
 
 function fail(message) {
   failures.push(message);
-}
-
-function workspaceMembers() {
-  const cargo = read("Cargo.toml");
-  const match = cargo.match(/members\s*=\s*\[([\s\S]*?)\]/);
-  if (!match) {
-    fail("Cargo.toml workspace members block not found");
-    return [];
-  }
-  return [...match[1].matchAll(/"([^"]+)"/g)].map((m) => path.basename(m[1]));
-}
-
-function verifyCommands() {
-  const justfile = read("justfile");
-  const lines = justfile.split(/\r?\n/);
-  const out = [];
-  let inVerify = false;
-  for (const line of lines) {
-    if (line.startsWith("verify:")) {
-      inVerify = true;
-      continue;
-    }
-    if (!inVerify) {
-      continue;
-    }
-    if (line.length > 0 && !/^\s/.test(line)) {
-      break;
-    }
-    const trimmed = line.trim();
-    if (trimmed && !trimmed.startsWith("#")) {
-      out.push(trimmed);
-    }
-  }
-  return out;
 }
 
 function verifyRecipe() {
@@ -99,36 +67,13 @@ function documentedDefaultGate() {
   return match[1].split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 }
 
-function packageWorkspaceEdges(members) {
-  const memberSet = new Set(members);
-  const edges = [];
-  for (const member of members) {
-    const cargoPath = path.join(root, "crates", member, "Cargo.toml");
-    if (!fs.existsSync(cargoPath)) {
-      continue;
-    }
-    const body = fs.readFileSync(cargoPath, "utf8");
-    for (const dep of memberSet) {
-      if (dep === member) {
-        continue;
-      }
-      const depPattern = dep.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const dependencyRegex = new RegExp(
-        `(?:^|\\n)${depPattern}\\s*=\\s*(?:\\{|")`,
-        "m"
-      );
-      if (dependencyRegex.test(body)) {
-        edges.push(`${member}->${dep}`);
-      }
-    }
-  }
-  return edges.sort();
-}
-
-const members = workspaceMembers();
+const metadata = JSON.parse(execFileSync("cargo", ["metadata", "--locked", "--offline", "--no-deps", "--format-version", "1"], { encoding: "utf8" }));
+const workspace = new Set(metadata.workspace_members);
+const packages = metadata.packages.filter((pkg) => workspace.has(pkg.id));
+const members = packages.map((pkg) => pkg.name);
 const requiredMemberDocs = [
   "README.md",
-  "CLAUDE.md",
+  "AGENTS.md",
   "docs/architecture/current.md",
   "docs/architecture/crates.md",
 ];
@@ -144,7 +89,7 @@ for (const docPath of requiredMemberDocs) {
 
 const activeDocs = [
   "README.md",
-  "CLAUDE.md",
+  "AGENTS.md",
   ...fs
     .readdirSync(path.join(root, "docs/architecture"))
     .filter((name) => name.endsWith(".md"))
@@ -187,7 +132,7 @@ if (JSON.stringify(documentedGate) !== JSON.stringify(expectedGate)) {
   );
 }
 
-const actualEdges = packageWorkspaceEdges(members);
+const actualEdges = workspaceEdges(packages);
 for (const edge of actualEdges) {
   if (!EXPECTED_WORKSPACE_EDGES.has(edge)) {
     fail(`unexpected workspace dependency edge: ${edge}`);
@@ -200,7 +145,8 @@ for (const edge of EXPECTED_WORKSPACE_EDGES) {
 }
 
 const coreLib = read("crates/websh-core/src/lib.rs");
-const facades = [...coreLib.matchAll(/^pub mod ([a-z_]+);/gm)].map((m) => m[1]);
+const facades = publicModules(coreLib);
+if (facades.length === 0) fail("core public facade discovery returned no modules");
 const currentArch = read("docs/architecture/current.md");
 for (const facade of facades) {
   if (!currentArch.includes(`websh_core::${facade}`)) {
