@@ -1,3 +1,4 @@
+const { createHash } = require('node:crypto');
 const { test, expect, baseUrl, siteManifest, fileEntry, dirEntry, manifestDocument, installContentPage } = require('./support/fixtures');
 const { deferred, collectNavigationNetwork, installIpfsBaseAlias } = require('./support/browser');
 
@@ -30,6 +31,19 @@ async function readBreadcrumbLayout(page) {
 test('root loads the built-in homepage and public app assets', async ({ page, request }) => {
   for (const path of ['/assets/manifest.json', '/assets/favicon.svg']) {
     expect((await request.get(`${baseUrl}${path}`)).status(), path).toBe(200);
+  }
+  const response = await request.get(`${baseUrl}/assets/crypto/attestations.json`);
+  expect(response.status()).toBe(200);
+  const artifact = await response.json();
+  const publicFiles = artifact.subjects.flatMap(subject => subject.content_files)
+    .filter(file => file.path.startsWith('assets/'));
+  expect(publicFiles.length).toBeGreaterThan(0);
+  for (const file of publicFiles) {
+    const response = await request.get(`${baseUrl}/${file.path}`);
+    expect(response.status(), file.path).toBe(200);
+    const bytes = await response.body();
+    expect(bytes.length, file.path).toBe(file.bytes);
+    expect(`0x${createHash('sha256').update(bytes).digest('hex')}`, file.path).toBe(file.sha256);
   }
   const network = collectNavigationNetwork(page);
   await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });

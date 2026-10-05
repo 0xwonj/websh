@@ -33,6 +33,12 @@ may run concurrently: Stylance owns `assets/bundle.css`, and sync owns the
 [content artifacts](cli.md#source-and-generation). Every build profile uses these hooks;
 signing belongs to the explicit [publishing workflow](cli.md#publishing).
 
+Trunk copies `content/`, public crypto artifacts under `assets/crypto/`, and original
+theme sources under `assets/themes/` unchanged. The originals intentionally ship for
+public verification against the attestation's recorded asset hashes; the application
+loads Trunk's separately transformed CSS. These copies do not prove compiled
+JavaScript/WASM provenance; the release build remains a trusted step.
+
 Watch inputs include crates, Cargo/toolchain configuration, Trunk configuration, HTML,
 headers, assets, content, and vendored dependencies. Generated CSS, manifest, and ledger
 outputs are excluded from watches to avoid rebuilding on their own writes.
