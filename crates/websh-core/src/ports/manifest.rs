@@ -1,8 +1,8 @@
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 use crate::domain::{
     BundleValidationError, ContentManifestDocument, ContentManifestEntry, EntryExtensions,
-    NodeKind, NodeMetadata, validate_bundle_metadata,
+    NodeKind, NodeMetadata, VirtualPath, is_runtime_overlay_path, validate_bundle_metadata,
 };
 use crate::filesystem::{RouteCatalog, RouteCatalogError};
 
@@ -35,6 +35,8 @@ pub enum ManifestSnapshotError {
     },
     #[error("duplicate manifest path: {path}")]
     DuplicatePath { path: String },
+    #[error("content cannot occupy the runtime namespace: {path}")]
+    RuntimePath { path: String },
     #[error("invalid manifest path `{path}`: {reason}")]
     InvalidPath {
         path: String,
@@ -42,8 +44,6 @@ pub enum ManifestSnapshotError {
     },
     #[error("path {path} has bundle metadata but kind is not `bundle`")]
     BundleMetadataOnNonBundleKind { path: String },
-    #[error("bundle {path} has derived.kind that does not match top-level kind")]
-    BundleDerivedKindMismatch { path: String },
     #[error("bundle {path} requires a bundle metadata block")]
     MissingBundleMetadata { path: String },
     #[error("bundle {bundle_path} variant `{variant_id}` points to nested bundle `{path}`")]
@@ -76,7 +76,7 @@ pub fn parse_manifest_snapshot(body: &str) -> ManifestSnapshotResult<ScannedSubt
     let mut files = Vec::new();
     let mut directories = Vec::new();
 
-    manifest_entry_kinds(&manifest.entries)?;
+    validate_unique_paths(&manifest.entries)?;
 
     for entry in &manifest.entries {
         let is_dir = entry.metadata.kind.is_directory_like();
@@ -131,21 +131,16 @@ pub fn serialize_manifest_snapshot(snapshot: &ScannedSubtree) -> ManifestSnapsho
     serde_json::to_string_pretty(&manifest).map_err(Into::into)
 }
 
-fn manifest_entry_kinds(
-    entries: &[ContentManifestEntry],
-) -> ManifestSnapshotResult<BTreeMap<String, NodeKind>> {
-    let mut paths = BTreeMap::new();
+fn validate_unique_paths(entries: &[ContentManifestEntry]) -> ManifestSnapshotResult<()> {
+    let mut paths = BTreeSet::new();
     for entry in entries {
-        if paths
-            .insert(entry.path.clone(), entry.metadata.kind)
-            .is_some()
-        {
+        if !paths.insert(entry.path.as_str()) {
             return Err(ManifestSnapshotError::DuplicatePath {
                 path: entry.path.clone(),
             });
         }
     }
-    Ok(paths)
+    Ok(())
 }
 
 fn validate_manifest_metadata(path: &str, metadata: &NodeMetadata) -> ManifestSnapshotResult<()> {
@@ -156,15 +151,6 @@ fn validate_manifest_metadata(path: &str, metadata: &NodeMetadata) -> ManifestSn
     }
 
     if metadata.kind == NodeKind::Bundle {
-        if metadata
-            .derived
-            .kind
-            .is_some_and(|kind| kind != NodeKind::Bundle)
-        {
-            return Err(ManifestSnapshotError::BundleDerivedKindMismatch {
-                path: display_manifest_path(path).to_string(),
-            });
-        }
         let bundle = metadata.bundle.as_ref().ok_or_else(|| {
             ManifestSnapshotError::MissingBundleMetadata {
                 path: display_manifest_path(path).to_string(),
@@ -233,12 +219,19 @@ fn validate_manifest_path(path: &str, allow_empty: bool) -> ManifestSnapshotResu
             });
         }
     }
+    if VirtualPath::from_absolute(format!("/{path}"))
+        .is_ok_and(|path| is_runtime_overlay_path(&path))
+    {
+        return Err(ManifestSnapshotError::RuntimePath {
+            path: path.to_owned(),
+        });
+    }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::{Fields, NodeKind, NodeMetadata};
+    use crate::domain::{AuthoredMetadata, DerivedMetadata, NodeKind, NodeMetadata};
 
     use super::*;
 
@@ -250,16 +243,15 @@ mod tests {
                 meta: NodeMetadata {
                     kind: NodeKind::Page,
                     bundle: None,
-                    authored: Fields {
+                    authored: AuthoredMetadata {
                         title: Some("About".to_string()),
                         date: Some("2026-04-26".to_string()),
                         tags: Some(vec!["intro".to_string()]),
-                        ..Fields::default()
+                        ..AuthoredMetadata::default()
                     },
-                    derived: Fields {
+                    derived: DerivedMetadata {
                         size_bytes: Some(7),
-                        modified_at: Some(42),
-                        ..Fields::default()
+                        ..DerivedMetadata::default()
                     },
                 },
                 extensions: EntryExtensions::default(),
@@ -269,12 +261,12 @@ mod tests {
                 meta: NodeMetadata {
                     kind: NodeKind::Directory,
                     bundle: None,
-                    authored: Fields {
+                    authored: AuthoredMetadata {
                         title: Some("Home".to_string()),
                         tags: Some(vec!["root".to_string()]),
-                        ..Fields::default()
+                        ..AuthoredMetadata::default()
                     },
-                    derived: Fields::default(),
+                    derived: DerivedMetadata::default(),
                 },
             }],
         };
@@ -282,6 +274,20 @@ mod tests {
         let encoded = serialize_manifest_snapshot(&snapshot).expect("serialize");
         let decoded = parse_manifest_snapshot(&encoded).expect("parse");
         assert_eq!(decoded, snapshot);
+    }
+
+    #[test]
+    fn rejects_content_in_the_runtime_namespace() {
+        for (path, kind) in [
+            (".websh/state", "directory"),
+            (".websh/state/env/THEME", "data"),
+        ] {
+            let manifest = serde_json::json!({"entries":[{"path":path,"metadata":{"kind":kind,"authored":{},"derived":{}}}]});
+            assert!(matches!(
+                parse_manifest_snapshot(&manifest.to_string()),
+                Err(ManifestSnapshotError::RuntimePath { .. })
+            ));
+        }
     }
 
     #[test]
@@ -318,7 +324,7 @@ mod tests {
                             ]
                         },
                         "authored":{},
-                        "derived":{"kind":"bundle"}
+                        "derived":{}
                     }
                 },
                 {"path":"writing/foo/en.md","metadata":{"kind":"page","authored":{},"derived":{}}},
@@ -342,7 +348,7 @@ mod tests {
                         "kind":"directory",
                         "bundle":{"default_variant":{"strategy":"static","id":"en"},"variants":[]},
                         "authored":{},
-                        "derived":{"kind":"directory"}
+                        "derived":{}
                     }
                 }
             ]
@@ -359,7 +365,7 @@ mod tests {
     fn rejects_bundle_manifest_without_metadata_block() {
         let manifest = r#"{
             "entries": [
-                {"path":"writing/foo","metadata":{"kind":"bundle","authored":{},"derived":{"kind":"bundle"}}}
+                {"path":"writing/foo","metadata":{"kind":"bundle","authored":{},"derived":{}}}
             ]
         }"#;
 
@@ -383,7 +389,7 @@ mod tests {
                             "variants":[{"id":"en","path":"en.md","label":"English"}]
                         },
                         "authored":{},
-                        "derived":{"kind":"bundle"}
+                        "derived":{}
                     }
                 }
             ]
@@ -411,10 +417,10 @@ mod tests {
                             "variants":[{"id":"notes","path":"notes","label":"Notes"}]
                         },
                         "authored":{},
-                        "derived":{"kind":"bundle"}
+                        "derived":{}
                     }
                 },
-                {"path":"writing/foo/notes","metadata":{"kind":"directory","authored":{},"derived":{"kind":"directory"}}}
+                {"path":"writing/foo/notes","metadata":{"kind":"directory","authored":{},"derived":{}}}
             ]
         }"#;
 
@@ -435,7 +441,7 @@ mod tests {
                             "variants":[{"id":"nested","path":"nested","label":"Nested"}]
                         },
                         "authored":{},
-                        "derived":{"kind":"bundle"}
+                        "derived":{}
                     }
                 },
                 {
@@ -447,7 +453,7 @@ mod tests {
                             "variants":[{"id":"en","path":"en.md","label":"English"}]
                         },
                         "authored":{},
-                        "derived":{"kind":"bundle"}
+                        "derived":{}
                     }
                 },
                 {"path":"writing/foo/nested/en.md","metadata":{"kind":"page","authored":{},"derived":{}}}
@@ -476,7 +482,7 @@ mod tests {
                             "variants":[{"id":"ko.md","path":"ko.md","label":"Korean"}]
                         },
                         "authored":{},
-                        "derived":{"kind":"bundle"}
+                        "derived":{}
                     }
                 },
                 {"path":"writing/foo/ko.md","metadata":{"kind":"page","authored":{},"derived":{}}}
@@ -503,7 +509,7 @@ mod tests {
                             "variants":[{"id":"en","path":"en.md","label":"English"}]
                         },
                         "authored":{},
-                        "derived":{"kind":"bundle"}
+                        "derived":{}
                     }
                 },
                 {"path":"writing/foo/en.md","metadata":{"kind":"page","authored":{},"derived":{}}},
@@ -545,8 +551,8 @@ mod tests {
                     meta: NodeMetadata {
                         kind: NodeKind::Page,
                         bundle: None,
-                        authored: Fields::default(),
-                        derived: Fields::default(),
+                        authored: AuthoredMetadata::default(),
+                        derived: DerivedMetadata::default(),
                     },
                     extensions: EntryExtensions::default(),
                 },
@@ -555,8 +561,8 @@ mod tests {
                     meta: NodeMetadata {
                         kind: NodeKind::Page,
                         bundle: None,
-                        authored: Fields::default(),
-                        derived: Fields::default(),
+                        authored: AuthoredMetadata::default(),
+                        derived: DerivedMetadata::default(),
                     },
                     extensions: EntryExtensions::default(),
                 },
@@ -589,7 +595,7 @@ mod tests {
                             ]
                         },
                         "authored":{},
-                        "derived":{"kind":"bundle"}
+                        "derived":{}
                     }
                 },
                 {"path":"writing/foo/en.md","metadata":{"kind":"page","authored":{},"derived":{}}},
@@ -621,7 +627,7 @@ mod tests {
                             ]
                         },
                         "authored":{},
-                        "derived":{"kind":"bundle"}
+                        "derived":{}
                     }
                 },
                 {"path":"writing/foo/en.md","metadata":{"kind":"page","authored":{},"derived":{}}},

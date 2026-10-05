@@ -13,58 +13,58 @@
         },
         {
           "path": "assets/themes/black-ink.css",
-          "sha256": "0x14d5b344b65924879ba10c5575af309a22fe1cb2f873b64fb7029ec6040612b5",
-          "bytes": 1109
+          "sha256": "0x22bbd57987fdbec53d9768135b852ff87da5e4fe3419b8f2dc71fbc9f810c38f",
+          "bytes": 1104
         },
         {
           "path": "assets/themes/catppuccin-latte.css",
-          "sha256": "0x1e61527a02099bc1c58dcda0ecc2f5284e134f6964829b4aa3ac91a205f9b4a2",
-          "bytes": 1236
+          "sha256": "0x525ffccc11ae25f75e3742bd3c4a5236b0f36d5a151324281fe238c963e6bb00",
+          "bytes": 1231
         },
         {
           "path": "assets/themes/catppuccin-mocha.css",
-          "sha256": "0x33e61512bbcddb1c1ae0d0655a9756966d90b18658aeb2be3a0b31ee700026fd",
-          "bytes": 1232
+          "sha256": "0x1c688599f627f0bc152a835dbe70c74f682cb30289b0a30370649734699d1b65",
+          "bytes": 1227
         },
         {
           "path": "assets/themes/dracula.css",
-          "sha256": "0x7684cdad711f7f358e75e7451ae344e7453504620a156a2ec38397483e2cd5db",
-          "bytes": 1215
+          "sha256": "0x57eaad1ef5b5c42e955d6582b9a922ef2008ab6cf6d0785249ebce80562eb040",
+          "bytes": 1210
         },
         {
           "path": "assets/themes/gruvbox-dark.css",
-          "sha256": "0xfc11e22904e26d08ec89b29b19d166198afe756bb92fddeab3bf007bc447e126",
-          "bytes": 1112
+          "sha256": "0x81604d81ded37862dcebc071ca5670e87bfabf276c77ea7097ad5bdc66dcbb12",
+          "bytes": 1107
         },
         {
           "path": "assets/themes/kanagawa-wave.css",
-          "sha256": "0x2e2bb356da27d7cada95f739a46d75cdae1454e086956bc66a9ff49b0bdc9a77",
-          "bytes": 1298
+          "sha256": "0x4be13caa785881b55bbe90b939ddfe1143278c483f307c5736f21c8e5e8bac76",
+          "bytes": 1293
         },
         {
           "path": "assets/themes/nord.css",
-          "sha256": "0xcbbdcec1c37995df71c5bd977f1baea47d67bc46a32fe5aa9e54e16864a5ae3a",
-          "bytes": 1216
+          "sha256": "0xafc065b7d938a4d83b3e1d669f149ca049749822cb68413c9694a6217d076457",
+          "bytes": 1211
         },
         {
           "path": "assets/themes/rose-pine.css",
-          "sha256": "0x747d77c0b5ed77221f7adf503da46e01d9d2ac6198a7570049d070179486dbeb",
-          "bytes": 1297
+          "sha256": "0xd12cdb109929a63155bb34c998ff31450a7e0a2f8ecb3338d85ece58ba2df618",
+          "bytes": 1292
         },
         {
           "path": "assets/themes/sepia-dark.css",
-          "sha256": "0x3a4d4087e232656d9fd820da548a24137d11d2678560dc7c4d4255339dee48a6",
-          "bytes": 1178
+          "sha256": "0xac5925b237c13fd60571aeb5c82a78793d892c0343d8b9acbf00d50a33a7e3e9",
+          "bytes": 1098
         },
         {
           "path": "assets/themes/solarized-light.css",
-          "sha256": "0x8a22b47169208578eb01b3edab45828eb49b6bfc7c0d5b37017a07de00cf386f",
-          "bytes": 1105
+          "sha256": "0x74580f650942fa31d5a83f8acf34a84e1d1fbd562d0d2e2ca6a9a65ce1c7406f",
+          "bytes": 1100
         },
         {
           "path": "assets/themes/tokyonight-night.css",
-          "sha256": "0xdc72fb0475d75fcebb9f41266afcf7614f30c08337c85a9c5e6144a508fdc815",
-          "bytes": 1114
+          "sha256": "0xdb121a0392d0d382bfe575662d0d318baec290cc57ce54fdcc269286dd0c9860",
+          "bytes": 1109
         },
         {
           "path": "content/.site/keys/wonjae.asc",
@@ -88,13 +88,13 @@
         },
         {
           "path": "crates/websh-web/src/features/home/model.rs",
-          "sha256": "0x4ba15d97576303713466389bca6ee58f06ec83e1126acc750db315a1f4ad62d1",
-          "bytes": 15118
+          "sha256": "0xa9db59ef01690d5b3082d90b822ce7a22ce553b9ffc10bdf14fe6a2641699112",
+          "bytes": 15244
         },
         {
           "path": "crates/websh-web/src/features/home/sections.rs",
-          "sha256": "0xbed50193a0907569050127c7d69f64ba7dc3116653090fcbde9e19fb7d117597",
-          "bytes": 21135
+          "sha256": "0x20573983010f449bdbc3993d9f0e7bf2c1cf3303d9553c174b593d0005750f3c",
+          "bytes": 21075
         }
       ],
       "attestations": [],
@@ -106,8 +106,8 @@
       "content_files": [
         {
           "path": "content/.site/_index.dir.json",
-          "sha256": "0x6f146cf0bf6a573fb7311114c03068f1865df620467547fbd48b50a35f6e254d",
-          "bytes": 201
+          "sha256": "0x58122636f58d05e3c990ccee23279388c354bf464947dc1da175ad94551b3bc8",
+          "bytes": 218
         },
         {
           "path": "content/.site/errors/404.md",
@@ -116,13 +116,13 @@
         },
         {
           "path": "content/.site/errors/_index.dir.json",
-          "sha256": "0xd5c9c0e9fdd795735fb3423188a71c078c6ab2afcc9a95724f560c4c0ab7cf55",
-          "bytes": 119
+          "sha256": "0x6b67ab0be0ff3daef893105edc5887e48a49fc7ac2ceadb856e3037074f30560",
+          "bytes": 136
         },
         {
           "path": "content/.site/keys/_index.dir.json",
-          "sha256": "0x8cbe1772fd928fd7699e04f26b7490ebf2053474ebc16edbb3e53bb6636bef05",
-          "bytes": 153
+          "sha256": "0x1416931897c31f5f8c57ee790347f7a947c74216c4c593b47ccc97dd52facd7d",
+          "bytes": 170
         },
         {
           "path": "content/.site/keys/wonjae.asc",
@@ -153,12 +153,12 @@
       "content_files": [
         {
           "path": "content/.websh/ledger.json",
-          "sha256": "0x3273d3e2402717b1d1b7ab95df8fafbb02baea8e02b09b34e5a18913773b4848",
+          "sha256": "0xd08ab4f2b2849bdf95896f8e058088cc2d29c173d578e5a2d91f064da7d3a6a0",
           "bytes": 6468
         }
       ],
       "attestations": [],
-      "chain_head": "0x7557af8f365616a6814fa75756feaf09315081db308007b9c3bd4c93f81532db"
+      "chain_head": "0x285356d3da3e282e8e8418b69215fcfa7009b6851777af9b080a9c047fabff78"
     },
     {
       "kind": "document",
@@ -188,13 +188,13 @@
         },
         {
           "path": "content/writing/zk-proofs-from-a-compiler-perspective/en.md",
-          "sha256": "0x028d827981ab38991e1ae77626fc08877460e775cffda6f01f9dceea90e9f610",
-          "bytes": 25411
+          "sha256": "0xd5d84166068bdff14fff60cbdbd4efc7de3ec6476f2a137a683f8be55eca98b8",
+          "bytes": 25398
         },
         {
           "path": "content/writing/zk-proofs-from-a-compiler-perspective/ko.md",
-          "sha256": "0x68c65139572943632cec6a612c3f6db68d73f194ee626636d40ee726326a2709",
-          "bytes": 30288
+          "sha256": "0x0ea66ea18c4a4fb46eeb0820634316d6212099a0df9ca38e080db38cfe255337",
+          "bytes": 30275
         }
       ],
       "attestations": []
@@ -210,13 +210,13 @@
         },
         {
           "path": "content/writing/zksummit14-review/en.md",
-          "sha256": "0xa82324c9153458e811d378115e6654f12a2633abe69264ed2e4a8bbcc7b5603e",
-          "bytes": 22295
+          "sha256": "0xb9a2e037ca3e418b7bd053aafae1ce9a1ba86b958684aec0220b37f89546fbbc",
+          "bytes": 22282
         },
         {
           "path": "content/writing/zksummit14-review/ko.md",
-          "sha256": "0xe8a0ccf4e32c78d95834240af9049bab2fff14567e669416f7836411c401aeff",
-          "bytes": 24749
+          "sha256": "0xbed45d3fcf696908668132a435a322196ba0004641bf24c6d77a3d15477b2de5",
+          "bytes": 24736
         }
       ],
       "attestations": []

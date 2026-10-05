@@ -112,11 +112,6 @@ impl Content {
     }
 
     async fn read_text_at_version(&self, path: &VirtualPath, version: ReadStamp) -> TextReadResult {
-        let snapshot = self.snapshot.get_untracked();
-        let fs = snapshot.fs();
-        if let Some(text) = fs.read_inline_text(path) {
-            return Ok(text);
-        }
         let (mount_root, backend, rel_path) = self.source(path)?;
         let cache_key = ContentTextCacheKey {
             generation: version.generation,
@@ -164,9 +159,6 @@ impl Content {
     pub async fn read_bytes(&self, path: &VirtualPath) -> Result<Vec<u8>, ContentReadError> {
         for _ in 0..2 {
             let stamp = self.current_read_version(path);
-            if let Some(text) = self.with_fs_untracked(|fs| fs.read_inline_text(path)) {
-                return Ok(text.into_bytes());
-            }
             let (_, backend, rel_path) = self.source(path)?;
             let result = backend.read_bytes(&rel_path).await.map_err(Into::into);
             if self.current_read_version(path) == stamp {
@@ -177,9 +169,6 @@ impl Content {
     }
 
     pub fn public_read_url(&self, path: &VirtualPath) -> Result<Option<String>, ContentReadError> {
-        if self.with_fs_untracked(|fs| fs.read_inline_text(path).is_some()) {
-            return Ok(None);
-        }
         let (_, backend, rel_path) = self.source(path)?;
         backend.public_read_url(&rel_path).map_err(Into::into)
     }
@@ -421,7 +410,9 @@ mod tests {
     use std::cell::Cell;
     use std::rc::Rc;
     use wasm_bindgen_test::*;
-    use websh_core::domain::{EntryExtensions, Fields, NodeKind, NodeMetadata};
+    use websh_core::domain::{
+        AuthoredMetadata, DerivedMetadata, EntryExtensions, NodeKind, NodeMetadata,
+    };
     use websh_core::filesystem::MountError;
     use websh_core::ports::{
         LocalBoxFuture, ScannedSubtree, StorageBackend, StorageBackendRef, StorageResult,
@@ -491,13 +482,13 @@ mod tests {
         NodeMetadata {
             kind: NodeKind::Data,
             bundle: None,
-            authored: Fields::default(),
-            derived: Fields::default(),
+            authored: AuthoredMetadata::default(),
+            derived: DerivedMetadata::default(),
         }
     }
 
     #[wasm_bindgen_test(async)]
-    async fn read_text_caches_backend_results_within_generation_and_inline_text_bypasses_cache() {
+    async fn read_text_caches_backend_results_within_generation() {
         let owner = Owner::new();
         let reads = Rc::new(Cell::new(0));
         let path = VirtualPath::from_absolute("/cached.txt").expect("path");
@@ -511,18 +502,6 @@ mod tests {
 
         assert_eq!(ctx.read_text(&path).await.unwrap(), "remote");
         assert_eq!(ctx.read_text(&path).await.unwrap(), "remote");
-        assert_eq!(reads.get(), 1);
-
-        ctx.update_fixture(|fs| {
-            fs.upsert_file(
-                path.clone(),
-                "pending".to_string(),
-                data_meta(),
-                EntryExtensions::default(),
-            );
-        });
-
-        assert_eq!(ctx.read_text(&path).await.unwrap(), "pending");
         assert_eq!(reads.get(), 1);
     }
 

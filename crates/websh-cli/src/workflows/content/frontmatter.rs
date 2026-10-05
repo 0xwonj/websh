@@ -1,5 +1,5 @@
+use super::metadata::SourceMetadata;
 use anyhow::Context;
-use websh_core::domain::Fields;
 
 use crate::CliResult;
 
@@ -7,7 +7,7 @@ use crate::CliResult;
 /// with a YAML frontmatter block. Recognizes both LF and CRLF line
 /// endings, and anchors the closing `---` fence to the start of a line
 /// so an inline `---` in the body content can't false-close the block.
-fn split_yaml_frontmatter(body: &str) -> Option<(&str, &str)> {
+pub(crate) fn split_yaml_frontmatter(body: &str) -> Option<(&str, &str)> {
     let after_open = body
         .strip_prefix("---\n")
         .or_else(|| body.strip_prefix("---\r\n"))?;
@@ -21,7 +21,7 @@ fn split_yaml_frontmatter(body: &str) -> Option<(&str, &str)> {
     None
 }
 
-pub(crate) fn parse_yaml_frontmatter(body: &str) -> CliResult<Option<Fields>> {
+pub(crate) fn parse_yaml_frontmatter(body: &str) -> CliResult<Option<SourceMetadata>> {
     let Some((yaml, _)) = split_yaml_frontmatter(body) else {
         if body.starts_with("---\n") || body.starts_with("---\r\n") {
             anyhow::bail!("frontmatter is missing its closing fence");
@@ -31,13 +31,11 @@ pub(crate) fn parse_yaml_frontmatter(body: &str) -> CliResult<Option<Fields>> {
     parse_frontmatter_fields(yaml).map(Some)
 }
 
-fn parse_frontmatter_fields(yaml: &str) -> CliResult<Fields> {
+fn parse_frontmatter_fields(yaml: &str) -> CliResult<SourceMetadata> {
     if yaml.trim().is_empty() {
-        return Ok(Fields::default());
+        return Ok(SourceMetadata::default());
     }
-    let fields = serde_norway::from_str(yaml).context("frontmatter YAML parse")?;
-    super::metadata::validate_authored(&fields)?;
-    Ok(fields)
+    serde_norway::from_str(yaml).context("frontmatter YAML parse")
 }
 
 pub(crate) fn strip_yaml_frontmatter(body: &str) -> &str {
@@ -48,7 +46,7 @@ pub(crate) fn strip_yaml_frontmatter(body: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use websh_core::domain::{NodeKind, RendererKind, TrustLevel};
+    use websh_core::domain::NodeKind;
 
     use super::*;
 
@@ -57,7 +55,6 @@ mod tests {
         let body = r#"---
 title: A note
 kind: page
-renderer: markdown_page
 description: |
   First line
   Second line
@@ -69,7 +66,6 @@ links:
   - label: Paper
     url: https://eprint.iacr.org/2026/001
     kind: paper
-trust: trusted
 access:
   recipients:
     - address: "0xabc"
@@ -81,26 +77,25 @@ access:
             .expect("frontmatter parses")
             .expect("frontmatter exists");
 
-        assert_eq!(fields.title.as_deref(), Some("A note"));
+        assert_eq!(fields.authored.title.as_deref(), Some("A note"));
         assert_eq!(fields.kind, Some(NodeKind::Page));
-        assert_eq!(fields.renderer, Some(RendererKind::MarkdownPage));
         assert_eq!(
-            fields.description.as_deref(),
+            fields.authored.description.as_deref(),
             Some("First line\nSecond line\n")
         );
-        assert_eq!(fields.date.as_deref(), Some("2026-05-03"));
+        assert_eq!(fields.authored.date.as_deref(), Some("2026-05-03"));
         assert_eq!(
-            fields.tags.as_deref(),
+            fields.authored.tags.as_deref(),
             Some(["rust".to_string(), "yaml".to_string()].as_slice())
         );
-        let links = fields.links.as_deref().expect("links parsed");
+        let links = fields.authored.links.as_deref().expect("links parsed");
         assert_eq!(links.len(), 1);
         assert_eq!(links[0].label, "Paper");
         assert_eq!(links[0].url, "https://eprint.iacr.org/2026/001");
         assert_eq!(links[0].kind.as_deref(), Some("paper"));
-        assert_eq!(fields.trust, Some(TrustLevel::Trusted));
         assert_eq!(
             fields
+                .authored
                 .access
                 .as_ref()
                 .and_then(|access| access.recipients.first())

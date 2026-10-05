@@ -18,7 +18,6 @@ websh-core = { workspace = true, features = ["eth-verify"] }
 websh-site = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sha2 = { workspace = true }
 hex = { workspace = true }
 clap = { workspace = true }
 cid = { workspace = true }

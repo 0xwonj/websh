@@ -9,7 +9,7 @@ const tinyPng = Buffer.from(
   'base64'
 );
 
-function nodeMetadata(kind, { title, description = null, date = null, tags = [], size = null, renderer = null, childCount = null, bundle = null } = {}) {
+function nodeMetadata(kind, { title, description = null, date = null, tags = [], size = null, childCount = null, bundle = null } = {}) {
   const authored = {};
   if (title !== undefined && title !== null) authored.title = title;
   if (description !== null) authored.description = description;
@@ -17,7 +17,6 @@ function nodeMetadata(kind, { title, description = null, date = null, tags = [],
   if (tags.length > 0) authored.tags = tags;
 
   const derived = {};
-  if (renderer !== null) derived.renderer = renderer;
   if (size !== null) derived.size_bytes = size;
   if (childCount !== null) derived.child_count = childCount;
 
@@ -37,7 +36,6 @@ function fileEntry(path, title, options = {}) {
     path,
     metadata: nodeMetadata(kind, {
       title,
-      renderer: kind === 'page' && ext === 'html' ? 'html_page' : kind === 'page' && ext === 'md' ? 'markdown_page' : kind === 'document' && ext === 'pdf' ? 'pdf' : null,
       ...options
     })
   };
@@ -46,7 +44,7 @@ function fileEntry(path, title, options = {}) {
 function dirEntry(path, title, options = {}) {
   return {
     path,
-    metadata: nodeMetadata('directory', { title, renderer: 'directory_listing', ...options })
+    metadata: nodeMetadata('directory', { title, ...options })
   };
 }
 

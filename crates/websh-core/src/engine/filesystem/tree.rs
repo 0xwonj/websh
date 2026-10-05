@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use crate::domain::{DirEntry, Fields, FsEntry, NodeKind, NodeMetadata, VirtualPath};
+use crate::domain::{
+    AuthoredMetadata, DerivedMetadata, DirEntry, FsEntry, NodeKind, NodeMetadata, VirtualPath,
+};
 
 use super::global_fs::FsMutationError;
 
@@ -11,8 +13,7 @@ pub(super) fn synthetic_directory(name: &str) -> FsEntry {
     }
 }
 
-/// Build a `NodeMetadata` describing a directory whose only authored
-/// information is its display title.
+/// Synthetic directory names are generated display defaults.
 pub(super) fn directory_metadata(name: &str) -> NodeMetadata {
     let title = if name.is_empty() {
         None
@@ -22,11 +23,11 @@ pub(super) fn directory_metadata(name: &str) -> NodeMetadata {
     NodeMetadata {
         kind: NodeKind::Directory,
         bundle: None,
-        authored: Fields {
+        authored: AuthoredMetadata::default(),
+        derived: DerivedMetadata {
             title,
-            ..Fields::default()
+            ..DerivedMetadata::default()
         },
-        derived: Fields::default(),
     }
 }
 
@@ -67,6 +68,11 @@ pub(super) fn sorted_dir_entries(
         })
         .collect();
 
+    sort_dir_entries(&mut items);
+    items
+}
+
+pub(super) fn sort_dir_entries(items: &mut [DirEntry]) {
     items.sort_by(|a, b| {
         let a_hidden = a.name.starts_with('.');
         let b_hidden = b.name.starts_with('.');
@@ -79,8 +85,6 @@ pub(super) fn sorted_dir_entries(
             _ => a.name.cmp(&b.name),
         }
     });
-
-    items
 }
 
 pub(super) fn insert_tree_entry(

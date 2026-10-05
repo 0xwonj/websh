@@ -46,8 +46,7 @@
           }
         },
         "derived": {
-          "size_bytes": 2,
-          "modified_at": 1700000001
+          "size_bytes": 2
         }
       }
     },
@@ -59,8 +58,7 @@
           "title": "B"
         },
         "derived": {
-          "size_bytes": 4,
-          "modified_at": 1700000000
+          "size_bytes": 4
         }
       }
     },
@@ -76,8 +74,7 @@
           ]
         },
         "derived": {
-          "size_bytes": 128,
-          "modified_at": 1700000100
+          "size_bytes": 128
         }
       }
     }

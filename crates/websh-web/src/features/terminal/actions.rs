@@ -96,7 +96,7 @@ pub(super) fn create_submit_callback(ctx: AppContext, route_ctx: RouteContext) -
         let wallet_state = ctx.wallet.state.get();
         let runtime_mounts = ctx.content.runtime_mounts_snapshot();
         let execution_context = shell_execution_context(&runtime_state);
-        let result = ctx.system_global_fs.with(|current_fs| {
+        let result = ctx.with_fs(|current_fs| {
             execute_pipeline_with_context(
                 &pipeline,
                 &wallet_state,
@@ -181,8 +181,7 @@ pub(super) fn create_autocomplete_callback(
 ) -> Callback<String, websh_core::shell::AutocompleteResult> {
     Callback::new(move |input: String| {
         let cwd = route_cwd(&route_ctx.0.get());
-        ctx.system_global_fs
-            .with(|current_fs| autocomplete(&input, &cwd, current_fs))
+        ctx.with_fs(|current_fs| autocomplete(&input, &cwd, current_fs))
     })
 }
 
@@ -192,7 +191,6 @@ pub(super) fn create_hint_callback(
 ) -> Callback<String, Option<String>> {
     Callback::new(move |input: String| {
         let cwd = route_cwd(&route_ctx.0.get());
-        ctx.system_global_fs
-            .with(|current_fs| get_hint(&input, &cwd, current_fs))
+        ctx.with_fs(|current_fs| get_hint(&input, &cwd, current_fs))
     })
 }

@@ -1,8 +1,19 @@
 use anyhow::{Context, bail};
 use serde::Deserialize;
-use websh_core::domain::{BundleMetadata, Fields, NodeKind, NodeMetadata, RendererKind};
+use websh_core::domain::{
+    AuthoredMetadata, BundleMetadata, DerivedMetadata, NodeKind, NodeMetadata,
+};
 
 use crate::CliResult;
+
+/// File authoring input; classification is resolved once into the runtime node.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SourceMetadata {
+    pub kind: Option<NodeKind>,
+    #[serde(flatten)]
+    pub authored: AuthoredMetadata,
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -10,14 +21,15 @@ pub(super) struct DirectoryDeclaration {
     pub kind: NodeKind,
     pub bundle: Option<BundleMetadata>,
     #[serde(default)]
-    pub authored: Fields,
+    pub group: bool,
+    #[serde(default)]
+    pub authored: AuthoredMetadata,
 }
 
 impl DirectoryDeclaration {
     pub(super) fn parse(bytes: &[u8], path: &str) -> CliResult<Self> {
         let declaration: Self = serde_json::from_slice(bytes)
             .with_context(|| format!("parse directory declaration {path}"))?;
-        validate_authored(&declaration.authored)?;
         if !declaration.kind.is_directory_like() {
             bail!("directory declaration {path} must have kind directory or bundle");
         }
@@ -26,36 +38,19 @@ impl DirectoryDeclaration {
                 "directory declaration {path} requires bundle metadata exactly when kind is bundle"
             );
         }
-        if let Some(kind) = declaration.authored.kind
-            && kind != declaration.kind
-        {
-            bail!("directory declaration {path} has conflicting authored kind");
+        if declaration.group && declaration.kind != NodeKind::Directory {
+            bail!("directory declaration {path}: only plain directories need explicit grouping");
         }
         Ok(declaration)
     }
 }
 
-/// Source metadata contains only author decisions. Integrity and media fields
-/// always come from the bytes in the snapshot.
-pub(super) fn validate_authored(fields: &Fields) -> CliResult {
-    if fields.page_size.is_some()
-        || fields.page_count.is_some()
-        || fields.rotation.is_some()
-        || fields.image_dimensions.is_some()
-        || fields.size_bytes.is_some()
-        || fields.modified_at.is_some()
-        || fields.content_sha256.is_some()
-        || fields.word_count.is_some()
-        || fields.child_count.is_some()
-    {
-        bail!("authored metadata contains computed fields");
-    }
-    Ok(())
-}
-
-pub(super) fn file_metadata(path: &str, bytes: &[u8], authored: Fields) -> CliResult<NodeMetadata> {
-    validate_authored(&authored)?;
-    let kind = authored
+pub(super) fn file_metadata(
+    path: &str,
+    bytes: &[u8],
+    source: SourceMetadata,
+) -> CliResult<NodeMetadata> {
+    let kind = source
         .kind
         .unwrap_or_else(|| super::kind_for_content_path(path));
     if kind.is_directory_like() {
@@ -63,14 +58,12 @@ pub(super) fn file_metadata(path: &str, bytes: &[u8], authored: Fields) -> CliRe
     }
     let mut derived = super::media::derived_for_bytes(path, bytes)?;
     derived.title = Some(title(path));
-    derived.kind = Some(kind);
-    derived.renderer = renderer(kind, path);
     derived.size_bytes = Some(bytes.len() as u64);
     derived.content_sha256 = Some(websh_core::attestation::artifact::sha256_hex(bytes));
     Ok(NodeMetadata {
         kind,
         bundle: None,
-        authored,
+        authored: source.authored,
         derived,
     })
 }
@@ -81,20 +74,18 @@ pub(super) fn directory_metadata(
 ) -> NodeMetadata {
     let (kind, bundle, authored) = declaration
         .map(|d| (d.kind, d.bundle, d.authored))
-        .unwrap_or((NodeKind::Directory, None, Fields::default()));
+        .unwrap_or((NodeKind::Directory, None, AuthoredMetadata::default()));
     NodeMetadata {
         kind,
         bundle,
         authored,
-        derived: Fields {
+        derived: DerivedMetadata {
             title: Some(if path.is_empty() {
                 "Home".to_string()
             } else {
                 path.rsplit('/').next().unwrap_or(path).to_string()
             }),
-            kind: Some(kind),
-            renderer: renderer(kind, path),
-            ..Fields::default()
+            ..DerivedMetadata::default()
         },
     }
 }
@@ -105,21 +96,4 @@ fn title(path: &str) -> String {
         .unwrap_or_default()
         .to_string_lossy()
         .into_owned()
-}
-
-fn renderer(kind: NodeKind, path: &str) -> Option<RendererKind> {
-    use RendererKind::*;
-    let extension = std::path::Path::new(path)
-        .extension()
-        .and_then(|v| v.to_str());
-    match (kind, extension) {
-        (NodeKind::Page, Some("md")) => Some(MarkdownPage),
-        (NodeKind::Page, Some("html" | "htm")) => Some(HtmlPage),
-        (NodeKind::Document, Some("pdf")) => Some(Pdf),
-        (NodeKind::Asset, Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "svg")) => Some(Image),
-        (NodeKind::Redirect, _) => Some(Redirect),
-        (NodeKind::App, _) => Some(TerminalApp),
-        (NodeKind::Directory, _) => Some(DirectoryListing),
-        _ => None,
-    }
 }

@@ -1,6 +1,6 @@
 use crate::domain::{DirEntry, VirtualPath, WalletState};
 use crate::engine::filesystem::{
-    GlobalFs, RouteRequest, RouteSurface, request_path_for_canonical_path,
+    FsView, RouteRequest, RouteSurface, request_path_for_canonical_path,
 };
 use crate::engine::shell::{CommandResult, OutputLine, PathArg};
 
@@ -11,7 +11,7 @@ pub(super) fn execute_ls(
     path: Option<PathArg>,
     long: bool,
     wallet_state: &WalletState,
-    fs: &GlobalFs,
+    fs: FsView<'_>,
     cwd: &VirtualPath,
 ) -> CommandResult {
     let target = path.as_ref().map(|p| p.as_str()).unwrap_or(".");
@@ -38,15 +38,14 @@ fn format_ls_output(
     entries: &[DirEntry],
     long: bool,
     wallet_state: &WalletState,
-    fs: &GlobalFs,
+    fs: FsView<'_>,
 ) -> Vec<OutputLine> {
     if long {
         entries
             .iter()
             .map(|entry| {
-                let fs_entry = fs.get_entry(&entry.path);
-                let perms = fs_entry
-                    .map(|e| fs.get_permissions(e, wallet_state))
+                let perms = fs
+                    .permissions(&entry.path, wallet_state)
                     .unwrap_or_default();
                 OutputLine::long_entry(entry, &perms)
             })
@@ -71,7 +70,7 @@ fn format_ls_output(
 }
 
 /// Execute `cd` command.
-pub(super) fn execute_cd(path: PathArg, fs: &GlobalFs, cwd: &VirtualPath) -> CommandResult {
+pub(super) fn execute_cd(path: PathArg, fs: FsView<'_>, cwd: &VirtualPath) -> CommandResult {
     let target = path.as_str();
     if target.is_empty() {
         return CommandResult::error_line("cd: : No such file or directory");
@@ -97,7 +96,7 @@ pub(super) fn execute_cd(path: PathArg, fs: &GlobalFs, cwd: &VirtualPath) -> Com
 }
 
 /// Execute `cat` command.
-pub(super) fn execute_cat(file: PathArg, fs: &GlobalFs, cwd: &VirtualPath) -> CommandResult {
+pub(super) fn execute_cat(file: PathArg, fs: FsView<'_>, cwd: &VirtualPath) -> CommandResult {
     let resolved = match resolve_path_arg("cat", file.as_str(), cwd) {
         Ok(path) => path,
         Err(e) => return e,

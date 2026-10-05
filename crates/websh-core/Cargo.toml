@@ -24,8 +24,5 @@ getrandom02 = { workspace = true, optional = true }
 default = ["eth-verify"]
 eth-verify = ["dep:alloy-primitives", "dep:getrandom02"]
 
-[dev-dependencies]
-tokio = { workspace = true }
-
 [package.metadata.cargo-machete]
 ignored = ["getrandom02"]

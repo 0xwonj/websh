@@ -44,7 +44,7 @@ fn execute_command(
         cmd,
         wallet_state,
         &runtime_mounts,
-        fs,
+        FsView::content(fs),
         cwd,
         &ExecutionContext::default(),
     )
@@ -257,7 +257,7 @@ fn refresh_selects_owner_without_requiring_a_listed_path() {
             Command::Refresh(Some(PathArg::new(raw))),
             &WalletState::Disconnected,
             &mounts,
-            &fs,
+            FsView::content(&fs),
             &root_cwd(),
         );
         assert_eq!(
@@ -271,7 +271,7 @@ fn refresh_selects_owner_without_requiring_a_listed_path() {
         Command::Refresh(None),
         &WalletState::Disconnected,
         &mounts,
-        &fs,
+        FsView::content(&fs),
         &home_vpath(".websh/state"),
     );
     assert_ne!(result.exit_code, 0);

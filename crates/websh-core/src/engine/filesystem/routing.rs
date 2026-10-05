@@ -2,13 +2,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::domain::{
     BundleMetadata, BundleValidationError, BundleVariant, NodeKind, NodeMetadata, VirtualPath,
-    validate_bundle_metadata,
+    is_runtime_overlay_path, validate_bundle_metadata,
 };
 use crate::ports::ScannedSubtree;
 
 use super::content_routes::content_route_for_path;
 use super::global_fs::GlobalFs;
 use super::intent::RenderIntent;
+use super::view::FsView;
 
 const SHELL_ROUTE_PREFIX: &str = "/websh";
 
@@ -19,6 +20,10 @@ pub struct RouteRequest {
 }
 
 impl RouteRequest {
+    pub fn shell_cwd(&self) -> Option<VirtualPath> {
+        surface_target_from_request(&normalize_request_path(&self.url_path)).map(|(_, path)| path)
+    }
+
     pub fn new(url_path: impl Into<String>) -> Self {
         let raw = url_path.into();
         if raw.is_empty() {
@@ -221,13 +226,10 @@ impl RouteFrame {
 }
 
 pub fn route_request_targets_runtime_overlay(request: &RouteRequest) -> bool {
-    let trimmed = request.url_path.trim_matches('/');
-    if is_runtime_state_request(trimmed) {
-        return true;
-    }
-    trimmed
-        .strip_prefix("websh/")
-        .is_some_and(is_runtime_state_request)
+    request
+        .shell_cwd()
+        .or_else(|| VirtualPath::from_absolute(&request.url_path).ok())
+        .is_some_and(|path| is_runtime_overlay_path(&path))
 }
 
 pub fn request_path_for_canonical_path(path: &VirtualPath, surface: RouteSurface) -> String {
@@ -241,10 +243,6 @@ pub fn request_path_for_canonical_path(path: &VirtualPath, surface: RouteSurface
         }
         RouteSurface::Shell => surface_request_path(SHELL_ROUTE_PREFIX, path),
     }
-}
-
-fn is_runtime_state_request(path: &str) -> bool {
-    path == ".websh/state" || path.starts_with(".websh/state/")
 }
 
 pub fn parent_request_path(path: &str) -> String {
@@ -329,7 +327,7 @@ pub fn try_resolve_route(
 ) -> Result<Option<RouteResolution>, RouteCatalogError> {
     let path = normalize_request_path(&request.url_path);
     if is_reserved_request_path(&path) {
-        return Ok(resolve_reserved_route(fs, &path));
+        return Ok(resolve_shell_route(FsView::content(fs), request));
     }
     let catalog = RouteCatalog::from_global_fs(fs)?;
     Ok(resolve_route_with_catalog(fs, &catalog, request))
@@ -343,7 +341,7 @@ pub fn resolve_route_with_catalog(
     let path = normalize_request_path(&request.url_path);
 
     if is_reserved_request_path(&path) {
-        return resolve_reserved_route(fs, &path);
+        return resolve_shell_route(FsView::content(fs), request);
     }
 
     catalog.resolve(&path)
@@ -362,8 +360,8 @@ pub fn normalize_request_path(path: &str) -> String {
     }
 }
 
-fn resolve_reserved_route(fs: &GlobalFs, request_path: &str) -> Option<RouteResolution> {
-    let (surface, cwd) = surface_target_from_request(request_path)?;
+pub fn resolve_shell_route(fs: FsView<'_>, request: &RouteRequest) -> Option<RouteResolution> {
+    let cwd = request.shell_cwd()?;
     if !fs.is_directory(&cwd) {
         return None;
     }
@@ -372,16 +370,13 @@ fn resolve_reserved_route(fs: &GlobalFs, request_path: &str) -> Option<RouteReso
     params.insert("cwd".to_string(), cwd.to_string());
 
     Some(RouteResolution {
-        request_path: request_path.to_string(),
-        route_path: request_path.to_string(),
-        surface,
+        request_path: normalize_request_path(&request.url_path),
+        route_path: normalize_request_path(&request.url_path),
+        surface: RouteSurface::Shell,
         route_owner_path: cwd.clone(),
         node_path: cwd,
         route_role: RouteRole::ContentNode,
-        kind: match surface {
-            RouteSurface::Shell => ResolvedKind::App,
-            RouteSurface::Content => return None,
-        },
+        kind: ResolvedKind::App,
         params,
         bundle_variant: None,
     })
@@ -861,8 +856,8 @@ fn normalize_absolute_path(path: &str) -> Option<VirtualPath> {
 #[cfg(test)]
 mod tests {
     use crate::domain::{
-        BundleDefaultVariant, BundleMetadata, BundleVariant, EntryExtensions, Fields, NodeKind,
-        NodeMetadata,
+        AuthoredMetadata, BundleDefaultVariant, BundleMetadata, BundleVariant, DerivedMetadata,
+        EntryExtensions, NodeKind, NodeMetadata,
     };
     use crate::ports::{ScannedDirectory, ScannedFile, ScannedSubtree};
 
@@ -872,8 +867,8 @@ mod tests {
         NodeMetadata {
             kind,
             bundle: None,
-            authored: Fields::default(),
-            derived: Fields::default(),
+            authored: AuthoredMetadata::default(),
+            derived: DerivedMetadata::default(),
         }
     }
 
@@ -881,11 +876,11 @@ mod tests {
         NodeMetadata {
             kind: NodeKind::Directory,
             bundle: None,
-            authored: Fields {
+            authored: AuthoredMetadata {
                 title: Some(name.to_string()),
-                ..Fields::default()
+                ..AuthoredMetadata::default()
             },
-            derived: Fields::default(),
+            derived: DerivedMetadata::default(),
         }
     }
 
@@ -972,13 +967,12 @@ mod tests {
                                 },
                             ],
                         }),
-                        authored: Fields {
+                        authored: AuthoredMetadata {
                             title: Some("Foo".to_string()),
-                            ..Fields::default()
+                            ..AuthoredMetadata::default()
                         },
-                        derived: Fields {
-                            kind: Some(NodeKind::Bundle),
-                            ..Fields::default()
+                        derived: DerivedMetadata {
+                            ..DerivedMetadata::default()
                         },
                     },
                 },
@@ -1034,13 +1028,12 @@ mod tests {
                                 },
                             ],
                         }),
-                        authored: Fields {
+                        authored: AuthoredMetadata {
                             title: Some("Foo".to_string()),
-                            ..Fields::default()
+                            ..AuthoredMetadata::default()
                         },
-                        derived: Fields {
-                            kind: Some(NodeKind::Bundle),
-                            ..Fields::default()
+                        derived: DerivedMetadata {
+                            ..DerivedMetadata::default()
                         },
                     },
                 },
@@ -1263,10 +1256,9 @@ mod tests {
                                 },
                             ],
                         }),
-                        authored: Fields::default(),
-                        derived: Fields {
-                            kind: Some(NodeKind::Bundle),
-                            ..Fields::default()
+                        authored: AuthoredMetadata::default(),
+                        derived: DerivedMetadata {
+                            ..DerivedMetadata::default()
                         },
                     },
                 },
@@ -1336,10 +1328,9 @@ mod tests {
                             },
                         ],
                     }),
-                    authored: Fields::default(),
-                    derived: Fields {
-                        kind: Some(NodeKind::Bundle),
-                        ..Fields::default()
+                    authored: AuthoredMetadata::default(),
+                    derived: DerivedMetadata {
+                        ..DerivedMetadata::default()
                     },
                 },
             }],
@@ -1422,8 +1413,8 @@ mod tests {
                             media_type: None,
                         }],
                     }),
-                    authored: Fields::default(),
-                    derived: Fields::default(),
+                    authored: AuthoredMetadata::default(),
+                    derived: DerivedMetadata::default(),
                 },
             }],
         };
@@ -1492,8 +1483,8 @@ mod tests {
                             },
                         ],
                     }),
-                    authored: Fields::default(),
-                    derived: Fields::default(),
+                    authored: AuthoredMetadata::default(),
+                    derived: DerivedMetadata::default(),
                 },
             }],
         };
@@ -1535,8 +1526,8 @@ mod tests {
                                 media_type: None,
                             }],
                         }),
-                        authored: Fields::default(),
-                        derived: Fields::default(),
+                        authored: AuthoredMetadata::default(),
+                        derived: DerivedMetadata::default(),
                     },
                 },
                 ScannedDirectory {
@@ -1553,8 +1544,8 @@ mod tests {
                                 media_type: None,
                             }],
                         }),
-                        authored: Fields::default(),
-                        derived: Fields::default(),
+                        authored: AuthoredMetadata::default(),
+                        derived: DerivedMetadata::default(),
                     },
                 },
             ],
@@ -1574,13 +1565,9 @@ mod tests {
 
     #[test]
     fn route_catalog_uses_top_level_kind_for_structural_classification() {
-        let mut meta = make_meta(NodeKind::Asset);
-        meta.authored.kind = Some(NodeKind::Page);
-        assert_eq!(meta.effective_kind(), NodeKind::Page);
-
         let catalog = RouteCatalog::from_nodes([RouteCatalogNode::new(
             VirtualPath::from_absolute("/docs/readme.md").unwrap(),
-            meta,
+            make_meta(NodeKind::Asset),
             false,
         )])
         .unwrap();

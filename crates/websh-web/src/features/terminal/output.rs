@@ -1,7 +1,7 @@
 use crate::shared::icons as ic;
 use leptos::prelude::*;
 use websh_core::shell::{ListFormat, OutputLine, OutputLineData, TextStyle};
-use websh_core::support::format::{format_date_short, format_size};
+use websh_core::support::format::format_size;
 
 stylance::import_crate_style!(css, "src/features/terminal/output.module.css");
 
@@ -66,12 +66,12 @@ pub fn Output(line: OutputLine) -> impl IntoView {
                 ListFormat::Long {
                     permissions,
                     size,
-                    modified,
+                    date,
                 } => view! {
                     <div class=css::longEntry>
                         <span class=css::textDim>{permissions}</span>
                         <span class=css::textDim>{format_size(size, true)}</span>
-                        <span class=css::textDim>{format_date_short(modified)}</span>
+                        <span class=css::textDim>{date.filter(|value| !value.trim().is_empty()).unwrap_or_else(|| "—".to_string())}</span>
                         <span class=name_class>
                             {display_name}
                             {lock_marker}

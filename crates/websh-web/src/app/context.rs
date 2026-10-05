@@ -3,8 +3,8 @@ use super::TerminalState;
 use crate::config::APP_NAME;
 use crate::runtime::{content::Content, state::Preferences, wallet::Wallet};
 use leptos::prelude::*;
-use websh_core::domain::{VirtualPath, is_runtime_overlay_path};
-use websh_core::filesystem::{ContentReadError, GlobalFs, display_path_for};
+use websh_core::domain::{VirtualPath, is_runtime_overlay_path, runtime_state_root};
+use websh_core::filesystem::{ContentReadError, FsView, GlobalFs, display_path_for};
 
 #[derive(Clone, Copy)]
 pub struct AppContext {
@@ -14,7 +14,7 @@ pub struct AppContext {
     pub cwd: RwSignal<VirtualPath>,
     pub theme: Memo<&'static str>,
     pub terminal: TerminalState,
-    pub system_global_fs: Memo<GlobalFs>,
+    pub runtime_overlay: Memo<GlobalFs>,
 }
 
 impl AppContext {
@@ -22,15 +22,13 @@ impl AppContext {
         let content = Content::new(crate::runtime::loader::bootstrap_runtime_load());
         let preferences = Preferences::new();
         let wallet = Wallet::new(preferences);
-        // Memoized once per actual content/session/preference change, not once per shell read.
-        let system_global_fs = Memo::new_with_compare(
+        // Runtime projection never copies or subscribes to the content tree.
+        let runtime_overlay = Memo::new_with_compare(
             move |_| {
-                content.with_fs(|fs| {
-                    wallet.state.with(|wallet| {
-                        preferences.snapshot.with(|state| {
-                            websh_core::runtime::build_view_global_fs(fs, wallet, state)
-                        })
-                    })
+                wallet.state.with(|wallet| {
+                    preferences
+                        .snapshot
+                        .with(|state| websh_core::runtime::build_runtime_overlay(wallet, state))
                 })
             },
             |_, _| true,
@@ -50,7 +48,23 @@ impl AppContext {
                 })
             }),
             terminal: TerminalState::new(),
-            system_global_fs,
+            runtime_overlay,
+        }
+    }
+
+    pub fn with_fs<T>(&self, f: impl FnOnce(FsView<'_>) -> T) -> T {
+        self.content.with_fs(|content| {
+            self.runtime_overlay
+                .with(|runtime| f(FsView::with_runtime(content, runtime)))
+        })
+    }
+
+    /// Content-only paths do not subscribe to wallet or preference changes.
+    pub fn with_fs_at<T>(&self, path: &VirtualPath, f: impl FnOnce(FsView<'_>) -> T) -> T {
+        if is_runtime_overlay_path(path) || runtime_state_root().starts_with(path) {
+            self.with_fs(f)
+        } else {
+            self.content.with_fs(|fs| f(FsView::content(fs)))
         }
     }
 
@@ -66,7 +80,7 @@ impl AppContext {
     pub async fn read_text(&self, path: &VirtualPath) -> Result<String, ContentReadError> {
         if is_runtime_overlay_path(path) {
             return self
-                .system_global_fs
+                .runtime_overlay
                 .with(|fs| fs.read_inline_text(path))
                 .ok_or_else(|| ContentReadError::NoBackend { path: path.clone() });
         }

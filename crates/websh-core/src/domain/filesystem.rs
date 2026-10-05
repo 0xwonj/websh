@@ -3,6 +3,7 @@ use std::fmt;
 
 use super::mempool::MempoolFields;
 use super::metadata::{NodeKind, NodeMetadata};
+use super::wallet::WalletState;
 
 /// Domain-extension sibling blocks on a file entry — one optional
 /// typed field per domain, populated from the manifest entry.
@@ -102,6 +103,29 @@ impl FsEntry {
 
     pub fn is_directory(&self) -> bool {
         matches!(self, FsEntry::Directory { .. })
+    }
+
+    pub fn permissions(&self, wallet: &WalletState) -> DisplayPermissions {
+        let is_dir = self.is_directory();
+        let read = match self {
+            FsEntry::Directory { .. } => true,
+            FsEntry::File { meta, .. } => match meta.access() {
+                None => true,
+                Some(filter) => match wallet {
+                    WalletState::Connected { address, .. } => filter
+                        .recipients
+                        .iter()
+                        .any(|r| r.address.eq_ignore_ascii_case(address)),
+                    _ => false,
+                },
+            },
+        };
+
+        DisplayPermissions {
+            is_dir,
+            read,
+            execute: is_dir,
+        }
     }
 
     pub fn is_restricted(&self) -> bool {

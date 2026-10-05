@@ -1,5 +1,7 @@
 //! Canonical public crypto artifact paths and bundled deployed artifacts.
 
+use std::sync::LazyLock;
+
 use websh_core::attestation::artifact::AttestationArtifact;
 use websh_core::crypto::ack::AckArtifact;
 
@@ -16,8 +18,6 @@ pub const ACK_COMMITMENT_JSON: &str = include_str!(concat!(
     "/../../assets/crypto/ack.commitment.json"
 ));
 
-pub type SiteArtifactResult<T> = Result<T, SiteArtifactError>;
-
 #[derive(Debug, thiserror::Error)]
 pub enum SiteArtifactError {
     #[error("parse bundled attestation artifact: {source}")]
@@ -32,12 +32,19 @@ pub enum SiteArtifactError {
     },
 }
 
-pub fn attestation_artifact() -> SiteArtifactResult<AttestationArtifact> {
-    AttestationArtifact::from_json_str(ATTESTATIONS_JSON)
-        .map_err(|source| SiteArtifactError::Attestations { source })
+pub fn attestation_artifact() -> Result<&'static AttestationArtifact, &'static SiteArtifactError> {
+    static ARTIFACT: LazyLock<Result<AttestationArtifact, SiteArtifactError>> =
+        LazyLock::new(|| {
+            AttestationArtifact::from_json_str(ATTESTATIONS_JSON)
+                .map_err(|source| SiteArtifactError::Attestations { source })
+        });
+    ARTIFACT.as_ref()
 }
 
-pub fn ack_artifact() -> SiteArtifactResult<AckArtifact> {
-    AckArtifact::from_json_str(ACK_COMMITMENT_JSON)
-        .map_err(|source| SiteArtifactError::Ack { source })
+pub fn ack_artifact() -> Result<&'static AckArtifact, &'static SiteArtifactError> {
+    static ARTIFACT: LazyLock<Result<AckArtifact, SiteArtifactError>> = LazyLock::new(|| {
+        AckArtifact::from_json_str(ACK_COMMITMENT_JSON)
+            .map_err(|source| SiteArtifactError::Ack { source })
+    });
+    ARTIFACT.as_ref()
 }

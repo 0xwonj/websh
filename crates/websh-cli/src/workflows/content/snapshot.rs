@@ -9,15 +9,16 @@ use websh_core::attestation::ledger::{
     ContentLedgerInput, ContentLedgerSortKey,
 };
 use websh_core::domain::{
-    ContentManifestDocument, ContentManifestEntry, Fields, MountDeclaration, NodeKind,
-    NodeMetadata, VirtualPath, validate_bundle_metadata_with_targets,
+    ContentManifestDocument, ContentManifestEntry, GitHubMount, NodeKind, NodeMetadata,
+    VirtualPath, validate_bundle_metadata_with_targets,
 };
 use websh_core::ports::{ManifestSnapshotError, parse_manifest_snapshot};
 use websh_core::support::format::iso_date_prefix;
 
-use super::metadata::{DirectoryDeclaration, directory_metadata, file_metadata, validate_authored};
+use super::metadata::{DirectoryDeclaration, SourceMetadata, directory_metadata, file_metadata};
 use super::{DEFAULT_CONTENT_DIR, route_for_content_path};
 use crate::CliResult;
+use crate::infra::json::json_bytes;
 
 /// A logical publication unit shared by ledger and attestation generation.
 #[derive(Debug)]
@@ -34,12 +35,6 @@ pub(crate) struct ContentSnapshot {
     pub(crate) manifest: ContentManifestDocument,
     pub(crate) ledger: ContentLedger,
     pub(crate) units: Vec<ContentUnit>,
-}
-
-pub(crate) fn artifact_bytes<T: serde::Serialize>(value: &T) -> CliResult<Vec<u8>> {
-    let mut bytes = serde_json::to_vec_pretty(value).context("serialize generated artifact")?;
-    bytes.push(b'\n');
-    Ok(bytes)
 }
 
 impl ContentSnapshot {
@@ -87,12 +82,22 @@ impl ContentSnapshot {
         validate_sidecars(&sources)?;
 
         let mut nodes = BTreeMap::new();
+        let mut groups = BTreeSet::new();
         for directory in &directories {
             let declaration_path = join(directory, "_index.dir.json");
             let declaration = sources
                 .get(&declaration_path)
                 .map(|bytes| DirectoryDeclaration::parse(bytes, &declaration_path))
                 .transpose()?;
+            if declaration
+                .as_ref()
+                .is_some_and(|declaration| declaration.group)
+            {
+                if directory.is_empty() || is_system(directory) {
+                    bail!("directory cannot be grouped for publication: {directory}");
+                }
+                groups.insert(directory.clone());
+            }
             nodes.insert(
                 directory.clone(),
                 directory_metadata(directory, declaration),
@@ -105,12 +110,14 @@ impl ContentSnapshot {
             let authored = if path.ends_with(".md") {
                 let body = std::str::from_utf8(bytes)
                     .with_context(|| format!("Markdown {path} must be UTF-8"))?;
-                super::frontmatter::parse_yaml_frontmatter(body)?.unwrap_or_default()
+                super::frontmatter::parse_yaml_frontmatter(body)
+                    .with_context(|| format!("parse frontmatter {path}"))?
+                    .unwrap_or_default()
             } else {
                 sources
                     .get(&format!("{path}.meta.json"))
                     .map(|bytes| {
-                        serde_json::from_slice::<Fields>(bytes)
+                        serde_json::from_slice::<SourceMetadata>(bytes)
                             .with_context(|| format!("parse metadata for {path}"))
                     })
                     .transpose()?
@@ -119,17 +126,17 @@ impl ContentSnapshot {
             nodes.insert(path.clone(), file_metadata(path, bytes, authored)?);
         }
         validate_bundles(&nodes)?;
-        let (ledger, units) = build_units(&sources, &nodes)?;
+        let (ledger, units) = build_units(&sources, &nodes, &groups)?;
 
         // The ledger is a generated runtime file. Project its new bytes instead
         // of consulting yesterday's on-disk ledger.
-        let ledger_bytes = artifact_bytes(&ledger)?;
+        let ledger_bytes = json_bytes(&ledger)?;
         nodes.insert(
             CONTENT_LEDGER_CONTENT_PATH.to_string(),
             file_metadata(
                 CONTENT_LEDGER_CONTENT_PATH,
                 &ledger_bytes,
-                Fields::default(),
+                SourceMetadata::default(),
             )?,
         );
         nodes
@@ -185,7 +192,10 @@ fn read_tree(
             continue;
         }
         let path = join(relative, &name);
-        VirtualPath::from_absolute(format!("/{path}"))?;
+        let virtual_path = VirtualPath::from_absolute(format!("/{path}"))?;
+        if websh_core::domain::is_runtime_overlay_path(&virtual_path) {
+            bail!("content cannot occupy the runtime namespace: {path}");
+        }
         let kind = entry.file_type()?;
         if kind.is_symlink() {
             bail!("content symlinks are not supported: {path}");
@@ -218,9 +228,8 @@ fn validate_sidecars(sources: &BTreeMap<String, Vec<u8>>) -> CliResult {
         if primary.ends_with(".md") {
             bail!("Markdown metadata belongs in frontmatter: {path}");
         }
-        let authored: Fields =
+        let _: SourceMetadata =
             serde_json::from_slice(bytes).with_context(|| format!("parse {path}"))?;
-        validate_authored(&authored).with_context(|| format!("validate {path}"))?;
     }
     Ok(())
 }
@@ -246,6 +255,7 @@ fn validate_bundles(nodes: &BTreeMap<String, NodeMetadata>) -> CliResult {
 fn build_units(
     sources: &BTreeMap<String, Vec<u8>>,
     nodes: &BTreeMap<String, NodeMetadata>,
+    groups: &BTreeSet<String>,
 ) -> CliResult<(ContentLedger, Vec<ContentUnit>)> {
     let bundles: Vec<&str> = nodes
         .iter()
@@ -258,7 +268,7 @@ fn build_units(
         if path.is_empty()
             || is_system(path)
             || metadata.kind != NodeKind::Directory
-            || metadata.authored == Fields::default()
+            || !groups.contains(path)
             || bundles.iter().any(|parent| inside(path, parent))
             || grouped.iter().any(|parent: &&str| inside(path, parent))
         {
@@ -369,52 +379,10 @@ fn validate_mounts(sources: &BTreeMap<String, Vec<u8>>) -> CliResult {
         if !path.starts_with(".websh/mounts/") || !path.ends_with(".mount.json") {
             continue;
         }
-        let mount: MountDeclaration =
+        let mount: GitHubMount =
             serde_json::from_slice(bytes).with_context(|| format!("parse mount {path}"))?;
-        if mount.backend != "github" {
-            bail!("unsupported mount backend in {path}: {}", mount.backend);
-        }
-        let mount_root = VirtualPath::from_absolute(mount.mount_at.clone())?;
-        if mount_root.is_root()
-            || mount_root.as_str().starts_with("/.websh")
-            || mount_root.segments().count() != 1
-        {
-            bail!("mount {path} must target a top-level public directory");
-        }
-        if !roots.insert(mount_root) {
-            bail!("duplicate mount target: {}", mount.mount_at);
-        }
-        let repo = mount.repo.as_deref().unwrap_or("");
-        let segments: Vec<_> = repo.split('/').collect();
-        if segments.len() != 2
-            || segments.iter().any(|s| {
-                s.is_empty()
-                    || *s == "."
-                    || *s == ".."
-                    || !s
-                        .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
-            })
-        {
-            bail!("mount {path} requires an owner/repository");
-        }
-        if let Some(branch) = mount.branch
-            && (branch.trim().is_empty() || branch.chars().any(char::is_control))
-        {
-            bail!("invalid mount branch in {path}");
-        }
-        if let Some(prefix) = mount.root
-            && !prefix.is_empty()
-        {
-            VirtualPath::from_absolute(format!("/{prefix}"))?;
-        }
-        if let Some(gateway) = mount.gateway
-            && !matches!(
-                gateway.as_str(),
-                "self" | "https://raw.githubusercontent.com"
-            )
-        {
-            bail!("unsupported mount gateway in {path}");
+        if !roots.insert(mount.mount_at().clone()) {
+            bail!("duplicate mount target: {}", mount.mount_at());
         }
     }
     Ok(())
@@ -481,7 +449,6 @@ mod tests {
         assert_eq!(metadata(&first, "note.txt").title(), Some("Text"));
         assert_eq!(metadata(&first, "note.txt").size_bytes(), Some(5));
         assert!(metadata(&first, "note.txt").access().is_some());
-        assert_eq!(metadata(&first, "note.md").modified_at(), None);
         assert!(!root.join("content/note.meta.json").exists());
         assert!(!root.join("content/manifest.json").exists());
         assert!(!root.join("content/.websh/ledger.json").exists());
@@ -495,16 +462,16 @@ mod tests {
         write(&root, ".websh/ledger.json", "stale generated output");
         let rebuilt = ContentSnapshot::load(&root).unwrap();
         assert_eq!(
-            artifact_bytes(&second.manifest).unwrap(),
-            artifact_bytes(&rebuilt.manifest).unwrap()
+            json_bytes(&second.manifest).unwrap(),
+            json_bytes(&rebuilt.manifest).unwrap()
         );
         assert_eq!(
-            artifact_bytes(&second.ledger).unwrap(),
-            artifact_bytes(&rebuilt.ledger).unwrap()
+            json_bytes(&second.ledger).unwrap(),
+            json_bytes(&rebuilt.ledger).unwrap()
         );
         assert_eq!(
             metadata(&second, ".websh/ledger.json").content_sha256(),
-            Some(sha256_hex(&artifact_bytes(&second.ledger).unwrap()).as_str())
+            Some(sha256_hex(&json_bytes(&second.ledger).unwrap()).as_str())
         );
     }
 
@@ -521,11 +488,19 @@ mod tests {
         write(
             &root,
             ".site/_index.dir.json",
-            r#"{"kind":"directory","authored":{"title":"Site"}}"#,
+            r#"{"kind":"directory","group":true,"authored":{"title":"Site"}}"#,
         );
         write(&root, ".site/now.toml", "[[items]]\n");
+        // Cosmetic directory metadata alone never changes publication boundaries.
+        write(
+            &root,
+            "writing/_index.dir.json",
+            r#"{"kind":"directory","authored":{"title":"Writing"}}"#,
+        );
         let snapshot = ContentSnapshot::load(&root).unwrap();
         assert_eq!(snapshot.units.len(), 2);
+        assert!(!snapshot.units.iter().any(|unit| unit.route == "/writing"));
+        assert!(snapshot.units.iter().any(|unit| unit.route == "/.site"));
         let bundle = snapshot
             .units
             .iter()
@@ -557,13 +532,20 @@ mod tests {
         write(&root, "a.txt", "source");
         write(&root, "a.txt.meta.json", r#"{"size_bytes":999}"#);
         assert!(
-            format!("{:#}", ContentSnapshot::load(&root).unwrap_err()).contains("computed fields")
+            format!("{:#}", ContentSnapshot::load(&root).unwrap_err())
+                .contains("unknown field `size_bytes`")
         );
         assert_eq!(
             fs::read_to_string(root.join("content/a.txt.meta.json")).unwrap(),
             r#"{"size_bytes":999}"#
         );
         fs::remove_file(root.join("content/a.txt.meta.json")).unwrap();
+        write(&root, ".websh/state/injected.md", "not content");
+        assert!(
+            format!("{:#}", ContentSnapshot::load(&root).unwrap_err())
+                .contains("runtime namespace")
+        );
+        fs::remove_dir_all(root.join("content/.websh/state")).unwrap();
         let mount = r#"{"backend":"github","mount_at":"/mempool","repo":"owner/repo"}"#;
         write(&root, ".websh/mounts/a.mount.json", mount);
         write(&root, ".websh/mounts/b.mount.json", mount);

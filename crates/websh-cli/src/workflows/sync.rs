@@ -7,9 +7,10 @@ use websh_core::attestation::ledger::CONTENT_LEDGER_PATH;
 use websh_core::crypto::ack::AckArtifact;
 use websh_site::{ACK_ARTIFACT_PATH, ATTESTATIONS_PATH};
 
-use super::content::{ContentSnapshot, artifact_bytes};
+use super::content::ContentSnapshot;
 use super::{ack, attest};
 use crate::CliResult;
+use crate::infra::json::json_bytes;
 use crate::infra::json::{read_json, write_bytes};
 
 pub(crate) struct Prepared {
@@ -42,14 +43,14 @@ impl Prepared {
         let content = ContentSnapshot::load(root)?;
         let artifact = attest::prepare(root, &content, &ack, &existing)?;
         let outputs = vec![
-            (PathBuf::from(ACK_ARTIFACT_PATH), artifact_bytes(&ack)?),
+            (PathBuf::from(ACK_ARTIFACT_PATH), json_bytes(&ack)?),
             (
                 PathBuf::from(CONTENT_LEDGER_PATH),
-                artifact_bytes(&content.ledger)?,
+                json_bytes(&content.ledger)?,
             ),
             (
                 PathBuf::from("content/manifest.json"),
-                artifact_bytes(&content.manifest)?,
+                json_bytes(&content.manifest)?,
             ),
         ];
         Ok(Self {
@@ -81,7 +82,7 @@ impl Prepared {
     }
 
     pub(crate) fn publish(&self, root: &Path) -> CliResult {
-        let artifact = artifact_bytes(&self.artifact)?;
+        let artifact = json_bytes(&self.artifact)?;
         // Serialization and validation finish before the first replacement.
         for (path, bytes) in &self.outputs {
             write_bytes(&root.join(path), bytes)?;
@@ -92,7 +93,7 @@ impl Prepared {
     pub(crate) fn check_outputs(&self, root: &Path) -> CliResult {
         for (path, expected) in self.outputs.iter().cloned().chain(std::iter::once((
             PathBuf::from(ATTESTATIONS_PATH),
-            artifact_bytes(&self.artifact)?,
+            json_bytes(&self.artifact)?,
         ))) {
             let actual = fs::read(root.join(&path))
                 .with_context(|| format!("read generated {}", path.display()))?;

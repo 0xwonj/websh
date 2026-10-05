@@ -26,7 +26,7 @@ pub enum ListFormat {
     Long {
         permissions: String,
         size: Option<u64>,
-        modified: Option<u64>,
+        date: Option<String>,
     },
 }
 
@@ -160,7 +160,7 @@ impl OutputLine {
             format: ListFormat::Long {
                 permissions: perms.to_string(),
                 size: meta.and_then(|m| m.size_bytes()),
-                modified: meta.and_then(|m| m.modified_at()),
+                date: meta.and_then(|m| m.date()).map(str::to_string),
             },
         })
     }

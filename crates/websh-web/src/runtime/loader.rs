@@ -1,9 +1,9 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
 
-use websh_core::domain::{MountDeclaration, RuntimeMount, VirtualPath};
-use websh_core::filesystem::{BackendRegistry, GlobalFs, Snapshot};
+use websh_core::domain::{GitHubMount, RuntimeMount, VirtualPath, validate_mount_root};
+use websh_core::filesystem::{GlobalFs, Snapshot};
 use websh_core::ports::StorageBackendRef;
 use websh_core::runtime as core_runtime;
 use websh_site::BOOTSTRAP_SITE;
@@ -11,6 +11,8 @@ use websh_site::BOOTSTRAP_SITE;
 use super::error::RuntimeLoadError;
 use super::github_backend;
 use super::mounts::{MountLoadSet, MountScanJob, MountScanResult};
+
+type BackendRegistry = BTreeMap<VirtualPath, StorageBackendRef>;
 
 #[derive(Clone)]
 pub struct RuntimeLoad {
@@ -121,7 +123,6 @@ async fn load_external_mounts(
 }
 
 struct ExternalMountCandidate {
-    order: usize,
     mount: RuntimeMount,
     backend: Option<StorageBackendRef>,
     build_error: Option<String>,
@@ -134,20 +135,8 @@ struct FailedMountDeclaration {
 }
 
 enum LoadedMountDeclaration {
-    Parsed(MountDeclaration),
+    Parsed(GitHubMount),
     Failed(FailedMountDeclaration),
-}
-
-#[derive(Clone)]
-struct RejectedMount {
-    error: String,
-    kind: RejectedMountKind,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum RejectedMountKind {
-    Duplicate,
-    Overlap,
 }
 
 fn register_external_mounts(
@@ -158,18 +147,15 @@ fn register_external_mounts(
     bootstrap_roots: &[VirtualPath],
 ) {
     let candidates = external_mount_candidates(declarations, bootstrap_roots);
-    let rejected_by_order = rejected_mount_candidates(&candidates);
+    let mut seen_roots = BTreeSet::new();
 
     for candidate in candidates {
-        if let Some(rejected) = rejected_by_order.get(&candidate.order) {
-            match rejected.kind {
-                RejectedMountKind::Duplicate => {
-                    mounts.reject(candidate.mount, rejected.error.clone());
-                }
-                RejectedMountKind::Overlap => {
-                    mounts.insert_failed(candidate.mount, rejected.error.clone());
-                }
-            }
+        if !seen_roots.insert(candidate.mount.root.clone()) {
+            let error = format!(
+                "duplicate mount root {}; first declaration kept",
+                candidate.mount.root
+            );
+            mounts.reject(candidate.mount, error);
             continue;
         }
 
@@ -200,40 +186,23 @@ fn external_mount_candidates(
     bootstrap_roots: &[VirtualPath],
 ) -> Vec<ExternalMountCandidate> {
     let mut out = Vec::new();
-    for (order, declaration) in declarations.into_iter().enumerate() {
+    for declaration in declarations {
         match declaration {
             LoadedMountDeclaration::Parsed(declaration) => {
-                let mount_root = match VirtualPath::from_absolute(declaration.mount_at.clone()) {
-                    Ok(root) => root,
-                    Err(error) => {
-                        leptos::logging::warn!(
-                            "runtime: ignoring mount declaration with invalid mount_at `{}`: {error}",
-                            declaration.mount_at
-                        );
-                        continue;
-                    }
-                };
-                if bootstrap_roots.iter().any(|root| root == &mount_root) {
+                if bootstrap_roots
+                    .iter()
+                    .any(|root| root == declaration.mount_at())
+                {
                     continue;
                 }
-
-                match github_backend::build_backend_for_declaration(&declaration) {
-                    Ok(Some((mount, backend, descriptor))) => out.push(ExternalMountCandidate {
-                        order,
-                        mount,
-                        backend: Some(backend),
-                        build_error: None,
-                        descriptor,
-                    }),
-                    Ok(None) => {}
-                    Err(error) => out.push(ExternalMountCandidate {
-                        order,
-                        mount: fallback_mount_for_declaration(&declaration, mount_root),
-                        backend: None,
-                        build_error: Some(error.to_string()),
-                        descriptor: None,
-                    }),
-                }
+                let (mount, backend, descriptor) =
+                    github_backend::build_backend_for_declaration(declaration);
+                out.push(ExternalMountCandidate {
+                    mount,
+                    backend: Some(backend),
+                    build_error: None,
+                    descriptor,
+                });
             }
             LoadedMountDeclaration::Failed(failed) => {
                 if bootstrap_roots
@@ -243,7 +212,6 @@ fn external_mount_candidates(
                     continue;
                 }
                 out.push(ExternalMountCandidate {
-                    order,
                     mount: failed.mount,
                     backend: None,
                     build_error: Some(failed.error),
@@ -253,66 +221,6 @@ fn external_mount_candidates(
         }
     }
     out
-}
-
-fn rejected_mount_candidates(
-    candidates: &[ExternalMountCandidate],
-) -> BTreeMap<usize, RejectedMount> {
-    let mut rejected = BTreeMap::new();
-    let mut first_by_root: BTreeMap<VirtualPath, usize> = BTreeMap::new();
-    for candidate in candidates {
-        if first_by_root.contains_key(&candidate.mount.root) {
-            rejected.insert(
-                candidate.order,
-                RejectedMount {
-                    error: format!(
-                        "duplicate mount root {}; first declaration kept",
-                        candidate.mount.root.as_str()
-                    ),
-                    kind: RejectedMountKind::Duplicate,
-                },
-            );
-        } else {
-            first_by_root.insert(candidate.mount.root.clone(), candidate.order);
-        }
-    }
-
-    let roots = first_by_root.keys().cloned().collect::<Vec<_>>();
-    for candidate in candidates {
-        if rejected.contains_key(&candidate.order) {
-            continue;
-        }
-        if let Some(ancestor) = roots
-            .iter()
-            .filter(|root| *root != &candidate.mount.root && candidate.mount.root.starts_with(root))
-            .min_by_key(|root| root.as_str().len())
-        {
-            rejected.insert(
-                candidate.order,
-                RejectedMount {
-                    error: format!(
-                        "mount root {} overlaps ancestor {}; shallowest mount kept",
-                        candidate.mount.root.as_str(),
-                        ancestor.as_str()
-                    ),
-                    kind: RejectedMountKind::Overlap,
-                },
-            );
-        }
-    }
-
-    rejected
-}
-
-fn fallback_mount_for_declaration(
-    declaration: &MountDeclaration,
-    mount_root: VirtualPath,
-) -> RuntimeMount {
-    let label = declaration
-        .name
-        .clone()
-        .unwrap_or_else(|| mount_label_for_root(&mount_root));
-    RuntimeMount::new(mount_root, label)
 }
 
 fn reserve_failed_mount_points(global: &mut GlobalFs, mounts: &MountLoadSet) {
@@ -353,7 +261,7 @@ async fn load_mount_declarations(
         }
 
         let body = read_backend_text(site_backend, &site_root, &entry.path).await?;
-        match serde_json::from_str::<MountDeclaration>(&body) {
+        match serde_json::from_str::<GitHubMount>(&body) {
             Ok(declaration) => declarations.push(LoadedMountDeclaration::Parsed(declaration)),
             Err(source) => {
                 if let Some(failed) = recover_failed_mount_declaration(&entry.path, &body, &source)
@@ -388,11 +296,6 @@ fn recover_failed_mount_declaration(
         }
     };
 
-    let backend = value.get("backend").and_then(Value::as_str);
-    if backend != Some("github") {
-        return None;
-    }
-
     let mount_at = value.get("mount_at").and_then(Value::as_str)?;
     let mount_root = match VirtualPath::from_absolute(mount_at.to_string()) {
         Ok(root) => root,
@@ -404,6 +307,7 @@ fn recover_failed_mount_declaration(
             return None;
         }
     };
+    validate_mount_root(&mount_root).ok()?;
     let label = value
         .get("name")
         .and_then(Value::as_str)
@@ -466,27 +370,22 @@ mod tests {
     use super::*;
     use wasm_bindgen_test::*;
 
-    fn declaration(mount_at: &str, name: &str) -> MountDeclaration {
-        MountDeclaration {
-            backend: "github".to_string(),
-            mount_at: mount_at.to_string(),
-            repo: Some("0xwonj/websh-test".to_string()),
-            branch: Some("main".to_string()),
-            root: Some("content".to_string()),
-            name: Some(name.to_string()),
-            ..Default::default()
-        }
+    fn declaration(mount_at: &str, name: &str) -> GitHubMount {
+        serde_json::from_value(serde_json::json!({
+            "backend": "github", "mount_at": mount_at, "repo": "0xwonj/websh-test",
+            "root": "content", "name": name
+        }))
+        .unwrap()
     }
 
     #[wasm_bindgen_test]
-    fn duplicate_and_nested_mounts_fail_without_blocking_root_load() {
+    fn duplicate_mount_is_reported_without_replacing_the_first() {
         let mut global = GlobalFs::empty();
         let mut backends = BTreeMap::new();
         let mut mounts = MountLoadSet::empty();
         let declarations = vec![
             LoadedMountDeclaration::Parsed(declaration("/db", "db")),
             LoadedMountDeclaration::Parsed(declaration("/db", "db-duplicate")),
-            LoadedMountDeclaration::Parsed(declaration("/db/sub", "db-sub")),
         ];
 
         register_external_mounts(
@@ -498,58 +397,50 @@ mod tests {
         );
 
         let db = VirtualPath::from_absolute("/db").expect("db");
-        let nested = VirtualPath::from_absolute("/db/sub").expect("nested");
         assert!(matches!(mounts.status(&db), Some(MountLoadStatus::Loading)));
-        assert!(matches!(
-            mounts.status(&nested),
-            Some(MountLoadStatus::Failed { .. })
-        ));
         assert_eq!(mounts.scan_jobs.len(), 1);
         assert!(global.is_directory(&db));
-        assert!(global.is_directory(&nested));
 
         let failures = mounts.failed_entries();
-        assert_eq!(failures.len(), 2);
+        assert_eq!(failures.len(), 1);
         assert!(failures.iter().any(|entry| entry.declared.root == db));
-        assert!(failures.iter().any(|entry| entry.declared.root == nested));
     }
 
     #[wasm_bindgen_test]
-    fn invalid_branch_type_becomes_failed_mount_declaration() {
-        let path = VirtualPath::from_absolute("/.websh/mounts/db.mount.json").expect("path");
-        let body = r#"{
-            "backend": "github",
-            "mount_at": "/db",
-            "repo": "0xwonj/db",
-            "branch": 123,
-            "root": "content"
-        }"#;
-        let source = serde_json::from_str::<MountDeclaration>(body).unwrap_err();
-        let failed = recover_failed_mount_declaration(&path, body, &source)
-            .expect("github declaration with mount_at can be represented as failed");
+    fn invalid_declarations_remain_visible_without_creating_backends() {
+        let path = VirtualPath::from_absolute("/.websh/mounts/db.mount.json").unwrap();
+        let valid = serde_json::json!({
+            "backend": "github", "mount_at": "/db", "repo": "0xwonj/db"
+        });
+        for (field, value, message) in [
+            ("branch", serde_json::json!(123), "invalid type"),
+            ("backend", serde_json::json!("unknown"), "unknown variant"),
+        ] {
+            let mut input = valid.clone();
+            input[field] = value;
+            let body = input.to_string();
+            let source = serde_json::from_str::<GitHubMount>(&body).unwrap_err();
+            let failed = recover_failed_mount_declaration(&path, &body, &source)
+                .expect("invalid declaration with a public root remains visible");
+            assert_eq!(failed.mount.label, "db");
 
-        assert_eq!(failed.mount.root.as_str(), "/db");
-        assert_eq!(failed.mount.label, "db");
-        assert!(failed.error.contains("invalid type"));
-
-        let mut global = GlobalFs::empty();
-        let mut backends = BTreeMap::new();
-        let mut mounts = MountLoadSet::empty();
-        register_external_mounts(
-            &mut global,
-            &mut backends,
-            &mut mounts,
-            vec![LoadedMountDeclaration::Failed(failed)],
-            &[VirtualPath::root()],
-        );
-
-        let db = VirtualPath::from_absolute("/db").expect("db");
-        assert!(matches!(
-            mounts.status(&db),
-            Some(MountLoadStatus::Failed { ref error, .. })
-                if error.contains("invalid type")
-        ));
-        assert!(global.is_directory(&db));
-        assert!(backends.is_empty());
+            let mut global = GlobalFs::empty();
+            let mut backends = BTreeMap::new();
+            let mut mounts = MountLoadSet::empty();
+            register_external_mounts(
+                &mut global,
+                &mut backends,
+                &mut mounts,
+                vec![LoadedMountDeclaration::Failed(failed)],
+                &[VirtualPath::root()],
+            );
+            let db = VirtualPath::from_absolute("/db").unwrap();
+            assert!(matches!(
+                mounts.status(&db),
+                Some(MountLoadStatus::Failed { ref error, .. }) if error.contains(message)
+            ));
+            assert!(global.is_directory(&db));
+            assert!(backends.is_empty());
+        }
     }
 }

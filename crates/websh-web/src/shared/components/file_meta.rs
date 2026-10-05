@@ -7,8 +7,8 @@
 //! Note: the similarly named `FileMetaStrip` (in `shared/file_meta_strip`)
 //! is a render component, not a data type.
 
-use websh_core::domain::{FsEntry, ImageDim, LinkRef, NodeKind, PageSize, VirtualPath};
-use websh_core::filesystem::GlobalFs;
+use websh_core::domain::{ImageDim, LinkRef, NodeKind, NodeMetadata, PageSize, VirtualPath};
+use websh_core::filesystem::FsView;
 use websh_core::support::format::{format_thousands_u32, reading_time_minutes};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -16,11 +16,10 @@ pub struct FileMeta {
     pub title: String,
     pub description: Option<String>,
     pub size: Option<u64>,
-    pub modified: Option<u64>,
     pub date: Option<String>,
     pub tags: Vec<String>,
     pub links: Vec<LinkRef>,
-    /// Effective node kind. Defaults to [`NodeKind::Asset`] when no entry
+    /// Structural node kind. Defaults to [`NodeKind::Asset`] when no entry
     /// is found (matches the engine's fallback for unknown files).
     pub kind: NodeKind,
     /// PDF page geometry (PostScript points). Set only for `.pdf` files
@@ -132,28 +131,25 @@ pub fn size_summary_parts(
     }
 }
 
-/// Project the `FsEntry` at `path` into a `FileMeta`. Returns `None` for
+/// Project the node metadata at `path` into a `FileMeta`. Returns `None` for
 /// missing entries.
-pub fn file_meta_for_path(fs: &GlobalFs, path: &VirtualPath) -> Option<FileMeta> {
-    fs.get_entry(path).and_then(file_meta_for_entry)
+pub fn file_meta_for_path(fs: FsView<'_>, path: &VirtualPath) -> Option<FileMeta> {
+    fs.node_metadata(path).map(file_meta_for_metadata)
 }
 
-pub fn file_meta_for_entry(entry: &FsEntry) -> Option<FileMeta> {
-    match entry {
-        FsEntry::File { meta, .. } | FsEntry::Directory { meta, .. } => Some(FileMeta {
-            title: meta.title().unwrap_or("").to_string(),
-            description: meta.description().map(str::to_string),
-            size: meta.size_bytes(),
-            modified: meta.modified_at(),
-            date: meta.date().map(str::to_string),
-            tags: meta.tags_owned(),
-            links: meta.links_owned(),
-            kind: meta.effective_kind(),
-            page_size: meta.page_size().copied(),
-            page_count: meta.page_count(),
-            image_dimensions: meta.image_dimensions().copied(),
-            word_count: meta.word_count(),
-        }),
+pub fn file_meta_for_metadata(meta: &NodeMetadata) -> FileMeta {
+    FileMeta {
+        title: meta.title().unwrap_or("").to_string(),
+        description: meta.description().map(str::to_string),
+        size: meta.size_bytes(),
+        date: meta.date().map(str::to_string),
+        tags: meta.tags_owned(),
+        links: meta.links_owned(),
+        kind: meta.kind,
+        page_size: meta.page_size().copied(),
+        page_count: meta.page_count(),
+        image_dimensions: meta.image_dimensions().copied(),
+        word_count: meta.word_count(),
     }
 }
 

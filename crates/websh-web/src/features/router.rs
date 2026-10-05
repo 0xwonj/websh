@@ -65,7 +65,8 @@ use websh_core::domain::VirtualPath;
 use websh_core::filesystem::{
     GlobalFs, RenderIntent, ResolvedKind, RouteCatalogError, RouteFrame, RouteRequest,
     RouteResolution, RouteRole, RouteSurface, build_render_intent, bundle_variant_href,
-    content_route_for_path, route_request_targets_runtime_overlay, try_resolve_route,
+    content_route_for_path, resolve_shell_route, route_request_targets_runtime_overlay,
+    try_resolve_route,
 };
 
 /// Main application router.
@@ -106,32 +107,39 @@ pub fn RouterView() -> impl IntoView {
     // Resolved route frame: re-runs whenever the hash changes OR fs loads/changes.
     let route = Memo::new(move |_| {
         let request = _raw_request.get();
+        if let Some(cwd) = request.shell_cwd() {
+            return ctx.with_fs_at(&cwd, |fs| {
+                Ok(
+                    resolve_shell_route(fs, &request).map(|resolution| RouteFrame {
+                        intent: build_render_intent(&resolution),
+                        request,
+                        resolution,
+                    }),
+                )
+            });
+        }
         if route_request_targets_runtime_overlay(&request) {
             // Synthetic session files are projected independently of the content catalog.
-            return ctx.system_global_fs.with(|fs| {
+            return ctx.runtime_overlay.with(|fs| {
                 let Some(resolution) = try_resolve_route(fs, &request)? else {
                     return Ok(None);
                 };
-                Ok(
-                    build_render_intent(fs, &resolution).map(|intent| RouteFrame {
-                        request,
-                        resolution,
-                        intent,
-                    }),
-                )
+                Ok(Some(RouteFrame {
+                    intent: build_render_intent(&resolution),
+                    request,
+                    resolution,
+                }))
             });
         }
         ctx.content.snapshot.with(|snapshot| {
             let Some(resolution) = snapshot.resolve(&request) else {
                 return Ok(None);
             };
-            Ok(
-                build_render_intent(snapshot.fs(), &resolution).map(|intent| RouteFrame {
-                    request,
-                    resolution,
-                    intent,
-                }),
-            )
+            Ok(Some(RouteFrame {
+                intent: build_render_intent(&resolution),
+                request,
+                resolution,
+            }))
         })
     });
 

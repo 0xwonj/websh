@@ -28,7 +28,9 @@ pub fn assemble_global_fs(scans: &[(VirtualPath, ScannedSubtree)]) -> Result<Glo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{EntryExtensions, Fields, NodeKind, NodeMetadata};
+    use crate::domain::{
+        AuthoredMetadata, DerivedMetadata, EntryExtensions, NodeKind, NodeMetadata,
+    };
     use crate::ports::{ScannedDirectory, ScannedFile};
 
     fn bootstrap_source() -> BootstrapSiteSource {
@@ -59,8 +61,8 @@ mod tests {
         NodeMetadata {
             kind,
             bundle: None,
-            authored: Fields::default(),
-            derived: Fields::default(),
+            authored: AuthoredMetadata::default(),
+            derived: DerivedMetadata::default(),
         }
     }
 
@@ -68,15 +70,15 @@ mod tests {
         NodeMetadata {
             kind: NodeKind::Directory,
             bundle: None,
-            authored: Fields {
+            authored: AuthoredMetadata {
                 title: if name.is_empty() {
                     None
                 } else {
                     Some(name.to_string())
                 },
-                ..Fields::default()
+                ..AuthoredMetadata::default()
             },
-            derived: Fields::default(),
+            derived: DerivedMetadata::default(),
         }
     }
 

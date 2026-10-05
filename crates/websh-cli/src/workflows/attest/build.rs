@@ -13,7 +13,8 @@ use websh_core::domain::NodeKind;
 use websh_site::{ACK_ARTIFACT_PATH, PUBLIC_KEY_PATH};
 
 use crate::CliResult;
-use crate::workflows::content::{ContentSnapshot, artifact_bytes, collect_files_recursive};
+use crate::infra::json::json_bytes;
+use crate::workflows::content::{ContentSnapshot, collect_files_recursive};
 
 pub(crate) fn prepare(
     root: &Path,
@@ -37,7 +38,7 @@ pub(crate) fn prepare(
                 CONTENT_LEDGER_ROUTE.to_string(),
                 vec![file_record(
                     CONTENT_LEDGER_PATH,
-                    &artifact_bytes(&content.ledger)?,
+                    &json_bytes(&content.ledger)?,
                 )],
             ),
             chain_head: content.ledger.chain_head.clone(),
@@ -136,7 +137,7 @@ fn homepage_files(
     }
     records.insert(
         ACK_ARTIFACT_PATH.to_string(),
-        file_record(ACK_ARTIFACT_PATH, &artifact_bytes(ack)?),
+        file_record(ACK_ARTIFACT_PATH, &json_bytes(ack)?),
     );
     Ok(records.into_values().collect())
 }

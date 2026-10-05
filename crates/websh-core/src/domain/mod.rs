@@ -19,10 +19,10 @@ pub use filesystem::{DirEntry, DisplayPermissions, EntryExtensions, FileType, Fs
 pub use manifest::{ContentManifestDocument, ContentManifestEntry};
 pub use mempool::{MempoolFields, MempoolStatus, Priority};
 pub use metadata::{
-    AccessFilter, Fields, ImageDim, LinkRef, NodeKind, NodeMetadata, PageSize, Recipient,
-    RendererKind, TrustLevel,
+    AccessFilter, AuthoredMetadata, DerivedMetadata, ImageDim, LinkRef, NodeKind, NodeMetadata,
+    PageSize, Recipient,
 };
 pub use mount::{BootstrapSiteSource, RuntimeMount, is_runtime_overlay_path, runtime_state_root};
-pub use site::MountDeclaration;
+pub use site::{GitHubMount, MountConfigError, validate_mount_root};
 pub use virtual_path::{VirtualPath, VirtualPathParseError};
 pub use wallet::{WalletState, chain_name};

@@ -1,7 +1,7 @@
 use std::fs;
 use std::process::Command;
 
-use websh_core::domain::{ContentManifestDocument, Fields, MempoolStatus};
+use websh_core::domain::{AuthoredMetadata, ContentManifestDocument, MempoolStatus};
 
 use crate::support::{cli_fails, cli_with_env, temp_dir};
 
@@ -86,7 +86,7 @@ fn import_resolves_the_source_from_cwd_and_changes_only_new_canonical_source() {
         .unwrap()
         .split_once("---\n")
         .unwrap();
-    let fields: Fields = serde_norway::from_str(yaml).unwrap();
+    let fields: AuthoredMetadata = serde_norway::from_str(yaml).unwrap();
     assert_eq!(fields.title.as_deref(), Some("A title: with punctuation"));
     assert_eq!(fields.date.as_deref(), Some("2026-10-05"));
     assert_eq!(fields.tags.as_ref().unwrap(), &["a, b", "rust"]);

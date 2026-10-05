@@ -95,7 +95,7 @@ pub(super) struct RecentItem {
 pub(super) fn site_last_revised_at() -> Option<String> {
     websh_site::attestation_artifact()
         .ok()
-        .and_then(|artifact| latest_attestation_issued_at(&artifact))
+        .and_then(latest_attestation_issued_at)
 }
 
 fn latest_attestation_issued_at(artifact: &AttestationArtifact) -> Option<String> {
@@ -410,18 +410,20 @@ text = "also ignored"
 
     #[wasm_bindgen_test]
     fn recent_items_use_folder_category_metadata_and_content_route() {
-        use websh_core::domain::{EntryExtensions, Fields, NodeKind, NodeMetadata};
+        use websh_core::domain::{
+            AuthoredMetadata, DerivedMetadata, EntryExtensions, NodeKind, NodeMetadata,
+        };
         use websh_core::ports::{ScannedFile, ScannedSubtree};
 
         let make_meta = |date: &str, tags: &[&str]| NodeMetadata {
             kind: NodeKind::Page,
             bundle: None,
-            authored: Fields {
+            authored: AuthoredMetadata {
                 date: Some(date.to_string()),
                 tags: Some(tags.iter().map(|t| t.to_string()).collect()),
-                ..Fields::default()
+                ..AuthoredMetadata::default()
             },
-            derived: Fields::default(),
+            derived: DerivedMetadata::default(),
         };
 
         let snapshot = ScannedSubtree {
@@ -453,14 +455,16 @@ text = "also ignored"
 
     #[wasm_bindgen_test]
     fn toc_counts_visible_content_files_under_each_directory() {
-        use websh_core::domain::{EntryExtensions, Fields, NodeKind, NodeMetadata};
+        use websh_core::domain::{
+            AuthoredMetadata, DerivedMetadata, EntryExtensions, NodeKind, NodeMetadata,
+        };
         use websh_core::ports::{ScannedFile, ScannedSubtree};
 
         let blank = || NodeMetadata {
             kind: NodeKind::Page,
             bundle: None,
-            authored: Fields::default(),
-            derived: Fields::default(),
+            authored: AuthoredMetadata::default(),
+            derived: DerivedMetadata::default(),
         };
 
         let snapshot = ScannedSubtree {

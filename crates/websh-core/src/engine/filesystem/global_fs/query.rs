@@ -1,6 +1,4 @@
-use crate::domain::{
-    DirEntry, DisplayPermissions, FsEntry, NodeMetadata, VirtualPath, WalletState,
-};
+use crate::domain::{DirEntry, FsEntry, NodeMetadata, VirtualPath};
 
 use super::super::tree::{collect_metadata_entries, sorted_dir_entries};
 use super::GlobalFs;
@@ -58,29 +56,6 @@ impl GlobalFs {
         match self.get_entry(path)? {
             FsEntry::Directory { children, .. } => Some(sorted_dir_entries(path, children)),
             FsEntry::File { .. } => None,
-        }
-    }
-
-    pub fn get_permissions(&self, entry: &FsEntry, wallet: &WalletState) -> DisplayPermissions {
-        let is_dir = entry.is_directory();
-        let read = match entry {
-            FsEntry::Directory { .. } => true,
-            FsEntry::File { meta, .. } => match meta.access() {
-                None => true,
-                Some(filter) => match wallet {
-                    WalletState::Connected { address, .. } => filter
-                        .recipients
-                        .iter()
-                        .any(|r| r.address.eq_ignore_ascii_case(address)),
-                    _ => false,
-                },
-            },
-        };
-
-        DisplayPermissions {
-            is_dir,
-            read,
-            execute: is_dir,
         }
     }
 

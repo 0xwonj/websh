@@ -168,7 +168,7 @@ fn sort_entries(entries: &mut [MempoolEntry]) {
 mod tests {
     use super::*;
     use wasm_bindgen_test::*;
-    use websh_core::domain::{Fields, NodeKind};
+    use websh_core::domain::{AuthoredMetadata, DerivedMetadata, NodeKind};
 
     fn loaded(
         path: &str,
@@ -182,12 +182,12 @@ mod tests {
             meta: NodeMetadata {
                 kind: NodeKind::Page,
                 bundle: None,
-                authored: Fields {
+                authored: AuthoredMetadata {
                     title: Some(title.to_string()),
                     date: date.map(str::to_string),
-                    ..Fields::default()
+                    ..AuthoredMetadata::default()
                 },
-                derived: Fields::default(),
+                derived: DerivedMetadata::default(),
             },
             mempool: MempoolFields {
                 status,

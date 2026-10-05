@@ -72,7 +72,7 @@ pub fn rows_for(intent: &ReaderIntent, meta: &ReaderMeta) -> Vec<RowSpec> {
     }
 
     if !matches!(intent, ReaderIntent::Redirect { .. })
-        && let Some(date) = meta.display_date()
+        && let Some(date) = meta.date.clone()
     {
         rows.push(RowSpec::Date { value: date });
     }
@@ -142,13 +142,7 @@ pub fn Ident(meta: Memo<ReaderMeta>) -> impl IntoView {
         {move || {
             let m = meta.get();
             let kind = kind_label(m.kind).to_string();
-            // Compact date on the left side (next to kind). Falls back to
-            // the ISO `modified_iso` if no authored date is set; the strip
-            // omits the date when neither is present.
-            let date = m
-                .display_date()
-                .as_deref()
-                .and_then(format_date_compact);
+            let date = m.date.as_deref().and_then(format_date_compact);
             // Each metric chunk renders as its own sibling `<span>`; the
             // `.identMetric > span + span::before` rule in the module
             // CSS draws the `·` separator between chunks at the same
@@ -364,11 +358,10 @@ mod tests {
         VirtualPath::from_absolute(path).expect("test path")
     }
 
-    fn meta_with(date: Option<&str>, modified_iso: Option<&str>) -> ReaderMeta {
+    fn meta_with(date: Option<&str>) -> ReaderMeta {
         ReaderMeta {
             title: "x".to_string(),
             canonical_path: vp("/x.md"),
-            modified_iso: modified_iso.map(String::from),
             date: date.map(String::from),
             size_pretty: None,
             tags: vec![],
@@ -389,20 +382,14 @@ mod tests {
         let intent = ReaderIntent::Markdown {
             node_path: vp("/x.md"),
         };
-        let cases = [
-            (Some("2026-04-22"), Some("2026-04-30"), Some("2026-04-22")),
-            (None, Some("2026-04-30"), Some("2026-04-30")),
-            (None, None, None),
-        ];
-
-        for (date, modified, expected) in cases {
-            let m = meta_with(date, modified);
+        for date in [Some("2026-04-22"), None] {
+            let m = meta_with(date);
             let rows = rows_for(&intent, &m);
             let actual = rows.iter().find_map(|r| match r {
                 RowSpec::Date { value } => Some(value.clone()),
                 _ => None,
             });
-            assert_eq!(actual.as_deref(), expected, "rows: {rows:?}");
+            assert_eq!(actual.as_deref(), date, "rows: {rows:?}");
         }
     }
 
@@ -411,7 +398,7 @@ mod tests {
         let intent = ReaderIntent::Plain {
             node_path: vp("/x.txt"),
         };
-        let mut m = meta_with(None, None);
+        let mut m = meta_with(None);
         m.size_pretty = Some("2 KB".to_string());
         let rows = rows_for(&intent, &m);
         assert!(
@@ -425,7 +412,7 @@ mod tests {
         let intent = ReaderIntent::Redirect {
             node_path: vp("/x.link"),
         };
-        let m = meta_with(Some("2026-04-22"), None);
+        let m = meta_with(Some("2026-04-22"));
         let rows = rows_for(&intent, &m);
         assert!(rows.is_empty(), "redirect rows should be empty: {rows:?}");
     }
@@ -435,7 +422,7 @@ mod tests {
         let intent = ReaderIntent::Image {
             node_path: vp("/cover.png"),
         };
-        let mut m = meta_with(None, None);
+        let mut m = meta_with(None);
         m.description = "Sunrise.".to_string();
         let rows = rows_for(&intent, &m);
         assert!(
@@ -475,7 +462,7 @@ mod tests {
         // Spot-check that the ReaderMeta wrapper produces the same
         // chunks as the shared free function. Full per-kind coverage
         // lives with `FileMeta::size_summary_parts` in shared/file_meta.rs.
-        let mut m = meta_with(None, None);
+        let mut m = meta_with(None);
         m.kind = NodeKind::Page;
         m.word_count = Some(2_140);
         assert_eq!(m.size_summary_parts(), vec!["2,140 words", "9 min"]);

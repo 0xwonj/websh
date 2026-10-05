@@ -1,6 +1,5 @@
 use crate::domain::{FileType, VirtualPath};
 
-use super::global_fs::GlobalFs;
 use super::routing::{ResolvedKind, RouteResolution};
 
 /// Renderer-neutral output produced by the engine and consumed by the UI.
@@ -17,11 +16,10 @@ pub enum RenderIntent {
     BundleLocaleSelector { bundle_path: VirtualPath },
 }
 
-pub fn build_render_intent(fs: &GlobalFs, resolution: &RouteResolution) -> Option<RenderIntent> {
-    let _ = fs;
+pub fn build_render_intent(resolution: &RouteResolution) -> RenderIntent {
     let path = &resolution.node_path;
 
-    Some(match resolution.kind {
+    match resolution.kind {
         ResolvedKind::Directory => RenderIntent::DirectoryListing {
             node_path: path.clone(),
         },
@@ -36,7 +34,7 @@ pub fn build_render_intent(fs: &GlobalFs, resolution: &RouteResolution) -> Optio
             bundle_path: path.clone(),
         },
         ResolvedKind::Page | ResolvedKind::Document => content_intent_for_node(path),
-    })
+    }
 }
 
 fn content_intent_for_node(path: &VirtualPath) -> RenderIntent {
@@ -83,8 +81,8 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::domain::{
-        BundleDefaultVariant, BundleMetadata, BundleVariant, EntryExtensions, Fields, NodeKind,
-        NodeMetadata, VirtualPath,
+        AuthoredMetadata, BundleDefaultVariant, BundleMetadata, BundleVariant, DerivedMetadata,
+        EntryExtensions, NodeKind, NodeMetadata, VirtualPath,
     };
     use crate::engine::filesystem::{
         GlobalFs, ResolvedKind, RouteRequest, RouteResolution, RouteRole, RouteSurface,
@@ -98,17 +96,17 @@ mod tests {
         let make_meta = |kind: NodeKind| NodeMetadata {
             kind,
             bundle: None,
-            authored: Fields::default(),
-            derived: Fields::default(),
+            authored: AuthoredMetadata::default(),
+            derived: DerivedMetadata::default(),
         };
         let make_dir_meta = |name: &str| NodeMetadata {
             kind: NodeKind::Directory,
             bundle: None,
-            authored: Fields {
+            authored: AuthoredMetadata {
                 title: Some(name.to_string()),
-                ..Fields::default()
+                ..AuthoredMetadata::default()
             },
-            derived: Fields::default(),
+            derived: DerivedMetadata::default(),
         };
 
         let snapshot = ScannedSubtree {
@@ -144,8 +142,8 @@ mod tests {
                     meta: NodeMetadata {
                         kind: NodeKind::Page,
                         bundle: None,
-                        authored: Fields::default(),
-                        derived: Fields::default(),
+                        authored: AuthoredMetadata::default(),
+                        derived: DerivedMetadata::default(),
                     },
                     extensions: EntryExtensions::default(),
                 },
@@ -154,8 +152,8 @@ mod tests {
                     meta: NodeMetadata {
                         kind: NodeKind::Page,
                         bundle: None,
-                        authored: Fields::default(),
-                        derived: Fields::default(),
+                        authored: AuthoredMetadata::default(),
+                        derived: DerivedMetadata::default(),
                     },
                     extensions: EntryExtensions::default(),
                 },
@@ -185,10 +183,9 @@ mod tests {
                             },
                         ],
                     }),
-                    authored: Fields::default(),
-                    derived: Fields {
-                        kind: Some(NodeKind::Bundle),
-                        ..Fields::default()
+                    authored: AuthoredMetadata::default(),
+                    derived: DerivedMetadata {
+                        ..DerivedMetadata::default()
                     },
                 },
             }],
@@ -208,8 +205,8 @@ mod tests {
                     meta: NodeMetadata {
                         kind: NodeKind::Page,
                         bundle: None,
-                        authored: Fields::default(),
-                        derived: Fields::default(),
+                        authored: AuthoredMetadata::default(),
+                        derived: DerivedMetadata::default(),
                     },
                     extensions: EntryExtensions::default(),
                 },
@@ -218,8 +215,8 @@ mod tests {
                     meta: NodeMetadata {
                         kind: NodeKind::Page,
                         bundle: None,
-                        authored: Fields::default(),
-                        derived: Fields::default(),
+                        authored: AuthoredMetadata::default(),
+                        derived: DerivedMetadata::default(),
                     },
                     extensions: EntryExtensions::default(),
                 },
@@ -249,10 +246,9 @@ mod tests {
                             },
                         ],
                     }),
-                    authored: Fields::default(),
-                    derived: Fields {
-                        kind: Some(NodeKind::Bundle),
-                        ..Fields::default()
+                    authored: AuthoredMetadata::default(),
+                    derived: DerivedMetadata {
+                        ..DerivedMetadata::default()
                     },
                 },
             }],
@@ -283,7 +279,7 @@ mod tests {
     fn builds_directory_intent_for_root_route() {
         let fs = site(&[], &[]);
         let resolution = resolve_route(&fs, &RouteRequest::new("/")).unwrap();
-        let intent = build_render_intent(&fs, &resolution).unwrap();
+        let intent = build_render_intent(&resolution);
 
         assert_eq!(
             intent,
@@ -297,7 +293,7 @@ mod tests {
     fn builds_terminal_app_intent() {
         let fs = site(&[], &[]);
         let resolution = resolve_route(&fs, &RouteRequest::new("/websh")).unwrap();
-        let intent = build_render_intent(&fs, &resolution).unwrap();
+        let intent = build_render_intent(&resolution);
 
         assert_eq!(
             intent,
@@ -311,7 +307,7 @@ mod tests {
     fn builds_directory_listing_intent() {
         let fs = site(&["blog/hello.md"], &["blog"]);
         let resolution = resolve_route(&fs, &RouteRequest::new("/blog")).unwrap();
-        let intent = build_render_intent(&fs, &resolution).unwrap();
+        let intent = build_render_intent(&resolution);
 
         assert_eq!(
             intent,
@@ -325,7 +321,7 @@ mod tests {
     fn builds_html_content_intent_for_html_document() {
         let fs = site(&["blog/hello.html"], &["blog"]);
         let resolution = resolve_route(&fs, &RouteRequest::new("/blog/hello")).unwrap();
-        let intent = build_render_intent(&fs, &resolution).unwrap();
+        let intent = build_render_intent(&resolution);
 
         assert_eq!(
             intent,
@@ -339,7 +335,7 @@ mod tests {
     fn builds_markdown_content_intent_for_md_document() {
         let fs = site(&["blog/hello.md"], &["blog"]);
         let resolution = resolve_route(&fs, &RouteRequest::new("/blog/hello")).unwrap();
-        let intent = build_render_intent(&fs, &resolution).unwrap();
+        let intent = build_render_intent(&resolution);
 
         assert_eq!(
             intent,
@@ -353,7 +349,7 @@ mod tests {
     fn builds_pdf_content_intent_for_pdf_document() {
         let fs = site(&["papers/draft.pdf"], &["papers"]);
         let resolution = resolve_route(&fs, &RouteRequest::new("/papers/draft.pdf")).unwrap();
-        let intent = build_render_intent(&fs, &resolution).unwrap();
+        let intent = build_render_intent(&resolution);
 
         assert_eq!(
             intent,
@@ -367,7 +363,7 @@ mod tests {
     fn builds_image_content_intent_for_image_document() {
         let fs = site(&["photos/cover.png"], &["photos"]);
         let resolution = resolve_route(&fs, &RouteRequest::new("/photos/cover.png")).unwrap();
-        let intent = build_render_intent(&fs, &resolution).unwrap();
+        let intent = build_render_intent(&resolution);
 
         assert_eq!(
             intent,
@@ -381,7 +377,7 @@ mod tests {
     fn builds_redirect_intent_for_link_document() {
         let fs = site(&["links/x.link"], &["links"]);
         let resolution = resolve_route(&fs, &RouteRequest::new("/links/x")).unwrap();
-        let intent = build_render_intent(&fs, &resolution).unwrap();
+        let intent = build_render_intent(&resolution);
 
         assert_eq!(
             intent,
@@ -395,7 +391,7 @@ mod tests {
     fn builds_plain_content_intent_for_unknown_document() {
         let fs = site(&["notes/x.txt"], &["notes"]);
         let resolution = resolve_route(&fs, &RouteRequest::new("/notes/x.txt")).unwrap();
-        let intent = build_render_intent(&fs, &resolution).unwrap();
+        let intent = build_render_intent(&resolution);
 
         assert_eq!(
             intent,
@@ -407,7 +403,6 @@ mod tests {
 
     #[test]
     fn asset_html_markdown_link_and_unknown_paths_render_as_plain_content() {
-        let fs = GlobalFs::empty();
         for path in [
             "/assets/page.html",
             "/assets/page.md",
@@ -415,7 +410,7 @@ mod tests {
             "/assets/raw.txt",
         ] {
             let resolution = asset_resolution(path);
-            let intent = build_render_intent(&fs, &resolution).unwrap();
+            let intent = build_render_intent(&resolution);
 
             assert_eq!(
                 intent,
@@ -428,11 +423,9 @@ mod tests {
 
     #[test]
     fn asset_image_and_pdf_paths_keep_specialized_reader_intents() {
-        let fs = GlobalFs::empty();
-
         let pdf = asset_resolution("/assets/paper.pdf");
         assert_eq!(
-            build_render_intent(&fs, &pdf).unwrap(),
+            build_render_intent(&pdf),
             RenderIntent::PdfContent {
                 node_path: VirtualPath::from_absolute("/assets/paper.pdf").unwrap(),
             }
@@ -440,7 +433,7 @@ mod tests {
 
         let image = asset_resolution("/assets/cover.png");
         assert_eq!(
-            build_render_intent(&fs, &image).unwrap(),
+            build_render_intent(&image),
             RenderIntent::ImageContent {
                 node_path: VirtualPath::from_absolute("/assets/cover.png").unwrap(),
             }
@@ -451,7 +444,7 @@ mod tests {
     fn builds_default_bundle_variant_intent() {
         let fs = bundle_site();
         let resolution = resolve_route(&fs, &RouteRequest::new("/writing/foo")).unwrap();
-        let intent = build_render_intent(&fs, &resolution).unwrap();
+        let intent = build_render_intent(&resolution);
 
         assert_eq!(resolution.node_path.as_str(), "/writing/foo/en.md");
         assert_eq!(
@@ -473,7 +466,7 @@ mod tests {
     fn builds_locale_bundle_selector_intent() {
         let fs = locale_bundle_site();
         let resolution = resolve_route(&fs, &RouteRequest::new("/writing/foo")).unwrap();
-        let intent = build_render_intent(&fs, &resolution).unwrap();
+        let intent = build_render_intent(&resolution);
 
         assert_eq!(resolution.node_path.as_str(), "/writing/foo");
         assert_eq!(resolution.route_role, RouteRole::BundleLocaleSelector);
@@ -489,7 +482,7 @@ mod tests {
     fn builds_explicit_bundle_variant_intent() {
         let fs = bundle_site();
         let resolution = resolve_route(&fs, &RouteRequest::new("/writing/foo/ko")).unwrap();
-        let intent = build_render_intent(&fs, &resolution).unwrap();
+        let intent = build_render_intent(&resolution);
 
         assert_eq!(resolution.node_path.as_str(), "/writing/foo/ko.md");
         assert_eq!(

@@ -6,12 +6,10 @@ use crate::shared::components::size_summary_parts;
 use websh_core::attestation::ledger::{
     CONTENT_LEDGER_CONTENT_PATH, ContentLedger, ContentLedgerBlock, LedgerValidationError,
 };
-use websh_core::domain::{
-    BundleVariant, FileType, NodeKind, NodeMetadata, RendererKind, VirtualPath,
-};
+use websh_core::domain::{BundleVariant, FileType, NodeKind, NodeMetadata, VirtualPath};
 use websh_core::filesystem::{ContentReadError, GlobalFs, content_href_for_path};
 use websh_core::mempool::LEDGER_CATEGORIES;
-use websh_core::support::format::{format_date_iso, format_size, iso_date_prefix};
+use websh_core::support::format::{format_size, iso_date_prefix};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct LedgerModel {
@@ -167,7 +165,6 @@ fn ledger_entry_for_block(fs: &GlobalFs, block: &ContentLedgerBlock) -> Option<L
     let date = node_meta
         .and_then(|meta| meta.date())
         .map(str::to_string)
-        .or_else(|| node_meta.and_then(|meta| meta.modified_at().map(format_date_iso)))
         .unwrap_or_else(|| "undated".to_string());
     let category = entry.category.as_str().to_string();
     let kind_chips = kind_chips_for_entry(fs, &node_path, node_meta, &category, &entry.path);
@@ -179,7 +176,7 @@ fn ledger_entry_for_block(fs: &GlobalFs, block: &ContentLedgerBlock) -> Option<L
     let summary_parts = metric_meta
         .map(|meta| {
             size_summary_parts(
-                meta.effective_kind(),
+                meta.kind,
                 meta.word_count(),
                 meta.page_count(),
                 meta.image_dimensions(),
@@ -348,16 +345,16 @@ fn bundle_child_path(bundle_path: &VirtualPath, rel_path: &str) -> Option<Virtua
 }
 
 fn variant_target_kind_label(path: &VirtualPath, meta: &NodeMetadata) -> &'static str {
-    match meta.effective_kind() {
-        NodeKind::Page => match (meta.renderer(), FileType::from_path(path.as_str())) {
-            (Some(RendererKind::MarkdownPage), _) | (_, FileType::Markdown) => "markdown",
+    match meta.kind {
+        NodeKind::Page => match FileType::from_path(path.as_str()) {
+            FileType::Markdown => "markdown",
             _ => "document",
         },
         NodeKind::Document => "document",
         NodeKind::Directory | NodeKind::Bundle => "directory",
         NodeKind::App => "app",
-        NodeKind::Asset => match (meta.renderer(), FileType::from_path(path.as_str())) {
-            (Some(RendererKind::Image), _) | (_, FileType::Image) => "image",
+        NodeKind::Asset => match FileType::from_path(path.as_str()) {
+            FileType::Image => "image",
             _ => "asset",
         },
         NodeKind::Redirect => "link",
@@ -375,7 +372,7 @@ fn fallback_file_title(path: &str) -> String {
 }
 
 fn kind_for_entry(node_meta: Option<&NodeMetadata>, category: &str, path: &str) -> String {
-    if let Some(kind) = node_meta.map(NodeMetadata::effective_kind) {
+    if let Some(kind) = node_meta.map(|meta| meta.kind) {
         return match kind {
             NodeKind::Bundle => "bundle",
             NodeKind::Directory => "directory",
@@ -430,7 +427,8 @@ mod tests {
     };
     use websh_core::attestation::subject::ContentFile;
     use websh_core::domain::{
-        BundleMetadata, BundleVariant, EntryExtensions, Fields, ImageDim, NodeKind, RendererKind,
+        AuthoredMetadata, BundleMetadata, BundleVariant, DerivedMetadata, EntryExtensions,
+        ImageDim, NodeKind,
     };
 
     fn labels(values: &[&str]) -> Vec<String> {
@@ -459,8 +457,8 @@ mod tests {
         NodeMetadata {
             kind,
             bundle: None,
-            authored: Fields::default(),
-            derived: Fields::default(),
+            authored: AuthoredMetadata::default(),
+            derived: DerivedMetadata::default(),
         }
     }
 
@@ -492,7 +490,6 @@ mod tests {
 
     fn markdown_meta(words: u32) -> NodeMetadata {
         let mut meta = meta(NodeKind::Page);
-        meta.derived.renderer = Some(RendererKind::MarkdownPage);
         meta.derived.word_count = Some(words);
         meta.derived.size_bytes = Some(1_000);
         meta
@@ -500,7 +497,6 @@ mod tests {
 
     fn pdf_meta(pages: u32) -> NodeMetadata {
         let mut meta = meta(NodeKind::Document);
-        meta.derived.renderer = Some(RendererKind::Pdf);
         meta.derived.page_count = Some(pages);
         meta.derived.size_bytes = Some(10_000);
         meta
@@ -508,7 +504,6 @@ mod tests {
 
     fn image_meta() -> NodeMetadata {
         let mut meta = meta(NodeKind::Asset);
-        meta.derived.renderer = Some(RendererKind::Image);
         meta.derived.image_dimensions = Some(ImageDim {
             width: 640,
             height: 480,

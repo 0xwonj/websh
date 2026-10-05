@@ -1,69 +1,50 @@
 //! Public GitHub manifest and content reads.
 
-use websh_core::domain::VirtualPath;
+use websh_core::domain::{GitHubMount, VirtualPathParseError};
 use websh_core::ports::{
     LocalBoxFuture, ScannedSubtree, StorageBackend, StorageError, StorageResult,
     parse_manifest_snapshot,
 };
 
-use super::path::{RepoPathError, encoded_repo_relative_path, normalize_repo_prefix};
+use super::path::encoded_repo_relative_path;
 
 pub struct GitHubBackend {
-    repo_with_owner: String,
-    branch: String,
-    mount_root: VirtualPath,
-    content_prefix: String,
-    gateway: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-pub enum GitHubBackendConfigError {
-    #[error("invalid repo_with_owner `{value}`")]
-    InvalidRepo { value: String },
-    #[error("invalid content prefix: {source}")]
-    InvalidContentPrefix {
-        #[from]
-        source: RepoPathError,
-    },
+    config: GitHubMount,
 }
 
 impl GitHubBackend {
-    pub fn new(
-        repo_with_owner: impl Into<String>,
-        branch: impl Into<String>,
-        mount_root: VirtualPath,
-        content_prefix: impl Into<String>,
-        gateway: impl Into<String>,
-    ) -> Result<Self, GitHubBackendConfigError> {
-        let repo_with_owner = repo_with_owner.into();
-        validate_repo_with_owner(&repo_with_owner)?;
-        Ok(Self {
-            repo_with_owner,
-            branch: branch.into(),
-            mount_root,
-            content_prefix: normalize_repo_prefix(&content_prefix.into())?,
-            gateway: gateway.into().trim_end_matches('/').to_string(),
-        })
+    pub fn new(config: GitHubMount) -> Self {
+        Self { config }
     }
 
     fn base_url(&self) -> String {
-        if self.gateway == "self" {
-            return if self.content_prefix.is_empty() {
+        if self.config.gateway() == "self" {
+            return if self.config.root().is_empty() {
                 ".".to_string()
             } else {
-                encoded_repo_relative_path(&self.content_prefix, false)
+                encoded_repo_relative_path(self.config.root())
                     .expect("normalized content prefix must be URL-encodable")
             };
         }
 
-        if self.content_prefix.is_empty() {
-            format!("{}/{}/{}", self.gateway, self.repo_with_owner, self.branch)
+        let branch = encoded_repo_relative_path(self.config.branch())
+            .expect("validated branch must be URL-encodable");
+        if self.config.root().is_empty() {
+            format!(
+                "{}/{}/{}",
+                self.config.gateway(),
+                self.config.repo(),
+                branch
+            )
         } else {
-            let encoded_prefix = encoded_repo_relative_path(&self.content_prefix, false)
+            let encoded_prefix = encoded_repo_relative_path(self.config.root())
                 .expect("normalized content prefix must be URL-encodable");
             format!(
                 "{}/{}/{}/{}",
-                self.gateway, self.repo_with_owner, self.branch, encoded_prefix
+                self.config.gateway(),
+                self.config.repo(),
+                branch,
+                encoded_prefix
             )
         }
     }
@@ -72,9 +53,9 @@ impl GitHubBackend {
         format!("{}/manifest.json", self.base_url())
     }
 
-    fn content_url(&self, rel_path: &str) -> Result<String, RepoPathError> {
+    fn content_url(&self, rel_path: &str) -> Result<String, VirtualPathParseError> {
         let base_url = self.base_url();
-        let rel_path = encoded_repo_relative_path(rel_path.trim_start_matches('/'), true)?;
+        let rel_path = encoded_repo_relative_path(rel_path)?;
         if rel_path.is_empty() {
             Ok(base_url)
         } else {
@@ -91,7 +72,7 @@ impl GitHubBackend {
         &self,
         document_base: &str,
     ) -> Option<super::super::mount_cache::CacheDescriptor> {
-        if self.mount_root.is_root() {
+        if self.config.mount_at().is_root() {
             return None;
         }
         let base = web_sys::Url::new_with_base(&format!("{}/", self.base_url()), document_base)
@@ -101,10 +82,10 @@ impl GitHubBackend {
             .ok()?
             .href();
         Some(super::super::mount_cache::CacheDescriptor {
-            root: self.mount_root.to_string(),
-            repo: self.repo_with_owner.clone(),
-            reference: self.branch.clone(),
-            prefix: self.content_prefix.clone(),
+            root: self.config.mount_at().to_string(),
+            repo: self.config.repo().to_string(),
+            reference: self.config.branch().to_string(),
+            prefix: self.config.root().to_string(),
             manifest_url: manifest,
             content_url: base,
         })
@@ -129,20 +110,6 @@ impl GitHubBackend {
         }
         parse_manifest_snapshot(&response.body).map_err(Into::into)
     }
-}
-
-fn validate_repo_with_owner(value: &str) -> Result<(), GitHubBackendConfigError> {
-    let Some((owner, name)) = value.split_once('/') else {
-        return Err(GitHubBackendConfigError::InvalidRepo {
-            value: value.to_string(),
-        });
-    };
-    if owner.is_empty() || name.is_empty() || name.contains('/') {
-        return Err(GitHubBackendConfigError::InvalidRepo {
-            value: value.to_string(),
-        });
-    }
-    Ok(())
 }
 
 fn map_http_status(status: u16, retry_after: Option<u64>) -> StorageError {
@@ -229,16 +196,24 @@ impl StorageBackend for GitHubBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use wasm_bindgen_test::*;
+    use websh_core::domain::BootstrapSiteSource;
 
-    #[wasm_bindgen_test]
-    fn http_401_maps_auth_failed() {
-        assert_eq!(map_http_status(401, None), StorageError::AuthFailed);
-        assert_eq!(map_http_status(403, None), StorageError::AuthFailed);
+    fn backend(gateway: &str, prefix: &str) -> GitHubBackend {
+        GitHubBackend::new(
+            serde_json::from_value(json!({
+                "backend": "github", "mount_at": "/db", "repo": "owner/repo",
+                "branch": "Main", "root": prefix, "gateway": gateway
+            }))
+            .unwrap(),
+        )
     }
 
     #[wasm_bindgen_test]
-    fn http_429_preserves_retry_after() {
+    fn http_failures_preserve_auth_and_retry_information() {
+        assert_eq!(map_http_status(401, None), StorageError::AuthFailed);
+        assert_eq!(map_http_status(403, None), StorageError::AuthFailed);
         assert_eq!(
             map_http_status(429, Some(30)),
             StorageError::RateLimited {
@@ -248,108 +223,35 @@ mod tests {
     }
 
     #[wasm_bindgen_test]
-    fn content_url_uses_manifest_directory_as_base() {
-        let backend = GitHubBackend::new(
-            "owner/repo",
-            "main",
-            VirtualPath::root(),
-            "~",
-            "https://raw.githubusercontent.com",
-        )
-        .unwrap();
-
+    fn read_urls_encode_canonical_paths_and_reject_traversal() {
+        let backend = backend("https://raw.githubusercontent.com", "~");
         assert_eq!(
-            backend.content_url(".site/now.toml").unwrap(),
-            "https://raw.githubusercontent.com/owner/repo/main/~/.site/now.toml"
+            backend.manifest_url(),
+            "https://raw.githubusercontent.com/owner/repo/Main/~/manifest.json"
         );
-    }
-
-    #[wasm_bindgen_test]
-    fn content_url_encodes_path_segments() {
-        let backend = GitHubBackend::new(
-            "owner/repo",
-            "main",
-            VirtualPath::root(),
-            "~",
-            "https://raw.githubusercontent.com",
-        )
-        .unwrap();
-
-        assert_eq!(
-            backend.content_url("docs/file #1.md").unwrap(),
-            "https://raw.githubusercontent.com/owner/repo/main/~/docs/file%20%231.md"
-        );
-    }
-
-    #[wasm_bindgen_test]
-    fn content_url_rejects_traversal_segments() {
-        let backend = GitHubBackend::new(
-            "owner/repo",
-            "main",
-            VirtualPath::root(),
-            "~",
-            "https://raw.githubusercontent.com",
-        )
-        .unwrap();
-
-        assert!(backend.content_url("../secret.md").is_err());
-    }
-
-    #[wasm_bindgen_test]
-    fn public_read_url_reuses_encoded_content_url() {
-        let backend = GitHubBackend::new(
-            "owner/repo",
-            "main",
-            VirtualPath::root(),
-            "~",
-            "https://raw.githubusercontent.com",
-        )
-        .unwrap();
-
         assert_eq!(
             backend.public_read_url("docs/file #1.pdf").unwrap(),
-            Some("https://raw.githubusercontent.com/owner/repo/main/~/docs/file%20%231.pdf".into())
+            Some("https://raw.githubusercontent.com/owner/repo/Main/~/docs/file%20%231.pdf".into())
+        );
+        for path in ["../secret.md", "/absolute.md", "a//b", "a/./b"] {
+            assert!(backend.public_read_url(path).is_err(), "{path}");
+        }
+        let branch = GitHubBackend::new(
+            serde_json::from_value(json!({
+                "backend": "github", "mount_at": "/db", "repo": "owner/repo",
+                "branch": "feature/topic#1"
+            }))
+            .unwrap(),
+        );
+        assert_eq!(
+            branch.manifest_url(),
+            "https://raw.githubusercontent.com/owner/repo/feature/topic%231/manifest.json"
         );
     }
 
     #[wasm_bindgen_test]
-    fn public_read_url_rejects_traversal_segments() {
-        let backend = GitHubBackend::new(
-            "owner/repo",
-            "main",
-            VirtualPath::root(),
-            "~",
-            "https://raw.githubusercontent.com",
-        )
-        .unwrap();
-
-        assert!(backend.public_read_url("../secret.md").is_err());
-    }
-
-    #[wasm_bindgen_test]
-    fn constructor_rejects_traversal_content_prefix() {
-        let err = match GitHubBackend::new(
-            "owner/repo",
-            "main",
-            VirtualPath::root(),
-            "content/../other",
-            "https://raw.githubusercontent.com",
-        ) {
-            Ok(_) => panic!("constructor should reject traversal content prefix"),
-            Err(err) => err,
-        };
-        assert!(matches!(
-            err,
-            GitHubBackendConfigError::InvalidContentPrefix {
-                source: RepoPathError::Traversal { path },
-            } if path == "content/../other"
-        ));
-    }
-    #[wasm_bindgen_test]
-    fn self_cache_identity_resolves_deployment_prefix_while_raw_identity_is_shared() {
-        let root = VirtualPath::from_absolute("/db").unwrap();
-        let local =
-            GitHubBackend::new("owner/repo", "Main", root.clone(), "/content/", "self").unwrap();
+    fn cache_identity_resolves_local_deployment_and_excludes_bootstrap() {
+        let local = backend("self", "content");
         let first = local
             .cache_descriptor_for_base("https://site.test/ipfs/first/")
             .unwrap();
@@ -361,23 +263,24 @@ mod tests {
             "https://site.test/ipfs/first/content/manifest.json"
         );
         assert_ne!(first.key(), second.key());
-        let raw = GitHubBackend::new(
-            "owner/repo",
-            "Main",
-            root,
-            "content",
-            "https://raw.githubusercontent.com",
-        )
-        .unwrap();
+        let raw = backend("https://raw.githubusercontent.com", "content");
         assert_eq!(
             raw.cache_descriptor_for_base("https://site.test/ipfs/first/")
                 .unwrap(),
             raw.cache_descriptor_for_base("https://site.test/ipfs/second/")
                 .unwrap()
         );
+        let bootstrap = GitHubBackend::new(
+            GitHubMount::bootstrap(&BootstrapSiteSource {
+                repo_with_owner: "owner/repo",
+                branch: "main",
+                content_root: "content",
+                gateway: "self",
+            })
+            .unwrap(),
+        );
         assert!(
-            GitHubBackend::new("owner/repo", "Main", VirtualPath::root(), "content", "self")
-                .unwrap()
+            bootstrap
                 .cache_descriptor_for_base("https://site.test/")
                 .is_none()
         );

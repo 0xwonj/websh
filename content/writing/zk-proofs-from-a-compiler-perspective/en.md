@@ -3,7 +3,6 @@ title: "Zero-Knowledge Proofs, from a Compiler Perspective"
 date: "2026-05-15"
 tags: [explainer, zk, compilers, proof-systems, arithmetization]
 description: "How programs become relations, constraints, traces, and proofs."
-language: en
 ---
 
 # Zero-Knowledge Proofs, from a Compiler Perspective

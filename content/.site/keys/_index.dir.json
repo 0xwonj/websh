@@ -3,5 +3,6 @@
   "authored": {
     "description": "Public keys used to verify site identity and attestations.",
     "date": "2026-04-20"
-  }
+  },
+  "group": true
 }

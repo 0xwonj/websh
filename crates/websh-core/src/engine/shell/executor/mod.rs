@@ -4,7 +4,7 @@
 //! against the canonical filesystem and returns results.
 
 use crate::domain::{RuntimeMount, VirtualPath, WalletState, is_runtime_overlay_path};
-use crate::engine::filesystem::{GlobalFs, canonicalize_user_path};
+use crate::engine::filesystem::{FsView, canonicalize_user_path};
 
 use super::{Command, CommandResult, ExecutionContext, OutputLine, PathArg, SideEffect};
 
@@ -28,7 +28,7 @@ pub fn execute_command(
     cmd: Command,
     wallet_state: &WalletState,
     runtime_mounts: &[RuntimeMount],
-    fs: &GlobalFs,
+    fs: FsView<'_>,
     cwd: &VirtualPath,
 ) -> CommandResult {
     execute_command_with_context(
@@ -46,7 +46,7 @@ pub fn execute_command_with_context(
     cmd: Command,
     wallet_state: &WalletState,
     runtime_mounts: &[RuntimeMount],
-    fs: &GlobalFs,
+    fs: FsView<'_>,
     cwd: &VirtualPath,
     context: &ExecutionContext,
 ) -> CommandResult {

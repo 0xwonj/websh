@@ -279,7 +279,6 @@ pub(super) fn Acknowledgements() -> impl IntoView {
         }
     };
 
-    let public_artifact = artifact.clone();
     let run_ack_check = Callback::new(move |_: ()| {
         let raw = ack_input.get();
         let trimmed = raw.trim();
@@ -301,7 +300,7 @@ pub(super) fn Acknowledgements() -> impl IntoView {
                 }
             };
 
-            match verify_private_receipt(&public_artifact, &receipt) {
+            match verify_private_receipt(artifact, &receipt) {
                 Ok(verification) => set_ack_result.set(AckResult {
                     message: format!(
                         "✓ private acknowledgement receipt · name committed privately · root {}",
@@ -324,7 +323,7 @@ pub(super) fn Acknowledgements() -> impl IntoView {
             return;
         }
 
-        let proof = match public_proof_for_name(&public_artifact, &raw) {
+        let proof = match public_proof_for_name(artifact, &raw) {
             Ok(Some(proof)) => proof,
             Ok(None) => {
                 set_ack_result.set(AckResult {

@@ -1,10 +1,8 @@
 use websh_core::domain::{DirEntry, FileType, NodeKind, NodeMetadata, VirtualPath};
 use websh_core::filesystem::{
-    BundleVariantContext, GlobalFs, bundle_variant_href, content_href_for_path,
+    BundleVariantContext, FsView, bundle_variant_href, content_href_for_path,
 };
-use websh_core::support::format::{
-    format_date_iso, format_size, format_thousands_u32, reading_time_minutes,
-};
+use websh_core::support::format::{format_size, format_thousands_u32, reading_time_minutes};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct DirectoryModel {
@@ -69,18 +67,14 @@ const GROUP_ORDER: [DirectoryEntryGroupKind; 9] = [
     DirectoryEntryGroupKind::Assets,
 ];
 
-pub(super) fn build_directory_model(fs: &GlobalFs, path: &VirtualPath) -> DirectoryModel {
-    build_directory_model_with_bundle_context(fs, path, None)
-}
-
 pub(super) fn build_directory_model_with_bundle_context(
-    fs: &GlobalFs,
+    fs: FsView<'_>,
     path: &VirtualPath,
     bundle_context: Option<&BundleVariantContext>,
 ) -> DirectoryModel {
     let node_meta = fs.node_metadata(path);
     let kind = node_meta
-        .map(NodeMetadata::effective_kind)
+        .map(|meta| meta.kind)
         .unwrap_or(NodeKind::Directory);
     let fallback_title = title_for_path(path);
     let mut title = node_meta
@@ -152,7 +146,7 @@ pub(super) fn build_directory_model_with_bundle_context(
     }
 }
 
-fn directory_listing_entry(fs: &GlobalFs, entry: DirEntry) -> DirectoryListingEntry {
+fn directory_listing_entry(fs: FsView<'_>, entry: DirEntry) -> DirectoryListingEntry {
     let kind = entry_kind(&entry);
     let group_kind = DirectoryEntryGroupKind::for_entry(&entry, kind);
     let name = display_name(&entry);
@@ -211,7 +205,7 @@ fn entry_kind(entry: &DirEntry) -> NodeKind {
     entry
         .meta
         .as_ref()
-        .map(NodeMetadata::effective_kind)
+        .map(|meta| meta.kind)
         .unwrap_or(if entry.is_dir {
             NodeKind::Directory
         } else {
@@ -220,7 +214,7 @@ fn entry_kind(entry: &DirEntry) -> NodeKind {
 }
 
 fn entry_metrics(
-    fs: &GlobalFs,
+    fs: FsView<'_>,
     entry: &DirEntry,
     group_kind: DirectoryEntryGroupKind,
     kind: NodeKind,
@@ -304,7 +298,6 @@ fn display_date(meta: &NodeMetadata) -> Option<String> {
     meta.date()
         .map(str::to_string)
         .filter(|text| !text.trim().is_empty())
-        .or_else(|| meta.modified_at().map(format_date_iso))
 }
 
 fn fallback_size_or_kind(meta: &NodeMetadata, kind: NodeKind) -> String {
@@ -453,21 +446,22 @@ mod tests {
     use super::*;
     use wasm_bindgen_test::*;
     use websh_core::domain::{
-        BundleMetadata, BundleVariant, EntryExtensions, Fields, ImageDim, NodeMetadata,
+        AuthoredMetadata, BundleMetadata, BundleVariant, DerivedMetadata, EntryExtensions,
+        ImageDim, NodeMetadata,
     };
+    use websh_core::filesystem::GlobalFs;
     use websh_core::ports::{ScannedDirectory, ScannedFile, ScannedSubtree};
 
     fn meta(kind: NodeKind, title: Option<&str>) -> NodeMetadata {
         NodeMetadata {
             kind,
             bundle: None,
-            authored: Fields {
+            authored: AuthoredMetadata {
                 title: title.map(str::to_string),
-                ..Fields::default()
+                ..AuthoredMetadata::default()
             },
-            derived: Fields {
-                kind: Some(kind),
-                ..Fields::default()
+            derived: DerivedMetadata {
+                ..DerivedMetadata::default()
             },
         }
     }
@@ -496,14 +490,13 @@ mod tests {
                     },
                 ],
             }),
-            authored: Fields {
+            authored: AuthoredMetadata {
                 title: Some(title.to_string()),
-                ..Fields::default()
+                ..AuthoredMetadata::default()
             },
-            derived: Fields {
-                kind: Some(NodeKind::Bundle),
+            derived: DerivedMetadata {
                 child_count: Some(2),
-                ..Fields::default()
+                ..DerivedMetadata::default()
             },
         }
     }
@@ -576,7 +569,11 @@ mod tests {
         fs.mount_scanned_subtree(VirtualPath::root(), &snapshot)
             .expect("mount snapshot");
 
-        let model = build_directory_model(&fs, &VirtualPath::from_absolute("/.site").unwrap());
+        let model = build_directory_model_with_bundle_context(
+            FsView::content(&fs),
+            &VirtualPath::from_absolute("/.site").unwrap(),
+            None,
+        );
 
         assert_eq!(model.kind, NodeKind::Directory);
         assert_eq!(model.title, "Site");
@@ -655,7 +652,11 @@ mod tests {
         fs.mount_scanned_subtree(VirtualPath::root(), &snapshot)
             .expect("mount snapshot");
 
-        let model = build_directory_model(&fs, &VirtualPath::root());
+        let model = build_directory_model_with_bundle_context(
+            FsView::content(&fs),
+            &VirtualPath::root(),
+            None,
+        );
 
         assert_eq!(model.entry_count, 9);
         assert_eq!(
@@ -695,43 +696,5 @@ mod tests {
 
         let data = &group(&model, DirectoryEntryGroupKind::Data).entries[0];
         assert_eq!(data.extent, "161B");
-    }
-
-    #[wasm_bindgen_test]
-    fn directory_model_uses_modified_at_as_date_fallback() {
-        let mut directory = meta(NodeKind::Directory, Some("docs"));
-        directory.derived.modified_at = Some(1_704_153_600);
-
-        let mut note = meta(NodeKind::Page, Some("Note"));
-        note.derived.word_count = Some(79);
-        note.derived.modified_at = Some(1_704_240_000);
-
-        let mut dated = meta(NodeKind::Page, Some("Dated"));
-        dated.authored.date = Some("2026-05-20".to_string());
-        dated.derived.word_count = Some(10);
-        dated.derived.modified_at = Some(1_704_326_400);
-
-        let snapshot = ScannedSubtree {
-            files: vec![file("docs/note.md", note), file("docs/dated.md", dated)],
-            directories: vec![dir("docs", directory)],
-        };
-        let mut fs = GlobalFs::empty();
-        fs.mount_scanned_subtree(VirtualPath::root(), &snapshot)
-            .expect("mount snapshot");
-
-        let model = build_directory_model(&fs, &VirtualPath::from_absolute("/docs").unwrap());
-
-        assert_eq!(model.date.as_deref(), Some("2024-01-02"));
-        let markdown = &group(&model, DirectoryEntryGroupKind::Markdown).entries;
-        let note = markdown
-            .iter()
-            .find(|entry| entry.name == "note.md")
-            .expect("note entry");
-        assert_eq!(note.secondary_meta.as_deref(), Some("2024-01-03"));
-        let dated = markdown
-            .iter()
-            .find(|entry| entry.name == "dated.md")
-            .expect("dated entry");
-        assert_eq!(dated.secondary_meta.as_deref(), Some("2026-05-20"));
     }
 }

@@ -12,7 +12,7 @@
 
 use crate::domain::DirEntry;
 use crate::domain::VirtualPath;
-use crate::engine::filesystem::{GlobalFs, canonicalize_user_path};
+use crate::engine::filesystem::{FsView, canonicalize_user_path};
 use crate::engine::shell::Command;
 
 /// Result of an autocomplete attempt.
@@ -88,7 +88,7 @@ struct ParsedPath<'a> {
 
 impl<'a> ParsedPath<'a> {
     /// Parse a partial path and resolve the search directory.
-    fn parse(partial: &'a str, cwd: &VirtualPath, _fs: &GlobalFs) -> Option<Self> {
+    fn parse(partial: &'a str, cwd: &VirtualPath) -> Option<Self> {
         let (dir_part, name_part) = match partial.rfind('/') {
             Some(idx) => (&partial[..=idx], &partial[idx + 1..]),
             None => ("", partial),
@@ -111,7 +111,7 @@ impl<'a> ParsedPath<'a> {
 /// Perform autocomplete on Tab press.
 ///
 /// Returns a completion result based on the current input and filesystem state.
-pub fn autocomplete(input: &str, cwd: &VirtualPath, fs: &GlobalFs) -> AutocompleteResult {
+pub fn autocomplete(input: &str, cwd: &VirtualPath, fs: FsView<'_>) -> AutocompleteResult {
     let input = input.trim_start();
     if input.is_empty() {
         return AutocompleteResult::None;
@@ -131,7 +131,7 @@ pub fn autocomplete(input: &str, cwd: &VirtualPath, fs: &GlobalFs) -> Autocomple
 /// Get autocomplete suggestion for ghost text hint (while typing).
 ///
 /// Returns the suffix that would complete the current input.
-pub fn get_hint(input: &str, cwd: &VirtualPath, fs: &GlobalFs) -> Option<String> {
+pub fn get_hint(input: &str, cwd: &VirtualPath, fs: FsView<'_>) -> Option<String> {
     let input = input.trim_start();
     if input.is_empty() {
         return None;
@@ -181,10 +181,10 @@ fn complete_path(
     cmd: &str,
     partial: &str,
     cwd: &VirtualPath,
-    fs: &GlobalFs,
+    fs: FsView<'_>,
     dirs_only: bool,
 ) -> AutocompleteResult {
-    let Some(parsed) = ParsedPath::parse(partial, cwd, fs) else {
+    let Some(parsed) = ParsedPath::parse(partial, cwd) else {
         return AutocompleteResult::None;
     };
 
@@ -200,10 +200,10 @@ fn complete_path(
 fn get_path_hint(
     partial: &str,
     cwd: &VirtualPath,
-    fs: &GlobalFs,
+    fs: FsView<'_>,
     dirs_only: bool,
 ) -> Option<String> {
-    let parsed = ParsedPath::parse(partial, cwd, fs)?;
+    let parsed = ParsedPath::parse(partial, cwd)?;
     let entries = fs.list_dir(&parsed.search_dir)?;
     let matches = get_matching_entries(&entries, parsed.name_part, dirs_only);
 
@@ -314,6 +314,7 @@ fn find_common_prefix(strings: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::filesystem::GlobalFs;
 
     #[test]
     fn test_command_completion_single() {
@@ -377,26 +378,27 @@ mod tests {
     /// These names all share the prefix `h`, so a `/h`-style partial
     /// exercises both the dir-only and file+dir classification paths.
     fn path_fixture() -> GlobalFs {
-        use crate::domain::{EntryExtensions, Fields, NodeKind, NodeMetadata};
-        use crate::engine::filesystem::GlobalFs;
+        use crate::domain::{
+            AuthoredMetadata, DerivedMetadata, EntryExtensions, NodeKind, NodeMetadata,
+        };
         use crate::ports::{ScannedDirectory, ScannedFile, ScannedSubtree};
         fn file_meta() -> NodeMetadata {
             NodeMetadata {
                 kind: NodeKind::Page,
                 bundle: None,
-                authored: Fields::default(),
-                derived: Fields::default(),
+                authored: AuthoredMetadata::default(),
+                derived: DerivedMetadata::default(),
             }
         }
         fn directory_meta(title: &str) -> NodeMetadata {
             NodeMetadata {
                 kind: NodeKind::Directory,
                 bundle: None,
-                authored: Fields {
+                authored: AuthoredMetadata {
                     title: Some(title.to_string()),
-                    ..Fields::default()
+                    ..AuthoredMetadata::default()
                 },
-                derived: Fields::default(),
+                derived: DerivedMetadata::default(),
             }
         }
         let snapshot = ScannedSubtree {
@@ -457,7 +459,7 @@ mod tests {
             "refresh",
             "h",
             &VirtualPath::root(),
-            &fs,
+            FsView::content(&fs),
             /* dirs_only */ false,
         );
         let names = matches_set(&result);
@@ -491,7 +493,7 @@ mod tests {
             "ls",
             "h",
             &VirtualPath::root(),
-            &fs,
+            FsView::content(&fs),
             /* dirs_only */ true,
         );
         let names = matches_set(&result);
@@ -514,9 +516,12 @@ mod tests {
     fn unknown_commands_have_no_argument_suggestions() {
         let fs = GlobalFs::empty();
         assert_eq!(
-            autocomplete("unknown ", &VirtualPath::root(), &fs),
+            autocomplete("unknown ", &VirtualPath::root(), FsView::content(&fs)),
             AutocompleteResult::None
         );
-        assert_eq!(get_hint("unknown ", &VirtualPath::root(), &fs), None);
+        assert_eq!(
+            get_hint("unknown ", &VirtualPath::root(), FsView::content(&fs)),
+            None
+        );
     }
 }

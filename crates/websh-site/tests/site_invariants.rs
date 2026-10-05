@@ -1,11 +1,9 @@
-use std::fs;
 use std::path::Path;
 
-use websh_core::attestation::artifact::{Attestation, AttestationArtifact};
-use websh_core::crypto::ack::AckArtifact;
+use websh_core::attestation::artifact::Attestation;
 use websh_core::crypto::eth::verify_personal_sign;
 use websh_core::crypto::pgp::normalize_fingerprint;
-use websh_site::{ACK_ARTIFACT_PATH, ATTESTATIONS_PATH, EXPECTED_PGP_FINGERPRINT, PUBLIC_KEY_PATH};
+use websh_site::{EXPECTED_PGP_FINGERPRINT, PUBLIC_KEY_PATH};
 
 fn workspace_root() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -16,18 +14,13 @@ fn workspace_root() -> &'static Path {
 
 #[test]
 fn homepage_hybrid_ack_artifact_verifies() {
-    let body =
-        fs::read_to_string(workspace_root().join(ACK_ARTIFACT_PATH)).expect("read ACK artifact");
-    let artifact: AckArtifact = serde_json::from_str(&body).expect("parse ACK artifact");
+    let artifact = websh_site::ack_artifact().expect("parse ACK artifact");
     artifact.validate().expect("ACK artifact validates");
 }
 
 #[test]
 fn homepage_attestation_artifact_verifies() {
-    let path = workspace_root().join(ATTESTATIONS_PATH);
-    let body = fs::read_to_string(&path).expect("read attestations artifact");
-    let artifact: AttestationArtifact =
-        serde_json::from_str(&body).expect("parse attestations artifact");
+    let artifact = websh_site::attestation_artifact().expect("parse attestations artifact");
     artifact
         .validate_header()
         .expect("artifact header validates");

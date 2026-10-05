@@ -11,10 +11,10 @@ use crate::shared::components::{
     nearest_attestation_route_for_content_path,
 };
 use model::{
-    DirectoryListingEntry, DirectoryListingGroup, DirectoryModel, build_directory_model,
+    DirectoryListingEntry, DirectoryListingGroup, DirectoryModel,
     build_directory_model_with_bundle_context, kind_label, surface_kind_label,
 };
-use websh_core::filesystem::{RouteFrame, route_request_targets_runtime_overlay};
+use websh_core::filesystem::RouteFrame;
 use websh_core::support::format::format_date_compact;
 
 stylance::import_crate_style!(css, "src/features/directory/directory_page.module.css");
@@ -25,18 +25,13 @@ pub fn DirectoryPage(route: Memo<RouteFrame>) -> impl IntoView {
     let node_path = Memo::new(move |_| route.get().resolution.node_path);
     let model = Memo::new(move |_| {
         let frame = route.get();
-        if route_request_targets_runtime_overlay(&frame.request) {
-            ctx.system_global_fs
-                .with(|fs| build_directory_model(fs, &frame.resolution.node_path))
-        } else {
-            ctx.content.with_fs(|fs| {
-                build_directory_model_with_bundle_context(
-                    fs,
-                    &frame.resolution.node_path,
-                    frame.resolution.bundle_variant.as_ref(),
-                )
-            })
-        }
+        ctx.with_fs_at(&frame.resolution.node_path, |fs| {
+            build_directory_model_with_bundle_context(
+                fs,
+                &frame.resolution.node_path,
+                frame.resolution.bundle_variant.as_ref(),
+            )
+        })
     });
     let attestation_route = Signal::derive(move || {
         let frame = route.get();

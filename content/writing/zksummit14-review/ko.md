@@ -3,7 +3,6 @@ title: "ZK Summit 14 리뷰: 발표, 주제, 시사점"
 date: "2026-05-18"
 tags: [review, zk, event, cryptography]
 description: "ZK Summit 14의 발표, 주요 주제, 시사점을 정리합니다."
-language: ko
 ---
 
 # ZK Summit 14 리뷰: 발표, 주제, 시사점

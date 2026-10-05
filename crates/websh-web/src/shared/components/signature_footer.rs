@@ -14,7 +14,7 @@ pub fn nearest_attestation_route_for_content_path(path: &VirtualPath) -> String 
     let Ok(artifact) = websh_site::attestation_artifact() else {
         return fallback;
     };
-    nearest_attestation_route_for_content_path_in_artifact(&artifact, path).unwrap_or(fallback)
+    nearest_attestation_route_for_content_path_in_artifact(artifact, path).unwrap_or(fallback)
 }
 
 fn nearest_attestation_route_for_content_path_in_artifact(

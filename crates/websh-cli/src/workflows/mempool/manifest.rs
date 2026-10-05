@@ -2,9 +2,10 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, bail};
-use sha2::{Digest, Sha256};
+use websh_core::attestation::artifact::sha256_hex;
 use websh_core::domain::{
-    ContentManifestDocument, ContentManifestEntry, Fields, MempoolFields, NodeKind, NodeMetadata,
+    ContentManifestDocument, ContentManifestEntry, DerivedMetadata, MempoolFields, NodeKind,
+    NodeMetadata,
 };
 use websh_core::mempool::LEDGER_CATEGORIES;
 
@@ -90,13 +91,13 @@ fn build_entry(path: &EntryPath, body: &str) -> CliResult<ContentManifestEntry> 
             kind: NodeKind::Page,
             bundle: None,
             authored: draft.metadata.fields(),
-            derived: Fields {
+            derived: DerivedMetadata {
                 size_bytes: Some(body.len() as u64),
-                content_sha256: Some(format!("0x{}", hex::encode(Sha256::digest(body)))),
+                content_sha256: Some(sha256_hex(body.as_bytes())),
                 word_count: Some(
                     u32::try_from(draft.body.split_whitespace().count()).unwrap_or(u32::MAX),
                 ),
-                ..Fields::default()
+                ..DerivedMetadata::default()
             },
         },
         mempool: Some(MempoolFields {

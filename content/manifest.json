@@ -7,8 +7,6 @@
         "authored": {},
         "derived": {
           "title": "Home",
-          "kind": "directory",
-          "renderer": "directory_listing",
           "child_count": 6
         }
       }
@@ -28,8 +26,6 @@
         },
         "derived": {
           "title": ".site",
-          "kind": "directory",
-          "renderer": "directory_listing",
           "child_count": 3
         }
       }
@@ -43,8 +39,6 @@
         },
         "derived": {
           "title": "errors",
-          "kind": "directory",
-          "renderer": "directory_listing",
           "child_count": 1
         }
       }
@@ -59,8 +53,6 @@
         },
         "derived": {
           "title": "404",
-          "kind": "page",
-          "renderer": "markdown_page",
           "size_bytes": 582,
           "content_sha256": "0x0621834d4f48da42dcc8bd35bc8f940ab60cd865047e7af7e431732a7768d922",
           "word_count": 79
@@ -77,8 +69,6 @@
         },
         "derived": {
           "title": "keys",
-          "kind": "directory",
-          "renderer": "directory_listing",
           "child_count": 1
         }
       }
@@ -93,7 +83,6 @@
         },
         "derived": {
           "title": "wonjae",
-          "kind": "document",
           "size_bytes": 640,
           "content_sha256": "0xe2b439e3359273df2e82a30b5b0f68990626abf89065c5f71fb7189bee781c5b"
         }
@@ -108,7 +97,6 @@
         },
         "derived": {
           "title": "now",
-          "kind": "document",
           "size_bytes": 298,
           "content_sha256": "0x402f591372dc8f8a28265338f0a4ca7367656b5cac1000fd3f7adee608c4691a"
         }
@@ -121,8 +109,6 @@
         "authored": {},
         "derived": {
           "title": ".websh",
-          "kind": "directory",
-          "renderer": "directory_listing",
           "child_count": 2
         }
       }
@@ -134,9 +120,8 @@
         "authored": {},
         "derived": {
           "title": "ledger",
-          "kind": "data",
           "size_bytes": 6468,
-          "content_sha256": "0x3273d3e2402717b1d1b7ab95df8fafbb02baea8e02b09b34e5a18913773b4848"
+          "content_sha256": "0xd08ab4f2b2849bdf95896f8e058088cc2d29c173d578e5a2d91f064da7d3a6a0"
         }
       }
     },
@@ -147,8 +132,6 @@
         "authored": {},
         "derived": {
           "title": "mounts",
-          "kind": "directory",
-          "renderer": "directory_listing",
           "child_count": 1
         }
       }
@@ -160,7 +143,6 @@
         "authored": {},
         "derived": {
           "title": "mempool.mount",
-          "kind": "data",
           "size_bytes": 141,
           "content_sha256": "0x203c96e66927965f98ccee9e19152ca82c59af6fb7b32d03bd898e60bbabd3db"
         }
@@ -173,8 +155,6 @@
         "authored": {},
         "derived": {
           "title": "papers",
-          "kind": "directory",
-          "renderer": "directory_listing",
           "child_count": 0
         }
       }
@@ -186,8 +166,6 @@
         "authored": {},
         "derived": {
           "title": "projects",
-          "kind": "directory",
-          "renderer": "directory_listing",
           "child_count": 0
         }
       }
@@ -199,8 +177,6 @@
         "authored": {},
         "derived": {
           "title": "talks",
-          "kind": "directory",
-          "renderer": "directory_listing",
           "child_count": 1
         }
       }
@@ -231,14 +207,11 @@
         },
         "derived": {
           "title": "evaluating-compiler-optimization-impacts-on-zkvm-performance",
-          "kind": "document",
-          "renderer": "pdf",
           "page_size": {
             "width": 960,
             "height": 540
           },
           "page_count": 31,
-          "rotation": 0,
           "size_bytes": 3417199,
           "content_sha256": "0x2652af4104e2138d8b449fe60ff09d0a35217fd8a76fef28478e4219e12583bb"
         }
@@ -251,8 +224,6 @@
         "authored": {},
         "derived": {
           "title": "writing",
-          "kind": "directory",
-          "renderer": "directory_listing",
           "child_count": 2
         }
       }
@@ -302,7 +273,6 @@
         },
         "derived": {
           "title": "zk-proofs-from-a-compiler-perspective",
-          "kind": "bundle",
           "child_count": 2
         }
       }
@@ -313,7 +283,6 @@
         "kind": "page",
         "authored": {
           "title": "Zero-Knowledge Proofs, from a Compiler Perspective",
-          "language": "en",
           "description": "How programs become relations, constraints, traces, and proofs.",
           "date": "2026-05-15",
           "tags": [
@@ -326,10 +295,8 @@
         },
         "derived": {
           "title": "en",
-          "kind": "page",
-          "renderer": "markdown_page",
-          "size_bytes": 25411,
-          "content_sha256": "0x028d827981ab38991e1ae77626fc08877460e775cffda6f01f9dceea90e9f610",
+          "size_bytes": 25398,
+          "content_sha256": "0xd5d84166068bdff14fff60cbdbd4efc7de3ec6476f2a137a683f8be55eca98b8",
           "word_count": 3951
         }
       }
@@ -340,7 +307,6 @@
         "kind": "page",
         "authored": {
           "title": "컴파일러 관점에서 보는 영지식 증명",
-          "language": "ko",
           "description": "프로그램이 relation, constraint, trace, proof가 되는 과정을 컴파일러 관점에서 설명합니다.",
           "date": "2026-05-15",
           "tags": [
@@ -353,10 +319,8 @@
         },
         "derived": {
           "title": "ko",
-          "kind": "page",
-          "renderer": "markdown_page",
-          "size_bytes": 30288,
-          "content_sha256": "0x68c65139572943632cec6a612c3f6db68d73f194ee626636d40ee726326a2709",
+          "size_bytes": 30275,
+          "content_sha256": "0x0ea66ea18c4a4fb46eeb0820634316d6212099a0df9ca38e080db38cfe255337",
           "word_count": 3080
         }
       }
@@ -410,7 +374,6 @@
         },
         "derived": {
           "title": "zksummit14-review",
-          "kind": "bundle",
           "child_count": 2
         }
       }
@@ -421,7 +384,6 @@
         "kind": "page",
         "authored": {
           "title": "ZK Summit 14 Review: Talks, Themes, and Takeaways",
-          "language": "en",
           "description": "A program-level review of ZK Summit 14, covering talks, themes, and takeaways.",
           "date": "2026-05-18",
           "tags": [
@@ -433,10 +395,8 @@
         },
         "derived": {
           "title": "en",
-          "kind": "page",
-          "renderer": "markdown_page",
-          "size_bytes": 22295,
-          "content_sha256": "0xa82324c9153458e811d378115e6654f12a2633abe69264ed2e4a8bbcc7b5603e",
+          "size_bytes": 22282,
+          "content_sha256": "0xb9a2e037ca3e418b7bd053aafae1ce9a1ba86b958684aec0220b37f89546fbbc",
           "word_count": 3075
         }
       }
@@ -447,7 +407,6 @@
         "kind": "page",
         "authored": {
           "title": "ZK Summit 14 리뷰: 발표, 주제, 시사점",
-          "language": "ko",
           "description": "ZK Summit 14의 발표, 주요 주제, 시사점을 정리합니다.",
           "date": "2026-05-18",
           "tags": [
@@ -459,10 +418,8 @@
         },
         "derived": {
           "title": "ko",
-          "kind": "page",
-          "renderer": "markdown_page",
-          "size_bytes": 24749,
-          "content_sha256": "0xe8a0ccf4e32c78d95834240af9049bab2fff14567e669416f7836411c401aeff",
+          "size_bytes": 24736,
+          "content_sha256": "0xbed45d3fcf696908668132a435a322196ba0004641bf24c6d77a3d15477b2de5",
           "word_count": 2528
         }
       }

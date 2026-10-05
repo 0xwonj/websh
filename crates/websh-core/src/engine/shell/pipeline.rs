@@ -1,7 +1,7 @@
 //! Pipeline execution for parsed shell commands.
 
 use crate::domain::{RuntimeMount, VirtualPath, WalletState};
-use crate::engine::filesystem::GlobalFs;
+use crate::engine::filesystem::FsView;
 use crate::engine::shell::parser::Pipeline;
 
 use super::{Command, CommandResult, ExecutionContext, apply_filter, execute_command_with_context};
@@ -14,7 +14,7 @@ pub fn execute_pipeline(
     pipeline: &Pipeline,
     wallet_state: &WalletState,
     runtime_mounts: &[RuntimeMount],
-    fs: &GlobalFs,
+    fs: FsView<'_>,
     cwd: &VirtualPath,
 ) -> CommandResult {
     execute_pipeline_with_context(
@@ -32,7 +32,7 @@ pub fn execute_pipeline_with_context(
     pipeline: &Pipeline,
     wallet_state: &WalletState,
     runtime_mounts: &[RuntimeMount],
-    fs: &GlobalFs,
+    fs: FsView<'_>,
     cwd: &VirtualPath,
     context: &ExecutionContext,
 ) -> CommandResult {
@@ -71,6 +71,7 @@ pub fn execute_pipeline_with_context(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::filesystem::GlobalFs;
     use crate::shell::{SideEffect, parse_input};
 
     fn execute(input: &str) -> CommandResult {
@@ -78,7 +79,7 @@ mod tests {
             &parse_input(input, &[]),
             &WalletState::Disconnected,
             &[],
-            &GlobalFs::empty(),
+            FsView::content(&GlobalFs::empty()),
             &VirtualPath::root(),
         )
     }

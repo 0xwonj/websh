@@ -1,6 +1,6 @@
 use anyhow::{Context, bail};
 use serde::Deserialize;
-use websh_core::domain::{Fields, MempoolStatus, Priority};
+use websh_core::domain::{AuthoredMetadata, MempoolStatus, Priority};
 use websh_core::mempool::LEDGER_CATEGORIES;
 use websh_core::support::format::iso_date_prefix;
 
@@ -27,24 +27,11 @@ pub(super) struct Draft<'a> {
 
 impl<'a> Draft<'a> {
     pub(super) fn parse(source: &'a str) -> CliResult<Self> {
-        let rest = source
-            .strip_prefix("---\n")
-            .or_else(|| source.strip_prefix("---\r\n"))
-            .context("draft must begin with YAML frontmatter")?;
-        let mut offset = 0;
-        for line in rest.split_inclusive('\n') {
-            if line.trim_end() == "---" {
-                let metadata: Metadata =
-                    serde_norway::from_str(&rest[..offset]).context("parse draft frontmatter")?;
-                metadata.validate()?;
-                return Ok(Self {
-                    metadata,
-                    body: &rest[offset + line.len()..],
-                });
-            }
-            offset += line.len();
-        }
-        bail!("draft frontmatter is missing its closing --- fence")
+        let (yaml, body) = crate::workflows::content::frontmatter::split_yaml_frontmatter(source)
+            .context("draft requires complete YAML frontmatter")?;
+        let metadata: Metadata = serde_norway::from_str(yaml).context("parse draft frontmatter")?;
+        metadata.validate()?;
+        Ok(Self { metadata, body })
     }
 
     pub(super) fn canonical(&self) -> CliResult<String> {
@@ -75,12 +62,12 @@ impl Metadata {
         Ok(())
     }
 
-    pub(super) fn fields(&self) -> Fields {
-        Fields {
+    pub(super) fn fields(&self) -> AuthoredMetadata {
+        AuthoredMetadata {
             title: Some(self.title.clone()),
             date: self.modified.clone(),
             tags: (!self.tags.is_empty()).then(|| self.tags.clone()),
-            ..Fields::default()
+            ..AuthoredMetadata::default()
         }
     }
 }

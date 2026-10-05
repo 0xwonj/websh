@@ -7,7 +7,7 @@ use crate::app::AppContext;
 use crate::shared::components::{FileMeta, file_meta_for_path, size_summary_parts};
 use websh_core::domain::{BundleMetadata, ImageDim, LinkRef, NodeKind, PageSize, VirtualPath};
 use websh_core::filesystem::bundle_variant_href;
-use websh_core::support::format::{format_date_iso, format_size};
+use websh_core::support::format::format_size;
 
 use super::intent::{ReaderFrame, ReaderIntent};
 
@@ -15,14 +15,13 @@ use super::intent::{ReaderFrame, ReaderIntent};
 pub struct ReaderMeta {
     pub title: String,
     pub canonical_path: VirtualPath,
-    pub modified_iso: Option<String>,
     pub date: Option<String>,
     pub size_pretty: Option<String>,
     pub tags: Vec<String>,
     pub links: Vec<LinkRef>,
     pub description: String,
     pub media_type_hint: Option<&'static str>,
-    /// Effective kind, used by the title strip to render a friendly label
+    /// Node kind, used by the title strip to render a friendly label
     /// (e.g. `Page` → "Note") and by view dispatch to pick the right
     /// metric for the right-hand side of the strip.
     pub kind: NodeKind,
@@ -50,12 +49,6 @@ pub struct ReaderVariantLink {
 }
 
 impl ReaderMeta {
-    /// Display value for the single `Date` row — author-declared `date`
-    /// preferred, mechanical `modified_iso` as fallback, `None` if neither.
-    pub fn display_date(&self) -> Option<String> {
-        self.date.clone().or_else(|| self.modified_iso.clone())
-    }
-
     /// Kind-aware size chunks, sharing logic with
     /// [`FileMeta::size_summary_parts`] so the same file produces the
     /// same chunks in the title strip and the ledger entry meta line.
@@ -71,7 +64,7 @@ impl ReaderMeta {
 
 pub fn reader_meta(ctx: AppContext, frame: &ReaderFrame) -> ReaderMeta {
     let intent = &frame.intent;
-    ctx.content.with_fs(|fs| {
+    ctx.with_fs_at(&frame.resolution.node_path, |fs| {
         if let Some(context) = frame.resolution.bundle_variant.as_ref() {
             let bundle_path = &context.bundle_path;
             let variant_id = &context.variant_id;
@@ -118,7 +111,6 @@ fn node_path_for(intent: &ReaderIntent) -> VirtualPath {
 fn build_reader_meta(intent: &ReaderIntent, node_path: &VirtualPath, meta: FileMeta) -> ReaderMeta {
     let title = non_empty(meta.title.clone()).unwrap_or_else(|| fallback_title_for_path(node_path));
 
-    let modified_iso = meta.modified.map(format_date_iso);
     let date = meta.clean_date();
     let size_pretty = meta.size.map(|size| format_size(Some(size), false));
     let tags = meta.clean_tags();
@@ -129,7 +121,6 @@ fn build_reader_meta(intent: &ReaderIntent, node_path: &VirtualPath, meta: FileM
     ReaderMeta {
         title,
         canonical_path: node_path.clone(),
-        modified_iso,
         date,
         size_pretty,
         tags,
@@ -173,7 +164,6 @@ fn build_bundle_reader_meta(input: BundleReaderMetaInput<'_>) -> ReaderMeta {
         .or_else(|| non_empty(bundle_meta.title.clone()))
         .or_else(|| non_empty(variant_meta.title.clone()))
         .unwrap_or(fallback_title);
-    let modified_iso = variant_meta.modified.map(format_date_iso);
     let date = bundle_meta
         .clean_date()
         .or_else(|| variant_meta.clean_date());
@@ -207,7 +197,6 @@ fn build_bundle_reader_meta(input: BundleReaderMetaInput<'_>) -> ReaderMeta {
     ReaderMeta {
         title,
         canonical_path: variant_path.clone(),
-        modified_iso,
         date,
         size_pretty,
         tags,
@@ -302,11 +291,37 @@ mod tests {
             title: "Sample".to_string(),
             description: Some("An abstract.".to_string()),
             size: Some(1024),
-            modified: Some(1_704_067_200),
             date: Some("2026-04-22".to_string()),
             tags: vec!["paper".to_string(), "draft".to_string()],
             ..FileMeta::default()
         }
+    }
+
+    #[wasm_bindgen_test]
+    fn runtime_reader_uses_overlay_metadata() {
+        use leptos::prelude::*;
+        use websh_core::domain::runtime_state_root;
+        use websh_core::filesystem::{
+            RouteFrame, RouteRequest, build_render_intent, try_resolve_route,
+        };
+
+        let owner = Owner::new();
+        owner.with(|| {
+            let ctx = AppContext::new();
+            let path = runtime_state_root().join("wallet/connection.json");
+            let request = RouteRequest::new(path.as_str());
+            let resolution = ctx
+                .runtime_overlay
+                .with(|fs| try_resolve_route(fs, &request).unwrap().unwrap());
+            let frame = ReaderFrame::try_from(RouteFrame {
+                intent: build_render_intent(&resolution),
+                request,
+                resolution,
+            })
+            .unwrap();
+            assert!(!ctx.content.with_fs(|fs| fs.exists(&path)));
+            assert_eq!(reader_meta(ctx, &frame).kind, NodeKind::Data);
+        });
     }
 
     #[wasm_bindgen_test]
@@ -318,7 +333,6 @@ mod tests {
         assert_eq!(meta.title, "Sample");
         assert_eq!(meta.media_type_hint, Some("UTF-8 · CommonMark"));
         assert_eq!(meta.date.as_deref(), Some("2026-04-22"));
-        assert!(meta.modified_iso.is_some());
         assert_eq!(meta.tags, vec!["paper", "draft"]);
     }
 
@@ -336,7 +350,6 @@ mod tests {
         assert_eq!(result.media_type_hint, Some("UTF-8 · LF"));
         assert!(result.size_pretty.is_some());
         assert!(result.date.is_none());
-        assert!(result.modified_iso.is_none());
         assert!(result.tags.is_empty());
         assert_eq!(result.description, "");
     }
@@ -432,40 +445,6 @@ mod tests {
         });
 
         assert_eq!(result.title, "Korean Title");
-    }
-
-    fn reader_meta_with(date: Option<&str>, modified_iso: Option<&str>) -> ReaderMeta {
-        ReaderMeta {
-            title: "x".to_string(),
-            canonical_path: vp("/x"),
-            modified_iso: modified_iso.map(String::from),
-            date: date.map(String::from),
-            size_pretty: None,
-            tags: vec![],
-            links: Vec::new(),
-            description: String::new(),
-            media_type_hint: None,
-            kind: NodeKind::Page,
-            page_size: None,
-            page_count: None,
-            image_dimensions: None,
-            word_count: None,
-            variants: Vec::new(),
-        }
-    }
-
-    #[wasm_bindgen_test]
-    fn display_date_cases() {
-        let cases = [
-            (Some("2026-04-22"), Some("2026-04-30"), Some("2026-04-22")),
-            (None, Some("2026-04-30"), Some("2026-04-30")),
-            (None, None, None),
-        ];
-
-        for (date, modified, expected) in cases {
-            let m = reader_meta_with(date, modified);
-            assert_eq!(m.display_date().as_deref(), expected);
-        }
     }
 
     #[wasm_bindgen_test]

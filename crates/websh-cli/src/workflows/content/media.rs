@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use websh_core::domain::{Fields, ImageDim, PageSize};
+use websh_core::domain::{DerivedMetadata, ImageDim, PageSize};
 
 use crate::CliResult;
 
@@ -9,8 +9,8 @@ use super::frontmatter::strip_yaml_frontmatter;
 /// Compute file-type-specific derived fields (page_size for PDFs,
 /// dimensions for images, word_count for markdown). Filesystem-level
 /// integrity fields (`size_bytes`, `content_sha256`) are populated by the caller.
-pub(crate) fn derived_for_bytes(rel_path: &str, bytes: &[u8]) -> CliResult<Fields> {
-    let mut fields = Fields::default();
+pub(crate) fn derived_for_bytes(rel_path: &str, bytes: &[u8]) -> CliResult<DerivedMetadata> {
+    let mut fields = DerivedMetadata::default();
     let extension = Path::new(rel_path)
         .extension()
         .and_then(|ext| ext.to_str())
@@ -18,10 +18,9 @@ pub(crate) fn derived_for_bytes(rel_path: &str, bytes: &[u8]) -> CliResult<Field
 
     match extension.as_deref() {
         Some("pdf") => match read_pdf_dimensions(bytes) {
-            Ok((page_size, page_count, rotation)) => {
+            Ok((page_size, page_count, _)) => {
                 fields.page_size = Some(page_size);
                 fields.page_count = Some(page_count);
-                fields.rotation = Some(rotation);
             }
             Err(error) => {
                 eprintln!("warn: pdf {}: {error}", rel_path);

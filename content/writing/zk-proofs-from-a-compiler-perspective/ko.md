@@ -3,7 +3,6 @@ title: "컴파일러 관점에서 보는 영지식 증명"
 date: "2026-05-15"
 tags: [explainer, zk, compilers, proof-systems, arithmetization]
 description: "프로그램이 relation, constraint, trace, proof가 되는 과정을 컴파일러 관점에서 설명합니다."
-language: ko
 ---
 
 # 컴파일러 관점에서 보는 영지식 증명

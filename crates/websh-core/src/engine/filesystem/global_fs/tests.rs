@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::domain::{EntryExtensions, Fields, NodeKind, NodeMetadata};
+use crate::domain::{AuthoredMetadata, DerivedMetadata, EntryExtensions, NodeKind, NodeMetadata};
 use crate::ports::{ScannedDirectory, ScannedFile, ScannedSubtree};
 
 use super::*;
@@ -9,8 +9,8 @@ fn file_meta(kind: NodeKind) -> NodeMetadata {
     NodeMetadata {
         kind,
         bundle: None,
-        authored: Fields::default(),
-        derived: Fields::default(),
+        authored: AuthoredMetadata::default(),
+        derived: DerivedMetadata::default(),
     }
 }
 
@@ -18,15 +18,15 @@ fn dir_meta(name: &str) -> NodeMetadata {
     NodeMetadata {
         kind: NodeKind::Directory,
         bundle: None,
-        authored: Fields {
+        authored: AuthoredMetadata {
             title: if name.is_empty() {
                 None
             } else {
                 Some(name.to_string())
             },
-            ..Fields::default()
+            ..AuthoredMetadata::default()
         },
-        derived: Fields::default(),
+        derived: DerivedMetadata::default(),
     }
 }
 
@@ -311,18 +311,11 @@ fn recipient_read_markers_follow_current_wallet_without_write_capability() {
         chain_id: Some(1),
     };
     assert_eq!(
-        fs.get_permissions(entry, &WalletState::Disconnected)
-            .to_string(),
+        entry.permissions(&WalletState::Disconnected).to_string(),
         "----"
     );
-    assert_eq!(
-        fs.get_permissions(entry, &wallet("0xabc")).to_string(),
-        "-r--"
-    );
-    assert_eq!(
-        fs.get_permissions(entry, &wallet("0xdef")).to_string(),
-        "----"
-    );
+    assert_eq!(entry.permissions(&wallet("0xabc")).to_string(), "-r--");
+    assert_eq!(entry.permissions(&wallet("0xdef")).to_string(), "----");
     assert_eq!(fs.read_inline_text(&path).unwrap(), "public bytes");
 }
 

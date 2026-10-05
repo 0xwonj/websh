@@ -43,7 +43,6 @@ imagesize = { version = "0.14", default-features = false, features = ["gif", "jp
 lopdf = { version = "0.44", default-features = false }
 pgp = "0.19"
 serde_norway = "0.9"
-tokio = { version = "1", features = ["macros", "rt"] }
 
 # Browser / WASM runtime and UI.
 ammonia = "4"
