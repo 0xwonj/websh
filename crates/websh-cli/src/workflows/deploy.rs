@@ -24,9 +24,14 @@ fn publish(root: &Path) -> CliResult<Deployment> {
     let cid = pinata::upload(root, &format!("websh-{seconds}"), &envs)?;
     // Publication cannot be rolled back by a failed local receipt write. Return
     // its CID and a warning so callers do not repeat a successful upload.
-    let receipt_warning = write_bytes(&root.join(".last-cid"), format!("{cid}\n").as_bytes())
-        .err()
-        .map(|error| format!("upload succeeded, but .last-cid could not be saved: {error:#}"));
+    let receipt_warning = write_bytes(
+        &root.join(".websh/local/deploy/cid"),
+        format!("{cid}\n").as_bytes(),
+    )
+    .err()
+    .map(|error| {
+        format!("upload succeeded, but .websh/local/deploy/cid could not be saved: {error:#}")
+    });
     Ok(Deployment {
         cid,
         receipt_warning,
@@ -86,7 +91,7 @@ printf 'upload\n' >> calls
         assert_eq!(result.cid, cid);
         assert!(result.receipt_warning.is_none());
         assert_eq!(
-            fs::read_to_string(root.join(".last-cid")).unwrap(),
+            fs::read_to_string(root.join(".websh/local/deploy/cid")).unwrap(),
             format!("{cid}\n")
         );
 
@@ -102,13 +107,13 @@ printf 'upload\n' >> calls
                 .contains("inspect the remote upload before retrying")
         );
         assert_eq!(
-            fs::read_to_string(root.join(".last-cid")).unwrap(),
+            fs::read_to_string(root.join(".websh/local/deploy/cid")).unwrap(),
             format!("{cid}\n")
         );
 
         fs::write(root.join("response.json"), response).unwrap();
-        fs::remove_file(root.join(".last-cid")).unwrap();
-        fs::create_dir(root.join(".last-cid")).unwrap();
+        fs::remove_file(root.join(".websh/local/deploy/cid")).unwrap();
+        fs::create_dir(root.join(".websh/local/deploy/cid")).unwrap();
         let result = publish(&root).unwrap();
         assert_eq!(result.cid, cid);
         assert!(result.receipt_warning.unwrap().contains("upload succeeded"));

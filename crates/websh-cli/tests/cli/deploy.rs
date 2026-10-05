@@ -11,7 +11,12 @@ fn deploy_rejects_an_unsigned_project_without_running_tools_or_changing_the_bund
     cli(&root, &["sync"]);
     fs::create_dir(root.join("dist")).unwrap();
     fs::write(root.join("dist/index.html"), "prebuilt").unwrap();
-    fs::write(root.join(".last-cid"), "previous deployment\n").unwrap();
+    fs::create_dir_all(root.join(".websh/local/deploy")).unwrap();
+    fs::write(
+        root.join(".websh/local/deploy/cid"),
+        "previous deployment\n",
+    )
+    .unwrap();
     let bin = root.join("bin");
     fs::create_dir(&bin).unwrap();
     let tool = bin.join("pinata");
@@ -40,7 +45,7 @@ fn deploy_rejects_an_unsigned_project_without_running_tools_or_changing_the_bund
         "prebuilt"
     );
     assert_eq!(
-        fs::read_to_string(root.join(".last-cid")).unwrap(),
+        fs::read_to_string(root.join(".websh/local/deploy/cid")).unwrap(),
         "previous deployment\n"
     );
 }
