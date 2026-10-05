@@ -293,7 +293,7 @@
 
 .metaValue {
   padding: 6px 10px;
-  word-break: break-word;
+  overflow-wrap: anywhere;
   color: var(--text-primary);
 }
 

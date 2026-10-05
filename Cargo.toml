@@ -24,7 +24,7 @@ websh-core = { path = "crates/websh-core", version = "0.1.0", default-features =
 websh-site = { path = "crates/websh-site", version = "0.1.0" }
 
 # Shared data, hashing, parsing, and crypto primitives.
-alloy-primitives = { version = "1", features = ["k256", "serde"] }
+alloy-primitives = { version = "1.7.3", features = ["k256", "serde"] }
 base64 = "0.22"
 hex = "0.4"
 regex = { version = "1", default-features = false, features = ["std", "perf"] }
@@ -41,7 +41,7 @@ clap = { version = "4", features = ["derive"] }
 cid = "0.11.3"
 imagesize = { version = "0.14", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
 lopdf = { version = "0.44", default-features = false }
-pgp = "0.19"
+pgp = "0.21"
 serde_norway = "0.9"
 
 # Browser / WASM runtime and UI.

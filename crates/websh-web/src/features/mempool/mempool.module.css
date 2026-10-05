@@ -2,7 +2,7 @@
   border: 1px dashed var(--ledger-rule);
   margin: var(--space-3_5) 0 var(--space-7);
   font-family: var(--font-mono);
-  background: rgba(214, 163, 92, 0.02);
+  background: rgb(214, 163, 92, 0.02);
   position: relative;
   opacity: 0.94;
 }

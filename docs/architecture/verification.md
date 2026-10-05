@@ -71,16 +71,22 @@ Budgets change only for an explained product or packaging change.
 `cargo deny` and `cargo machete` enforce Rust dependency policy. The vendored `syn_derive`
 patch replaces an unmaintained diagnostic dependency with `syn::Error`; its license,
 delta, and diagnostic tests remain under `vendor/syn_derive`. Remove the patch when a
-published upstream release supplies the maintained path.
+supported upstream dependency graph no longer needs `proc-macro-error2`. Current
+Leptos macro dependencies require `rstml ^0.12`; the maintained path in `rstml 0.13.1`
+does not satisfy that constraint.
 
 [deny.toml](../../deny.toml) records two exceptions: `RUSTSEC-2023-0071` for the RSA
 dependency used by local PGP verification/import, and `RUSTSEC-2024-0436` for upstream
-`paste`. A passing gate does not mean the dependency graph has no advisories.
+`paste`. PGP signing runs through GPG, not the Rust RSA dependency. Remove the RSA
+exception when PGP adopts a fixed release, and the `paste` exception when every
+Leptos/alloy dependency path removes or replaces it. A passing gate does not mean
+the dependency graph has no advisories.
 
 The npm audit on 2026-10-05 reported
 [braces GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm) through
-seven high-severity development-package entries in Stylelint's chain. At that audit,
-there was no patched release; npm proposed an unsuitable old Stylelint downgrade.
+seven high-severity development-package entries after updating Stylelint to 17.16.0
+and its standard configuration to 40.0.0. The latest matcher chain still uses
+`braces 3.0.3`, with no patched release; npm proposed an unsuitable old Stylelint downgrade.
 The CSS gate supplies source text and explicit filenames, with fixed configuration
 patterns. These packages are not shipped, and no advisory is suppressed. A maintained
 upstream fix remains follow-up work.

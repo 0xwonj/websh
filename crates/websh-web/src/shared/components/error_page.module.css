@@ -72,7 +72,7 @@
 .metaValue {
   padding: 8px 12px;
   color: var(--text-primary);
-  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .metaTag {

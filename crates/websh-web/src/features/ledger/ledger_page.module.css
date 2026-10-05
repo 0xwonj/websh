@@ -64,7 +64,7 @@
 
 .headVal {
   padding: var(--space-1_5) var(--space-3);
-  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .headVal code {

@@ -26,17 +26,17 @@
 
   --accent: #88c0d0;
   --accent-muted: #5e81ac;
-  --accent-glow: rgba(136, 192, 208, 0.28);
+  --accent-glow: rgb(136, 192, 208, 0.28);
 
-  --border-muted: rgba(216, 222, 233, 0.22);
-  --border-subtle: rgba(216, 222, 233, 0.12);
+  --border-muted: rgb(216, 222, 233, 0.22);
+  --border-subtle: rgb(216, 222, 233, 0.12);
   --archive-bar-bg: #242933;
-  --surface-tint: rgba(216, 222, 233, 0.035);
-  --selection-bg: rgba(136, 192, 208, 0.22);
-  --selected-bg: rgba(143, 188, 187, 0.14);
-  --selected-hover-bg: rgba(143, 188, 187, 0.22);
-  --backdrop-bg: rgba(36, 41, 51, 0.68);
-  --shadow-color: rgba(0, 0, 0, 0.34);
-  --crt-scanline: rgba(0, 0, 0, 0.1);
-  --crt-sweep: rgba(216, 222, 233, 0.025);
+  --surface-tint: rgb(216, 222, 233, 0.035);
+  --selection-bg: rgb(136, 192, 208, 0.22);
+  --selected-bg: rgb(143, 188, 187, 0.14);
+  --selected-hover-bg: rgb(143, 188, 187, 0.22);
+  --backdrop-bg: rgb(36, 41, 51, 0.68);
+  --shadow-color: rgb(0, 0, 0, 0.34);
+  --crt-scanline: rgb(0, 0, 0, 0.1);
+  --crt-sweep: rgb(216, 222, 233, 0.025);
 }

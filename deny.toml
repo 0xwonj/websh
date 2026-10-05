@@ -10,7 +10,7 @@ targets = [
 [advisories]
 yanked = "deny"
 ignore = [
-    { id = "RUSTSEC-2023-0071", reason = "Transitive through pgp 0.19. websh-cli uses pgp for local detached signature verification/import, not network-observable RSA private-key operations." },
+    { id = "RUSTSEC-2023-0071", reason = "Transitive through pgp 0.21. websh-cli uses pgp for local detached signature verification/import, not network-observable RSA private-key operations. Remove when pgp adopts a fixed RSA release." },
     { id = "RUSTSEC-2024-0436", reason = "Transitive through maintained upstream crates. Keep visible until Leptos/alloy-primitives remove paste or expose a replacement path." },
 ]
 
