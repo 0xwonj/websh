@@ -21,8 +21,9 @@ operation in its owning layer instead of adding a second task framework.
 `package.json`; native tool pins live in `scripts/tools.json`. Matching installed tools are reused;
 missing native tools are installed under `target/tools`. The WASM test runner
 must match `Cargo.lock`. Setup installs; verification checks without installing.
-Optional publishing tools such as GPG, GitHub CLI, and Pinata are required only by
-the corresponding native workflows.
+GPG is required only for local signing; Pinata is required only for deployment.
+The native CLI does not execute Git or GitHub CLI. Editing and pushing authored
+repositories remain ordinary Git operations.
 
 ## Build outputs
 
@@ -30,7 +31,7 @@ the corresponding native workflows.
 | --- | --- |
 | `dist/` | Normal release build |
 | `dist-dev/` | Development server |
-| `dist-<name>/` | Explicit custom deployment output |
+| `dist-<name>/` | Reserved named Trunk outputs, including development builds |
 | `target/verify/source/` | Isolated verification source snapshot |
 | `target/verify/dist/` | Shared artifact for size and E2E checks |
 | `target/debug/`, `target/release/`, `target/wasm32-unknown-unknown/` | Cargo compilation caches |
@@ -41,13 +42,20 @@ Development and checks share normal Cargo caches. Verification stages source to
 protect authored files and published signatures; it reuses the repository's compiler
 cache. No development task renames or swaps the real `content/` directory.
 
-Trunk runs Stylance and one `websh-cli prepare` hook. Independent hooks may execute
-concurrently, so only `prepare` writes content, ledger, and attestation artifacts.
-Deployment accepts only root-level `dist` or `dist-<name>` output directories and
-rejects symlinks; source paths cannot be selected for build cleanup. Deployment alone
-reads the repository `.env`, and passes values to its child
-processes without changing the parent environment. General development and checks
-do not implicitly load deployment credentials.
+Trunk runs Stylance and one `websh-cli sync` hook. Independent hooks may execute
+concurrently, so only sync writes content, ledger, acknowledgement, and subject artifacts.
+All profiles generate the same deterministic data. Generation does not read Git history,
+require GPG, or invoke a signer.
+
+`just publish` explicitly runs sync, `attest sign`, a locked release build, and `deploy`.
+Deployment validates the fixed existing `dist/`; it does not build or remove outputs.
+For an offline signature flow, import the signatures and run `just build` followed by
+`cargo run --locked -p websh-cli -- deploy`. Strict publication requires the site's PGP
+identity, while supplemental Ethereum signatures do not satisfy that requirement.
+
+Deployment alone reads the repository `.env` and passes values to its Pinata child
+without changing the parent environment. General development, generation, signing,
+and checks do not implicitly load deployment credentials.
 
 ## Cleanup
 

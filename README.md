@@ -17,7 +17,7 @@ The current workspace has four crates:
 |---|---|
 | `websh-core` | Shared domain types, filesystem engine, shell engine, runtime coordination, mempool helpers, attestation primitives, storage ports, and public facades. |
 | `websh-site` | Deployed-site identity and policy constants such as public key material, expected fingerprints, acknowledgement data, and site-specific copy. |
-| `websh-cli` | Native command adapter for content generation, attestation, deployment, mempool workflows, and mount setup. |
+| `websh-cli` | Native content generation and checks, explicit signing, local draft import, acknowledgements, and publication. |
 | `websh-web` | Leptos browser adapter, `AppContext`, runtime owners, IndexedDB/localStorage adapters, feature views, and browser platform APIs. |
 
 Architecture docs live in [docs/architecture/current.md](docs/architecture/current.md).
@@ -40,7 +40,7 @@ already on `PATH`; otherwise native binaries go under `target/tools/bin`.
 After bootstrap, use `just --list` for developer tasks and `just setup` to refresh tools.
 Verification checks prerequisites without installing anything.
 
-Release signing and deployment use local tools: `gpg` is optional for PGP signatures, the Pinata CLI is required for `just pin`, and `gh` is required for mount/bootstrap workflows that touch GitHub repositories.
+Publishing uses GPG with the deployed site’s signing key and the Pinata CLI. Generation and verification require neither tool. Draft repositories use ordinary editors and Git; the app CLI does not require GitHub CLI.
 
 ## Development
 
@@ -48,7 +48,7 @@ Release signing and deployment use local tools: `gpg` is optional for PGP signat
 just serve
 ```
 
-The dev server listens on `http://127.0.0.1:8080` and writes to `dist-dev/`. Stylance generates CSS and `websh-cli prepare` refreshes the content manifest. Development shares the normal Cargo cache and skips ledger generation and signing.
+The dev server listens on `http://127.0.0.1:8080` and writes to `dist-dev/`. Stylance generates CSS and `websh-cli sync` refreshes deterministic content artifacts. Development shares the normal Cargo cache. Builds never sign.
 
 The browser app is hash-routed. The canonical root URL is `/#/`; content and app routes use the same hash model, for example `/#/ledger` and `/#/writing/example`. Clean deep paths such as `/writing/example` are best-effort only and require a host-level fallback to `index.html`; IPFS/path-gateway deployments should use hash URLs.
 
@@ -58,7 +58,7 @@ The browser app is hash-routed. The canonical root URL is `/#/`; content and app
 just build
 ```
 
-Release builds write `dist/`. The release Trunk profile refreshes content manifests, `content/.websh/ledger.json`, and `assets/crypto/attestations.json`. `WEBSH_NO_SIGN=1` disables new GPG signing; unchanged subjects retain their existing attestations, while changed or new unsigned subjects remain pending.
+Release builds write `dist/`. Every Trunk profile runs the same `sync` pipeline for manifest, ledger, acknowledgement, and attestation artifacts. Matching signatures are preserved; changed or new subjects remain pending until explicitly signed.
 
 ## Verification
 
@@ -88,18 +88,31 @@ See [verification](docs/architecture/verification.md) for test ownership and
 
 ## Content And Attestations
 
-Content lives under `content/`. The manifest pipeline parses frontmatter, computes derived fields, keeps sidecars current, and writes `content/manifest.json`.
+Content lives under `content/`. Markdown frontmatter and authored binary/directory
+metadata are source. Hashes, counts, and media properties are computed into generated
+artifacts; authored files are not rewritten during generation.
 
 ```bash
-cargo run --locked -p websh-cli -- content manifest
+cargo run --locked -p websh-cli -- sync
+cargo run --locked -p websh-cli -- check
+cargo run --locked -p websh-cli -- attest sign
+cargo run --locked -p websh-cli -- check --require-signatures
 ```
 
-The attestation pipeline refreshes sidecars, `content/.websh/ledger.json`, subjects, and `assets/crypto/attestations.json`. It signs missing PGP attestations when the expected signing key is available.
+`sync` generates without signing. `check` verifies without writing. Strict verification
+requires the site's PGP signature for every subject; Ethereum attestations are supplemental.
+For offline signing, export `attest message ROUTE` to a plaintext file and import the
+signature with that exact message. See the [CLI guide](docs/architecture/cli.md).
+
+Draft workflows are local too:
 
 ```bash
-cargo run --locked -p websh-cli -- attest
-cargo run --locked -p websh-cli -- attest --no-sign
+cargo run --locked -p websh-cli -- mempool sync /path/to/websh-mempool
+cargo run --locked -p websh-cli -- mempool import /path/to/websh-mempool/writing/example.md
 ```
+
+Import creates canonical source without overwriting existing content, committing,
+signing, or deleting the draft. Run sync, review the result, then use Git normally.
 
 ## Browser Shell
 
@@ -123,10 +136,14 @@ External listings may start from the disposable `websh-cache` IndexedDB cache wh
 ## Deploy
 
 ```bash
-just pin
+just publish
 ```
 
-The deploy command builds the release bundle, uploads `dist/` to Pinata, writes `.last-cid`, and prints an `ipfs://...` contenthash for ENS. It reads `.env` for child-process environment variables such as Pinata credentials.
+The recipe runs sync, explicitly signs, builds `dist/`, and deploys. The CLI `deploy`
+command only uploads an already-built bundle after checking current source/artifact
+consistency and site signatures; it does not attest to compiled JavaScript/WASM provenance.
+It uploads to public IPFS through Pinata, writes `.last-cid`, and prints the CID.
+Deployment alone loads `.env` for its upload process. Updating ENS remains manual.
 
 ## Styling
 

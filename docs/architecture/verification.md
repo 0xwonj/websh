@@ -15,17 +15,22 @@ Rust is pinned in `rust-toolchain.toml`, Node in `.node-version`, native tools i
 
 The executable gate lives in `justfile`; use `just --show verify` to inspect it.
 It checks tool versions, formatting, dependencies, native and WASM Clippy, native and
-browser tests, repository tools, CSS, architecture, a release build, asset budgets,
+browser tests, repository tools, CSS, architecture, current generated artifacts, a release build, asset budgets,
 and browser flows. Documentation describes these responsibilities without duplicating
 the recipe.
 
+The read-only CLI check runs before the isolated build, so regeneration in a staged
+checkout cannot hide stale committed artifacts. Run sync deliberately after changing
+authored input and include the resulting generated changes in the same commit.
+
 `just build-check` stages source and generated assets under `target/verify/source`, clears
 prior subjects only in the staged attestation artifact, and runs the normal generation
-hooks with new signing disabled. This produces unsigned subjects regardless of existing
+hooks, which never sign. This produces unsigned subjects regardless of existing
 release signatures. It writes `target/verify/dist`; size checks and E2E use that same
 artifact. The original tracked content, signatures, and lockfiles are not changed by
-verification. Normal authoring/release `trunk build` still runs its hooks in the checkout
-and can regenerate/sign assets.
+verification. Normal `trunk build` runs sync in the checkout and can refresh generated
+assets, but signing requires an explicit `attest` operation. Generation does not read
+Git history, so the isolated build needs no reference to the original Git directory.
 
 ## Focused Gates
 
@@ -43,7 +48,7 @@ Use these when the change is narrow:
 | Layer | Location | Responsibility |
 | --- | --- | --- |
 | Core unit tests | Next to the owning Rust module | Current contracts, algorithms, paths, routing, crypto vectors |
-| Native workflows | `crates/websh-cli/tests/cli/` | Actual CLI processes, generated files, signing/verification |
+| Native workflows | `crates/websh-cli/tests/cli/` | Snapshot generation/checks, signing request binding, local draft import, ACK receipts, publication boundaries |
 | Browser WASM | `websh-web` module tests; runner in `tests/wasm/` | Browser adapters, cache transactions, async ordering, renderer safety |
 | Browser E2E | `tests/e2e/` feature specs | User flows and integration through a built app |
 | Repository tools | `tests/tools/` | Test-result validation, architecture inspection, maintenance operations |
@@ -95,10 +100,19 @@ or packaging change, never to conceal missing file types.
 
 ## Trunk And Attestation Gate
 
-`just build` runs the normal release preparation in the checkout. Stylance generates
-CSS; `websh-cli prepare` refreshes content and then builds ledger/attestation subjects
-once. Development preparation refreshes only the manifest. New signing is disabled
-when `WEBSH_NO_SIGN=1`; verification always uses that setting in its isolated source.
+`just build` runs normal generation in the checkout. Stylance generates CSS;
+`websh-cli sync` computes current manifest, ledger, ACK commitment, and subject artifacts.
+All profiles use the same operation. Signing is separate and explicit.
+
+`websh-cli check` validates exact current artifact contents and existing attestations
+without writes. `check --require-signatures` additionally requires the deployed site's
+PGP identity on every subject. Pending signatures do not satisfy that strict gate.
+
+`deploy` checks the fixed prebuilt `dist/` before invoking Pinata: the source must be
+current and signed, required bundled files must exist and match, and expected runtime
+assets must be present. It never repairs or builds. These checks detect stale/missing
+bundle artifacts; they do not prove compiled JavaScript/WASM provenance. Verification
+uses stubbed publication processes and never uploads or signs with an owner's key.
 
 ## Dependency maintenance
 

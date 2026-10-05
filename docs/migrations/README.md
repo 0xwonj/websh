@@ -5,24 +5,27 @@ compatibility readers or startup migration paths.
 
 ## Repository content
 
-Tracked metadata, manifest, ledger, and attestation subjects were regenerated with the
-owning CLI workflows. Removing the metadata schema field changes metadata hashes. Six
-subjects are now pending; existing signatures were not carried onto changed subjects.
-Signing remains a separate release action with the owner's key.
+Tracked content now uses authored Markdown frontmatter, binary `file.ext.meta.json`,
+and directory/bundle declarations. Derived metadata is regenerated into manifest and
+ledger snapshots. Run `websh-cli sync`, inspect `websh-cli check`, then explicitly sign
+for release. Changed subjects remain pending; previous signatures are not transferred
+to different content. No compatibility reader remains in the application.
 
 ## External mempool
 
 The current producer is this repository's native CLI. To rebuild an external checkout:
 
 ```bash
-cargo run -p websh-cli -- mempool manifest --repo-dir /path/to/websh-mempool
+cargo run --locked -p websh-cli -- mempool sync /path/to/websh-mempool
 ```
 
-The command rebuilds from canonical Markdown content and does not interpret the old manifest.
+The command validates authored category Markdown and regenerates the manifest. It does
+not interpret an old manifest or publish remotely.
 [websh-mempool.patch](websh-mempool.patch) is the generated migration against commit
 `53396fdac510b3911c6e7028ea52dfdce9434c4c` of `0xwonj/websh-mempool`. It has been
-applied and verified locally. Publish that repository's updated manifest together with
-the new app when performing the release. This refactor does not push or deploy either repo.
+applied and verified locally. After applying it, rerun the current sync command before
+committing and pushing the external checkout. Publish its updated manifest together with
+the new app. Neither repository has been pushed or deployed by the local refactor.
 
 ## Browser preferences
 

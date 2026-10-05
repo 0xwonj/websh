@@ -5,7 +5,7 @@ export PATH := justfile_directory() / "target/tools/bin" + ":" + env("PATH")
 serve:
     env -u NO_COLOR trunk serve --locked --dist dist-dev
 
-# Release build
+# Release build; generation never signs.
 build:
     trunk build --release --locked
 
@@ -62,6 +62,7 @@ verify:
     just test-tools
     just lint-css
     just docs-check
+    cargo run --locked -p websh-cli -- check
     just build-check
     just size
     just e2e
@@ -76,6 +77,9 @@ clean *args:
 clean-cache *args:
     node scripts/clean.cjs cache "$@"
 
-# Build and upload to Pinata
-pin:
-    cargo run --locked -p websh-cli -- deploy pinata
+# Generate, explicitly sign, build, and publish the current archive.
+publish:
+    cargo run --locked -p websh-cli -- sync
+    cargo run --locked -p websh-cli -- attest sign
+    trunk build --release --locked
+    cargo run --locked -p websh-cli -- deploy

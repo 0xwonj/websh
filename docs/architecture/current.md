@@ -46,7 +46,7 @@ types are exported from the facade that owns the capability; there is no global
 
 ## Boundaries
 
-`websh-core` owns pure contracts and cross-target behavior. It should not reach into browser APIs, process APIs, GitHub CLI process execution, or Leptos signals.
+`websh-core` owns pure contracts and cross-target behavior. It should not reach into browser APIs, process APIs, or Leptos signals.
 
 `websh-cli` owns host processes and filesystems. Clap command modules should stay thin and delegate use-case logic into `workflows`; process adapters live in `infra`.
 
@@ -76,20 +76,43 @@ Optional IndexedDB database `websh-cache` stores bounded external manifest listi
 
 ## Authoring Boundary
 
-Use local source files, Git, and `websh-cli` content/mempool commands to author and publish. Browser wallet connection supports identity and advisory read display. It grants no write capability. Terminal `refresh [path]` reloads the owning mount; `>` and `>>` in `echo` are literal text.
+Use local source files and Git to edit, commit, and publish. The native CLI generates
+and checks artifacts, explicitly signs, imports local drafts, and uploads a checked
+release bundle. `mempool sync CHECKOUT` prepares an external checkout's manifest;
+`mempool import FILE` copies a validated draft into canonical source without touching
+Git or deleting the original. Mount declarations are authored local JSON.
+
+Browser wallet connection supports identity and advisory read display. It grants no
+write capability. Terminal `refresh [path]` reloads the owning mount; `>` and `>>` in
+`echo` are literal text.
 
 ## Build And Attestation
 
+Markdown frontmatter owns Markdown metadata. Binary metadata lives in
+`file.ext.meta.json`; `_index.dir.json` declares authored directory/bundle properties.
+These inputs contain no computed hashes, sizes, counts, or Git timestamps.
+
+A pure `ContentSnapshot` reads and validates the authored tree once, then projects the
+manifest, ledger, and publication units. `sync` computes all current content and
+attestation artifacts before writing them. It preserves identical files and matching
+signatures. Missing or stale signatures are visible as pending; generation never signs.
+`check` recomputes the expected snapshot and verifies current artifacts without writes.
+
 Trunk runs two independent pre-build hooks: Stylance generates the CSS bundle and
-`websh-cli prepare` owns content preparation. Hooks in the same phase may run
-concurrently; no two hooks write content artifacts.
+`websh-cli sync` owns content generation. Every build profile uses this same pipeline;
+only the publishing recipe invokes `attest sign` explicitly.
 
-`prepare` refreshes the content manifest in development and runs the full content,
-ledger, and attestation workflow in release. `websh-cli attest` runs that full workflow
-explicitly outside Trunk. `WEBSH_NO_SIGN=1` disables new signing; unchanged subjects
-retain their attestations, while new or changed unsigned subjects remain pending.
+`attest message ROUTE` exports the exact plaintext signing request. Import requires that
+message and a detached signature, verifies their binding to current subject content,
+and then stores the attestation. Strict release verification requires a valid signature
+from the deployed site's PGP identity on every subject. Ethereum signatures can supplement
+that identity, but cannot replace it.
 
-Generated content artifacts include `content/manifest.json`, `content/.websh/ledger.json`, sidecar metadata, and `assets/crypto/attestations.json`.
+Generated artifacts are `content/manifest.json`, `content/.websh/ledger.json`,
+`assets/crypto/ack.commitment.json`, and `assets/crypto/attestations.json`.
+`deploy` validates the fixed prebuilt `dist/` against current project content and
+attestations before uploading. This proves artifact consistency, not the provenance
+of compiled JavaScript or WASM.
 
 ## Verification
 

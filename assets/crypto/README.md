@@ -1,20 +1,18 @@
-Generated homepage crypto artifacts live here.
+Generated public cryptographic artifacts live here.
 
-`ack.commitment.json` is committed because the homepage uses it at compile time.
-`attestations.json` is the page-level subject registry used by the homepage
-footer.
+`ack.commitment.json` is the homepage acknowledgement commitment.
+`attestations.json` contains current page and document subjects and their signatures.
 
-Use `websh-cli attest` after changing homepage source or files under
-`content/`. The command runs the same manifest builder as
-`websh-cli content manifest`, rebuilds all route subjects, and writes
-`assets/crypto/attestations.json`. When the expected local GPG secret key is
-available and signing is enabled, it creates detached PGP signatures and stores
-verified results in that file. `--no-sign` or `WEBSH_NO_SIGN=1` disables new signing;
-unchanged subjects keep existing attestations, while changed unsigned subjects stay pending.
+Run `websh-cli sync` after changing source. It computes the current manifest, ledger,
+ACK commitment, and subjects before writing generated outputs. Matching signatures are
+preserved; changed or new subjects remain pending. Generation never invokes a signer.
 
-Use `websh-cli content manifest` when only `content/manifest.json` needs to be
-refreshed and no attestations should be touched.
+Run `websh-cli attest sign` for explicit local PGP signing. For external signing, export
+`websh-cli attest message ROUTE > request.txt`, sign those exact bytes, then import with
+`websh-cli attest import pgp ROUTE --message request.txt --signature signature.asc`.
+Ethereum import accepts the same plaintext request plus `--address` and `--signature`.
+Ethereum signatures are supplemental; strict publication requires the site's PGP identity.
 
-Low-level `websh-cli attest subject ...` commands remain available for manual
-inspection or Ethereum signature import, but the normal publishing flow should
-only need `websh-cli attest`.
+`websh-cli check` validates current outputs without writes. Add `--require-signatures`
+for the strict release policy. `just publish` composes generation, explicit signing,
+release build, and checked deployment. See `docs/architecture/cli.md` for the full contract.
