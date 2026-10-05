@@ -116,7 +116,7 @@ a user who explicitly disconnected. Listener handles are removed when their owne
 `Preferences` owns the environment/session snapshot. Its storage adapter handles the
 wallet-session flag, `user.*`, `websh.reader.scale`, and `websh.dino.score`. The visual theme is
 derived from the environment's canonical `THEME` value. Preferences accept canonical values
-only. One-time maintenance is documented in [migration operations](../migrations/README.md).
+only.
 
 ## Platform adapters
 

@@ -32,7 +32,6 @@ framework. Test count is not a coverage target.
 CLI fixtures use self-cleaning temporary directories and child processes for environment
 isolation. E2E fixtures own their response maps, fail on unexpected browser errors, and
 retain traces/screenshots on failure. Browser WASM mode is configured at the crate root.
-One-time maintenance tests retire with their tools.
 
 ## Focused checks
 

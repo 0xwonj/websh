@@ -27,7 +27,7 @@ e2e *args:
 test-wasm filter="":
     node tests/wasm/run.cjs {{quote(filter)}}
 
-# Tooling contracts and one-time migration checks.
+# Repository tooling contracts.
 test-tools:
     node --test tests/tools/*.test.cjs
 

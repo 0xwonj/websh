@@ -18,9 +18,7 @@ GPG is needed only for local signing, Pinata only for deployment.
 | --- | --- |
 | `scripts/` | Tool setup, isolated build, artifact serving, lint, architecture checks, cleanup |
 | `tests/` | Browser runners, E2E fixtures, tool checks, asset budgets |
-| `tools/` | One-time maintenance, never loaded by the app |
 | `docs/architecture/` | Maintained contracts and operational guidance |
-| `docs/migrations/` | Release migration steps and artifacts until applied |
 | `.websh/local/` | Ignored private author data, deployment receipt, local archives |
 
 Root tool configuration files stay at their native tool entry points. `CLAUDE.md`
@@ -80,8 +78,7 @@ content, `.websh/local/`, and unknown directories. Stop builds and servers first
 Unqualified `cargo clean` removes the entire target directory, including installed tools;
 there is no automatic cleaner or recursive cleanup of ignored files.
 
-One-time migration tools and their tests are retired together after deployed data is
-migrated. Dependency patches retain their provenance, licenses, and a removal condition;
+Dependency patches retain their provenance, licenses, and a removal condition;
 see [dependency maintenance](verification.md#dependency-maintenance).
 
 The app ships WOFF2 fonts and retains vendored asset licenses. Runtime budgets count all

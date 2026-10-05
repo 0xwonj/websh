@@ -45,6 +45,5 @@ content, draft, acknowledgement, offline-signing, and deployment workflows.
 - [Architecture](docs/architecture/current.md): crate boundaries and native contracts.
 - [Runtime](docs/architecture/runtime.md): browser state, routes, mounts, and cache limits.
 - [Verification](docs/architecture/verification.md): test ownership and focused checks.
-- [Migration operations](docs/migrations/README.md): outstanding release maintenance.
 
 Source code and published content are licensed under [CC-BY-SA-4.0](LICENSE).

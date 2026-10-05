@@ -75,4 +75,3 @@ version, and dependency/tool pins retain versions where they carry meaning.
 
 - [Tooling](tooling.md): bootstrap, build/watch inputs, output ownership, cleanup.
 - [Verification](verification.md): local gate, focused tests, dependency maintenance.
-- [Migration operations](../migrations/README.md): release maintenance that has not been retired.
