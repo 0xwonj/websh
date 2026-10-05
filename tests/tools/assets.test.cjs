@@ -42,6 +42,12 @@ test("asset budgets count every runtime file and report content separately", (t)
   assert.equal(report.runtime.bytes, 62);
   assert.equal(report.content.bytes, 15);
   assert.equal(report.deployment.bytes, 77);
+  assert.deepEqual(report.content, { bytes: 15 });
+  assert.deepEqual(report.deployment, { bytes: 77 });
+  for (const asset of report.assets) {
+    assert.equal(Object.hasOwn(asset, "brotliBytes"), asset.scope === "runtime");
+    assert.ok(!Object.hasOwn(asset, "gzipBytes"));
+  }
   assert.equal(report.assets.find((asset) => asset.path.endsWith(".woff")).kind, "font");
   assert.equal(audit(report.runtime.brotliBytes).status, 0);
   const failed = audit(report.runtime.brotliBytes - 1);

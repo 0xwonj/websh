@@ -81,10 +81,6 @@ function brotliSize(buffer) {
   }).length;
 }
 
-function gzipSize(buffer) {
-  return zlib.gzipSync(buffer, { level: 9 }).length;
-}
-
 function formatBytes(bytes) {
   if (bytes < 1024) {
     return `${bytes} B`;
@@ -101,16 +97,15 @@ function assetKind(filePath) {
 }
 
 function auditAsset(filePath) {
-  const buffer = fs.readFileSync(filePath);
   const relativePath = relPath(filePath);
-  return {
+  const asset = {
     path: relativePath,
     kind: assetKind(relativePath),
     scope: relativePath.startsWith("content/") ? "content" : "runtime",
-    bytes: buffer.length,
-    gzipBytes: gzipSize(buffer),
-    brotliBytes: brotliSize(buffer),
+    bytes: fs.statSync(filePath).size,
   };
+  if (asset.scope === "runtime") asset.brotliBytes = brotliSize(fs.readFileSync(filePath));
+  return asset;
 }
 
 function inspectIndexHtml() {
@@ -137,16 +132,8 @@ function inspectIndexHtml() {
   };
 }
 
-function sumAssets(assets) {
-  return assets.reduce(
-    (acc, asset) => {
-      acc.bytes += asset.bytes;
-      acc.gzipBytes += asset.gzipBytes;
-      acc.brotliBytes += asset.brotliBytes;
-      return acc;
-    },
-    { bytes: 0, gzipBytes: 0, brotliBytes: 0 }
-  );
+function totalBytes(assets) {
+  return assets.reduce((total, asset) => total + asset.bytes, 0);
 }
 
 function brotliSum(assets, predicate) {
@@ -203,7 +190,10 @@ function buildReport() {
   if (!runtimeAssets.some((asset) => asset.kind === "wasm")) {
     issues.push("no .wasm asset found in dist");
   }
-  const runtime = sumAssets(runtimeAssets);
+  const runtime = {
+    bytes: totalBytes(runtimeAssets),
+    brotliBytes: brotliSum(runtimeAssets, () => true),
+  };
   enforceBudget(
     issues,
     "wasm",
@@ -241,8 +231,8 @@ function buildReport() {
     generatedAt: new Date().toISOString(),
     assets,
     runtime,
-    content: sumAssets(contentAssets),
-    deployment: sumAssets(assets),
+    content: { bytes: totalBytes(contentAssets) },
+    deployment: { bytes: totalBytes(assets) },
     index,
     budgets,
     issues,
@@ -251,7 +241,7 @@ function buildReport() {
 
 function printHuman(report) {
   console.log(`Asset size audit: ${report.distDir}`);
-  console.log("Budgets cover all runtime files. Only content/ is reported separately.");
+  console.log("Brotli budgets cover all runtime files. Content is counted without compression.");
 
   console.log("\nAssets:");
   const runtimeAssets = report.assets.filter((asset) => asset.scope === "runtime");
@@ -263,22 +253,14 @@ function printHuman(report) {
       console.log(
         `    ${asset.path.padEnd(width)}  raw=${formatBytes(
           asset.bytes
-        ).padStart(9)} gzip=${formatBytes(asset.gzipBytes).padStart(
-          9
-        )} brotli=${formatBytes(asset.brotliBytes).padStart(9)}`
+        ).padStart(9)} brotli=${formatBytes(asset.brotliBytes).padStart(9)}`
       );
     }
   }
 
-  for (const [label, totals] of [
-    ["Runtime", report.runtime],
-    ["Content", report.content],
-    ["Deployment", report.deployment],
-  ]) {
-    console.log(
-      `\n${label}: raw=${formatBytes(totals.bytes)} gzip=${formatBytes(totals.gzipBytes)} brotli=${formatBytes(totals.brotliBytes)}`
-    );
-  }
+  console.log(`\nRuntime: raw=${formatBytes(report.runtime.bytes)} brotli=${formatBytes(report.runtime.brotliBytes)}`);
+  console.log(`Content: raw=${formatBytes(report.content.bytes)}`);
+  console.log(`Deployment: raw=${formatBytes(report.deployment.bytes)}`);
 
   if (report.index.hasTrunkDevWebsocket) {
     console.log(

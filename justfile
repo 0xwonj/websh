@@ -11,7 +11,7 @@ build:
 
 # Isolated unsigned release build for browser and size checks.
 build-check:
-    npm run build:check
+    node scripts/build-check.cjs
 
 # Prepare exact developer tools and locked browser QA dependencies.
 setup:
@@ -20,7 +20,7 @@ setup:
 # Browser checks against the unsigned verification build.
 [positional-arguments]
 e2e *args:
-    npm run e2e -- "$@"
+    env -u NO_COLOR node_modules/.bin/playwright test --reporter=line --workers=1 "$@"
 
 # Browser-owned wasm-bindgen tests.
 test-wasm filter="":
@@ -28,19 +28,19 @@ test-wasm filter="":
 
 # Tooling contracts and one-time migration checks.
 test-tools:
-    npm run test:tools
+    node --test tests/tools/*.test.cjs
 
 # CSS lint (token enforcement)
 lint-css:
-    npm run lint:css
+    node scripts/lint-css.cjs
 
 # Workspace boundaries and architecture documentation.
 docs-check:
-    npm run docs:drift
+    node scripts/check-docs-drift.cjs
 
 # Compressed runtime asset budgets.
 size dist="target/verify/dist":
-    npm run size:check -- {{quote(dist)}}
+    node scripts/check-size.cjs {{quote(dist)}}
 
 # Rust dependency hygiene checks
 deps-check:
@@ -50,7 +50,7 @@ deps-check:
 
 # Full local verification gate
 verify:
-    npm run tools:check
+    node scripts/tools.cjs check
     cargo fmt --check
     just deps-check
     cargo clippy --locked --workspace --all-targets -- -D warnings

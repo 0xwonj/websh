@@ -8,8 +8,8 @@ public_url = "./"
 filehash = true
 
 [watch]
-watch = ["crates/websh-web/src", "index.html", "assets/base.css", "assets/vendor", "content"]
-ignore = ["assets/bundle.css"]
+watch = ["crates", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "Trunk.toml", "index.html", "_headers", "assets", "content", "vendor"]
+ignore = ["assets/bundle.css", "content/manifest.json", "content/.websh/ledger.json"]
 enable_cooldown = true
 
 [serve]

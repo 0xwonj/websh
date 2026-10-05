@@ -15,6 +15,7 @@ const caches = [
   "target/wasm-bindgen",
   "target/wasm-opt",
   "target/vendor-tests",
+  "target/verify-cargo",
   "target/doc",
   "target/package",
   "target/tmp",
@@ -27,7 +28,7 @@ const caches = [
 function clean(root, scope, dryRun = false) {
   if (!["outputs", "cache"].includes(scope)) throw new Error(`Unknown cleanup scope: ${scope}`);
   root = fs.realpathSync(root);
-  // Deployment reserves root-level dist-<name> directories for site outputs.
+  // Trunk reserves root-level dist-<name> directories for site outputs.
   // Include symlinks in the plan so validation rejects them before deleting.
   const bundles = fs.readdirSync(root, { withFileTypes: true })
     .filter((entry) => /^dist-[A-Za-z0-9_-]+$/.test(entry.name)

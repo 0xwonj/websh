@@ -4,14 +4,7 @@
   "type": "commonjs",
   "packageManager": "npm@11.12.1",
   "scripts": {
-    "setup": "node scripts/tools.cjs setup",
-    "tools:check": "node scripts/tools.cjs check",
-    "build:check": "node scripts/build-check.cjs",
-    "test:tools": "node --test tests/tools/*.test.cjs",
-    "e2e": "env -u NO_COLOR playwright test --reporter=line --workers=1",
-    "docs:drift": "node scripts/check-docs-drift.cjs",
-    "lint:css": "node scripts/lint-css.cjs",
-    "size:check": "node scripts/check-size.cjs"
+    "setup": "node scripts/tools.cjs setup"
   },
   "devDependencies": {
     "@playwright/test": "1.59.1",

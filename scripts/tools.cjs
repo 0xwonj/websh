@@ -39,7 +39,15 @@ function requirements() {
   };
 }
 
+function checkTrunkTools(config) {
+  const section = config.split(/^\[/m).find((section) => section.startsWith("tools]")) ?? "";
+  const actual = section.match(/^wasm_opt\s*=\s*"([^"]+)"/m)?.[1];
+  const expected = `version_${tools["wasm-opt"].version}`;
+  if (actual !== expected) throw new Error(`Trunk.toml tools.wasm_opt must match scripts/tools.json: ${expected}`);
+}
+
 function checkHost() {
+  checkTrunkTools(fs.readFileSync(path.join(root, "Trunk.toml"), "utf8"));
   const node = fs.readFileSync(path.join(root, ".node-version"), "utf8").trim();
   const rust = fs.readFileSync(path.join(root, "rust-toolchain.toml"), "utf8").match(/channel = "([^"]+)"/)[1];
   const npm = require("../package.json").packageManager.split("@")[1];
@@ -69,7 +77,7 @@ function setup() {
   check();
 }
 
-module.exports = { root, env, run, requireVersion, wasmBindgenVersion };
+module.exports = { root, env, run, requireVersion, wasmBindgenVersion, checkTrunkTools };
 
 if (require.main === module) {
   try {

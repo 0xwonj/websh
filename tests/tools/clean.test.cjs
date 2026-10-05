@@ -24,6 +24,7 @@ test("cleanup scopes and dry-run preserve tools, receipts, and author data", (t)
     "target/wasm32-unknown-unknown/release/app.wasm",
     "target/wasm-bindgen/release/app.js",
     "target/wasm-opt/release/app.wasm",
+    "target/verify-cargo/release/app.wasm",
   ];
   const retained = ["target/tools/bin/just", "target/unowned/data", ".last-cid", ".env", ".websh/local/key", "content/post.md", "docs/notes/draft.md", "dist-note.txt"];
   for (const file of [...generated, ...cached, ...retained]) write(file);
