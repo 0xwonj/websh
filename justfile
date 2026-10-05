@@ -3,7 +3,8 @@ export PATH := justfile_directory() / "target/tools/bin" + ":" + env("PATH")
 
 # Run dev server
 serve:
-    env -u NO_COLOR trunk serve --locked --dist dist-dev
+    stylance --output-file assets/bundle.css crates/websh-web
+    env -u NO_COLOR trunk serve --locked --dist dist-dev --enable-cooldown
 
 # Release build; generation never signs.
 build:

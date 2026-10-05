@@ -10,7 +10,6 @@ filehash = true
 [watch]
 watch = ["crates", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "Trunk.toml", "index.html", "_headers", "assets", "content", "vendor"]
 ignore = ["assets/bundle.css", "content/manifest.json", "content/.websh/ledger.json"]
-enable_cooldown = true
 
 [serve]
 addresses = ["127.0.0.1"]
