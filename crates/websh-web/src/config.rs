@@ -1,16 +1,9 @@
 //! Browser application configuration.
 
-/// ASCII banner displayed after boot sequence.
-pub const ASCII_BANNER: &str = websh_site::ASCII_BANNER;
+pub use websh_site::{APP_NAME, APP_TAGLINE, ASCII_BANNER};
 
-/// Application name displayed in terminal and chrome.
-pub const APP_NAME: &str = websh_site::APP_NAME;
-
-/// Application version.
-pub const APP_VERSION: &str = "0.1.0";
-
-/// User tagline displayed after boot.
-pub const APP_TAGLINE: &str = websh_site::APP_TAGLINE;
+/// Application version displayed in the terminal and homepage.
+pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Fetch request timeout in milliseconds.
 pub const FETCH_TIMEOUT_MS: i32 = 10000;

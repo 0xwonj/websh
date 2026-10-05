@@ -4,7 +4,7 @@
    Signature: pastel mauve/pink on a soft warm-purple charcoal.
    ============================================ */
 
-:root[data-theme="catppuccin-mocha"] {
+[data-theme="catppuccin-mocha"] {
   color-scheme: dark;
 
   --bg-primary: #1e1e2e;

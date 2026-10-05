@@ -5,7 +5,7 @@
    Note: native palette has no pure green; pine (teal-leaning) maps to terminal-green.
    ============================================ */
 
-:root[data-theme="rose-pine"] {
+[data-theme="rose-pine"] {
   color-scheme: dark;
 
   --bg-primary: #191724;

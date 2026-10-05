@@ -2,7 +2,7 @@
    Theme: black-ink (Flexoki light)
    ============================================ */
 
-:root[data-theme="black-ink"] {
+[data-theme="black-ink"] {
   color-scheme: light;
 
   --bg-primary: #fffcf0;

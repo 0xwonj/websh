@@ -3,14 +3,54 @@ const { runCommand } = require('./support/browser');
 
 const themeStorageKey = 'user.THEME';
 
+test('CSS validates the saved palette before the app starts', async ({ page }) => {
+  // Preserve the real stylesheets and prepaint scripts, but do not start Wasm.
+  await page.route(`${baseUrl}/**`, async route => {
+    if (route.request().resourceType() !== 'document') return route.fallback();
+    const response = await route.fetch();
+    const body = (await response.text()).replace(/<script type="module">[\s\S]*?<\/script>/g, '');
+    await route.fulfill({ response, body });
+  });
+  await page.addInitScript(key => {
+    const params = new URLSearchParams(location.search);
+    if (params.has('deny-storage')) {
+      Object.defineProperty(window, 'localStorage', { get() { throw new DOMException('unavailable', 'SecurityError'); } });
+    } else {
+      localStorage.setItem(key, params.get('theme'));
+    }
+  }, themeStorageKey);
+  for (const [query, expected] of [['theme=%20BLACK-INK%20', 'black-ink'], ['theme=unknown', 'kanagawa-wave'], ['deny-storage', 'kanagawa-wave']]) {
+    await page.goto(`${baseUrl}/?${query}`, { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('html')).toHaveAttribute('data-theme', expected);
+    const palette = await page.evaluate(() => ({
+      background: getComputedStyle(document.documentElement).getPropertyValue('--bg-primary').trim(),
+      meta: document.querySelector('meta[name="theme-color"]').content,
+      started: Boolean(window.wasmBindings)
+    }));
+    expect(palette.background).not.toBe('');
+    expect(palette.meta).toBe(palette.background);
+    expect(palette.started).toBe(false);
+  }
+  const manifest = await (await page.request.get(`${baseUrl}/assets/manifest.json`)).json();
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', manifest.theme_color);
+  expect(manifest.background_color).toBe(manifest.theme_color);
+});
+
 test('theme controls and shell preferences share persistent state', async ({ page }) => {
   await page.goto(`${baseUrl}/#/websh`, { waitUntil: 'networkidle' });
   await expect(page.locator('body')).toContainText('guest@wonjae.eth:~', { timeout: 10000 });
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'kanagawa-wave');
 
   await page.getByRole('button', { name: /palette/i }).click();
+  const swatch = page.getByRole('button', { name: /Black Ink/i }).locator('[data-theme]');
+  const colors = await swatch.evaluate(element => {
+    const style = getComputedStyle(element);
+    return { background: style.getPropertyValue('--bg-primary').trim(), accent: style.getPropertyValue('--accent').trim() };
+  });
+  expect(colors.background).not.toBe(colors.accent);
   await page.getByRole('button', { name: /Black Ink/i }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'black-ink');
+  await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', colors.background);
   await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), themeStorageKey)).toBe('black-ink');
 
   await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });

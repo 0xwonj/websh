@@ -468,8 +468,6 @@ pub fn SiteChromePalettePicker(theme: Memo<&'static str>) -> impl IntoView {
                     {THEMES.iter().map(|item| {
                         let id = item.id;
                         let label = item.label;
-                        let bg = item.meta_color;
-                        let accent = item.accent_color;
                         let option_class = move || {
                             if theme.get() == id {
                                 format!("{} {}", css::paletteOption, css::paletteOptionActive)
@@ -488,10 +486,9 @@ pub fn SiteChromePalettePicker(theme: Memo<&'static str>) -> impl IntoView {
                                 class=option_class
                                 type="button"
                                 aria-pressed=move || (theme.get() == id).to_string()
-                                style=format!("--palette-bg: {bg}; --palette-accent: {accent}")
                                 on:click=select_theme
                             >
-                                <span class=css::paletteOptionSwatch aria-hidden="true"></span>
+                                <span class=css::paletteOptionSwatch data-theme=id aria-hidden="true"></span>
                                 <span class=css::paletteOptionLabel>{label}</span>
                                 <span class=css::paletteOptionStatus>
                                     {move || if theme.get() == id { "on" } else { "" }}

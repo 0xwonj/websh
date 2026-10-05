@@ -1,10 +1,8 @@
 /* ============================================
    Theme: sepia-dark (Flexoki dark)
-   Default theme. Applied when data-theme is unset or "sepia-dark".
    ============================================ */
 
-:root,
-:root[data-theme="sepia-dark"] {
+[data-theme="sepia-dark"] {
   color-scheme: dark;
 
   --bg-primary: #100f0f;

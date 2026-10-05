@@ -2,7 +2,7 @@
    Theme: solarized-light
    ============================================ */
 
-:root[data-theme="solarized-light"] {
+[data-theme="solarized-light"] {
   color-scheme: light;
 
   --bg-primary: #fdf6e3;

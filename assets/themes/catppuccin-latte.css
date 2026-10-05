@@ -4,7 +4,7 @@
    Signature: cream base with mauve accent.
    ============================================ */
 
-:root[data-theme="catppuccin-latte"] {
+[data-theme="catppuccin-latte"] {
   color-scheme: light;
 
   --bg-primary: #eff1f5;

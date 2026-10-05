@@ -2,7 +2,7 @@
    Theme: tokyonight-night
    ============================================ */
 
-:root[data-theme="tokyonight-night"] {
+[data-theme="tokyonight-night"] {
   color-scheme: dark;
 
   --bg-primary: #1a1b26;

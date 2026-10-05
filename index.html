@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="kanagawa-wave">
 
 <head>
     <meta charset="UTF-8">
@@ -76,32 +76,6 @@
         })();
     </script>
     <base href="./">
-    <script>
-        (() => {
-            const key = "user.THEME";
-            const themes = {
-                // Dark (alphabetical)
-                "catppuccin-mocha": "#1e1e2e",
-                "dracula": "#282a36",
-                "gruvbox-dark": "#282828",
-                "kanagawa-wave": "#1f1f28",
-                "nord": "#2e3440",
-                "rose-pine": "#191724",
-                "sepia-dark": "#100f0f",
-                "tokyonight-night": "#1a1b26",
-                // Light (alphabetical)
-                "black-ink": "#fffcf0",
-                "catppuccin-latte": "#eff1f5",
-                "solarized-light": "#fdf6e3"
-            };
-            let raw = "kanagawa-wave";
-            try { raw = localStorage.getItem(key) || raw; } catch {}
-            const normalized = raw.trim().toLowerCase();
-            const theme = themes[normalized] ? normalized : "kanagawa-wave";
-            document.documentElement.setAttribute("data-theme", theme);
-            document.querySelector('meta[name="theme-color"]')?.setAttribute("content", themes[theme]);
-        })();
-    </script>
     <link data-trunk rel="css" href="assets/tokens/primitive.css">
     <link data-trunk rel="css" href="assets/tokens/semantic.css">
     <link data-trunk rel="css" href="assets/tokens/typography.css">
@@ -119,6 +93,22 @@
     <link data-trunk rel="css" href="assets/themes/solarized-light.css">
     <link data-trunk rel="css" href="assets/base.css">
     <link data-trunk rel="css" href="assets/bundle.css">
+    <script>
+        (() => {
+            const root = document.documentElement;
+            const fallback = root.dataset.theme;
+            try {
+                const stored = localStorage.getItem("user.THEME");
+                if (stored) root.dataset.theme = stored.trim().toLowerCase();
+            } catch {}
+            let color = getComputedStyle(root).getPropertyValue("--bg-primary").trim();
+            if (!color) {
+                root.dataset.theme = fallback;
+                color = getComputedStyle(root).getPropertyValue("--bg-primary").trim();
+            }
+            document.querySelector('meta[name="theme-color"]')?.setAttribute("content", color);
+        })();
+    </script>
     <link data-trunk rel="icon" href="assets/favicon.svg">
     <link data-trunk rel="copy-dir" href="content" data-target-path="content">
     <link data-trunk rel="copy-dir" href="assets/fonts" data-target-path="assets/fonts">
@@ -133,7 +123,7 @@
     <div id="app"></div>
     <noscript>
         <div
-            style="background:#100f0f;color:#cecdc3;font-family:monospace;padding:2rem;height:100vh;display:flex;align-items:center;justify-content:center;">
+            style="background:var(--bg-primary);color:var(--text-primary);font-family:monospace;padding:2rem;height:100vh;display:flex;align-items:center;justify-content:center;">
             <pre>ERROR: JavaScript runtime not detected.
 Please enable JavaScript to access this terminal.</pre>
         </div>

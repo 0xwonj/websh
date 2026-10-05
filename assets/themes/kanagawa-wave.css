@@ -5,7 +5,7 @@
    Inspired by Hokusai's "The Great Wave off Kanagawa".
    ============================================ */
 
-:root[data-theme="kanagawa-wave"] {
+[data-theme="kanagawa-wave"] {
   color-scheme: dark;
 
   --bg-primary: #1f1f28;

@@ -4,7 +4,7 @@
    Signature: deep slate background, purple accent, cyan/pink/green companions.
    ============================================ */
 
-:root[data-theme="dracula"] {
+[data-theme="dracula"] {
   color-scheme: dark;
 
   --bg-primary: #282a36;

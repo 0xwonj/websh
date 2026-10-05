@@ -1,13 +1,11 @@
 //! Theme palette helpers.
 //!
-//! CSS consumes the active palette from `html[data-theme]`. This module owns
+//! CSS owns palette variables on `[data-theme]` elements. This module owns
 //! the catalog, normalization, and DOM/meta application only; runtime
 //! persistence is handled by `RuntimeServices`.
 //!
-//! When adding a new theme, three places must stay in sync:
-//!   1. `THEMES` below.
-//!   2. `index.html` pre-paint script's `themes` map.
-//!   3. `index.html`'s `<link data-trunk rel="css" href="assets/themes/<id>.css">`.
+//! The catalog supplies IDs and labels; palette colors live only in CSS.
+//! Add the catalog entry and its stylesheet link in `index.html` together.
 
 use websh_core::shell::OutputLine;
 
@@ -20,80 +18,52 @@ pub use crate::runtime::state::THEME_KEY as STORAGE_KEY;
 pub struct ThemeDescriptor {
     pub id: &'static str,
     pub label: &'static str,
-    /// `<meta name="theme-color">` value — also the bg half of the palette
-    /// swatch. Mirrors `--bg-primary` for the theme.
-    pub meta_color: &'static str,
-    /// Signature accent color — the other half of the palette swatch.
-    /// Mirrors `--accent` for the theme.
-    pub accent_color: &'static str,
 }
 
 pub const THEMES: &[ThemeDescriptor] = &[
     ThemeDescriptor {
         id: "catppuccin-mocha",
         label: "Catppuccin Mocha",
-        meta_color: "#1e1e2e",
-        accent_color: "#cba6f7",
     },
     ThemeDescriptor {
         id: "dracula",
         label: "Dracula",
-        meta_color: "#282a36",
-        accent_color: "#bd93f9",
     },
     ThemeDescriptor {
         id: "gruvbox-dark",
         label: "Gruvbox Dark",
-        meta_color: "#282828",
-        accent_color: "#cc241d",
     },
     ThemeDescriptor {
         id: "kanagawa-wave",
         label: "Kanagawa Wave",
-        meta_color: "#1f1f28",
-        accent_color: "#7e9cd8",
     },
     ThemeDescriptor {
         id: "nord",
         label: "Nord",
-        meta_color: "#2e3440",
-        accent_color: "#88c0d0",
     },
     ThemeDescriptor {
         id: "rose-pine",
         label: "Rosé Pine",
-        meta_color: "#191724",
-        accent_color: "#eb6f92",
     },
     ThemeDescriptor {
         id: "sepia-dark",
         label: "Sepia Dark",
-        meta_color: "#100f0f",
-        accent_color: "#da702c",
     },
     ThemeDescriptor {
         id: "tokyonight-night",
         label: "TokyoNight Night",
-        meta_color: "#1a1b26",
-        accent_color: "#7aa2f7",
     },
     ThemeDescriptor {
         id: "black-ink",
         label: "Black Ink",
-        meta_color: "#fffcf0",
-        accent_color: "#100f0f",
     },
     ThemeDescriptor {
         id: "catppuccin-latte",
         label: "Catppuccin Latte",
-        meta_color: "#eff1f5",
-        accent_color: "#8839ef",
     },
     ThemeDescriptor {
         id: "solarized-light",
         label: "Solarized Light",
-        meta_color: "#fdf6e3",
-        accent_color: "#268bd2",
     },
 ];
 
@@ -127,19 +97,22 @@ pub fn normalize_theme_id(raw: &str) -> Option<&'static str> {
 }
 
 pub fn apply_theme_to_document(theme_id: &str) {
-    let Some(document) = web_sys::window().and_then(|window| window.document()) else {
+    let Some(window) = web_sys::window() else {
         return;
     };
-    if let Some(root) = document.document_element() {
-        let _ = root.set_attribute("data-theme", theme_id);
-    }
-    if let Ok(Some(meta)) = document.query_selector(r#"meta[name="theme-color"]"#) {
-        let color = THEMES
-            .iter()
-            .find(|theme| theme.id == theme_id)
-            .map(|theme| theme.meta_color)
-            .unwrap_or("#1f1f28");
-        let _ = meta.set_attribute("content", color);
+    let Some(document) = window.document() else {
+        return;
+    };
+    let Some(root) = document.document_element() else {
+        return;
+    };
+    let _ = root.set_attribute("data-theme", theme_id);
+    if let Ok(Some(style)) = window.get_computed_style(&root)
+        && let Ok(color) = style.get_property_value("--bg-primary")
+        && !color.trim().is_empty()
+        && let Ok(Some(meta)) = document.query_selector(r#"meta[name="theme-color"]"#)
+    {
+        let _ = meta.set_attribute("content", color.trim());
     }
 }
 
@@ -176,13 +149,6 @@ mod tests {
             assert!(
                 index_html.contains(&link_href),
                 "index.html missing <link> for theme {:?} (expected href {link_href:?})",
-                theme.id
-            );
-
-            let map_key = format!("\"{}\":", theme.id);
-            assert!(
-                index_html.contains(&map_key),
-                "index.html pre-paint themes map missing key for theme {:?} (expected {map_key:?})",
                 theme.id
             );
         }

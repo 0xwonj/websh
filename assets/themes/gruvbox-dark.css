@@ -2,7 +2,7 @@
    Theme: gruvbox-dark
    ============================================ */
 
-:root[data-theme="gruvbox-dark"] {
+[data-theme="gruvbox-dark"] {
   color-scheme: dark;
 
   --bg-primary: #282828;
