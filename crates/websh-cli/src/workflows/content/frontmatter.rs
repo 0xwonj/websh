@@ -53,7 +53,7 @@ mod tests {
     #[test]
     fn parse_yaml_frontmatter_deserializes_supported_metadata() {
         let body = r#"---
-title: A note
+title: "1984"
 kind: page
 description: |
   First line
@@ -61,7 +61,7 @@ description: |
 date: 2026-05-03
 tags:
   - rust
-  - yaml
+  - "2024"
 links:
   - label: Paper
     url: https://eprint.iacr.org/2026/001
@@ -77,7 +77,7 @@ access:
             .expect("frontmatter parses")
             .expect("frontmatter exists");
 
-        assert_eq!(fields.authored.title.as_deref(), Some("A note"));
+        assert_eq!(fields.authored.title.as_deref(), Some("1984"));
         assert_eq!(fields.kind, Some(NodeKind::Page));
         assert_eq!(
             fields.authored.description.as_deref(),
@@ -86,7 +86,7 @@ access:
         assert_eq!(fields.authored.date.as_deref(), Some("2026-05-03"));
         assert_eq!(
             fields.authored.tags.as_deref(),
-            Some(["rust".to_string(), "yaml".to_string()].as_slice())
+            Some(["rust".to_string(), "2024".to_string()].as_slice())
         );
         let links = fields.authored.links.as_deref().expect("links parsed");
         assert_eq!(links.len(), 1);
@@ -120,5 +120,10 @@ access:
 
         assert_eq!(err.to_string(), "frontmatter YAML parse");
         assert!(format!("{err:#}").contains("unknown field"));
+        for field in ["title: 1984", "tags: [zk, 2024]"] {
+            let err = parse_yaml_frontmatter(&format!("---\n{field}\n---\n"))
+                .expect_err("text fields require YAML strings");
+            assert!(format!("{err:#}").contains("invalid type"));
+        }
     }
 }

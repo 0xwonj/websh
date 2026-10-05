@@ -50,6 +50,8 @@ Source lives under `content/`:
 Authored inputs use `AuthoredMetadata`; computed facts use `DerivedMetadata` in generated
 records. See the [native contracts](current.md#native-contracts). Publication dates are explicit
 source values, independent of Git history.
+Text fields require YAML strings: quote numeric titles/tags and hexadecimal addresses
+(for example `title: "1984"`, `tags: [zk, "2024"]`, or `address: "0xabc"`).
 
 | Generated output | Contents |
 | --- | --- |

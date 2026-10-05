@@ -184,9 +184,7 @@ mod tests {
                         ],
                     }),
                     authored: AuthoredMetadata::default(),
-                    derived: DerivedMetadata {
-                        ..DerivedMetadata::default()
-                    },
+                    derived: DerivedMetadata::default(),
                 },
             }],
         };
@@ -247,9 +245,7 @@ mod tests {
                         ],
                     }),
                     authored: AuthoredMetadata::default(),
-                    derived: DerivedMetadata {
-                        ..DerivedMetadata::default()
-                    },
+                    derived: DerivedMetadata::default(),
                 },
             }],
         };

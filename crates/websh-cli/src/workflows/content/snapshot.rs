@@ -393,7 +393,7 @@ fn is_metadata(path: &str) -> bool {
 }
 
 fn is_system(path: &str) -> bool {
-    path.split('/').any(|part| part == ".websh")
+    path == ".websh" || path.starts_with(".websh/")
 }
 fn inside(path: &str, parent: &str) -> bool {
     path == parent
@@ -491,6 +491,14 @@ mod tests {
             r#"{"kind":"directory","group":true,"authored":{"title":"Site"}}"#,
         );
         write(&root, ".site/now.toml", "[[items]]\n");
+        write(&root, ".websh/system.json", "{}");
+        // Only the root namespace is reserved; nested .websh is ordinary content.
+        write(
+            &root,
+            "writing/.websh/_index.dir.json",
+            r#"{"kind":"directory","group":true,"authored":{"title":"Nested content"}}"#,
+        );
+        write(&root, "writing/.websh/notes.md", "ordinary content");
         // Cosmetic directory metadata alone never changes publication boundaries.
         write(
             &root,
@@ -498,9 +506,25 @@ mod tests {
             r#"{"kind":"directory","authored":{"title":"Writing"}}"#,
         );
         let snapshot = ContentSnapshot::load(&root).unwrap();
-        assert_eq!(snapshot.units.len(), 2);
+        assert_eq!(snapshot.units.len(), 3);
         assert!(!snapshot.units.iter().any(|unit| unit.route == "/writing"));
         assert!(snapshot.units.iter().any(|unit| unit.route == "/.site"));
+        let nested = snapshot
+            .units
+            .iter()
+            .find(|unit| unit.route == "/writing/.websh")
+            .unwrap();
+        assert_eq!(
+            nested
+                .files
+                .iter()
+                .map(|file| file.path.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "content/writing/.websh/_index.dir.json",
+                "content/writing/.websh/notes.md"
+            ]
+        );
         let bundle = snapshot
             .units
             .iter()

@@ -122,7 +122,7 @@ pub(super) fn build_directory_model_with_bundle_context(
             })
         })
         .unwrap_or_default();
-    let child_count = node_meta.and_then(NodeMetadata::child_count);
+    let child_count = fs.child_count(path).map(|count| count as u32);
     let entries: Vec<_> = fs
         .list_dir(path)
         .unwrap_or_default()
@@ -447,10 +447,11 @@ mod tests {
     use wasm_bindgen_test::*;
     use websh_core::domain::{
         AuthoredMetadata, BundleMetadata, BundleVariant, DerivedMetadata, EntryExtensions,
-        ImageDim, NodeMetadata,
+        ImageDim, NodeMetadata, WalletState,
     };
     use websh_core::filesystem::GlobalFs;
     use websh_core::ports::{ScannedDirectory, ScannedFile, ScannedSubtree};
+    use websh_core::runtime::{RuntimeStateSnapshot, build_runtime_overlay};
 
     fn meta(kind: NodeKind, title: Option<&str>) -> NodeMetadata {
         NodeMetadata {
@@ -460,9 +461,7 @@ mod tests {
                 title: title.map(str::to_string),
                 ..AuthoredMetadata::default()
             },
-            derived: DerivedMetadata {
-                ..DerivedMetadata::default()
-            },
+            derived: DerivedMetadata::default(),
         }
     }
 
@@ -525,9 +524,12 @@ mod tests {
     }
 
     #[wasm_bindgen_test]
-    fn directory_model_hides_authored_metadata_and_keeps_visible_site_children() {
+    fn directory_model_filters_authored_files_and_counts_runtime_children() {
+        let mut system_meta = meta(NodeKind::Directory, Some("System"));
+        system_meta.derived.child_count = Some(2);
         let snapshot = ScannedSubtree {
             files: vec![
+                file(".websh/ledger.json", meta(NodeKind::Data, None)),
                 ScannedFile {
                     path: ".site/now.toml".to_string(),
                     meta: meta(NodeKind::Document, Some("now")),
@@ -555,6 +557,8 @@ mod tests {
                 },
             ],
             directories: vec![
+                dir(".websh", system_meta),
+                dir(".websh/mounts", meta(NodeKind::Directory, None)),
                 ScannedDirectory {
                     path: ".site".to_string(),
                     meta: meta(NodeKind::Directory, Some("Site")),
@@ -604,6 +608,27 @@ mod tests {
         assert_eq!(
             group(&model, DirectoryEntryGroupKind::Documents).entries[0].href,
             "#/.site/now.toml"
+        );
+
+        let runtime =
+            build_runtime_overlay(&WalletState::Disconnected, &RuntimeStateSnapshot::default());
+        let path = VirtualPath::from_absolute("/.websh").unwrap();
+        let model = build_directory_model_with_bundle_context(
+            FsView::with_runtime(&fs, &runtime),
+            &path,
+            None,
+        );
+
+        assert_eq!(fs.node_metadata(&path).unwrap().child_count(), Some(2));
+        assert_eq!(model.child_count, Some(3));
+        assert_eq!(model.entry_count, 3);
+        assert_eq!(
+            group(&model, DirectoryEntryGroupKind::Directories)
+                .entries
+                .iter()
+                .map(|entry| entry.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["mounts", "state"]
         );
     }
 

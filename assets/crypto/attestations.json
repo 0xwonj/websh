@@ -116,13 +116,13 @@
         },
         {
           "path": "content/.site/errors/_index.dir.json",
-          "sha256": "0x6b67ab0be0ff3daef893105edc5887e48a49fc7ac2ceadb856e3037074f30560",
-          "bytes": 136
+          "sha256": "0xd5c9c0e9fdd795735fb3423188a71c078c6ab2afcc9a95724f560c4c0ab7cf55",
+          "bytes": 119
         },
         {
           "path": "content/.site/keys/_index.dir.json",
-          "sha256": "0x1416931897c31f5f8c57ee790347f7a947c74216c4c593b47ccc97dd52facd7d",
-          "bytes": 170
+          "sha256": "0x8cbe1772fd928fd7699e04f26b7490ebf2053474ebc16edbb3e53bb6636bef05",
+          "bytes": 153
         },
         {
           "path": "content/.site/keys/wonjae.asc",
@@ -153,12 +153,12 @@
       "content_files": [
         {
           "path": "content/.websh/ledger.json",
-          "sha256": "0xd08ab4f2b2849bdf95896f8e058088cc2d29c173d578e5a2d91f064da7d3a6a0",
+          "sha256": "0xc0fa94497d653e323605578290320c00314c8bfb1bd0059e2d1ac8273b5eff5b",
           "bytes": 6468
         }
       ],
       "attestations": [],
-      "chain_head": "0x285356d3da3e282e8e8418b69215fcfa7009b6851777af9b080a9c047fabff78"
+      "chain_head": "0x01dd1d9f6eb2d938ef7fe9d3b91a1d337ef1b9d976eb032951d1a8d6d34b0a54"
     },
     {
       "kind": "document",

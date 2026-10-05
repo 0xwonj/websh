@@ -2,6 +2,5 @@
   "kind": "directory",
   "authored": {
     "description": "Error response templates and route-failure policy."
-  },
-  "group": true
+  }
 }

@@ -311,7 +311,7 @@ fn recover_failed_mount_declaration(
     let label = value
         .get("name")
         .and_then(Value::as_str)
-        .filter(|name| !name.trim().is_empty())
+        .filter(|name| !name.trim().is_empty() && !name.chars().any(char::is_control))
         .map(str::to_string)
         .unwrap_or_else(|| mount_label_for_root(&mount_root));
     Some(FailedMountDeclaration {
@@ -415,6 +415,7 @@ mod tests {
         for (field, value, message) in [
             ("branch", serde_json::json!(123), "invalid type"),
             ("backend", serde_json::json!("unknown"), "unknown variant"),
+            ("name", serde_json::json!("Bad\nName"), "control characters"),
         ] {
             let mut input = valid.clone();
             input[field] = value;

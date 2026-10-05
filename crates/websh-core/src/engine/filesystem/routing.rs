@@ -971,9 +971,7 @@ mod tests {
                             title: Some("Foo".to_string()),
                             ..AuthoredMetadata::default()
                         },
-                        derived: DerivedMetadata {
-                            ..DerivedMetadata::default()
-                        },
+                        derived: DerivedMetadata::default(),
                     },
                 },
             ],
@@ -1032,9 +1030,7 @@ mod tests {
                             title: Some("Foo".to_string()),
                             ..AuthoredMetadata::default()
                         },
-                        derived: DerivedMetadata {
-                            ..DerivedMetadata::default()
-                        },
+                        derived: DerivedMetadata::default(),
                     },
                 },
             ],
@@ -1257,9 +1253,7 @@ mod tests {
                             ],
                         }),
                         authored: AuthoredMetadata::default(),
-                        derived: DerivedMetadata {
-                            ..DerivedMetadata::default()
-                        },
+                        derived: DerivedMetadata::default(),
                     },
                 },
                 ScannedDirectory {
@@ -1329,9 +1323,7 @@ mod tests {
                         ],
                     }),
                     authored: AuthoredMetadata::default(),
-                    derived: DerivedMetadata {
-                        ..DerivedMetadata::default()
-                    },
+                    derived: DerivedMetadata::default(),
                 },
             }],
         };

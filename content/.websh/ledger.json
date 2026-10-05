@@ -11,7 +11,7 @@
         "path": ".site"
       },
       "prev_block_sha256": "0x0000000000000000000000000000000000000000000000000000000000000000",
-      "block_sha256": "0x776ba411fa74600565844a861768024643b1f968bf94176410f9e1698a3b57b6",
+      "block_sha256": "0x865acaa370ded6429906cd4e7f59d15d8bef37dc7e01457509dfe9140d2660d9",
       "entry": {
         "id": "route:/.site",
         "route": "/.site",
@@ -30,13 +30,13 @@
           },
           {
             "path": "content/.site/errors/_index.dir.json",
-            "sha256": "0x6b67ab0be0ff3daef893105edc5887e48a49fc7ac2ceadb856e3037074f30560",
-            "bytes": 136
+            "sha256": "0xd5c9c0e9fdd795735fb3423188a71c078c6ab2afcc9a95724f560c4c0ab7cf55",
+            "bytes": 119
           },
           {
             "path": "content/.site/keys/_index.dir.json",
-            "sha256": "0x1416931897c31f5f8c57ee790347f7a947c74216c4c593b47ccc97dd52facd7d",
-            "bytes": 170
+            "sha256": "0x8cbe1772fd928fd7699e04f26b7490ebf2053474ebc16edbb3e53bb6636bef05",
+            "bytes": 153
           },
           {
             "path": "content/.site/keys/wonjae.asc",
@@ -59,7 +59,7 @@
             "bytes": 76
           }
         ],
-        "content_sha256": "0x888bba42e4907d5e2935c6d5df5afa1f7723a421441a80818de7565c295ba53f"
+        "content_sha256": "0xbaa99c5aff4580c31346ade01e6c7626eaf50a7e56319db7a78da286e79b0813"
       }
     },
     {
@@ -68,8 +68,8 @@
         "date": "2026-04-24",
         "path": "talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.pdf"
       },
-      "prev_block_sha256": "0x776ba411fa74600565844a861768024643b1f968bf94176410f9e1698a3b57b6",
-      "block_sha256": "0x0a10833ec97ef63705bd7a2f2a038861ecd92a927ae9111c60c6362fb4a3393d",
+      "prev_block_sha256": "0x865acaa370ded6429906cd4e7f59d15d8bef37dc7e01457509dfe9140d2660d9",
+      "block_sha256": "0x8c883dc98d43fefa749fce71bbd8a40dde4b7a54d35e777ca2d42095c2de2a83",
       "entry": {
         "id": "route:/talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.pdf",
         "route": "/talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.pdf",
@@ -96,8 +96,8 @@
         "date": "2026-05-15",
         "path": "writing/zk-proofs-from-a-compiler-perspective"
       },
-      "prev_block_sha256": "0x0a10833ec97ef63705bd7a2f2a038861ecd92a927ae9111c60c6362fb4a3393d",
-      "block_sha256": "0x12957b289dad77d6f27ac876410a6ecc6e2425e42706ed11980c1f5a0dba57a8",
+      "prev_block_sha256": "0x8c883dc98d43fefa749fce71bbd8a40dde4b7a54d35e777ca2d42095c2de2a83",
+      "block_sha256": "0x3a9635da3614f3802f7cda0f40d255a9eec78fc3c045350a8aa92463d982baa6",
       "entry": {
         "id": "route:/writing/zk-proofs-from-a-compiler-perspective",
         "route": "/writing/zk-proofs-from-a-compiler-perspective",
@@ -129,8 +129,8 @@
         "date": "2026-05-18",
         "path": "writing/zksummit14-review"
       },
-      "prev_block_sha256": "0x12957b289dad77d6f27ac876410a6ecc6e2425e42706ed11980c1f5a0dba57a8",
-      "block_sha256": "0x285356d3da3e282e8e8418b69215fcfa7009b6851777af9b080a9c047fabff78",
+      "prev_block_sha256": "0x3a9635da3614f3802f7cda0f40d255a9eec78fc3c045350a8aa92463d982baa6",
+      "block_sha256": "0x01dd1d9f6eb2d938ef7fe9d3b91a1d337ef1b9d976eb032951d1a8d6d34b0a54",
       "entry": {
         "id": "route:/writing/zksummit14-review",
         "route": "/writing/zksummit14-review",
@@ -158,5 +158,5 @@
     }
   ],
   "block_count": 4,
-  "chain_head": "0x285356d3da3e282e8e8418b69215fcfa7009b6851777af9b080a9c047fabff78"
+  "chain_head": "0x01dd1d9f6eb2d938ef7fe9d3b91a1d337ef1b9d976eb032951d1a8d6d34b0a54"
 }
