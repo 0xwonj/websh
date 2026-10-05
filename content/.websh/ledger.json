@@ -11,7 +11,7 @@
         "path": ".site"
       },
       "prev_block_sha256": "0x0000000000000000000000000000000000000000000000000000000000000000",
-      "block_sha256": "0x865acaa370ded6429906cd4e7f59d15d8bef37dc7e01457509dfe9140d2660d9",
+      "block_sha256": "0xc8013e5b8c311239c8202d115692b9244ffa89c4bc50a2f41e2ec3fe20e75c25",
       "entry": {
         "id": "route:/.site",
         "route": "/.site",
@@ -50,8 +50,8 @@
           },
           {
             "path": "content/.site/now.toml",
-            "sha256": "0x402f591372dc8f8a28265338f0a4ca7367656b5cac1000fd3f7adee608c4691a",
-            "bytes": 298
+            "sha256": "0xadc87f424209f16d0e0d6a95287dd2f9e30ea73daf807d522ddec2155882b2f4",
+            "bytes": 340
           },
           {
             "path": "content/.site/now.toml.meta.json",
@@ -59,7 +59,7 @@
             "bytes": 76
           }
         ],
-        "content_sha256": "0xbaa99c5aff4580c31346ade01e6c7626eaf50a7e56319db7a78da286e79b0813"
+        "content_sha256": "0x4272dd4eb37c0cddaa428f6d97df95a330122cf3e5ee7b2a2e42c5e7bffb3d3b"
       }
     },
     {
@@ -68,8 +68,8 @@
         "date": "2026-04-24",
         "path": "talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.pdf"
       },
-      "prev_block_sha256": "0x865acaa370ded6429906cd4e7f59d15d8bef37dc7e01457509dfe9140d2660d9",
-      "block_sha256": "0x8c883dc98d43fefa749fce71bbd8a40dde4b7a54d35e777ca2d42095c2de2a83",
+      "prev_block_sha256": "0xc8013e5b8c311239c8202d115692b9244ffa89c4bc50a2f41e2ec3fe20e75c25",
+      "block_sha256": "0x6c59ef1be97a51c4352c6ab2a02a50de0adacab61302af7106f0924b22ac84e3",
       "entry": {
         "id": "route:/talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.pdf",
         "route": "/talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.pdf",
@@ -96,8 +96,8 @@
         "date": "2026-05-15",
         "path": "writing/zk-proofs-from-a-compiler-perspective"
       },
-      "prev_block_sha256": "0x8c883dc98d43fefa749fce71bbd8a40dde4b7a54d35e777ca2d42095c2de2a83",
-      "block_sha256": "0x3a9635da3614f3802f7cda0f40d255a9eec78fc3c045350a8aa92463d982baa6",
+      "prev_block_sha256": "0x6c59ef1be97a51c4352c6ab2a02a50de0adacab61302af7106f0924b22ac84e3",
+      "block_sha256": "0x4a14d7d474902fa66e8998840749cd5807d0d7fe0378ad699f0c3882c3a2ca7a",
       "entry": {
         "id": "route:/writing/zk-proofs-from-a-compiler-perspective",
         "route": "/writing/zk-proofs-from-a-compiler-perspective",
@@ -129,8 +129,8 @@
         "date": "2026-05-18",
         "path": "writing/zksummit14-review"
       },
-      "prev_block_sha256": "0x3a9635da3614f3802f7cda0f40d255a9eec78fc3c045350a8aa92463d982baa6",
-      "block_sha256": "0x01dd1d9f6eb2d938ef7fe9d3b91a1d337ef1b9d976eb032951d1a8d6d34b0a54",
+      "prev_block_sha256": "0x4a14d7d474902fa66e8998840749cd5807d0d7fe0378ad699f0c3882c3a2ca7a",
+      "block_sha256": "0xac9906426c419d8b7e5542c3a61fb56c8b09ce2f18f635387e3141ad51e06055",
       "entry": {
         "id": "route:/writing/zksummit14-review",
         "route": "/writing/zksummit14-review",
@@ -158,5 +158,5 @@
     }
   ],
   "block_count": 4,
-  "chain_head": "0x01dd1d9f6eb2d938ef7fe9d3b91a1d337ef1b9d976eb032951d1a8d6d34b0a54"
+  "chain_head": "0xac9906426c419d8b7e5542c3a61fb56c8b09ce2f18f635387e3141ad51e06055"
 }

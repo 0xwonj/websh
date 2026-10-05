@@ -97,8 +97,8 @@
         },
         "derived": {
           "title": "now",
-          "size_bytes": 298,
-          "content_sha256": "0x402f591372dc8f8a28265338f0a4ca7367656b5cac1000fd3f7adee608c4691a"
+          "size_bytes": 340,
+          "content_sha256": "0xadc87f424209f16d0e0d6a95287dd2f9e30ea73daf807d522ddec2155882b2f4"
         }
       }
     },
@@ -121,7 +121,7 @@
         "derived": {
           "title": "ledger",
           "size_bytes": 6468,
-          "content_sha256": "0xc0fa94497d653e323605578290320c00314c8bfb1bd0059e2d1ac8273b5eff5b"
+          "content_sha256": "0x52a5a0ee84c7c3ed4c53792176a8a549e1a29fa3bb2f3074a7b189da3754332f"
         }
       }
     },
