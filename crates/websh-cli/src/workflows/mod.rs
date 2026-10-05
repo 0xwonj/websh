@@ -1,7 +1,7 @@
+pub(crate) mod ack;
 pub(crate) mod attest;
+pub(crate) mod check;
 pub(crate) mod content;
-pub(crate) mod crypto;
 pub(crate) mod deploy;
 pub(crate) mod mempool;
-pub(crate) mod mount;
-pub(crate) mod prepare;
+pub(crate) mod sync;

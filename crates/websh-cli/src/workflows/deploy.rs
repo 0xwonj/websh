@@ -1,114 +1,124 @@
-use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, bail};
+use cid::Cid;
 
 use crate::CliResult;
+use crate::infra::{dotenv, json::write_bytes, pinata};
+use crate::workflows::check::check_bundle;
 
-use crate::infra::{dotenv, pinata, trunk};
-
-pub(crate) struct DeployOptions {
-    pub(crate) dist_dir: PathBuf,
-    pub(crate) name: Option<String>,
-    pub(crate) no_build: bool,
-    pub(crate) no_sign: bool,
-    pub(crate) gateway: String,
-    pub(crate) ens_url: String,
+#[derive(Debug)]
+pub(crate) struct Deployment {
+    pub(crate) cid: Cid,
+    pub(crate) receipt_warning: Option<String>,
 }
 
-pub(crate) fn deploy(root: &Path, options: DeployOptions) -> CliResult {
-    let DeployOptions {
-        dist_dir,
-        name,
-        no_build,
-        no_sign,
-        gateway,
-        ens_url,
-    } = options;
-    validate_dist(root, &dist_dir)?;
-    let mut envs = dotenv::load(root)?;
+pub(crate) fn deploy(root: &Path) -> CliResult<Deployment> {
+    check_bundle(root)?;
+    publish(root)
+}
 
-    if no_sign {
-        envs.push(("WEBSH_NO_SIGN".to_string(), "1".to_string()));
-    }
+fn publish(root: &Path) -> CliResult<Deployment> {
+    let envs = dotenv::load(root)?;
+    let seconds = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+    let cid = pinata::upload(root, &format!("websh-{seconds}"), &envs)?;
+    // Publication cannot be rolled back by a failed local receipt write. Return
+    // its CID and a warning so callers do not repeat a successful upload.
+    let receipt_warning = write_bytes(&root.join(".last-cid"), format!("{cid}\n").as_bytes())
+        .err()
+        .map(|error| format!("upload succeeded, but .last-cid could not be saved: {error:#}"));
+    Ok(Deployment {
+        cid,
+        receipt_warning,
+    })
+}
 
-    if !no_build {
-        println!("Cleaning previous Trunk build artifacts...");
-        trunk::clean(root, &dist_dir, &envs)?;
-        println!("Building release bundle...");
-        trunk::release(root, &dist_dir, &envs)?;
-    } else {
-        println!("Skipping build (--no-build); uploading the existing bundle as-is.");
-    }
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
 
-    let dist_path = root.join(&dist_dir);
-    if !dist_path.is_dir() {
-        bail!(
-            "upload directory does not exist: {}. Run without --no-build or check --dist-dir.",
-            dist_path.display()
+    use cid::Cid;
+
+    use super::publish;
+    use crate::test_support::temp_dir;
+
+    #[test]
+    fn publication_records_only_valid_cids_and_reports_receipt_failure_after_success() {
+        let root = temp_dir("publish");
+        fs::create_dir(root.join("dist")).unwrap();
+        fs::write(root.join("dist/index.html"), "prebuilt bundle").unwrap();
+        let bin = root.join("bin");
+        fs::create_dir(&bin).unwrap();
+        let executable = bin.join("pinata");
+        fs::write(
+            &executable,
+            r#"#!/bin/sh
+set -eu
+test "$#" = 6
+test "$1" = upload
+test "$2" = --network
+test "$3" = public
+test "$4" = --name
+case "$5" in websh-*) ;; *) exit 1 ;; esac
+test "$6" = dist
+test -f dist/index.html
+test "$PINATA_JWT" = test-only
+printf 'upload\n' >> calls
+/bin/cat response.json
+"#,
+        )
+        .unwrap();
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::write(
+            root.join(".env"),
+            format!("PATH={}\nPINATA_JWT=test-only\n", bin.display()),
+        )
+        .unwrap();
+        let cid = Cid::new_v1(
+            0x70,
+            cid::multihash::Multihash::wrap(0x12, &[7; 32]).unwrap(),
+        );
+        let response = format!(r#"{{"cid":"{cid}","network":"public"}}"#);
+        fs::write(root.join("response.json"), &response).unwrap();
+
+        let result = publish(&root).unwrap();
+        assert_eq!(result.cid, cid);
+        assert!(result.receipt_warning.is_none());
+        assert_eq!(
+            fs::read_to_string(root.join(".last-cid")).unwrap(),
+            format!("{cid}\n")
+        );
+
+        fs::write(
+            root.join("response.json"),
+            r#"{"cid":"bafybroken","network":"public"}"#,
+        )
+        .unwrap();
+        assert!(
+            publish(&root)
+                .unwrap_err()
+                .to_string()
+                .contains("inspect the remote upload before retrying")
+        );
+        assert_eq!(
+            fs::read_to_string(root.join(".last-cid")).unwrap(),
+            format!("{cid}\n")
+        );
+
+        fs::write(root.join("response.json"), response).unwrap();
+        fs::remove_file(root.join(".last-cid")).unwrap();
+        fs::create_dir(root.join(".last-cid")).unwrap();
+        let result = publish(&root).unwrap();
+        assert_eq!(result.cid, cid);
+        assert!(result.receipt_warning.unwrap().contains("upload succeeded"));
+        assert_eq!(
+            fs::read_to_string(root.join("calls")).unwrap(),
+            "upload\nupload\nupload\n"
+        );
+        assert_eq!(
+            fs::read_to_string(root.join("dist/index.html")).unwrap(),
+            "prebuilt bundle"
         );
     }
-
-    let upload_name = name.unwrap_or_else(default_upload_name);
-    println!(
-        "Uploading {} to Pinata as {upload_name}...",
-        dist_dir.display()
-    );
-
-    let cid = pinata::upload(root, &dist_dir, &upload_name, &envs)?;
-    fs::write(root.join(".last-cid"), format!("{cid}\n")).context("write .last-cid")?;
-
-    let gateway = gateway.trim_end_matches('/');
-
-    println!();
-    println!("CID: {cid}");
-    println!("Gateway: {gateway}/ipfs/{cid}");
-    println!();
-    println!("Update ENS contenthash:");
-    println!("  ipfs://{cid}");
-    println!();
-    println!("{ens_url}");
-
-    Ok(())
-}
-
-fn validate_dist(root: &Path, directory: &Path) -> CliResult {
-    let mut components = directory.components();
-    let name = match (components.next(), components.next()) {
-        (Some(Component::Normal(name)), None) => name.to_str().unwrap_or_default(),
-        _ => "",
-    };
-    let valid = name == "dist"
-        || name.strip_prefix("dist-").is_some_and(|suffix| {
-            !suffix.is_empty()
-                && suffix
-                    .bytes()
-                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_'))
-        });
-    if !valid {
-        bail!(
-            "--dist-dir must be dist or a root-level dist-<name> directory (letters, digits, - or _)"
-        );
-    }
-    let path = root.join(directory);
-    match fs::symlink_metadata(&path) {
-        Ok(metadata) if metadata.is_dir() => Ok(()),
-        Ok(_) => bail!(
-            "deployment output must be a directory, not a file or symlink: {}",
-            path.display()
-        ),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => {
-            Err(error).with_context(|| format!("inspect deployment output {}", path.display()))
-        }
-    }
-}
-
-fn default_upload_name() -> String {
-    let seconds = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or(0);
-    format!("websh-{seconds}")
 }

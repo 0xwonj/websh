@@ -8,3 +8,5 @@ mod attest;
 mod content;
 #[path = "cli/deploy.rs"]
 mod deploy;
+#[path = "cli/mempool.rs"]
+mod mempool;

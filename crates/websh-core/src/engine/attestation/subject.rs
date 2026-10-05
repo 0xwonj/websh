@@ -26,7 +26,8 @@ pub struct ContentFile {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Envelope {
     pub route: String,
-    pub issued_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub issued_at: Option<String>,
     pub content_files: Vec<ContentFile>,
     pub attestations: Vec<Attestation>,
 }
@@ -107,8 +108,8 @@ impl Subject {
         &self.envelope().route
     }
 
-    pub fn issued_at(&self) -> &str {
-        &self.envelope().issued_at
+    pub fn issued_at(&self) -> Option<&str> {
+        self.envelope().issued_at.as_deref()
     }
 
     pub fn content_files(&self) -> &[ContentFile] {
@@ -149,38 +150,42 @@ impl Subject {
         let id = self.id();
         let content_sha256 = self.content_sha256()?;
         let env = self.envelope();
+        let issued_at = env
+            .issued_at
+            .as_deref()
+            .ok_or(SubjectCanonicalError::MissingIssuance)?;
         let body = match self {
             Subject::Homepage(s) => format!(
                 "id={id}\nroute={route}\nkind=homepage\ncontent_sha256={content_sha256}\nack_combined_root={ack}\nissued_at={issued_at}",
                 route = env.route,
                 ack = s.ack_combined_root,
-                issued_at = env.issued_at,
+                issued_at = issued_at,
             ),
             Subject::Ledger(s) => format!(
                 "id={id}\nroute={route}\nkind=ledger\ncontent_sha256={content_sha256}\nchain_head={head}\nissued_at={issued_at}",
                 route = env.route,
                 head = s.chain_head,
-                issued_at = env.issued_at,
+                issued_at = issued_at,
             ),
             Subject::Document(_) => format!(
                 "id={id}\nroute={route}\nkind=document\ncontent_sha256={content_sha256}\nissued_at={issued_at}",
                 route = env.route,
-                issued_at = env.issued_at,
+                issued_at = issued_at,
             ),
             Subject::Page(_) => format!(
                 "id={id}\nroute={route}\nkind=page\ncontent_sha256={content_sha256}\nissued_at={issued_at}",
                 route = env.route,
-                issued_at = env.issued_at,
+                issued_at = issued_at,
             ),
             Subject::Bundle(_) => format!(
                 "id={id}\nroute={route}\nkind=bundle\ncontent_sha256={content_sha256}\nissued_at={issued_at}",
                 route = env.route,
-                issued_at = env.issued_at,
+                issued_at = issued_at,
             ),
             Subject::Directory(_) => format!(
                 "id={id}\nroute={route}\nkind=directory\ncontent_sha256={content_sha256}\nissued_at={issued_at}",
                 route = env.route,
-                issued_at = env.issued_at,
+                issued_at = issued_at,
             ),
         };
         Ok(format!("{SUBJECT_MESSAGE_SCHEME}\n{body}"))
@@ -209,13 +214,18 @@ impl Subject {
             }
             last = Some(file.path.as_str());
         }
-        self.canonical_message()?;
+        self.content_sha256()?;
+        if env.issued_at.is_some() || !env.attestations.is_empty() {
+            self.canonical_message()?;
+        }
         Ok(())
     }
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum SubjectCanonicalError {
+    #[error("unsigned subject has no issuance date; prepare an explicit signing request")]
+    MissingIssuance,
     #[error("serialize subject content files: {source}")]
     ContentFiles {
         #[source]
@@ -269,7 +279,7 @@ mod tests {
         Subject::Homepage(HomepageSubject {
             env: Envelope {
                 route: "/".to_string(),
-                issued_at: "2026-04-30".to_string(),
+                issued_at: Some("2026-04-30".to_string()),
                 content_files: sample_files(),
                 attestations: Vec::new(),
             },
@@ -281,7 +291,7 @@ mod tests {
         Subject::Ledger(LedgerSubject {
             env: Envelope {
                 route: "/ledger".to_string(),
-                issued_at: "2026-04-30".to_string(),
+                issued_at: Some("2026-04-30".to_string()),
                 content_files: sample_files(),
                 attestations: Vec::new(),
             },
@@ -293,7 +303,7 @@ mod tests {
         Subject::Document(DocumentSubject {
             env: Envelope {
                 route: "/keys/wonjae.asc".to_string(),
-                issued_at: "2026-04-30".to_string(),
+                issued_at: Some("2026-04-30".to_string()),
                 content_files: sample_files(),
                 attestations: Vec::new(),
             },
@@ -304,7 +314,7 @@ mod tests {
         Subject::Page(PageSubject {
             env: Envelope {
                 route: "/papers/tabula".to_string(),
-                issued_at: "2026-04-30".to_string(),
+                issued_at: Some("2026-04-30".to_string()),
                 content_files: sample_files(),
                 attestations: Vec::new(),
             },
@@ -315,7 +325,7 @@ mod tests {
         Subject::Bundle(BundleSubject {
             env: Envelope {
                 route: "/writing/foo".to_string(),
-                issued_at: "2026-04-30".to_string(),
+                issued_at: Some("2026-04-30".to_string()),
                 content_files: sample_files(),
                 attestations: Vec::new(),
             },
@@ -326,7 +336,7 @@ mod tests {
         Subject::Directory(DirectorySubject {
             env: Envelope {
                 route: "/.site".to_string(),
-                issued_at: "2026-04-30".to_string(),
+                issued_at: Some("2026-04-30".to_string()),
                 content_files: sample_files(),
                 attestations: Vec::new(),
             },

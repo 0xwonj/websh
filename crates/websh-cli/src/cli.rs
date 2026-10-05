@@ -1,18 +1,13 @@
-//! Native CLI for local websh project maintenance.
-
+//! Native content, attestation, and publishing commands.
+use crate::{CliResult, commands, project::Project};
+use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
-use anyhow::Context;
-use clap::{Parser, Subcommand};
-
-use crate::CliResult;
-use crate::commands::{attest, content, crypto, deploy, mempool, mount};
-
 #[derive(Parser)]
-#[command(name = "websh-cli")]
-#[command(about = "Native maintenance CLI for websh")]
+#[command(name = "websh-cli", about = "Build and verify the websh archive")]
 struct Cli {
-    #[arg(long, default_value = ".")]
+    /// Project directory; explicit external file arguments use the current directory.
+    #[arg(long, global = true, default_value = ".")]
     root: PathBuf,
     #[command(subcommand)]
     command: Command,
@@ -20,26 +15,34 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Prepare content for the current Trunk profile.
-    Prepare,
-    Attest(attest::AttestCommand),
-    Crypto(crypto::CryptoCommand),
-    Content(content::ContentCommand),
-    Deploy(deploy::DeployCommand),
-    Mempool(mempool::MempoolCommand),
-    Mount(mount::MountCommand),
+    /// Generate current content and attestation subjects without signing.
+    Sync,
+    /// Verify current artifacts without changing any files.
+    Check {
+        /// Require a valid site signature on every current subject.
+        #[arg(long)]
+        require_signatures: bool,
+    },
+    /// Sign current subjects or exchange offline signing requests.
+    Attest(commands::attest::AttestCommand),
+    /// Generate a local draft manifest or import a draft into this project.
+    Mempool(commands::mempool::MempoolCommand),
+    /// Manage acknowledgement commitments and export proofs.
+    Ack(commands::ack::AckCommand),
+    /// Validate and publish the prebuilt dist directory.
+    Deploy,
 }
 
 pub fn run() -> CliResult {
     let cli = Cli::parse();
-    let root = std::path::absolute(cli.root).context("resolve project root")?;
+    let project = Project::open(&cli.root)?;
+    let root = project.root();
     match cli.command {
-        Command::Prepare => crate::workflows::prepare::prepare(&root),
-        Command::Attest(command) => attest::run(&root, command),
-        Command::Crypto(command) => crypto::run(&root, command),
-        Command::Content(command) => content::run(&root, command),
-        Command::Deploy(command) => deploy::run(&root, command),
-        Command::Mempool(command) => mempool::run(&root, command),
-        Command::Mount(command) => mount::run(&root, command),
+        Command::Sync => commands::sync::run(root),
+        Command::Check { require_signatures } => commands::check::run(root, require_signatures),
+        Command::Attest(command) => commands::attest::run(root, command),
+        Command::Mempool(command) => commands::mempool::run(root, command),
+        Command::Ack(command) => commands::ack::run(root, command),
+        Command::Deploy => commands::deploy::run(root),
     }
 }

@@ -9,7 +9,6 @@
           "title": "Home",
           "kind": "directory",
           "renderer": "directory_listing",
-          "modified_at": 1779251200,
           "child_count": 6
         }
       }
@@ -31,7 +30,6 @@
           "title": ".site",
           "kind": "directory",
           "renderer": "directory_listing",
-          "modified_at": 1779251200,
           "child_count": 3
         }
       }
@@ -47,8 +45,25 @@
           "title": "errors",
           "kind": "directory",
           "renderer": "directory_listing",
-          "modified_at": 1779251200,
           "child_count": 1
+        }
+      }
+    },
+    {
+      "path": ".site/errors/404.md",
+      "metadata": {
+        "kind": "page",
+        "authored": {
+          "title": "404 response policy",
+          "description": "Canonical response policy for missing content routes."
+        },
+        "derived": {
+          "title": "404",
+          "kind": "page",
+          "renderer": "markdown_page",
+          "size_bytes": 582,
+          "content_sha256": "0x0621834d4f48da42dcc8bd35bc8f940ab60cd865047e7af7e431732a7768d922",
+          "word_count": 79
         }
       }
     },
@@ -64,8 +79,38 @@
           "title": "keys",
           "kind": "directory",
           "renderer": "directory_listing",
-          "modified_at": 1779251200,
           "child_count": 1
+        }
+      }
+    },
+    {
+      "path": ".site/keys/wonjae.asc",
+      "metadata": {
+        "kind": "document",
+        "authored": {
+          "description": "PGP public key — verifies content attestations on this site.",
+          "date": "2026-04-20"
+        },
+        "derived": {
+          "title": "wonjae",
+          "kind": "document",
+          "size_bytes": 640,
+          "content_sha256": "0xe2b439e3359273df2e82a30b5b0f68990626abf89065c5f71fb7189bee781c5b"
+        }
+      }
+    },
+    {
+      "path": ".site/now.toml",
+      "metadata": {
+        "kind": "document",
+        "authored": {
+          "description": "What I'm working on right now — short status feed."
+        },
+        "derived": {
+          "title": "now",
+          "kind": "document",
+          "size_bytes": 298,
+          "content_sha256": "0x402f591372dc8f8a28265338f0a4ca7367656b5cac1000fd3f7adee608c4691a"
         }
       }
     },
@@ -83,6 +128,19 @@
       }
     },
     {
+      "path": ".websh/ledger.json",
+      "metadata": {
+        "kind": "data",
+        "authored": {},
+        "derived": {
+          "title": "ledger",
+          "kind": "data",
+          "size_bytes": 6468,
+          "content_sha256": "0x3273d3e2402717b1d1b7ab95df8fafbb02baea8e02b09b34e5a18913773b4848"
+        }
+      }
+    },
+    {
       "path": ".websh/mounts",
       "metadata": {
         "kind": "directory",
@@ -92,6 +150,19 @@
           "kind": "directory",
           "renderer": "directory_listing",
           "child_count": 1
+        }
+      }
+    },
+    {
+      "path": ".websh/mounts/mempool.mount.json",
+      "metadata": {
+        "kind": "data",
+        "authored": {},
+        "derived": {
+          "title": "mempool.mount",
+          "kind": "data",
+          "size_bytes": 141,
+          "content_sha256": "0x203c96e66927965f98ccee9e19152ca82c59af6fb7b32d03bd898e60bbabd3db"
         }
       }
     },
@@ -130,8 +201,46 @@
           "title": "talks",
           "kind": "directory",
           "renderer": "directory_listing",
-          "modified_at": 1778980325,
           "child_count": 1
+        }
+      }
+    },
+    {
+      "path": "talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.pdf",
+      "metadata": {
+        "kind": "document",
+        "authored": {
+          "title": "Evaluating compiler-optimization impacts on zkVM performance",
+          "description": "Slide deck — measuring how LLVM optimization passes interact with zkVM proving cost.",
+          "date": "2026-04-24",
+          "tags": [
+            "labseminar",
+            "zkvm",
+            "llvm",
+            "zk",
+            "compilers",
+            "optimizations"
+          ],
+          "links": [
+            {
+              "label": "arXiv",
+              "url": "https://arxiv.org/abs/2508.17518",
+              "kind": "paper"
+            }
+          ]
+        },
+        "derived": {
+          "title": "evaluating-compiler-optimization-impacts-on-zkvm-performance",
+          "kind": "document",
+          "renderer": "pdf",
+          "page_size": {
+            "width": 960,
+            "height": 540
+          },
+          "page_count": 31,
+          "rotation": 0,
+          "size_bytes": 3417199,
+          "content_sha256": "0x2652af4104e2138d8b449fe60ff09d0a35217fd8a76fef28478e4219e12583bb"
         }
       }
     },
@@ -144,7 +253,6 @@
           "title": "writing",
           "kind": "directory",
           "renderer": "directory_listing",
-          "modified_at": 1779062096,
           "child_count": 2
         }
       }
@@ -195,8 +303,61 @@
         "derived": {
           "title": "zk-proofs-from-a-compiler-perspective",
           "kind": "bundle",
-          "modified_at": 1779061395,
           "child_count": 2
+        }
+      }
+    },
+    {
+      "path": "writing/zk-proofs-from-a-compiler-perspective/en.md",
+      "metadata": {
+        "kind": "page",
+        "authored": {
+          "title": "Zero-Knowledge Proofs, from a Compiler Perspective",
+          "language": "en",
+          "description": "How programs become relations, constraints, traces, and proofs.",
+          "date": "2026-05-15",
+          "tags": [
+            "explainer",
+            "zk",
+            "compilers",
+            "proof-systems",
+            "arithmetization"
+          ]
+        },
+        "derived": {
+          "title": "en",
+          "kind": "page",
+          "renderer": "markdown_page",
+          "size_bytes": 25411,
+          "content_sha256": "0x028d827981ab38991e1ae77626fc08877460e775cffda6f01f9dceea90e9f610",
+          "word_count": 3951
+        }
+      }
+    },
+    {
+      "path": "writing/zk-proofs-from-a-compiler-perspective/ko.md",
+      "metadata": {
+        "kind": "page",
+        "authored": {
+          "title": "컴파일러 관점에서 보는 영지식 증명",
+          "language": "ko",
+          "description": "프로그램이 relation, constraint, trace, proof가 되는 과정을 컴파일러 관점에서 설명합니다.",
+          "date": "2026-05-15",
+          "tags": [
+            "explainer",
+            "zk",
+            "compilers",
+            "proof-systems",
+            "arithmetization"
+          ]
+        },
+        "derived": {
+          "title": "ko",
+          "kind": "page",
+          "renderer": "markdown_page",
+          "size_bytes": 30288,
+          "content_sha256": "0x68c65139572943632cec6a612c3f6db68d73f194ee626636d40ee726326a2709",
+          "word_count": 3080
         }
       }
     },
@@ -250,180 +411,7 @@
         "derived": {
           "title": "zksummit14-review",
           "kind": "bundle",
-          "modified_at": 1779062096,
           "child_count": 2
-        }
-      }
-    },
-    {
-      "path": ".site/errors/404.md",
-      "metadata": {
-        "kind": "page",
-        "authored": {
-          "title": "404 response policy",
-          "description": "Canonical response policy for missing content routes."
-        },
-        "derived": {
-          "title": "404",
-          "kind": "page",
-          "renderer": "markdown_page",
-          "size_bytes": 582,
-          "modified_at": 1779251200,
-          "content_sha256": "0x0621834d4f48da42dcc8bd35bc8f940ab60cd865047e7af7e431732a7768d922",
-          "word_count": 79
-        }
-      }
-    },
-    {
-      "path": ".site/keys/wonjae.asc",
-      "metadata": {
-        "kind": "document",
-        "authored": {
-          "description": "PGP public key — verifies content attestations on this site.",
-          "date": "2026-04-20"
-        },
-        "derived": {
-          "title": "wonjae",
-          "kind": "document",
-          "size_bytes": 640,
-          "modified_at": 1779251200,
-          "content_sha256": "0xe2b439e3359273df2e82a30b5b0f68990626abf89065c5f71fb7189bee781c5b"
-        }
-      }
-    },
-    {
-      "path": ".site/now.toml",
-      "metadata": {
-        "kind": "document",
-        "authored": {
-          "description": "What I'm working on right now — short status feed."
-        },
-        "derived": {
-          "title": "now",
-          "kind": "document",
-          "size_bytes": 298,
-          "modified_at": 1779251200,
-          "content_sha256": "0x402f591372dc8f8a28265338f0a4ca7367656b5cac1000fd3f7adee608c4691a"
-        }
-      }
-    },
-    {
-      "path": ".websh/ledger.json",
-      "metadata": {
-        "kind": "data",
-        "authored": {},
-        "derived": {
-          "title": "ledger",
-          "kind": "data",
-          "size_bytes": 7545
-        }
-      }
-    },
-    {
-      "path": ".websh/mounts/mempool.mount.json",
-      "metadata": {
-        "kind": "data",
-        "authored": {},
-        "derived": {
-          "title": "mempool.mount",
-          "kind": "data",
-          "size_bytes": 141
-        }
-      }
-    },
-    {
-      "path": "talks/evaluating-compiler-optimization-impacts-on-zkvm-performance.pdf",
-      "metadata": {
-        "kind": "document",
-        "authored": {
-          "title": "Evaluating compiler-optimization impacts on zkVM performance",
-          "description": "Slide deck — measuring how LLVM optimization passes interact with zkVM proving cost.",
-          "date": "2026-04-24",
-          "tags": [
-            "labseminar",
-            "zkvm",
-            "llvm",
-            "zk",
-            "compilers",
-            "optimizations"
-          ],
-          "links": [
-            {
-              "label": "arXiv",
-              "url": "https://arxiv.org/abs/2508.17518",
-              "kind": "paper"
-            }
-          ]
-        },
-        "derived": {
-          "title": "evaluating-compiler-optimization-impacts-on-zkvm-performance",
-          "kind": "document",
-          "renderer": "pdf",
-          "page_size": {
-            "width": 960,
-            "height": 540
-          },
-          "page_count": 31,
-          "rotation": 0,
-          "size_bytes": 3417199,
-          "modified_at": 1778980325,
-          "content_sha256": "0x2652af4104e2138d8b449fe60ff09d0a35217fd8a76fef28478e4219e12583bb"
-        }
-      }
-    },
-    {
-      "path": "writing/zk-proofs-from-a-compiler-perspective/en.md",
-      "metadata": {
-        "kind": "page",
-        "authored": {
-          "title": "Zero-Knowledge Proofs, from a Compiler Perspective",
-          "language": "en",
-          "description": "How programs become relations, constraints, traces, and proofs.",
-          "date": "2026-05-15",
-          "tags": [
-            "explainer",
-            "zk",
-            "compilers",
-            "proof-systems",
-            "arithmetization"
-          ]
-        },
-        "derived": {
-          "title": "en",
-          "kind": "page",
-          "renderer": "markdown_page",
-          "size_bytes": 25411,
-          "modified_at": 1779061395,
-          "content_sha256": "0x028d827981ab38991e1ae77626fc08877460e775cffda6f01f9dceea90e9f610",
-          "word_count": 3951
-        }
-      }
-    },
-    {
-      "path": "writing/zk-proofs-from-a-compiler-perspective/ko.md",
-      "metadata": {
-        "kind": "page",
-        "authored": {
-          "title": "컴파일러 관점에서 보는 영지식 증명",
-          "language": "ko",
-          "description": "프로그램이 relation, constraint, trace, proof가 되는 과정을 컴파일러 관점에서 설명합니다.",
-          "date": "2026-05-15",
-          "tags": [
-            "explainer",
-            "zk",
-            "compilers",
-            "proof-systems",
-            "arithmetization"
-          ]
-        },
-        "derived": {
-          "title": "ko",
-          "kind": "page",
-          "renderer": "markdown_page",
-          "size_bytes": 30288,
-          "modified_at": 1779061395,
-          "content_sha256": "0x68c65139572943632cec6a612c3f6db68d73f194ee626636d40ee726326a2709",
-          "word_count": 3080
         }
       }
     },
@@ -448,7 +436,6 @@
           "kind": "page",
           "renderer": "markdown_page",
           "size_bytes": 22295,
-          "modified_at": 1779062096,
           "content_sha256": "0xa82324c9153458e811d378115e6654f12a2633abe69264ed2e4a8bbcc7b5603e",
           "word_count": 3075
         }
@@ -475,7 +462,6 @@
           "kind": "page",
           "renderer": "markdown_page",
           "size_bytes": 24749,
-          "modified_at": 1779062096,
           "content_sha256": "0xe8a0ccf4e32c78d95834240af9049bab2fff14567e669416f7836411c401aeff",
           "word_count": 2528
         }

@@ -1,74 +1,77 @@
-use std::path::{Path, PathBuf};
-
+use crate::{CliResult, workflows::attest};
 use clap::{Args, Subcommand};
-
-use websh_site::PUBLIC_KEY_PATH;
-
-use crate::CliResult;
-use crate::workflows::attest::{
-    AttestAllOptions, DEFAULT_GPG_SIGNER, DEFAULT_SIGNATURE_DIR, attest_all, verify,
-};
-use crate::workflows::content::DEFAULT_CONTENT_DIR;
-
-mod subject;
+use std::path::{Path, PathBuf};
 
 #[derive(Args)]
 pub(crate) struct AttestCommand {
     #[command(subcommand)]
-    command: Option<AttestSubcommand>,
-    /// Content root scanned by `websh-cli attest` when no subcommand is given.
-    #[arg(long, default_value = DEFAULT_CONTENT_DIR)]
-    content_dir: PathBuf,
-    /// Public key used to verify automatic PGP signatures.
-    #[arg(long, default_value = PUBLIC_KEY_PATH)]
-    key: PathBuf,
-    /// GPG key id/user id passed to `gpg --local-user`.
-    #[arg(long, default_value = DEFAULT_GPG_SIGNER)]
-    gpg_key: Option<String>,
-    /// Local directory for generated subject messages and detached signatures.
-    #[arg(long, default_value = DEFAULT_SIGNATURE_DIR)]
-    signature_dir: PathBuf,
-    /// Only regenerate subjects; do not call local gpg.
-    #[arg(long)]
-    no_sign: bool,
-    /// Override issued_at for regenerated subjects.
-    #[arg(long)]
-    issued_at: Option<String>,
+    command: AttestSubcommand,
 }
 
 #[derive(Subcommand)]
 enum AttestSubcommand {
-    Subject(subject::SubjectCommand),
-    Verify {
+    /// Sign missing current subjects with the site PGP key.
+    Sign { route: Option<String> },
+    /// Print exact signing bytes; redirect stdout to a request file.
+    Message { route: String },
+    /// Verify and import a signature of an exported request.
+    Import {
+        #[command(subcommand)]
+        signature: Import,
+    },
+}
+
+#[derive(Subcommand)]
+enum Import {
+    /// Import an armored detached signature from the site PGP key.
+    Pgp {
+        route: String,
         #[arg(long)]
-        route: Option<String>,
+        message: PathBuf,
+        #[arg(long)]
+        signature: PathBuf,
+    },
+    /// Import an additional EIP-191 signature (not a replacement for site PGP).
+    Ethereum {
+        route: String,
+        #[arg(long)]
+        message: PathBuf,
+        #[arg(long)]
+        address: String,
+        #[arg(long)]
+        signature: String,
     },
 }
 
 pub(crate) fn run(root: &Path, command: AttestCommand) -> CliResult {
-    let AttestCommand {
-        command,
-        content_dir,
-        key,
-        gpg_key,
-        signature_dir,
-        no_sign,
-        issued_at,
-    } = command;
-
-    match command {
-        Some(AttestSubcommand::Subject(command)) => subject::subject(root, command),
-        Some(AttestSubcommand::Verify { route }) => verify(root, route),
-        None => attest_all(
-            root,
-            AttestAllOptions {
-                content_dir,
-                key,
-                gpg_key,
-                signature_dir,
-                no_sign,
-                issued_at,
-            },
-        ),
+    match command.command {
+        AttestSubcommand::Sign { route } => {
+            println!("signed {} subjects", attest::sign(root, route.as_deref())?)
+        }
+        AttestSubcommand::Message { route } => print!("{}", attest::message(root, &route)?),
+        AttestSubcommand::Import {
+            signature:
+                Import::Pgp {
+                    route,
+                    message,
+                    signature,
+                },
+        } => {
+            attest::import_pgp(root, &route, &message, &signature)?;
+            println!("imported PGP signature for {route}");
+        }
+        AttestSubcommand::Import {
+            signature:
+                Import::Ethereum {
+                    route,
+                    message,
+                    address,
+                    signature,
+                },
+        } => {
+            attest::import_ethereum(root, &route, &message, &address, &signature)?;
+            println!("imported Ethereum signature for {route}");
+        }
     }
+    Ok(())
 }

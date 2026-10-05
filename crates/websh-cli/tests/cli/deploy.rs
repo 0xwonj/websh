@@ -1,118 +1,75 @@
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{PermissionsExt, symlink};
+use std::process::Command;
 
-use crate::support::{cli_with_env, temp_dir};
+use crate::support::{cli, temp_dir, write_site_fixture};
 
 #[test]
-fn deploy_builds_and_uploads_the_selected_bundle_with_explicit_environment() {
-    let root = temp_dir("deploy");
+fn deploy_rejects_an_unsigned_project_without_running_tools_or_changing_the_bundle() {
+    let root = temp_dir("deploy-unsigned");
+    write_site_fixture(&root);
+    cli(&root, &["sync"]);
+    fs::create_dir(root.join("dist")).unwrap();
+    fs::write(root.join("dist/index.html"), "prebuilt").unwrap();
+    fs::write(root.join(".last-cid"), "previous deployment\n").unwrap();
     let bin = root.join("bin");
     fs::create_dir(&bin).unwrap();
-    for (name, script) in [
-        (
-            "trunk",
-            r#"#!/bin/sh
-set -eu
-printf 'trunk %s\n' "$*" >> calls
-test "$WEBSH_NO_SIGN" = 1
-case "$1" in
-  clean) test "$2" = --dist; test "$3" = dist-preview ;;
-  build) test "$2" = --release; test "$3" = --locked; test "$4" = --dist; test "$5" = dist-preview
-    /bin/mkdir -p "$5"; printf 'built' > "$5/index.html" ;;
-  *) exit 1 ;;
-esac
-"#,
-        ),
-        (
-            "pinata",
-            r#"#!/bin/sh
-set -eu
-printf 'pinata %s\n' "$*" >> calls
-test "$PINATA_JWT" = test-only
-test "$1" = upload; test "$2" = dist-preview; test "$3" = --name; test "$4" = fixture
-test -f dist-preview/index.html
-printf '{"cid":"bafyfixture"}\n'
-"#,
-        ),
-    ] {
-        let path = bin.join(name);
-        fs::write(&path, script).unwrap();
-        fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
-    }
-    fs::write(root.join(".env"), "PINATA_JWT=test-only\n").unwrap();
-    let path = bin.to_string_lossy().into_owned();
-    let args = [
-        "deploy",
-        "pinata",
-        "--dist-dir",
-        "dist-preview",
-        "--name",
-        "fixture",
-        "--no-sign",
-    ];
-    cli_with_env(&root, &args, &[("PATH", &path)]);
+    let tool = bin.join("pinata");
+    fs::write(
+        &tool,
+        "#!/bin/sh\nprintf 'unexpected call' > calls\nexit 99\n",
+    )
+    .unwrap();
+    fs::set_permissions(&tool, fs::Permissions::from_mode(0o755)).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_websh-cli"))
+        .arg("--root")
+        .arg(&*root)
+        .arg("deploy")
+        .env("PATH", &bin)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("site signature required"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!root.join("calls").exists());
     assert_eq!(
-        fs::read_to_string(root.join("calls")).unwrap(),
-        "trunk clean --dist dist-preview\ntrunk build --release --locked --dist dist-preview\npinata upload dist-preview --name fixture\n"
+        fs::read_to_string(root.join("dist/index.html")).unwrap(),
+        "prebuilt"
     );
     assert_eq!(
         fs::read_to_string(root.join(".last-cid")).unwrap(),
-        "bafyfixture\n"
-    );
-
-    fs::write(root.join("calls"), "").unwrap();
-    let mut args = args.to_vec();
-    args.push("--no-build");
-    cli_with_env(&root, &args, &[("PATH", &path)]);
-    assert_eq!(
-        fs::read_to_string(root.join("calls")).unwrap(),
-        "pinata upload dist-preview --name fixture\n"
+        "previous deployment\n"
     );
 }
 
 #[test]
-fn deploy_rejects_source_paths_and_symlinks_before_running_tools() {
-    use std::os::unix::fs::symlink;
-    use std::process::Command;
-
+fn deploy_rejects_missing_and_linked_output_before_running_tools() {
     let root = temp_dir("deploy-output-boundary");
-    fs::create_dir(root.join("content")).unwrap();
+    write_site_fixture(&root);
     fs::write(root.join("content/source.md"), "preserved").unwrap();
-    symlink(root.join("content"), root.join("dist-linked")).unwrap();
-    fs::write(root.join("dist-file"), "preserved").unwrap();
-    let absolute = root.join("dist-preview");
-    for directory in [
-        ".",
-        "..",
-        "content",
-        "dist/..",
-        "dist/nested",
-        "dist-linked",
-        "dist-file",
-        "dist-",
-        "dist-bad.name",
-        absolute.to_str().unwrap(),
-    ] {
+    for linked in [false, true] {
+        if linked {
+            symlink(root.join("content"), root.join("dist")).unwrap();
+        }
         let output = Command::new(env!("CARGO_BIN_EXE_websh-cli"))
             .arg("--root")
             .arg(&*root)
-            .args(["deploy", "pinata", "--dist-dir", directory])
+            .arg("deploy")
             .env("PATH", "")
             .output()
             .unwrap();
-        assert!(!output.status.success(), "accepted {directory}");
-        let error = String::from_utf8(output.stderr).unwrap();
+        assert!(!output.status.success());
         assert!(
-            error.contains("--dist-dir must be") || error.contains("deployment output must be"),
-            "{error}"
+            String::from_utf8_lossy(&output.stderr).contains("dist must be"),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
         );
     }
     assert_eq!(
         fs::read_to_string(root.join("content/source.md")).unwrap(),
-        "preserved"
-    );
-    assert_eq!(
-        fs::read_to_string(root.join("dist-file")).unwrap(),
         "preserved"
     );
 }

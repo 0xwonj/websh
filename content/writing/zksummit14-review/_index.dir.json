@@ -42,10 +42,5 @@
         "kind": "telegram"
       }
     ]
-  },
-  "derived": {
-    "title": "zksummit14-review",
-    "kind": "bundle",
-    "child_count": 2
   }
 }

@@ -96,13 +96,12 @@ test('ledger links site support block to directory listing', async ({ page, resp
       files: [
         { path: 'content/.site/_index.dir.json', sha256: normalizedSha('a'), bytes: 300 },
         { path: 'content/.site/errors/404.md', sha256: normalizedSha('b'), bytes: 600 },
-        { path: 'content/.site/errors/404.meta.json', sha256: normalizedSha('c'), bytes: 120 },
         { path: 'content/.site/errors/_index.dir.json', sha256: normalizedSha('d'), bytes: 80 },
         { path: 'content/.site/keys/_index.dir.json', sha256: normalizedSha('e'), bytes: 80 },
         { path: 'content/.site/keys/wonjae.asc', sha256: normalizedSha('f'), bytes: 640 },
-        { path: 'content/.site/keys/wonjae.meta.json', sha256: normalizedSha('1'), bytes: 120 },
-        { path: 'content/.site/now.meta.json', sha256: normalizedSha('2'), bytes: 120 },
-        { path: 'content/.site/now.toml', sha256: normalizedSha('3'), bytes: 298 }
+        { path: 'content/.site/keys/wonjae.asc.meta.json', sha256: normalizedSha('1'), bytes: 120 },
+        { path: 'content/.site/now.toml', sha256: normalizedSha('3'), bytes: 298 },
+        { path: 'content/.site/now.toml.meta.json', sha256: normalizedSha('2'), bytes: 120 }
       ]
     })
   ]);
@@ -138,7 +137,7 @@ test('ledger links site support block to directory listing', async ({ page, resp
   await expect(page.getByRole('navigation', { name: 'Directory entries' })).toContainText('errors');
   await expect(page.locator('body')).not.toContainText('no blocks match this ledger filter');
   await expect(page.locator('body')).not.toContainText('_index.dir.json');
-  await expect(page.locator('body')).not.toContainText('now.meta.json');
+  await expect(page.locator('body')).not.toContainText('now.toml.meta.json');
 });
 
 test('mempool filters pending entries and opens the selected content route', async ({ page, responses }) => {

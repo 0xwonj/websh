@@ -2,18 +2,20 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, bail};
-use websh_core::domain::{ContentManifestDocument, ContentManifestEntry};
-use websh_core::mempool::{
-    LEDGER_CATEGORIES, MempoolManifestState, build_mempool_manifest_state, mempool_root,
+use sha2::{Digest, Sha256};
+use websh_core::domain::{
+    ContentManifestDocument, ContentManifestEntry, Fields, MempoolFields, NodeKind, NodeMetadata,
 };
+use websh_core::mempool::LEDGER_CATEGORIES;
 
 use crate::CliResult;
 use crate::infra::json::write_json;
 
-use super::path::MempoolEntryPath;
+use super::draft::Draft;
+use super::path::EntryPath;
 
 /// Rebuild from canonical source files; an existing manifest is never an input.
-pub(crate) fn rebuild(repo_dir: &Path) -> CliResult<usize> {
+pub(crate) fn sync(repo_dir: &Path) -> CliResult<usize> {
     if !repo_dir.is_dir() {
         bail!(
             "mempool checkout is not a directory: {}",
@@ -42,79 +44,65 @@ pub(crate) fn rebuild(repo_dir: &Path) -> CliResult<usize> {
             let file_name = file_name
                 .to_str()
                 .context("mempool filename is not UTF-8")?;
-            let entry_path = MempoolEntryPath::parse(&format!("{category}/{file_name}"))?;
+            let entry_path = EntryPath::parse(&format!("{category}/{file_name}"))?;
             let body =
                 fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
-            entries.push(build_entry(&entry_path, &body));
+            entries.push(
+                build_entry(&entry_path, &body)
+                    .with_context(|| format!("validate {}", path.display()))?,
+            );
         }
     }
     entries.sort_by(|a, b| a.path.cmp(&b.path));
     let count = entries.len();
-    write_json(
-        &repo_dir.join("manifest.json"),
-        &ContentManifestDocument { entries },
-    )?;
+    let manifest_path = repo_dir.join("manifest.json");
+    match fs::symlink_metadata(&manifest_path) {
+        Ok(metadata) if metadata.is_file() => {}
+        Ok(_) => bail!(
+            "manifest must be a regular file: {}",
+            manifest_path.display()
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error).context("inspect mempool manifest"),
+    }
+    write_json(&manifest_path, &ContentManifestDocument { entries })?;
     Ok(count)
 }
 
-pub(super) fn build_entry(path: &MempoolEntryPath, body: &str) -> ContentManifestEntry {
-    let canonical = mempool_root().join(path.as_str());
-    let MempoolManifestState { meta, extensions } = build_mempool_manifest_state(body, &canonical);
-    ContentManifestEntry {
+fn build_entry(path: &EntryPath, body: &str) -> CliResult<ContentManifestEntry> {
+    let draft = Draft::parse(body)?;
+    let category = path
+        .as_str()
+        .split('/')
+        .next()
+        .expect("validated entry path");
+    if draft
+        .metadata
+        .category
+        .as_deref()
+        .is_some_and(|value| value != category)
+    {
+        bail!("draft category must match its directory `{category}`");
+    }
+    Ok(ContentManifestEntry {
         path: path.to_string(),
-        metadata: meta,
-        mempool: extensions.mempool,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::test_support::temp_dir;
-    use websh_core::domain::MempoolStatus;
-
-    #[test]
-    fn rebuilds_current_manifest_from_sources_deterministically() {
-        let temp = temp_dir("rebuild");
-        fs::create_dir(temp.join("writing")).unwrap();
-        fs::create_dir(temp.join("papers")).unwrap();
-        fs::create_dir(temp.join("unrelated")).unwrap();
-        let body = "---\ntitle: Test\nstatus: review\npriority: high\n---\n\nHello world.\n";
-        fs::write(temp.join("writing/test.md"), body).unwrap();
-        fs::write(temp.join("papers/first.md"), "# First\n").unwrap();
-        fs::write(temp.join("README.md"), "# Repository\n").unwrap();
-        fs::write(temp.join("unrelated/ignored.md"), "# Ignore\n").unwrap();
-        fs::write(temp.join("manifest.json"), "not an input").unwrap();
-
-        assert_eq!(rebuild(&temp).unwrap(), 2);
-        let encoded = fs::read_to_string(temp.join("manifest.json")).unwrap();
-        let manifest: ContentManifestDocument = serde_json::from_str(&encoded).unwrap();
-        assert_eq!(manifest.entries[0].path, "papers/first.md");
-        assert_eq!(
-            manifest.entries[1].mempool.as_ref().unwrap().status,
-            MempoolStatus::Review
-        );
-        assert_eq!(
-            fs::read_to_string(temp.join("writing/test.md")).unwrap(),
-            body
-        );
-        rebuild(&temp).unwrap();
-        assert_eq!(
-            fs::read_to_string(temp.join("manifest.json")).unwrap(),
-            encoded
-        );
-    }
-
-    #[test]
-    fn invalid_source_does_not_replace_the_manifest() {
-        let temp = temp_dir("invalid");
-        fs::create_dir(temp.join("writing")).unwrap();
-        fs::write(temp.join("writing/not a slug.md"), "# Invalid\n").unwrap();
-        fs::write(temp.join("manifest.json"), "untouched").unwrap();
-        assert!(rebuild(&temp).is_err());
-        assert_eq!(
-            fs::read_to_string(temp.join("manifest.json")).unwrap(),
-            "untouched"
-        );
-    }
+        metadata: NodeMetadata {
+            kind: NodeKind::Page,
+            bundle: None,
+            authored: draft.metadata.fields(),
+            derived: Fields {
+                size_bytes: Some(body.len() as u64),
+                content_sha256: Some(format!("0x{}", hex::encode(Sha256::digest(body)))),
+                word_count: Some(
+                    u32::try_from(draft.body.split_whitespace().count()).unwrap_or(u32::MAX),
+                ),
+                ..Fields::default()
+            },
+        },
+        mempool: Some(MempoolFields {
+            status: draft.metadata.status,
+            priority: draft.metadata.priority,
+            category: Some(category.to_string()),
+        }),
+    })
 }

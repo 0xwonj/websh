@@ -3,6 +3,7 @@
 pub mod cli;
 pub(crate) mod commands;
 pub(crate) mod infra;
+mod project;
 pub(crate) mod workflows;
 
 pub(crate) type CliResult<T = ()> = anyhow::Result<T>;

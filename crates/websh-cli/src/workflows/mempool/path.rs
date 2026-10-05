@@ -1,121 +1,41 @@
+use anyhow::{Context, ensure};
 use websh_core::mempool::LEDGER_CATEGORIES;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct MempoolEntryPath(String);
+use crate::CliResult;
 
-impl MempoolEntryPath {
-    pub(crate) fn parse(raw: &str) -> Result<Self, MempoolEntryPathError> {
-        if raw.is_empty() {
-            return Err(MempoolEntryPathError::Empty);
-        }
-        if raw.starts_with('/') {
-            return Err(MempoolEntryPathError::Absolute);
-        }
-        if raw == "manifest.json" || raw.ends_with("/manifest.json") {
-            return Err(MempoolEntryPathError::Reserved);
-        }
+pub(super) struct EntryPath(String);
 
-        let parts: Vec<&str> = raw.split('/').collect();
-        if parts.len() != 2 {
-            return Err(MempoolEntryPathError::Shape);
-        }
-        if parts.iter().any(|part| part.is_empty()) {
-            return Err(MempoolEntryPathError::EmptySegment);
-        }
-        if parts.iter().any(|part| matches!(*part, "." | "..")) {
-            return Err(MempoolEntryPathError::Traversal);
-        }
-        if !LEDGER_CATEGORIES.contains(&parts[0]) {
-            return Err(MempoolEntryPathError::UnknownCategory(parts[0].to_string()));
-        }
-        let Some(slug) = parts[1].strip_suffix(".md") else {
-            return Err(MempoolEntryPathError::Extension);
-        };
-        if !slug_is_valid(slug) {
-            return Err(MempoolEntryPathError::Slug);
-        }
-
+impl EntryPath {
+    pub(super) fn parse(raw: &str) -> CliResult<Self> {
+        let (category, filename) = raw
+            .split_once('/')
+            .context("entry path must be <category>/<slug>.md")?;
+        ensure!(
+            LEDGER_CATEGORIES.contains(&category),
+            "unknown mempool category `{category}`"
+        );
+        let slug = filename
+            .strip_suffix(".md")
+            .context("entry must end in .md")?;
+        ensure!(
+            slug.as_bytes()
+                .first()
+                .is_some_and(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+                && slug
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'),
+            "entry slug must start with a lowercase ASCII letter or digit and contain only those characters and hyphens"
+        );
         Ok(Self(raw.to_string()))
     }
 
-    pub(crate) fn as_str(&self) -> &str {
+    pub(super) fn as_str(&self) -> &str {
         &self.0
     }
 }
 
-impl std::fmt::Display for MempoolEntryPath {
+impl std::fmt::Display for EntryPath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-pub(crate) enum MempoolEntryPathError {
-    #[error("mempool entry path is empty")]
-    Empty,
-    #[error("mempool entry path must be repo-relative")]
-    Absolute,
-    #[error("mempool entry path targets a reserved file")]
-    Reserved,
-    #[error("mempool entry path must be <category>/<slug>.md")]
-    Shape,
-    #[error("mempool entry path contains an empty segment")]
-    EmptySegment,
-    #[error("mempool entry path cannot contain . or ..")]
-    Traversal,
-    #[error("unknown mempool category `{0}`")]
-    UnknownCategory(String),
-    #[error("mempool entry path must end in .md")]
-    Extension,
-    #[error("mempool entry slug must be lowercase ASCII letters, digits, and hyphens")]
-    Slug,
-}
-
-fn slug_is_valid(slug: &str) -> bool {
-    if slug.is_empty() {
-        return false;
-    }
-    let bytes = slug.as_bytes();
-    if !bytes[0].is_ascii_alphanumeric() {
-        return false;
-    }
-    bytes
-        .iter()
-        .all(|byte| byte.is_ascii_alphanumeric() || *byte == b'-')
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn accepts_valid_entry_path() {
-        assert_eq!(
-            MempoolEntryPath::parse("writing/hello-world.md")
-                .unwrap()
-                .as_str(),
-            "writing/hello-world.md"
-        );
-    }
-
-    #[test]
-    fn rejects_reserved_or_escaping_paths() {
-        use MempoolEntryPathError::*;
-        for (raw, expected) in [
-            ("", Empty),
-            ("/writing/a.md", Absolute),
-            ("manifest.json", Reserved),
-            ("writing/../manifest.json", Reserved),
-            ("writing//a.md", Shape),
-            ("writing/series/foo.md", Shape),
-            ("writing/", EmptySegment),
-            ("writing/..", Traversal),
-            ("writing/a.txt", Extension),
-            ("unknown/a.md", UnknownCategory("unknown".into())),
-            ("writing/-bad.md", Slug),
-            ("writing/.md", Slug),
-        ] {
-            assert_eq!(MempoolEntryPath::parse(raw).unwrap_err(), expected, "{raw}");
-        }
     }
 }

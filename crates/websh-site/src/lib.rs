@@ -15,7 +15,7 @@ pub use artifacts::{
 };
 pub use bootstrap::BOOTSTRAP_SITE;
 pub use identity::{
-    APP_NAME, APP_TAGLINE, EXPECTED_PGP_FINGERPRINT, IDENTITY_PATH, PUBLIC_KEY_BLOCK,
-    PUBLIC_KEY_PATH, fingerprint_matches,
+    APP_NAME, APP_TAGLINE, EXPECTED_PGP_FINGERPRINT, PUBLIC_KEY_BLOCK, PUBLIC_KEY_PATH,
+    fingerprint_matches,
 };
 pub use profile::{ASCII_BANNER, ASCII_PROFILE, HELP_TEXT, SHELL_TEXT};

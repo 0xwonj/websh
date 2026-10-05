@@ -36,11 +36,10 @@ fn homepage_attestation_artifact_verifies() {
         .expect("homepage subject is present");
     assert_eq!(subject.id(), "route:/");
     subject.validate().expect("homepage subject validates");
-    let message = subject
-        .canonical_message()
-        .expect("canonical message renders");
-
     for attestation in subject.attestations() {
+        let message = subject
+            .canonical_message()
+            .expect("signed subject has a canonical message");
         if let Attestation::Ethereum {
             address,
             signature,

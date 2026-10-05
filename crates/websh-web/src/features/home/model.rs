@@ -102,7 +102,8 @@ fn latest_attestation_issued_at(artifact: &AttestationArtifact) -> Option<String
     artifact
         .subjects
         .iter()
-        .map(|subject| subject.issued_at())
+        .filter(|subject| !subject.attestations().is_empty())
+        .filter_map(|subject| subject.issued_at())
         .max()
         .map(str::to_string)
 }
@@ -208,7 +209,7 @@ fn toc_countable_file(path: &VirtualPath) -> bool {
     let Some(name) = path.file_name() else {
         return false;
     };
-    if name.ends_with(".meta.json") || name == "manifest.json" || name.starts_with('_') {
+    if name.starts_with('_') {
         return false;
     }
     matches!(
@@ -386,13 +387,12 @@ text = "also ignored"
       "route": "/",
       "issued_at": "2026-04-30",
       "content_files": [],
-      "attestations": [],
+      "attestations": [{"type":"pgp","fingerprint":"fixture","key_path":"key.asc","signature":"fixture","message_sha256":"fixture","verified":true}],
       "ack_combined_root": "0xack"
     },
     {
       "kind": "page",
       "route": "/writing/newer",
-      "issued_at": "2026-05-17",
       "content_files": [],
       "attestations": []
     }
@@ -404,9 +404,8 @@ text = "also ignored"
 
         assert_eq!(
             latest_attestation_issued_at(&artifact).as_deref(),
-            Some("2026-05-17")
+            Some("2026-04-30")
         );
-        assert!(site_last_revised_at().is_some());
     }
 
     #[wasm_bindgen_test]
@@ -477,7 +476,7 @@ text = "also ignored"
                     extensions: EntryExtensions::default(),
                 },
                 ScannedFile {
-                    path: "writing/hello.meta.json".to_string(),
+                    path: "papers/tabula.pdf.meta.json".to_string(),
                     meta: blank(),
                     extensions: EntryExtensions::default(),
                 },

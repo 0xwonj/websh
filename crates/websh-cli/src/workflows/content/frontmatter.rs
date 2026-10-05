@@ -1,47 +1,7 @@
-use std::fs;
-use std::path::Path;
-
 use anyhow::Context;
-use websh_core::domain::{Fields, NodeMetadata};
+use websh_core::domain::Fields;
 
 use crate::CliResult;
-
-use super::sidecar::matching_file_sidecar;
-
-/// Merge frontmatter-derived fields into the prior authored section
-/// per-field: each field present in `frontmatter` wins; unmentioned
-/// fields are preserved from `prior`. This protects user edits to the
-/// sidecar that the markdown frontmatter doesn't speak to (e.g.
-/// `access` or `trust`).
-pub(crate) fn merge_authored(prior: Fields, frontmatter: Fields) -> Fields {
-    Fields {
-        title: frontmatter.title.or(prior.title),
-        kind: frontmatter.kind.or(prior.kind),
-        renderer: frontmatter.renderer.or(prior.renderer),
-        language: frontmatter.language.or(prior.language),
-        description: frontmatter.description.or(prior.description),
-        date: frontmatter.date.or(prior.date),
-        tags: frontmatter.tags.or(prior.tags),
-        links: frontmatter.links.or(prior.links),
-        icon: frontmatter.icon.or(prior.icon),
-        thumbnail: frontmatter.thumbnail.or(prior.thumbnail),
-        sort: frontmatter.sort.or(prior.sort),
-        trust: frontmatter.trust.or(prior.trust),
-        access: frontmatter.access.or(prior.access),
-        // The remaining fields are derive-only; frontmatter shouldn't
-        // touch them, but we honor whatever it contains over `prior`
-        // for symmetry.
-        page_size: frontmatter.page_size.or(prior.page_size),
-        page_count: frontmatter.page_count.or(prior.page_count),
-        rotation: frontmatter.rotation.or(prior.rotation),
-        image_dimensions: frontmatter.image_dimensions.or(prior.image_dimensions),
-        size_bytes: frontmatter.size_bytes.or(prior.size_bytes),
-        modified_at: frontmatter.modified_at.or(prior.modified_at),
-        content_sha256: frontmatter.content_sha256.or(prior.content_sha256),
-        word_count: frontmatter.word_count.or(prior.word_count),
-        child_count: frontmatter.child_count.or(prior.child_count),
-    }
-}
 
 /// Split a markdown body into `(yaml_str, body_after_fence)` if it opens
 /// with a YAML frontmatter block. Recognizes both LF and CRLF line
@@ -51,86 +11,39 @@ fn split_yaml_frontmatter(body: &str) -> Option<(&str, &str)> {
     let after_open = body
         .strip_prefix("---\n")
         .or_else(|| body.strip_prefix("---\r\n"))?;
-    // Find a closing fence at the start of a line. Accept `---` followed
-    // by any line terminator or by EOF.
-    let mut search_from = 0usize;
-    while let Some(rel) = after_open[search_from..].find("\n---") {
-        let abs = search_from + rel + 1; // index of '-' in '---'
-        let end_of_yaml = abs - 1; // exclude the leading '\n'
-        let after_fence = &after_open[abs + 3..];
-        // The character right after '---' must be a newline (LF/CRLF) or EOF.
-        let is_terminated = after_fence.is_empty()
-            || after_fence.starts_with('\n')
-            || after_fence.starts_with("\r\n")
-            // Tolerate trailing whitespace on the fence line.
-            || after_fence
-                .chars()
-                .next()
-                .map(|c| c == ' ' || c == '\t')
-                .unwrap_or(false);
-        if is_terminated {
-            let yaml = &after_open[..end_of_yaml];
-            // Skip past one trailing line terminator after the fence.
-            let body_rest = if let Some(rest) = after_fence.strip_prefix("\r\n") {
-                rest
-            } else if let Some(rest) = after_fence.strip_prefix('\n') {
-                rest
-            } else {
-                // Trailing whitespace before terminator — skip until newline.
-                after_fence
-                    .find('\n')
-                    .map(|i| &after_fence[i + 1..])
-                    .unwrap_or("")
-            };
-            return Some((yaml, body_rest));
+    let mut offset = 0;
+    for line in after_open.split_inclusive('\n') {
+        if line.trim_end_matches(['\r', '\n', ' ', '\t']) == "---" {
+            return Some((&after_open[..offset], &after_open[offset + line.len()..]));
         }
-        search_from = abs + 3;
+        offset += line.len();
     }
     None
 }
 
 pub(crate) fn parse_yaml_frontmatter(body: &str) -> CliResult<Option<Fields>> {
     let Some((yaml, _)) = split_yaml_frontmatter(body) else {
+        if body.starts_with("---\n") || body.starts_with("---\r\n") {
+            anyhow::bail!("frontmatter is missing its closing fence");
+        }
         return Ok(None);
     };
     parse_frontmatter_fields(yaml).map(Some)
 }
 
 fn parse_frontmatter_fields(yaml: &str) -> CliResult<Fields> {
-    serde_norway::from_str(yaml).context("frontmatter YAML parse")
+    if yaml.trim().is_empty() {
+        return Ok(Fields::default());
+    }
+    let fields = serde_norway::from_str(yaml).context("frontmatter YAML parse")?;
+    super::metadata::validate_authored(&fields)?;
+    Ok(fields)
 }
 
 pub(crate) fn strip_yaml_frontmatter(body: &str) -> &str {
     split_yaml_frontmatter(body)
         .map(|(_, rest)| rest)
         .unwrap_or(body)
-}
-
-/// Resolve the human-authored content date for a file. Sidecar metadata
-/// (if present) wins; markdown files without a sidecar fall back to YAML
-/// frontmatter.
-pub(crate) fn content_entry_raw_date(
-    content_root: &Path,
-    path: &Path,
-    rel_path: &str,
-) -> Option<String> {
-    if let Some(sidecar) = matching_file_sidecar(content_root, rel_path)
-        && let Ok(body) = fs::read_to_string(&sidecar)
-        && let Ok(metadata) = serde_json::from_str::<NodeMetadata>(&body)
-        && let Some(date) = metadata.date()
-        && !date.trim().is_empty()
-    {
-        return Some(date.to_string());
-    }
-    // Fallback for markdown: read frontmatter directly.
-    if rel_path.ends_with(".md")
-        && let Ok(body) = fs::read_to_string(path)
-        && let Ok(Some(fields)) = parse_yaml_frontmatter(&body)
-        && let Some(date) = fields.date.filter(|d| !d.trim().is_empty())
-    {
-        return Some(date);
-    }
-    None
 }
 
 #[cfg(test)]
@@ -160,9 +73,6 @@ trust: trusted
 access:
   recipients:
     - address: "0xabc"
-page_size:
-  width: 612
-  height: 792
 ---
 # Body
 "#;
@@ -196,10 +106,6 @@ page_size:
                 .and_then(|access| access.recipients.first())
                 .map(|recipient| recipient.address.as_str()),
             Some("0xabc")
-        );
-        assert_eq!(
-            fields.page_size.map(|page| (page.width, page.height)),
-            Some((612, 792))
         );
     }
 

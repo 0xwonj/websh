@@ -4,7 +4,6 @@ use thiserror::Error;
 pub type Hash = [u8; 32];
 
 pub const ACK_LOCAL_SOURCE_PATH: &str = ".websh/local/crypto/ack.private.json";
-pub const ACK_RECEIPTS_DIR: &str = ".websh/local/crypto/ack-receipts";
 
 pub const ACK_SCHEME: &str = "websh.ack.hybrid.v1";
 pub const ACK_RECEIPT_SCHEME: &str = "websh.ack.private.receipt.v1";

@@ -8,13 +8,8 @@ use super::frontmatter::strip_yaml_frontmatter;
 
 /// Compute file-type-specific derived fields (page_size for PDFs,
 /// dimensions for images, word_count for markdown). Filesystem-level
-/// sidecar fields (`size_bytes`, `content_sha256`) are populated by the
-/// caller; `modified_at` is a manifest-only projection from Git history.
-pub(crate) fn derived_for_path(
-    file_path: &Path,
-    rel_path: &str,
-    bytes: &[u8],
-) -> CliResult<Fields> {
+/// integrity fields (`size_bytes`, `content_sha256`) are populated by the caller.
+pub(crate) fn derived_for_bytes(rel_path: &str, bytes: &[u8]) -> CliResult<Fields> {
     let mut fields = Fields::default();
     let extension = Path::new(rel_path)
         .extension()
@@ -22,7 +17,7 @@ pub(crate) fn derived_for_path(
         .map(|s| s.to_lowercase());
 
     match extension.as_deref() {
-        Some("pdf") => match read_pdf_dimensions(file_path) {
+        Some("pdf") => match read_pdf_dimensions(bytes) {
             Ok((page_size, page_count, rotation)) => {
                 fields.page_size = Some(page_size);
                 fields.page_count = Some(page_count);
@@ -91,8 +86,8 @@ enum PdfDimensionError {
     MediaBoxTooShort,
 }
 
-fn read_pdf_dimensions(path: &Path) -> Result<(PageSize, u32, u32), PdfDimensionError> {
-    let doc = lopdf::Document::load(path)?;
+fn read_pdf_dimensions(bytes: &[u8]) -> Result<(PageSize, u32, u32), PdfDimensionError> {
+    let doc = lopdf::Document::load_mem(bytes)?;
     let pages = doc.get_pages();
     let page_count = u32::try_from(pages.len()).unwrap_or(u32::MAX);
     let (_, page_id) = pages.iter().next().ok_or(PdfDimensionError::NoPages)?;
@@ -171,7 +166,7 @@ mod tests {
         let root = temp_dir("pdf-metadata");
         let path = root.join("document.pdf");
         document.save(&path).unwrap();
-        let result = read_pdf_dimensions(&path);
+        let result = read_pdf_dimensions(&std::fs::read(&path).unwrap());
         let (size, count, rotation) = result.unwrap();
         assert_eq!(
             (size.width, size.height, count, rotation),

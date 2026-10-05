@@ -1,21 +1,10 @@
-//! Mempool CLI: list pending entries, promote a draft to the canonical
-//! chain (atomic local commit on the bundle source), drop a draft from
-//! the mempool repo.
+//! Local draft preparation. Editing and publishing remain ordinary Git operations.
 
 use std::path::{Path, PathBuf};
 
 use clap::{Args, Subcommand};
 
 use crate::CliResult;
-
-mod add;
-mod drop;
-mod list;
-mod promote;
-
-use add::AddArgs;
-use drop::DropArgs;
-use promote::PromoteArgs;
 
 #[derive(Args)]
 pub(crate) struct MempoolCommand {
@@ -25,37 +14,37 @@ pub(crate) struct MempoolCommand {
 
 #[derive(Subcommand)]
 enum MempoolSubcommand {
-    /// List pending entries in the mempool repo.
-    List,
-    /// Rebuild the manifest from a local mempool checkout without publishing.
-    Manifest {
-        #[arg(long)]
-        repo_dir: PathBuf,
+    /// Generate manifest.json from an authored mempool checkout; does not publish.
+    Sync {
+        /// Checkout path, relative to the current working directory.
+        checkout: PathBuf,
     },
-    /// Create a new mempool entry by committing it to the mempool repo.
-    Add(AddArgs),
-    /// Promote a mempool entry to the canonical chain via a single local
-    /// git commit on the bundle source. Optionally also drops the entry
-    /// from the mempool repo unless `--keep-remote` is set.
-    Promote(PromoteArgs),
-    /// Delete an entry from the mempool repo.
-    Drop(DropArgs),
+    /// Copy a draft into canonical content; leaves the draft and Git index unchanged.
+    Import {
+        /// Markdown source, relative to the current working directory.
+        file: PathBuf,
+        /// Destination beneath content/, e.g. writing/example.md.
+        /// Defaults to the source file's category directory and filename.
+        #[arg(long)]
+        to: Option<String>,
+    },
 }
 
 pub(crate) fn run(root: &Path, command: MempoolCommand) -> CliResult {
     match command.command {
-        MempoolSubcommand::List => list::list(root),
-        MempoolSubcommand::Manifest { repo_dir } => {
-            let repo_dir = root.join(repo_dir);
-            let count = crate::workflows::mempool::manifest::rebuild(&repo_dir)?;
+        MempoolSubcommand::Sync { checkout } => {
+            let count = crate::workflows::mempool::manifest::sync(&checkout)?;
             println!(
-                "mempool manifest: {count} entries -> {}",
-                repo_dir.join("manifest.json").display()
+                "mempool sync: {count} entries -> {}",
+                checkout.join("manifest.json").display()
             );
             Ok(())
         }
-        MempoolSubcommand::Add(args) => add::add(root, args),
-        MempoolSubcommand::Promote(args) => promote::promote(root, args),
-        MempoolSubcommand::Drop(args) => drop::drop_entry(root, args),
+        MempoolSubcommand::Import { file, to } => {
+            let path = crate::workflows::mempool::import::import(root, &file, to.as_deref())?;
+            println!("mempool import: {} -> {}", file.display(), path.display());
+            println!("Run `websh-cli sync` to refresh generated content, then review and commit.");
+            Ok(())
+        }
     }
 }

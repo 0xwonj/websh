@@ -3,10 +3,10 @@
 //! A single [`NodeMetadata`] type carries all metadata for any node (file or
 //! directory). It splits values into two parallel sections:
 //!
-//! - `authored`: hand-written by content authors (in markdown frontmatter
-//!   for `.md` files, or directly in the sidecar JSON for everything else).
-//! - `derived`: extracted/computed by `websh-cli content manifest` from the
-//!   raw bytes (PDF page dimensions, image size, file hashes, etc.).
+//! - `authored`: supplied by Markdown frontmatter, authored-only
+//!   `<file.ext>.meta.json`, or directory/bundle declarations.
+//! - `derived`: computed by `websh-cli sync` from the source snapshot
+//!   (PDF page dimensions, image size, file hashes, etc.).
 //!
 //! The effective value of any field is `authored.X.or(derived.X)` —
 //! authored wins. Accessor methods on [`NodeMetadata`] encapsulate the rule
@@ -22,9 +22,9 @@ use serde::{Deserialize, Serialize};
 
 use super::bundle::BundleMetadata;
 
-/// Top-level metadata record for a node. Persisted as `<file>.meta.json`
-/// (file sidecars), `_index.dir.json` (directory sidecars), and embedded
-/// inline in the manifest bundle.
+/// Runtime metadata for a node, embedded in the generated content manifest.
+/// Authored source files contain only author decisions; they never persist this
+/// combined record or its computed `derived` fields.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NodeMetadata {

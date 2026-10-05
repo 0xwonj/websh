@@ -11,7 +11,6 @@ fn run(root: &Path, args: &[&str], envs: &[(&str, &str)]) -> Output {
         .arg(root)
         .args(args)
         .env_remove("TRUNK_PROFILE")
-        .env_remove("WEBSH_NO_SIGN")
         .envs(envs.iter().copied())
         .output()
         .expect("run websh-cli")
@@ -39,4 +38,49 @@ pub fn cli_with_env(root: &Path, args: &[&str], envs: &[(&str, &str)]) -> String
 
 pub fn cli_fails(root: &Path, args: &[&str]) {
     checked_output(run(root, args, &[]), args, false);
+}
+
+/// Minimal current site inputs, with the real public identity and no private key.
+pub fn write_site_fixture(root: &Path) {
+    use std::fs;
+    use websh_core::attestation::artifact::AttestationArtifact;
+    use websh_core::crypto::ack::{AckPrivateSource, build_artifact_from_source};
+    for path in [
+        "content/.site/keys",
+        "assets/crypto",
+        "assets/themes",
+        "crates/websh-web/src/features/home",
+    ] {
+        fs::create_dir_all(root.join(path)).unwrap();
+    }
+    fs::write(
+        root.join(websh_site::PUBLIC_KEY_PATH),
+        websh_site::PUBLIC_KEY_BLOCK,
+    )
+    .unwrap();
+    fs::write(
+        root.join("content/.site/now.toml"),
+        "[[items]]\ntext = \"fixture\"\n",
+    )
+    .unwrap();
+    fs::write(root.join("assets/themes/fixture.json"), "{}\n").unwrap();
+    fs::write(
+        root.join("crates/websh-web/src/features/home/mod.rs"),
+        "// homepage fixture\n",
+    )
+    .unwrap();
+    let ack = build_artifact_from_source(&AckPrivateSource::default()).unwrap();
+    fs::write(
+        root.join(websh_site::ACK_ARTIFACT_PATH),
+        format!("{}\n", serde_json::to_string_pretty(&ack).unwrap()),
+    )
+    .unwrap();
+    fs::write(
+        root.join(websh_site::ATTESTATIONS_PATH),
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&AttestationArtifact::default()).unwrap()
+        ),
+    )
+    .unwrap();
 }

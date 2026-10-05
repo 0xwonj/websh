@@ -1,134 +1,106 @@
-use std::path::{Path, PathBuf};
+use std::collections::BTreeSet;
+use std::path::Path;
 
-use anyhow::{anyhow, bail};
-use websh_core::attestation::artifact::{Attestation, Subject, message_sha256};
-use websh_core::attestation::ledger::ContentLedger;
-use websh_core::crypto::ack::short_hash;
+use anyhow::{Context, bail};
+use websh_core::attestation::artifact::{Attestation, AttestationArtifact, message_sha256};
 use websh_core::crypto::eth::verify_personal_sign;
 use websh_core::crypto::pgp::normalize_fingerprint;
+use websh_site::{EXPECTED_PGP_FINGERPRINT, PUBLIC_KEY_PATH};
 
-use crate::CliResult;
-use crate::infra::json::read_json;
-use crate::workflows::content::{build_content_files, resolve_path};
+use crate::{CliResult, infra::pgp};
 
-use super::subject::{read_ack, read_artifact};
-use crate::infra::pgp::verify_signature;
-
-pub(crate) fn verify(root: &Path, route: Option<String>) -> CliResult {
-    let artifact = read_artifact(root)?;
-    artifact.validate_header()?;
-    if artifact.subjects.is_empty() {
-        bail!("no attestation subjects");
-    }
-
-    if let Some(route) = route {
-        let subject = artifact
-            .subject_for_route(&route)
-            .ok_or_else(|| anyhow!("attestation subject not found for route {route}"))?;
-        verify_subject(root, subject)?;
-        return Ok(());
-    }
-
-    for subject in &artifact.subjects {
-        verify_subject(root, subject)?;
+pub(crate) fn verify_site_key(root: &Path) -> CliResult {
+    let key = pgp::read_key(&root.join(PUBLIC_KEY_PATH)).context("read site public key")?;
+    if key.fingerprint != EXPECTED_PGP_FINGERPRINT {
+        bail!("public key does not match the deployed site identity");
     }
     Ok(())
 }
 
-fn verify_subject(root: &Path, subject: &Subject) -> CliResult {
-    subject.validate()?;
-
-    let rebuilt = build_content_files(
-        root,
-        &subject
-            .content_files()
-            .iter()
-            .map(|file| PathBuf::from(&file.path))
-            .collect::<Vec<_>>(),
-    )?;
-    if rebuilt != subject.content_files() {
-        bail!("content file metadata mismatch for {}", subject.id());
-    }
-    let content_sha256 = subject.content_sha256()?;
-
-    match subject {
-        Subject::Homepage(hp) => {
-            let ack = read_ack(root)?;
-            if ack.combined_root != hp.ack_combined_root {
-                bail!("ACK root mismatch for {}", subject.id());
-            }
+/// Verify retained evidence independently of whether its original source is
+/// still current. Freshness is checked against the prepared snapshot.
+pub(crate) fn verify_artifact(
+    root: &Path,
+    artifact: &AttestationArtifact,
+    require_signatures: bool,
+) -> CliResult<usize> {
+    artifact.validate_header()?;
+    let mut routes = BTreeSet::new();
+    let mut signed = 0;
+    for subject in &artifact.subjects {
+        if !routes.insert(subject.route()) {
+            bail!("duplicate attestation route {}", subject.route());
         }
-        Subject::Ledger(ls) => {
-            let ledger_path = root.join(websh_core::attestation::ledger::CONTENT_LEDGER_PATH);
-            let ledger: ContentLedger = read_json(&ledger_path)?;
-            ledger.validate()?;
-            if ledger.chain_head != ls.chain_head {
-                bail!("chain_head mismatch for {}", subject.id());
-            }
-        }
-        Subject::Document(_) | Subject::Page(_) | Subject::Bundle(_) | Subject::Directory(_) => {}
-    }
-
-    let message = subject.canonical_message()?;
-    let message_hash = message_sha256(&message);
-    if subject.attestations().is_empty() {
-        println!("{}: pending {}", subject.id(), short_hash(&content_sha256));
-        return Ok(());
-    }
-
-    for attestation in subject.attestations() {
-        if attestation.message_sha256() != message_hash {
-            bail!("attestation message hash mismatch for {}", subject.id());
-        }
-        if !attestation.verified() {
-            bail!("stored attestation is not verified for {}", subject.id());
-        }
-
-        match attestation {
-            Attestation::Pgp {
-                fingerprint,
-                key_path,
-                signature,
-                ..
-            } => {
-                let verified_fingerprint = verify_signature(
-                    &resolve_path(root, Path::new(key_path)),
-                    signature,
-                    &message,
-                )?;
-                if normalize_fingerprint(fingerprint) != verified_fingerprint {
-                    bail!("PGP fingerprint mismatch for {}", subject.id());
+        subject
+            .validate()
+            .with_context(|| format!("validate {}", subject.route()))?;
+        let mut site_signed = false;
+        if !subject.attestations().is_empty() {
+            let message = subject.canonical_message()?;
+            let hash = message_sha256(&message);
+            for attestation in subject.attestations() {
+                if !attestation.verified() || attestation.message_sha256() != hash {
+                    bail!(
+                        "invalid attestation message binding for {}",
+                        subject.route()
+                    );
                 }
-                println!(
-                    "{}: pgp ok {}",
-                    subject.id(),
-                    short_hash(&verified_fingerprint)
-                );
-            }
-            Attestation::Ethereum {
-                scheme,
-                address,
-                signature,
-                recovered_address,
-                ..
-            } => {
-                if scheme != "eip191-personal-sign" {
-                    bail!("unsupported Ethereum scheme {scheme}");
+                match attestation {
+                    Attestation::Pgp {
+                        fingerprint,
+                        key_path,
+                        signature,
+                        ..
+                    } => {
+                        if key_path != PUBLIC_KEY_PATH
+                            || normalize_fingerprint(fingerprint) != EXPECTED_PGP_FINGERPRINT
+                        {
+                            bail!(
+                                "PGP attestation is not bound to the site identity for {}",
+                                subject.route()
+                            );
+                        }
+                        let verified =
+                            pgp::verify_signature(&root.join(PUBLIC_KEY_PATH), signature, &message)
+                                .with_context(|| {
+                                    format!("verify PGP signature for {}", subject.route())
+                                })?;
+                        if verified != EXPECTED_PGP_FINGERPRINT {
+                            bail!("PGP fingerprint mismatch for {}", subject.route());
+                        }
+                        site_signed = true;
+                    }
+                    Attestation::Ethereum {
+                        scheme,
+                        address,
+                        signature,
+                        recovered_address,
+                        ..
+                    } => {
+                        if scheme != "eip191-personal-sign" {
+                            bail!("unsupported Ethereum signature scheme {scheme}");
+                        }
+                        let verified = verify_personal_sign(address, &message, signature)?;
+                        if !verified
+                            .recovered_address
+                            .eq_ignore_ascii_case(recovered_address)
+                        {
+                            bail!(
+                                "Ethereum recovered address mismatch for {}",
+                                subject.route()
+                            );
+                        }
+                    }
                 }
-                let verification = verify_personal_sign(address, &message, signature)?;
-                if !verification
-                    .recovered_address
-                    .eq_ignore_ascii_case(recovered_address)
-                {
-                    bail!("Ethereum recovered address mismatch for {}", subject.id());
-                }
-                println!(
-                    "{}: ethereum ok {}",
-                    subject.id(),
-                    short_hash(&verification.recovered_address)
-                );
             }
         }
+        if require_signatures && !site_signed {
+            bail!(
+                "site signature required for {}; run websh-cli attest sign",
+                subject.route()
+            );
+        }
+        signed += usize::from(site_signed);
     }
-    Ok(())
+    Ok(signed)
 }

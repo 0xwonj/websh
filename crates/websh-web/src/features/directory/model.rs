@@ -532,7 +532,7 @@ mod tests {
     }
 
     #[wasm_bindgen_test]
-    fn directory_model_hides_sidecars_and_keeps_visible_site_children() {
+    fn directory_model_hides_authored_metadata_and_keeps_visible_site_children() {
         let snapshot = ScannedSubtree {
             files: vec![
                 ScannedFile {
@@ -541,7 +541,7 @@ mod tests {
                     extensions: EntryExtensions::default(),
                 },
                 ScannedFile {
-                    path: ".site/now.meta.json".to_string(),
+                    path: ".site/now.toml.meta.json".to_string(),
                     meta: meta(NodeKind::Data, None),
                     extensions: EntryExtensions::default(),
                 },

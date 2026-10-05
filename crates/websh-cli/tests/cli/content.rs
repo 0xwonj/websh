@@ -2,51 +2,52 @@ use std::fs;
 
 use websh_site::ATTESTATIONS_PATH;
 
-use crate::support::{cli, temp_dir};
+use crate::support::{cli, cli_fails, temp_dir, write_site_fixture};
 
 #[test]
-fn content_manifest_generates_manifest_without_attestation() {
-    let root = temp_dir("content-manifest");
+fn sync_rebuilds_current_sources_and_check_reports_drift_without_writes() {
+    let root = temp_dir("content-sync");
+    write_site_fixture(&root);
     fs::create_dir_all(root.join("content/writing")).unwrap();
-    fs::create_dir_all(root.join("content/talks")).unwrap();
-    fs::write(
-        root.join("content/writing/hello.md"),
-        "---\ntitle: Hello Manifest\ndate: 2026-04-20\ntags: [notes, websh]\n---\n# Ignored\nbody",
-    )
-    .unwrap();
-    fs::write(root.join("content/talks/slides.pdf"), b"%PDF").unwrap();
-    fs::write(
-        root.join("content/talks/slides.meta.json"),
-        r#"{"kind":"document","authored":{"title":"ZK Talk","date":"2026-04-24","tags":["talk","zk"]},"derived":{}}"#,
-    )
-    .unwrap();
+    let source = root.join("content/writing/note.md");
+    fs::write(&source, "---\ntitle: First title\n---\nbody\n").unwrap();
+    cli(&root, &["sync"]);
+    cli(&root, &["check"]);
 
-    let output = cli(&root, &["content", "manifest"]);
-    assert!(output.contains("sidecars refreshed"));
-    assert!(!root.join(ATTESTATIONS_PATH).exists());
-
-    let manifest: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(root.join("content/manifest.json")).unwrap())
-            .unwrap();
-    let entries = manifest["entries"].as_array().unwrap();
-    let file_entries: Vec<&serde_json::Value> = entries
+    let outputs = [
+        "content/manifest.json",
+        "content/.websh/ledger.json",
+        ATTESTATIONS_PATH,
+    ];
+    let before: Vec<_> = outputs
         .iter()
-        .filter(|e| e["metadata"]["kind"] != "directory")
+        .map(|path| fs::read(root.join(path)).unwrap())
         .collect();
-    assert_eq!(file_entries.len(), 2);
+    assert!(!root.join("content/writing/note.meta.json").exists());
+    fs::write(&source, "body\n").unwrap();
+    cli_fails(&root, &["check"]);
+    for (path, bytes) in outputs.iter().zip(&before) {
+        assert_eq!(&fs::read(root.join(path)).unwrap(), bytes);
+    }
 
-    let hello = file_entries
+    cli(&root, &["sync"]);
+    cli(&root, &["check"]);
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("content/manifest.json")).unwrap()).unwrap();
+    let note = manifest["entries"]
+        .as_array()
+        .unwrap()
         .iter()
-        .find(|e| e["path"] == "writing/hello.md")
+        .find(|entry| entry["path"] == "writing/note.md")
         .unwrap();
-    assert_eq!(hello["metadata"]["authored"]["title"], "Hello Manifest");
-    assert_eq!(hello["metadata"]["authored"]["date"], "2026-04-20");
-
-    let slides = file_entries
+    assert!(note["metadata"]["authored"].as_object().unwrap().is_empty());
+    assert_eq!(note["metadata"]["derived"]["title"], "note");
+    let synced: Vec<_> = outputs
         .iter()
-        .find(|e| e["path"] == "talks/slides.pdf")
-        .unwrap();
-    assert_eq!(slides["metadata"]["authored"]["title"], "ZK Talk");
-    assert_eq!(slides["metadata"]["authored"]["date"], "2026-04-24");
-    assert_eq!(slides["metadata"]["authored"]["tags"][0], "talk");
+        .map(|path| fs::read(root.join(path)).unwrap())
+        .collect();
+    cli(&root, &["sync"]);
+    for (path, bytes) in outputs.iter().zip(synced) {
+        assert_eq!(fs::read(root.join(path)).unwrap(), bytes);
+    }
 }

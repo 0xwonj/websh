@@ -8,11 +8,5 @@
       "errors",
       "now"
     ]
-  },
-  "derived": {
-    "title": ".site",
-    "kind": "directory",
-    "renderer": "directory_listing",
-    "child_count": 3
   }
 }

@@ -29,26 +29,6 @@ fn normalization_is_stable() {
 }
 
 #[test]
-fn receipt_filename_slug_is_ascii_and_hash_suffixed() {
-    let ascii = slugify_name("Anonymous Reviewer");
-    assert!(ascii.starts_with("anonymous-reviewer-"));
-    assert!(
-        ascii
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
-    );
-
-    let korean = slugify_name("홍길동");
-    assert!(korean.starts_with("ack-"));
-    assert!(
-        korean
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
-    );
-    assert_ne!(korean, "ack-");
-}
-
-#[test]
 fn empty_artifact_is_stable_and_valid() {
     let artifact = build_artifact_from_source(&AckPrivateSource::default()).unwrap();
     assert_eq!(artifact.public.count, 0);

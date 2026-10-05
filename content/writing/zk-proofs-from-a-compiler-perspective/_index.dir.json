@@ -38,10 +38,5 @@
         "kind": "telegram"
       }
     ]
-  },
-  "derived": {
-    "title": "zk-proofs-from-a-compiler-perspective",
-    "kind": "bundle",
-    "child_count": 2
   }
 }

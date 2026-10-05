@@ -48,3 +48,50 @@ pub(crate) fn verify_signature(
 
     bail!("PGP detached signature did not verify with the supplied key")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pgp::composed::{ArmorOptions, DetachedSignature, KeyType, SecretKeyParamsBuilder};
+    use pgp::crypto::hash::HashAlgorithm;
+    use pgp::types::Password;
+
+    #[test]
+    fn verifies_real_detached_signature_and_rejects_changed_message() {
+        let root = crate::test_support::temp_dir("pgp-verification");
+        let mut rng = rand08::thread_rng();
+        let secret = SecretKeyParamsBuilder::default()
+            .key_type(KeyType::Ed25519Legacy)
+            .can_certify(true)
+            .can_sign(true)
+            .primary_user_id("Fixture <fixture@example.test>".into())
+            .passphrase(None)
+            .build()
+            .unwrap()
+            .generate(&mut rng)
+            .unwrap();
+        let public = secret.to_public_key();
+        let key = root.join("key.asc");
+        std::fs::write(
+            &key,
+            public.to_armored_string(ArmorOptions::default()).unwrap(),
+        )
+        .unwrap();
+        let message = "exact canonical message";
+        let signature = DetachedSignature::sign_binary_data(
+            &mut rng,
+            &secret.primary_key,
+            &Password::empty(),
+            HashAlgorithm::Sha256,
+            message.as_bytes(),
+        )
+        .unwrap()
+        .to_armored_string(ArmorOptions::default())
+        .unwrap();
+        assert_eq!(
+            verify_signature(&key, &signature, message).unwrap(),
+            read_key(&key).unwrap().fingerprint
+        );
+        assert!(verify_signature(&key, &signature, "changed message").is_err());
+    }
+}

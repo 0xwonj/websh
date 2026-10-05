@@ -3,28 +3,6 @@
 //! Runtime code intentionally keeps this light. Full OpenPGP parsing is covered
 //! by a dev-dependency test so rPGP does not become part of the WASM bundle.
 
-use serde::{Deserialize, Serialize};
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct IdentityArtifact {
-    pub version: u32,
-    pub pgp: PgpIdentity,
-    pub ethereum: EthereumIdentity,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PgpIdentity {
-    pub key_path: String,
-    pub fingerprint: String,
-    pub user_ids: Vec<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EthereumIdentity {
-    pub ens: String,
-    pub address: String,
-}
-
 pub fn normalize_fingerprint(raw: &str) -> String {
     raw.chars()
         .filter(|ch| ch.is_ascii_hexdigit())

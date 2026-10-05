@@ -1,10 +1,7 @@
 pub(crate) mod dotenv;
-pub(crate) mod gh;
-pub(crate) mod git;
 pub(crate) mod gpg;
 pub(crate) mod json;
 pub(crate) mod pgp;
 pub(crate) mod pinata;
 pub(crate) mod process;
 pub(crate) mod time;
-pub(crate) mod trunk;
