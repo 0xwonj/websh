@@ -24,8 +24,9 @@ not interpret an old manifest or publish remotely.
 [websh-mempool.patch](websh-mempool.patch) is the generated migration against commit
 `53396fdac510b3911c6e7028ea52dfdce9434c4c` of `0xwonj/websh-mempool`. It has been
 applied and verified locally. After applying it, rerun the current sync command before
-committing and pushing the external checkout. Publish its updated manifest together with
-the new app. Neither repository has been pushed or deployed by the local refactor.
+committing the external checkout. Activate the new app through the owner's ENS contenthash
+update, then push the external manifest and verify the live listing. The old app requires
+the former metadata shape, so publishing the manifest early would break its external listing.
 
 ## Browser preferences
 
@@ -36,5 +37,6 @@ its replacement, and removes the retired session token without reading it. It is
 It is never included in the application bundle.
 
 The disposable external listing cache can refill automatically; incompatible records are
-misses. No old IndexedDB draft data is opened or deleted by this migration. Browser state
-on a deployed origin has not been changed by the local refactor.
+misses. No old IndexedDB draft data is opened or deleted by this migration. Inspect each
+known browser/profile and origin, preserve any authored drafts, and verify the resulting
+preferences before retiring this tool.
