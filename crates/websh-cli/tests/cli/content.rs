@@ -46,6 +46,18 @@ fn sync_rebuilds_current_sources_and_check_reports_drift_without_writes() {
     for (path, bytes) in outputs.iter().zip(synced) {
         assert_eq!(fs::read(root.join(path)).unwrap(), bytes);
     }
+
+    fs::write(
+        root.join("content/writing/attachment.pdf"),
+        "version https://git-lfs.github.com/spec/v1\r\noid sha256:0000000000000000000000000000000000000000000000000000000000000000\r\nsize 123\r\n",
+    )
+    .unwrap();
+    let previous = fs::read(root.join("content/manifest.json")).unwrap();
+    cli_fails(&root, &["sync"]);
+    assert_eq!(
+        fs::read(root.join("content/manifest.json")).unwrap(),
+        previous
+    );
 }
 
 #[test]
@@ -82,7 +94,6 @@ fn manifest_projects_home_and_catalog_from_one_content_only_tree() {
         vec!["projects/group", "writing/note.md", "writing/note.txt"]
     );
     assert!(!root.join("content/manifest.sig").exists());
-    assert!(!root.join("content/.websh/ledger.json").exists());
     assert!(!root.join("assets").exists());
     for entry in manifest
         .entries

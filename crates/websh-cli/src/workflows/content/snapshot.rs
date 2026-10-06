@@ -100,6 +100,7 @@ impl ContentSnapshot {
             );
         }
         for (path, bytes) in &sources {
+            super::validate_public_bytes(path, bytes)?;
             let authored = if path.ends_with(".md") {
                 let body = std::str::from_utf8(bytes)
                     .with_context(|| format!("Markdown {path} must be UTF-8"))?;

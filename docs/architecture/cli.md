@@ -123,21 +123,29 @@ This is the normal owner operation: generate/check/sign, commit, and push. It ne
 normal Git authentication and the owner's local GPG key. It does not invoke Trunk,
 IPFS, Pinata, ENS, or a wallet and does not load deployment credentials.
 
-The repository must have an initial commit, an `origin` remote, and a local branch.
+The repository must have an initial setup commit already pushed to `origin`, and a local branch.
 The publisher fetches origin, requires a fast-forward relationship, rejects staged
 changes and unexpected modified/untracked paths, and locks concurrent publication.
-Maintain repository files such as README/CI separately with ordinary Git. Ignore
+Only an exact pending snapshot/pointer pair may be ahead of origin. Review and push
+repository files such as README/CI separately with ordinary Git. Ignore
 `.websh/local/` and `.env`; private files are never publisher inputs.
 
 The publisher freezes allowlisted public bytes in a separate Git index. It creates
 content commit `C`, verifies its files, then creates a second commit whose repository
 root `current.json` points to `C`. Both commits reach origin through one ordinary push.
+Git clean filters are disabled for these blob writes. Git LFS pointers are rejected:
+restore actual bytes and remove LFS tracking rules before publishing.
 The pointer commit avoids self-reference. Remote root evidence establishes the minimum
 accepted publication sequence, so reverting local data cannot silently roll readers
 back. A source or branch race aborts rather than force-pushing.
 
 A failed push leaves the prepared commits available for retry. Running the same command
-again reuses an unchanged signed snapshot and pending commits. After a successful push,
+again reuses an unchanged signed snapshot and pending commits. Set newer edits aside
+until that pending publication finishes; the publisher rejects additional edits while
+the pair is unpublished. If origin advanced, reconcile authored inputs onto the fetched
+branch and publish again using its accepted sequence. Do not rebase the prepared pair:
+rewriting its snapshot commit would invalidate the pointer's exact commit identity.
+After a successful push,
 Git state and bounded public raw-file reads are checked separately. Delayed or failed
 raw readback reports **push succeeded, visibility pending**; it does not issue a new
 signature or claim global CDN propagation. No upload journal or second content host is
@@ -168,9 +176,11 @@ root content. It does not rebuild the app or initialize the external repository.
 ## App publication
 
 `just publish` builds the app and runs `deploy`. `deploy` accepts the prebuilt `dist/`,
-checks its HTML/JS/WASM and symlink boundaries, rejects bundled content, and uploads it
-to public IPFS. It never reads a content checkout, builds, or signs. A build is a trusted
-step; local file checks do not prove compiled provenance.
+checks its HTML/JS/WASM and symlink boundaries, rejects bundled content, and requires
+the shipped owner certificate to match the CLI's pinned production identity before
+uploading to public IPFS. This rejects accidentally copied verification fixtures.
+It never reads a content checkout, builds, or signs. A build is a trusted step; the
+certificate check does not prove the compiled WASM's identity or provenance.
 
 Only the deployment adapter reads `.env`, applying values solely to the Pinata child
 process. A successful upload records `.websh/local/deploy/release.json`: CID, source

@@ -47,7 +47,7 @@ but it resolves into that field rather than a second authored or derived copy. U
 fields and values in the wrong section fail validation.
 
 `GitHubMount` is the shared validated source configuration used by generation and browser
-adapters. Deserialization validates the repository, ref, canonical prefix, gateway, and
+adapters. Deserialization validates the repository, ref, canonical prefix, trust policy, and
 public mount root before adapter construction. Public declarations occupy top-level roots
 outside the reserved system namespace; only the site bootstrap owns `/`.
 

@@ -31,9 +31,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn content_manifest_document_round_trips_existing_shape() {
+    fn native_manifest_round_trips_valid_index() {
         let body = include_str!("../../../../tests/fixtures/manifest_golden.json");
-        let manifest: Manifest = serde_json::from_str(body).expect("parse");
+        let manifest = Manifest::from_bytes(body.as_bytes()).expect("valid native index");
         let encoded = serde_json::to_string_pretty(&manifest).expect("serialize");
         assert_eq!(encoded.trim_end(), body.trim_end());
     }

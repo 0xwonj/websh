@@ -48,6 +48,7 @@ pub(crate) fn prepare(repo_dir: &Path) -> CliResult<DraftSnapshot> {
             let entry_path = EntryPath::parse(&format!("{category}/{file_name}"))?;
             let body =
                 fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+            crate::workflows::content::validate_public_bytes(entry_path.as_str(), body.as_bytes())?;
             files.insert(entry_path.to_string(), body.as_bytes().to_vec());
             entries.push(
                 build_entry(&entry_path, &body)

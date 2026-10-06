@@ -85,7 +85,7 @@ mod tests {
         let mut base = GlobalFs::empty();
         for path in [
             "/article.md",
-            "/.websh/ledger.json",
+            "/.websh/attestations.json",
             "/.websh/state/env/STALE",
         ] {
             base.upsert_file(
@@ -121,7 +121,7 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         assert_eq!(names("/"), [".websh", "article.md"]);
-        assert_eq!(names("/.websh"), ["state", "ledger.json"]);
+        assert_eq!(names("/.websh"), ["state", "attestations.json"]);
         assert_eq!(names("/.websh/state/env"), ["USER"]);
         assert!(!system.exists(&runtime_state_root().join("env/STALE")));
         assert!(!base.exists(&runtime_state_root().join("env/USER")));
@@ -158,7 +158,7 @@ mod tests {
         let without_runtime = FsView::with_runtime(&base, &empty);
         let entries = without_runtime.list_dir(&websh).unwrap();
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].name, "ledger.json");
+        assert_eq!(entries[0].name, "attestations.json");
         assert_eq!(without_runtime.child_count(&websh), Some(1));
     }
 }

@@ -33,4 +33,3 @@ thiserror = { workspace = true }
 websh-core = { workspace = true, features = ["eth-verify"] }
 k256 = { workspace = true }
 alloy-primitives = { workspace = true }
-rand08 = { workspace = true }

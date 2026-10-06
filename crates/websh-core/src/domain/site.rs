@@ -5,8 +5,6 @@ use thiserror::Error;
 
 use super::{BootstrapSiteSource, RuntimeMount, VirtualPath, VirtualPathParseError};
 
-const RAW_GITHUB_GATEWAY: &str = "https://raw.githubusercontent.com";
-
 /// A supported mount with canonical paths and resolved source defaults.
 /// Deserialization validates the complete declaration before it reaches an adapter.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -16,7 +14,6 @@ pub struct GitHubMount {
     repo: String,
     branch: String,
     root: String,
-    gateway: String,
     name: Option<String>,
     trust: MountTrust,
 }
@@ -31,8 +28,6 @@ pub enum MountConfigError {
     InvalidBranch(String),
     #[error("invalid repository root: {0}")]
     InvalidRoot(#[source] VirtualPathParseError),
-    #[error("unsupported gateway: {0}; expected https://raw.githubusercontent.com")]
-    UnsupportedGateway(String),
     #[error("mount name must not be blank or contain control characters")]
     InvalidName,
     #[error("external mounts must explicitly allow unsigned content")]
@@ -49,7 +44,12 @@ pub enum MountTrust {
 
 /// Public declarations cannot replace the site or occupy its system namespace.
 pub fn validate_mount_root(root: &VirtualPath) -> Result<(), MountConfigError> {
-    if root.segments().count() != 1 || root.as_str().starts_with("/.websh") {
+    if root.segments().count() != 1
+        || !unicode_normalization::is_nfc(root.as_str())
+        || unicase::UniCase::new(root.as_str())
+            .to_folded_case()
+            .starts_with("/.websh")
+    {
         return Err(MountConfigError::InvalidMountRoot(root.clone()));
     }
     Ok(())
@@ -72,18 +72,12 @@ struct MountInput {
     branch: String,
     #[serde(default)]
     root: String,
-    #[serde(default = "default_gateway")]
-    gateway: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     name: Option<String>,
 }
 
 fn default_branch() -> String {
     "main".to_string()
-}
-
-fn default_gateway() -> String {
-    RAW_GITHUB_GATEWAY.to_string()
 }
 
 impl GitHubMount {
@@ -96,7 +90,6 @@ impl GitHubMount {
             repo: source.repo_with_owner.to_string(),
             branch: source.branch.to_string(),
             root: source.content_root.to_string(),
-            gateway: source.gateway.to_string(),
             name: Some(source.label().to_string()),
         })
     }
@@ -130,16 +123,11 @@ impl GitHubMount {
         // The same canonical path rules govern a repository-relative prefix.
         VirtualPath::from_absolute(format!("/{}", input.root))
             .map_err(MountConfigError::InvalidRoot)?;
-        let gateway = match input.gateway.as_str() {
-            RAW_GITHUB_GATEWAY => RAW_GITHUB_GATEWAY,
-            _ => return Err(MountConfigError::UnsupportedGateway(input.gateway)),
-        };
         Ok(Self {
             mount_at: input.mount_at,
             repo: input.repo,
             branch: input.branch,
             root: input.root,
-            gateway: gateway.to_string(),
             name: input.name,
             trust: input.trust,
         })
@@ -173,10 +161,6 @@ impl GitHubMount {
     pub fn root(&self) -> &str {
         &self.root
     }
-
-    pub fn gateway(&self) -> &str {
-        &self.gateway
-    }
 }
 
 impl TryFrom<MountInput> for GitHubMount {
@@ -200,7 +184,6 @@ impl From<GitHubMount> for MountInput {
             repo: mount.repo,
             branch: mount.branch,
             root: mount.root,
-            gateway: mount.gateway,
             name: mount.name,
         }
     }
@@ -220,19 +203,17 @@ mod tests {
         assert_eq!(mount.runtime_mount().label, "db");
         assert_eq!(mount.branch(), "main");
         assert_eq!(mount.root(), "");
-        assert_eq!(mount.gateway(), RAW_GITHUB_GATEWAY);
         assert_eq!(
             serde_json::from_value::<GitHubMount>(serde_json::to_value(&mount).unwrap()).unwrap(),
             mount
         );
         let local: GitHubMount = serde_json::from_value(json!({
             "backend": "github", "trust": "unsigned", "mount_at": "/db", "repo": "owner/repo",
-            "branch": "feature/topic", "root": "~/notes", "gateway": "https://raw.githubusercontent.com", "name": "Notes"
+            "branch": "feature/topic", "root": "~/notes", "name": "Notes"
         }))
         .unwrap();
         assert_eq!(local.runtime_mount().label, "Notes");
         assert_eq!(local.root(), "~/notes");
-        assert_eq!(local.gateway(), RAW_GITHUB_GATEWAY);
     }
 
     #[test]
@@ -263,10 +244,6 @@ mod tests {
                 "root",
                 vec!["/", "/content", "content/", "a//b", "a/../b", "a\\b"],
             ),
-            (
-                "gateway",
-                vec!["https://example.com", "https://raw.githubusercontent.com/"],
-            ),
             ("name", vec!["", "   ", "Notes\nMore"]),
         ] {
             for value in values {
@@ -292,7 +269,6 @@ mod tests {
             repo_with_owner: "owner/site",
             branch: "main",
             content_root: "content",
-            gateway: RAW_GITHUB_GATEWAY,
         };
         assert!(
             GitHubMount::bootstrap(&source)

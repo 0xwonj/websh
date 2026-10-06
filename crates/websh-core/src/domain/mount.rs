@@ -22,7 +22,6 @@ pub struct BootstrapSiteSource {
     pub repo_with_owner: &'static str,
     pub branch: &'static str,
     pub content_root: &'static str,
-    pub gateway: &'static str,
 }
 
 impl BootstrapSiteSource {
@@ -65,7 +64,6 @@ mod tests {
             repo_with_owner: "0xwonj/db",
             branch: "main",
             content_root: "~",
-            gateway: "https://raw.githubusercontent.com",
         };
 
         assert_eq!(source.mount_root().as_str(), "/");

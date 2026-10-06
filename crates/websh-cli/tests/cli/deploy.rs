@@ -5,7 +5,7 @@ use std::process::Command;
 use crate::support::{cli, temp_dir, write_site_fixture};
 
 #[test]
-fn deploy_rejects_an_unbuilt_entry_without_running_tools_or_changing_the_bundle() {
+fn deploy_rejects_unbuilt_and_fixture_bundles_before_loading_credentials_or_running_tools() {
     let root = temp_dir("deploy-unsigned");
     write_site_fixture(&root);
     cli(&root, &["sync"]);
@@ -49,6 +49,35 @@ fn deploy_rejects_an_unbuilt_entry_without_running_tools_or_changing_the_bundle(
         fs::read_to_string(root.join(".websh/local/deploy/release.json")).unwrap(),
         "previous deployment\n"
     );
+
+    fs::create_dir_all(root.join("dist/assets/crypto")).unwrap();
+    fs::write(
+        root.join("dist/index.html"),
+        "<html><script src='app.js'></script></html>",
+    )
+    .unwrap();
+    fs::write(root.join("dist/app.js"), "void 0;").unwrap();
+    fs::write(root.join("dist/app.wasm"), b"\0asm\x01\0\0\0\0").unwrap();
+    fs::write(
+        root.join("dist/assets/crypto/site.asc"),
+        include_bytes!("../../../../tests/fixtures/pgp/public.asc"),
+    )
+    .unwrap();
+    fs::write(root.join(".env"), "INVALID DEPLOYMENT ENVIRONMENT").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_websh-cli"))
+        .arg("--root")
+        .arg(&*root)
+        .arg("deploy")
+        .env("PATH", &bin)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("pinned production identity"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!root.join("calls").exists());
 }
 
 #[test]

@@ -8,6 +8,7 @@ use std::process::{Command, Stdio};
 
 use crate::CliResult;
 use anyhow::{Context, bail};
+use websh_core::publication::SourcePointer;
 
 pub(crate) struct Repository {
     root: PathBuf,
@@ -140,16 +141,25 @@ impl Repository {
             .ok()
             .map(text)
             .transpose()?;
-        if let Some(remote) = &remote_head {
-            invoke(
-                &root,
-                None,
-                &["merge-base", "--is-ancestor", remote, &head],
-                None,
-            )
-            .context(
-                "remote publication advanced; reconcile with a normal fast-forward before retrying",
-            )?;
+        let remote = remote_head
+            .as_ref()
+            .context("push the initial repository setup to origin before publishing content")?;
+        invoke(
+            &root,
+            None,
+            &["merge-base", "--is-ancestor", remote, &head],
+            None,
+        )
+        .context(
+            "remote publication advanced; reconcile authored inputs with origin and republish; do not rebase prepared snapshot and pointer commits",
+        )?;
+        if remote != &head {
+            validate_pending(&root, remote, &head, &allowed)?;
+            if !changed.is_empty() {
+                bail!(
+                    "a prepared publication is pending; set aside newer edits and retry the unchanged prepared snapshot before publishing further changes"
+                );
+            }
         }
         let index_lock = git_dir.join("index.lock");
         OpenOptions::new()
@@ -192,6 +202,11 @@ impl Repository {
         self.run(&["merge-base", "--is-ancestor", commit, &self.head], None)
             .is_ok()
     }
+    pub(crate) fn has_pending(&self) -> bool {
+        self.remote_head
+            .as_ref()
+            .is_some_and(|remote| remote != &self.head)
+    }
 
     /// Replace exactly one allowlisted public subtree in the isolated index.
     pub(crate) fn snapshot(
@@ -228,7 +243,10 @@ impl Repository {
         )?)
     }
     fn add(&self, path: &str, bytes: &[u8]) -> CliResult {
-        let hash = text(self.run(&["hash-object", "-w", "--stdin"], Some(bytes))?)?;
+        let hash = text(self.run(
+            &["hash-object", "--no-filters", "-w", "--stdin"],
+            Some(bytes),
+        )?)?;
         self.run(
             &[
                 "update-index",
@@ -307,6 +325,77 @@ impl Repository {
         }
         Some(format!("https://raw.githubusercontent.com/{repo}"))
     }
+}
+
+/// Only the publisher's two-commit transaction can be retried automatically.
+/// Ordinary local commits must be reviewed and pushed separately.
+fn validate_pending(
+    root: &Path,
+    remote: &str,
+    head: &str,
+    allowed: &impl Fn(&str) -> bool,
+) -> CliResult {
+    let commits = text(invoke(
+        root,
+        None,
+        &["rev-list", "--reverse", &format!("{remote}..{head}")],
+        None,
+    )?)?;
+    let commits: Vec<_> = commits.lines().collect();
+    if commits.len() != 2 {
+        bail!(
+            "unpublished local commits are not a prepared content publication; review and push repository maintenance separately"
+        );
+    }
+    let snapshot = commits[0];
+    for (commit, parent) in [(snapshot, remote), (head, snapshot)] {
+        if text(invoke(
+            root,
+            None,
+            &["show", "-s", "--format=%P", commit],
+            None,
+        )?)? != parent
+        {
+            bail!("pending publication must be one linear snapshot and pointer pair");
+        }
+    }
+    let pointer: SourcePointer = serde_json::from_slice(&invoke(
+        root,
+        None,
+        &["show", &format!("{head}:current.json")],
+        None,
+    )?)
+    .context("pending local commits are not a prepared content publication")?;
+    if pointer.commit.as_str() != snapshot {
+        bail!("pending pointer does not select its immediately preceding content snapshot");
+    }
+    let snapshot_paths = invoke(
+        root,
+        None,
+        &["diff", "--name-only", "-z", remote, snapshot],
+        None,
+    )?;
+    for path in snapshot_paths
+        .split(|byte| *byte == 0)
+        .filter(|path| !path.is_empty())
+    {
+        let path = std::str::from_utf8(path).context("Git paths must be UTF-8")?;
+        if path == "current.json" || !allowed(path) {
+            bail!(
+                "pending snapshot changes a non-content path: {path}; review and push repository maintenance separately"
+            );
+        }
+    }
+    let pointer_paths = invoke(
+        root,
+        None,
+        &["diff", "--name-only", "-z", snapshot, head],
+        None,
+    )?;
+    if pointer_paths != b"current.json\0" {
+        bail!("pending pointer commit must change only current.json");
+    }
+    Ok(())
 }
 impl Drop for Repository {
     fn drop(&mut self) {

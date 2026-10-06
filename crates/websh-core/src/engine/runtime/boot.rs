@@ -38,7 +38,6 @@ mod tests {
             repo_with_owner: "example/site",
             branch: "main",
             content_root: "content",
-            gateway: "self",
         }
     }
 

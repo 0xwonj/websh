@@ -63,6 +63,10 @@ fn index_binds_exact_files_and_rejects_ambiguous_or_incomplete_inputs() {
         ".websh/local/private",
         ".git/config",
         ".websh/state/x",
+        "Manifest.JSON",
+        ".GIT/config",
+        ".Websh/State/x",
+        "cafe\u{301}.md",
     ] {
         let mut invalid = document.clone();
         invalid.entries[0].path = path.into();
@@ -74,6 +78,28 @@ fn index_binds_exact_files_and_rejects_ambiguous_or_incomplete_inputs() {
     invalid = document;
     invalid.entries[0].metadata.derived.content_sha256 = None;
     assert!(invalid.validate().is_err());
+
+    for (first, second) in [
+        ("Note.md", "note.md"),
+        ("Notes/a.md", "notes/b.md"),
+        ("Straße/a.md", "STRASSE/b.md"),
+        ("Σ/a.md", "ς/b.md"),
+    ] {
+        let mut invalid = manifest();
+        invalid.entries[0].path = first.into();
+        let mut second_entry = invalid.entries[0].clone();
+        second_entry.path = second.into();
+        invalid.entries.push(second_entry);
+        assert!(invalid.validate().is_err(), "{first} and {second}");
+    }
+    let mut unicode = manifest();
+    unicode.entries[0].path = "café/한글.md".into();
+    unicode.validate().unwrap();
+    for path in ["x".repeat(1025), format!("{}x.md", "d/".repeat(32))] {
+        let mut oversized = manifest();
+        oversized.entries[0].path = path;
+        assert!(oversized.validate().is_err());
+    }
 }
 
 #[test]
@@ -281,4 +307,16 @@ fn root_projection_rejects_unsafe_links_invalid_dates_and_conflicting_mounts() {
     .unwrap();
     document.release.as_mut().unwrap().mounts.push(mount);
     assert!(document.validate().is_err());
+
+    for roots in [["/Drafts", "/drafts"], ["/Straße", "/STRASSE"]] {
+        document.release.as_mut().unwrap().mounts = roots
+            .map(|root| {
+                serde_json::from_value(json!({
+                    "backend":"github", "trust":"unsigned", "mount_at":root, "repo":"a/b"
+                }))
+                .unwrap()
+            })
+            .into();
+        assert!(document.validate().is_err());
+    }
 }

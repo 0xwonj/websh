@@ -35,6 +35,9 @@ fn drafts_publish_frozen_commits_and_resume_a_failed_push_without_new_commits() 
     fs::write(root.join(".gitignore"), ".env\n.websh/local/\n").unwrap();
     git(&root, &["add", "README.md", ".gitignore"]);
     git(&root, &["commit", "-m", "Initialize content workspace"]);
+    let args = ["mempool", "publish", root.to_str().unwrap()];
+    cli_fails(&root, &args);
+    assert_eq!(git(&root, &["rev-list", "--count", "HEAD"]), "1");
     git(&root, &["push", "origin", "main"]);
     fs::write(root.join(".env"), "INVALID DEPLOYMENT ENVIRONMENT\n").unwrap();
     fs::create_dir(root.join("writing")).unwrap();
@@ -46,7 +49,6 @@ fn drafts_publish_frozen_commits_and_resume_a_failed_push_without_new_commits() 
     let hook = remote.join("hooks/pre-receive");
     fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
     fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
-    let args = ["mempool", "publish", root.to_str().unwrap()];
     cli_fails(&root, &args);
     let prepared_head = git(&root, &["rev-parse", "HEAD"]);
     assert_eq!(git(&root, &["rev-list", "--count", "HEAD"]), "3");
@@ -65,6 +67,11 @@ fn drafts_publish_frozen_commits_and_resume_a_failed_push_without_new_commits() 
             .all(|path| path != ".env")
     );
     fs::remove_file(&hook).unwrap();
+    let prepared_body = fs::read(root.join("writing/draft.md")).unwrap();
+    fs::write(root.join("writing/draft.md"), "Newer uncommitted edit").unwrap();
+    cli_fails(&root, &args);
+    assert_eq!(git(&root, &["rev-parse", "HEAD"]), prepared_head);
+    fs::write(root.join("writing/draft.md"), prepared_body).unwrap();
     cli(&root, &args);
     assert_eq!(git(&root, &["rev-parse", "HEAD"]), prepared_head);
     assert_eq!(
@@ -96,4 +103,15 @@ fn drafts_publish_frozen_commits_and_resume_a_failed_push_without_new_commits() 
     git(&root, &["add", "writing/draft.md"]);
     cli_fails(&root, &args);
     assert_eq!(git(&root, &["rev-list", "--count", "HEAD"]), "5");
+    git(&root, &["restore", "--staged", "writing/draft.md"]);
+    git(&root, &["restore", "writing/draft.md"]);
+    fs::write(
+        root.join("private.txt"),
+        "must not push a pre-existing commit",
+    )
+    .unwrap();
+    git(&root, &["add", "private.txt"]);
+    git(&root, &["commit", "-m", "Unrelated local work"]);
+    cli_fails(&root, &args);
+    assert_eq!(git(&remote, &["rev-list", "--count", "main"]), "5");
 }

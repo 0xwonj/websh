@@ -63,6 +63,13 @@ pub(crate) fn check_bundle(root: &Path) -> CliResult {
     if !wasm || !javascript {
         bail!("dist must contain the built JavaScript and WebAssembly application");
     }
+    let certificate = fs::read(dist.join(websh_site::PUBLIC_KEY_PATH))
+        .context("read bundled owner certificate")?;
+    if certificate != websh_site::PUBLIC_KEY_BLOCK.as_bytes() {
+        bail!(
+            "dist owner certificate differs from the pinned production identity; rebuild the production app"
+        );
+    }
     Ok(())
 }
 

@@ -81,7 +81,7 @@ mod tests {
 
     use cid::Cid;
 
-    use super::{RECEIPT_PATH, Receipt, publish};
+    use super::{RECEIPT_PATH, Receipt, deploy};
     use crate::test_support::temp_dir;
 
     #[test]
@@ -110,8 +110,16 @@ mod tests {
                     .success()
             );
         }
-        fs::create_dir(root.join("dist")).unwrap();
-        fs::write(root.join("dist/index.html"), "prebuilt bundle").unwrap();
+        fs::create_dir_all(root.join("dist/assets/crypto")).unwrap();
+        const INDEX: &str = "<html><script src='app.js'></script></html>";
+        fs::write(root.join("dist/index.html"), INDEX).unwrap();
+        fs::write(root.join("dist/app.js"), "void 0;").unwrap();
+        fs::write(root.join("dist/app.wasm"), b"\0asm\x01\0\0\0\0").unwrap();
+        fs::write(
+            root.join("dist").join(websh_site::PUBLIC_KEY_PATH),
+            websh_site::PUBLIC_KEY_BLOCK,
+        )
+        .unwrap();
         let bin = root.join("bin");
         fs::create_dir(&bin).unwrap();
         let executable = bin.join("pinata");
@@ -146,12 +154,12 @@ printf 'upload\n' >> calls
         let response = format!(r#"{{"cid":"{cid}","network":"public"}}"#);
         fs::write(root.join("response.json"), &response).unwrap();
 
-        let result = publish(&root).unwrap();
+        let result = deploy(&root).unwrap();
         assert_eq!(result.cid, cid);
         assert!(result.receipt_warning.is_none());
         let saved: Receipt = crate::infra::json::read_json(&root.join(RECEIPT_PATH)).unwrap();
         assert_eq!(saved.cid, cid.to_string());
-        assert_eq!(saved.files[0].path, "index.html");
+        assert!(saved.files.iter().any(|file| file.path == "index.html"));
         assert!(saved.bundle_unchanged);
         assert!(saved.previous_cid.is_none());
 
@@ -161,21 +169,21 @@ printf 'upload\n' >> calls
         )
         .unwrap();
         assert!(
-            publish(&root)
+            deploy(&root)
                 .unwrap_err()
                 .to_string()
                 .contains("inspect the remote upload before retrying")
         );
         let saved: Receipt = crate::infra::json::read_json(&root.join(RECEIPT_PATH)).unwrap();
         assert_eq!(saved.cid, cid.to_string());
-        assert_eq!(saved.files[0].path, "index.html");
+        assert!(saved.files.iter().any(|file| file.path == "index.html"));
         assert!(saved.bundle_unchanged);
         assert!(saved.previous_cid.is_none());
 
         fs::write(root.join("response.json"), response).unwrap();
         fs::remove_file(root.join(RECEIPT_PATH)).unwrap();
         fs::create_dir(root.join(RECEIPT_PATH)).unwrap();
-        let result = publish(&root).unwrap();
+        let result = deploy(&root).unwrap();
         assert_eq!(result.cid, cid);
         assert!(result.receipt_warning.unwrap().contains("upload succeeded"));
         assert_eq!(
@@ -184,7 +192,7 @@ printf 'upload\n' >> calls
         );
         assert_eq!(
             fs::read_to_string(root.join("dist/index.html")).unwrap(),
-            "prebuilt bundle"
+            INDEX
         );
     }
 }

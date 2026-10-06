@@ -69,7 +69,6 @@ web-sys = { workspace = true, features = [
     "Window",
 ] }
 js-sys = { workspace = true }
-gloo-net = { workspace = true }
 futures-util = { workspace = true }
 comrak = { workspace = true }
 ammonia = { workspace = true }

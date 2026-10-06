@@ -1,7 +1,11 @@
-use std::{collections::BTreeSet, fmt};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use unicode_normalization::{UnicodeNormalization, is_nfc};
 
 use crate::{
     domain::{ContentManifestEntry, Manifest},
@@ -11,7 +15,9 @@ use crate::{
 pub const CONTENT_PURPOSE: &str = "websh.content";
 pub const MAX_MANIFEST_BYTES: usize = 4 * 1024 * 1024;
 const MAX_ENTRIES: usize = 20_000;
-const MAX_BODY_BYTES: u64 = 128 * 1024 * 1024;
+const MAX_BODY_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_PATH_BYTES: usize = 1024;
+const MAX_PATH_SEGMENTS: usize = 32;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ReleaseError {
@@ -111,6 +117,11 @@ impl Manifest {
         if body.len() > MAX_MANIFEST_BYTES {
             return Err(ReleaseError::Invalid("manifest exceeds size limit".into()));
         }
+        // Bound implicit directory expansion before the route parser builds its tree.
+        let mut aliases = BTreeMap::new();
+        for entry in &self.entries {
+            validate_path_aliases(&entry.path, &mut aliases)?;
+        }
         let snapshot = parse_manifest_snapshot(&body)?;
         let paths = self
             .entries
@@ -134,13 +145,13 @@ impl Manifest {
                     entry.path
                 )));
             }
+            let folded = fold_path(&entry.path);
             if matches!(
-                entry.path.as_str(),
+                folded.as_str(),
                 "manifest.json" | "manifest.sig" | "current.json"
-            ) || entry.path.starts_with(".websh/local/")
-                || entry.path == ".websh/local"
-                || entry.path.starts_with(".git/")
-                || entry.path == ".git"
+            ) || [".websh/local", ".websh/state", ".git"]
+                .iter()
+                .any(|root| folded == *root || folded.starts_with(&format!("{root}/")))
             {
                 return Err(ReleaseError::Invalid(format!(
                     "reserved publication path: {}",
@@ -214,6 +225,10 @@ impl Manifest {
             for mount in &release.mounts {
                 crate::domain::validate_mount_root(mount.mount_at())
                     .map_err(|error| ReleaseError::Invalid(error.to_string()))?;
+                validate_path_aliases(
+                    mount.mount_at().as_str().trim_start_matches('/'),
+                    &mut aliases,
+                )?;
                 if !roots.insert(mount.mount_at())
                     || self.entries.iter().any(|entry| {
                         let root = mount.mount_at().as_str().trim_start_matches('/');
@@ -254,6 +269,37 @@ impl Manifest {
     pub fn verify_file(&self, path: &str, bytes: &[u8]) -> Result<(), ReleaseError> {
         self.integrity(path)?.verify(bytes)
     }
+}
+
+fn fold_path(path: &str) -> String {
+    unicase::UniCase::new(path).to_folded_case().nfc().collect()
+}
+
+/// Include implicit directories: `Notes/a` and `notes/b` must not share a tree.
+fn validate_path_aliases<'a>(
+    path: &'a str,
+    aliases: &mut BTreeMap<String, &'a str>,
+) -> Result<(), ReleaseError> {
+    if path.len() > MAX_PATH_BYTES || path.split('/').count() > MAX_PATH_SEGMENTS {
+        return Err(ReleaseError::Invalid(
+            "path exceeds length or depth limit".into(),
+        ));
+    }
+    if !is_nfc(path) {
+        return Err(ReleaseError::Invalid(format!("path must be NFC: {path}")));
+    }
+    let mut prefix = Some(path);
+    while let Some(path) = prefix {
+        if let Some(previous) = aliases.insert(fold_path(path), path)
+            && previous != path
+        {
+            return Err(ReleaseError::Invalid(format!(
+                "case-folding path collision: {previous} and {path}"
+            )));
+        }
+        prefix = path.rsplit_once('/').map(|(parent, _)| parent);
+    }
+    Ok(())
 }
 
 fn entry_integrity(entry: &ContentManifestEntry) -> Result<FileIntegrity, ReleaseError> {

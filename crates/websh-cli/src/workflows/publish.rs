@@ -35,6 +35,10 @@ pub(crate) fn publish(root: &Path, drafts: bool) -> CliResult<Publication> {
         let snapshot = mempool::manifest::prepare(root)?;
         snapshot.write(root)?;
         snapshot.files
+    } else if repo.has_pending() {
+        // Retry the prepared signed bytes without issuing another signature,
+        // including when an editor changes inputs after the initial Git check.
+        release::signed_files(root)?
     } else {
         let accepted = repo
             .remote_file("current.json")?
@@ -60,6 +64,11 @@ pub(crate) fn publish(root: &Path, drafts: bool) -> CliResult<Publication> {
                 .is_ok_and(|prior| prior == *bytes)
         }) && same_inventory(&repo, pointer.commit.as_str(), &files, drafts)
     });
+    if repo.has_pending() && !unchanged {
+        bail!(
+            "prepared publication differs from local inputs; set newer edits aside before retrying"
+        );
+    }
     let snapshot = if unchanged {
         existing
             .expect("checked existing")
