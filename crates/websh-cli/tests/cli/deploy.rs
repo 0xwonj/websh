@@ -5,7 +5,7 @@ use std::process::Command;
 use crate::support::{cli, temp_dir, write_site_fixture};
 
 #[test]
-fn deploy_rejects_an_unsigned_project_without_running_tools_or_changing_the_bundle() {
+fn deploy_rejects_an_unbuilt_entry_without_running_tools_or_changing_the_bundle() {
     let root = temp_dir("deploy-unsigned");
     write_site_fixture(&root);
     cli(&root, &["sync"]);
@@ -13,7 +13,7 @@ fn deploy_rejects_an_unsigned_project_without_running_tools_or_changing_the_bund
     fs::write(root.join("dist/index.html"), "prebuilt").unwrap();
     fs::create_dir_all(root.join(".websh/local/deploy")).unwrap();
     fs::write(
-        root.join(".websh/local/deploy/cid"),
+        root.join(".websh/local/deploy/release.json"),
         "previous deployment\n",
     )
     .unwrap();
@@ -35,7 +35,8 @@ fn deploy_rejects_an_unsigned_project_without_running_tools_or_changing_the_bund
         .unwrap();
     assert!(!output.status.success());
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("site signature required"),
+        String::from_utf8_lossy(&output.stderr)
+            .contains("dist has no built application entry point"),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
@@ -45,7 +46,7 @@ fn deploy_rejects_an_unsigned_project_without_running_tools_or_changing_the_bund
         "prebuilt"
     );
     assert_eq!(
-        fs::read_to_string(root.join(".websh/local/deploy/cid")).unwrap(),
+        fs::read_to_string(root.join(".websh/local/deploy/release.json")).unwrap(),
         "previous deployment\n"
     );
 }

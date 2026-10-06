@@ -9,9 +9,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 pub use crate::engine::attestation::subject::{
-    BundleSubject, ContentFile, DirectorySubject, DocumentSubject, Envelope, HomepageSubject,
-    LedgerSubject, PageSubject, Subject, SubjectCanonicalError, SubjectValidationError,
-    compute_content_sha256, subject_id_for_route,
+    BundleSubject, ContentFile, DirectorySubject, DocumentSubject, Envelope, PageSubject, Subject,
+    SubjectCanonicalError, SubjectValidationError, compute_content_sha256, subject_id_for_route,
 };
 
 pub const ATTESTATIONS_SCHEME: &str = "websh.attestations.v1";
@@ -26,7 +25,7 @@ pub struct AttestationArtifact {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
+#[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
 pub enum Attestation {
     Pgp {
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -37,7 +36,6 @@ pub enum Attestation {
         #[serde(skip_serializing_if = "Option::is_none")]
         signature_path: Option<String>,
         message_sha256: String,
-        verified: bool,
     },
     Ethereum {
         scheme: String,
@@ -46,7 +44,6 @@ pub enum Attestation {
         signature: String,
         recovered_address: String,
         message_sha256: String,
-        verified: bool,
     },
 }
 
@@ -106,12 +103,6 @@ impl Attestation {
             Self::Pgp { message_sha256, .. } | Self::Ethereum { message_sha256, .. } => {
                 message_sha256
             }
-        }
-    }
-
-    pub fn verified(&self) -> bool {
-        match self {
-            Self::Pgp { verified, .. } | Self::Ethereum { verified, .. } => *verified,
         }
     }
 }

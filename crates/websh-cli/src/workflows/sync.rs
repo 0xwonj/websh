@@ -1,104 +1,194 @@
+use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, bail};
 use websh_core::attestation::artifact::AttestationArtifact;
-use websh_core::attestation::ledger::CONTENT_LEDGER_PATH;
-use websh_core::crypto::ack::AckArtifact;
-use websh_site::{ACK_ARTIFACT_PATH, ATTESTATIONS_PATH};
+use websh_core::crypto::ack::{AckArtifact, AckPrivateSource, build_artifact_from_source};
+use websh_core::domain::{
+    ContentManifestEntry, DerivedMetadata, GitHubMount, NodeKind, NodeMetadata,
+};
+use websh_core::publication::{
+    CONTENT_PURPOSE, HomeProjection, Manifest, Now, Profile, ReleaseMetadata,
+};
+use websh_site::{ACK_ARTIFACT_PATH, APP_NAME, ATTESTATIONS_PATH};
 
 use super::content::ContentSnapshot;
 use super::{ack, attest};
 use crate::CliResult;
-use crate::infra::json::json_bytes;
-use crate::infra::json::{read_json, write_bytes};
+use crate::infra::json::{json_bytes, read_json, write_bytes};
 
+pub(crate) const MANIFEST_PATH: &str = "content/manifest.json";
+pub(crate) const SIGNATURE_PATH: &str = "content/manifest.sig";
+
+/// A frozen public input set. Generating or exporting it has no signing effects.
 pub(crate) struct Prepared {
     pub(crate) artifact: AttestationArtifact,
     pub(crate) content: ContentSnapshot,
-    outputs: Vec<(PathBuf, Vec<u8>)>,
-    retained_bytes: Vec<u8>,
+    ack: AckArtifact,
+    prior_release: Option<ReleaseMetadata>,
+    retained_bytes: Option<Vec<u8>>,
 }
 
 pub(crate) struct SyncOutcome {
     pub(crate) entries: usize,
-    pub(crate) blocks: usize,
     pub(crate) subjects: usize,
 }
 
 impl Prepared {
     pub(crate) fn load(root: &Path) -> CliResult<Self> {
-        attest::verify::verify_site_key(root)?;
-        let retained_bytes = fs::read(root.join(ATTESTATIONS_PATH)).context(
-            "read retained attestation records; restore a missing or damaged file from Git",
-        )?;
-        let existing: AttestationArtifact = serde_json::from_slice(&retained_bytes)
-            .context("parse retained attestation records; restore a damaged file from Git")?;
+        let retained_bytes = match fs::read(root.join(ATTESTATIONS_PATH)) {
+            Ok(bytes) => Some(bytes),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error).context("read portable attestations"),
+        };
+        if retained_bytes.is_none() && root.join(MANIFEST_PATH).exists() {
+            bail!("portable attestations are missing; restore the file from Git before generation");
+        }
+        let existing = retained_bytes
+            .as_deref()
+            .map(serde_json::from_slice::<AttestationArtifact>)
+            .transpose()
+            .context("parse portable attestations; restore damaged evidence from Git")?
+            .unwrap_or_default();
         attest::verify::verify_artifact(root, &existing, false)?;
-        let ack: AckArtifact = match ack::prepare(root)? {
+        let ack = match ack::prepare(root)? {
             Some(artifact) => artifact,
-            None => read_json(&root.join(ACK_ARTIFACT_PATH))?,
+            None if root.join(ACK_ARTIFACT_PATH).exists() => {
+                read_json(&root.join(ACK_ARTIFACT_PATH))?
+            }
+            None => build_artifact_from_source(&AckPrivateSource::default())?,
         };
         ack.validate()?;
         let content = ContentSnapshot::load(root)?;
-        let artifact = attest::prepare(root, &content, &ack, &existing)?;
-        let outputs = vec![
-            (PathBuf::from(ACK_ARTIFACT_PATH), json_bytes(&ack)?),
-            (
-                PathBuf::from(CONTENT_LEDGER_PATH),
-                json_bytes(&content.ledger)?,
-            ),
-            (
-                PathBuf::from("content/manifest.json"),
-                json_bytes(&content.manifest)?,
-            ),
-        ];
-        Ok(Self {
+        let artifact = attest::prepare(&content, &existing)?;
+        let prior_release = match fs::read(root.join(MANIFEST_PATH)) {
+            Ok(bytes) => Manifest::from_bytes(&bytes)?.release,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error).context("read prior manifest"),
+        };
+        let prepared = Self {
             artifact,
             content,
-            outputs,
+            ack,
+            prior_release,
             retained_bytes,
-        })
+        };
+        prepared.manifest()?;
+        Ok(prepared)
     }
 
-    /// External signing may take time. Refuse to overwrite new authored inputs
-    /// or another operation's retained signatures when it returns.
+    pub(crate) fn manifest(&self) -> CliResult<Manifest> {
+        let files = self.files()?;
+        let mut entries = self.content.manifest.entries.clone();
+        for (path, bytes) in &files {
+            if entries.iter().any(|entry| entry.path == *path) {
+                continue;
+            }
+            entries.push(ContentManifestEntry {
+                path: path.clone(),
+                metadata: NodeMetadata {
+                    kind: NodeKind::Data,
+                    derived: DerivedMetadata {
+                        size_bytes: Some(bytes.len() as u64),
+                        content_sha256: Some(
+                            websh_core::publication::ReleaseId::of(bytes)
+                                .as_str()
+                                .to_owned(),
+                        ),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+                mempool: None,
+            });
+        }
+        entries.sort_by(|a, b| a.path.cmp(&b.path));
+        let source = |path: &str| -> CliResult<&str> {
+            std::str::from_utf8(files.get(path).with_context(|| format!("missing {path}"))?)
+                .with_context(|| format!("{path} must be UTF-8"))
+        };
+        let profile: Profile =
+            toml::from_str(source(".site/profile.toml")?).context("parse profile")?;
+        let now: Now = toml::from_str(source(".site/now.toml")?).context("parse Now")?;
+        let mounts = files
+            .iter()
+            .filter(|(path, _)| path.starts_with(".websh/mounts/") && path.ends_with(".mount.json"))
+            .map(|(path, bytes)| {
+                serde_json::from_slice::<GitHubMount>(bytes)
+                    .with_context(|| format!("parse {path}"))
+            })
+            .collect::<CliResult<Vec<_>>>()?;
+        let manifest = Manifest {
+            entries,
+            release: Some(ReleaseMetadata {
+                purpose: CONTENT_PURPOSE.to_owned(),
+                site: APP_NAME.to_owned(),
+                sequence: self
+                    .prior_release
+                    .as_ref()
+                    .map_or(0, |release| release.sequence),
+                issued_at: self
+                    .prior_release
+                    .as_ref()
+                    .map_or(0, |release| release.issued_at),
+                home: HomeProjection {
+                    profile,
+                    now,
+                    ack: self.ack.clone(),
+                },
+                mounts,
+                publications: self
+                    .content
+                    .units
+                    .iter()
+                    .map(|unit| unit.path.clone())
+                    .collect(),
+            }),
+        };
+        manifest.validate()?;
+        Ok(manifest)
+    }
+
+    /// Paths are relative to the public content root, including authored sidecars.
+    pub(crate) fn files(&self) -> CliResult<BTreeMap<String, Vec<u8>>> {
+        let mut files = self.content.files.clone();
+        files.insert(".websh/ack.commitment.json".into(), json_bytes(&self.ack)?);
+        files.insert(
+            ".websh/attestations.json".into(),
+            json_bytes(&self.artifact)?,
+        );
+        Ok(files)
+    }
+
     pub(crate) fn ensure_current(&self, root: &Path) -> CliResult {
         let current = Self::load(root)?;
-        let same_subjects = self.artifact.subjects.len() == current.artifact.subjects.len()
-            && self
-                .artifact
-                .subjects
-                .iter()
-                .zip(&current.artifact.subjects)
-                .all(|(left, right)| attest::same_payload(left, right));
         if self.retained_bytes != current.retained_bytes
-            || self.outputs != current.outputs
-            || !same_subjects
+            || self.content.files != current.content.files
+            || self.ack != current.ack
         {
-            bail!("project inputs changed during signing; retry against the current sources");
+            bail!("content inputs changed during signing; retry against the current sources");
         }
         Ok(())
     }
 
     pub(crate) fn publish(&self, root: &Path) -> CliResult {
-        let artifact = json_bytes(&self.artifact)?;
-        // Serialization and validation finish before the first replacement.
-        for (path, bytes) in &self.outputs {
-            write_bytes(&root.join(path), bytes)?;
-        }
-        write_bytes(&root.join(ATTESTATIONS_PATH), &artifact)
+        let manifest = json_bytes(&self.manifest()?)?;
+        write_bytes(&root.join(ACK_ARTIFACT_PATH), &json_bytes(&self.ack)?)?;
+        write_bytes(&root.join(ATTESTATIONS_PATH), &json_bytes(&self.artifact)?)?;
+        write_bytes(&root.join(MANIFEST_PATH), &manifest)
     }
 
     pub(crate) fn check_outputs(&self, root: &Path) -> CliResult {
-        for (path, expected) in self.outputs.iter().cloned().chain(std::iter::once((
-            PathBuf::from(ATTESTATIONS_PATH),
-            json_bytes(&self.artifact)?,
-        ))) {
-            let actual = fs::read(root.join(&path))
-                .with_context(|| format!("read generated {}", path.display()))?;
-            if actual != expected {
-                bail!("{} is stale; run websh-cli sync", path.display());
+        for (path, expected) in [
+            (ACK_ARTIFACT_PATH, json_bytes(&self.ack)?),
+            (ATTESTATIONS_PATH, json_bytes(&self.artifact)?),
+            (MANIFEST_PATH, json_bytes(&self.manifest()?)?),
+        ] {
+            if fs::read(root.join(path)).with_context(|| format!("read generated {path}"))?
+                != expected
+            {
+                bail!("{path} is stale; run websh-cli sync");
             }
         }
         Ok(())
@@ -107,7 +197,6 @@ impl Prepared {
     pub(crate) fn outcome(&self) -> SyncOutcome {
         SyncOutcome {
             entries: self.content.manifest.entries.len(),
-            blocks: self.content.ledger.blocks.len(),
             subjects: self.artifact.subjects.len(),
         }
     }

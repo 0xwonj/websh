@@ -765,15 +765,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bzip2"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3a53fac24f34a81bc9954b5d6cfce0c21e18ec6959f44f56e8e90e4bb7c346c"
-dependencies = [
- "libbz2-rs-sys",
-]
-
-[[package]]
 name = "camellia"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2775,12 +2766,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "libbz2-rs-sys"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34b357333733e8260735ba5894eb928c02ecc69c78715f01a8019e7fa7f2db4c"
-
-[[package]]
 name = "libc"
 version = "0.2.186"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3285,7 +3270,6 @@ dependencies = [
  "buffer-redux",
  "byteorder",
  "bytes",
- "bzip2",
  "camellia",
  "cast5",
  "cfb-mode",
@@ -3305,6 +3289,7 @@ dependencies = [
  "elliptic-curve",
  "flate2",
  "generic-array",
+ "getrandom 0.2.17",
  "hex",
  "hkdf",
  "idea",
@@ -3333,6 +3318,7 @@ dependencies = [
  "snafu",
  "subtle",
  "twofish",
+ "web-time",
  "x25519-dalek",
  "zeroize",
 ]
@@ -5224,6 +5210,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "web-time"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
+dependencies = [
+ "js-sys",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "web_atoms"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5248,12 +5244,12 @@ dependencies = [
  "imagesize",
  "k256",
  "lopdf",
- "pgp",
  "rand 0.8.6",
  "serde",
  "serde_json",
  "serde_norway",
  "thiserror 2.0.18",
+ "toml 1.1.2+spec-1.1.0",
  "websh-core",
  "websh-site",
 ]
@@ -5266,6 +5262,8 @@ dependencies = [
  "base64 0.22.1",
  "getrandom 0.2.17",
  "hex",
+ "pgp",
+ "rand 0.8.6",
  "regex",
  "serde",
  "serde_json",
@@ -5279,8 +5277,6 @@ name = "websh-site"
 version = "0.1.0"
 dependencies = [
  "pgp",
- "serde_json",
- "thiserror 2.0.18",
  "websh-core",
 ]
 
@@ -5305,7 +5301,6 @@ dependencies = [
  "sha2 0.11.0",
  "stylance",
  "thiserror 2.0.18",
- "toml 1.1.2+spec-1.1.0",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",

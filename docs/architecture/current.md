@@ -9,7 +9,7 @@ projection. Editors and Git own source authoring and repository history.
 | Crate | Target | Owns | Must not own |
 | --- | --- | --- | --- |
 | `websh-core` | host + wasm | Domain contracts, filesystem, shell, runtime coordination, crypto, storage ports | Browser APIs, host processes, Leptos state |
-| `websh-site` | host + wasm | Deployed identity, public keys, acknowledgement data, site policy | Generic engine behavior, command workflows |
+| `websh-site` | host + wasm | Stable app identity, pinned public key, source discovery, trust policy | Generic engine behavior, command workflows |
 | `websh-cli` | host | Argument adapters, native workflows, process/filesystem adapters | Browser state, generic domain rules |
 | `websh-web` | wasm | Leptos app, browser runtime, wallet, storage, rendering, styles | Host processes, private core internals |
 
@@ -19,7 +19,7 @@ only on external libraries. CLI and web do not depend on each other.
 Core implementation lives in private `engine/` modules. Its public facades are
 `websh_core::domain`, `websh_core::filesystem`, `websh_core::runtime`,
 `websh_core::shell`, `websh_core::mempool`, `websh_core::attestation`,
-`websh_core::crypto`, `websh_core::ports`, and `websh_core::support`.
+`websh_core::crypto`, `websh_core::publication`, `websh_core::ports`, and `websh_core::support`.
 Contextual errors belong to the facade that owns the capability.
 
 CLI `commands/` adapt Clap arguments to `workflows/`; `infra/` owns external effects.
@@ -51,13 +51,15 @@ adapters. Deserialization validates the repository, ref, canonical prefix, gatew
 public mount root before adapter construction. Public declarations occupy top-level roots
 outside the reserved system namespace; only the site bootstrap owns `/`.
 
-`StorageBackend` exposes `scan`, `read_text`, `read_bytes`, and `public_read_url` through
-local, non-`Send` `Rc` handles. It grants no content-writing capability.
+`StorageBackend` exposes immutable `scan`, `read_text`, and `read_bytes` through local,
+non-`Send` `Rc` handles. Refresh prepares a separate reader; exact `SourceSnapshot` evidence
+can be cached and must be validated on restoration. There is no direct media URL bypass
+or content-writing capability.
 
 ## Ownership and publication
 
 The CLI's pure `ContentSnapshot` interprets and validates one authored tree, then projects
-the manifest, ledger, and publication units. Generation, checking, signing, and upload
+the shared file index, homepage projection, and publication units. Generation, checking, signing, and upload
 have explicit boundaries described in the [CLI guide](cli.md).
 
 The browser's `filesystem::Snapshot` binds an immutable `GlobalFs` to its validated route
@@ -75,5 +77,5 @@ version, and dependency/tool pins retain versions where they carry meaning.
 
 - [Tooling](tooling.md): bootstrap, build/watch inputs, output ownership, cleanup.
 - [Verification](verification.md): local gate, focused tests, dependency maintenance.
-- [Independent publication](publication.md): planned IPFS app and GitHub content
-  separation without ENS; target design, not yet implemented.
+- [Publication](publication.md): independent app/content sources, signed snapshots, history,
+  and trust boundaries.

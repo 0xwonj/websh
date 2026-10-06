@@ -1,22 +1,21 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, bail};
-use websh_core::attestation::artifact::sha256_hex;
 use websh_core::domain::{
-    ContentManifestDocument, ContentManifestEntry, DerivedMetadata, MempoolFields, NodeKind,
-    NodeMetadata,
+    ContentManifestEntry, DerivedMetadata, Manifest, MempoolFields, NodeKind, NodeMetadata,
 };
 use websh_core::mempool::LEDGER_CATEGORIES;
 
 use crate::CliResult;
-use crate::infra::json::write_json;
+use crate::infra::json::{json_bytes, write_bytes};
 
 use super::draft::Draft;
 use super::path::EntryPath;
 
 /// Rebuild from canonical source files; an existing manifest is never an input.
-pub(crate) fn sync(repo_dir: &Path) -> CliResult<usize> {
+pub(crate) fn prepare(repo_dir: &Path) -> CliResult<DraftSnapshot> {
     if !repo_dir.is_dir() {
         bail!(
             "mempool checkout is not a directory: {}",
@@ -24,6 +23,7 @@ pub(crate) fn sync(repo_dir: &Path) -> CliResult<usize> {
         );
     }
     let mut entries = Vec::new();
+    let mut files = BTreeMap::new();
     for category in LEDGER_CATEGORIES {
         let dir = repo_dir.join(category);
         if !dir.exists() {
@@ -36,7 +36,7 @@ pub(crate) fn sync(repo_dir: &Path) -> CliResult<usize> {
             let item = item?;
             let path = item.path();
             if path.extension().is_none_or(|extension| extension != "md") {
-                continue;
+                bail!("unsupported file in draft category: {}", path.display());
             }
             if !item.file_type()?.is_file() {
                 bail!("mempool entry must be a regular file: {}", path.display());
@@ -48,6 +48,7 @@ pub(crate) fn sync(repo_dir: &Path) -> CliResult<usize> {
             let entry_path = EntryPath::parse(&format!("{category}/{file_name}"))?;
             let body =
                 fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+            files.insert(entry_path.to_string(), body.as_bytes().to_vec());
             entries.push(
                 build_entry(&entry_path, &body)
                     .with_context(|| format!("validate {}", path.display()))?,
@@ -56,18 +57,36 @@ pub(crate) fn sync(repo_dir: &Path) -> CliResult<usize> {
     }
     entries.sort_by(|a, b| a.path.cmp(&b.path));
     let count = entries.len();
-    let manifest_path = repo_dir.join("manifest.json");
-    match fs::symlink_metadata(&manifest_path) {
-        Ok(metadata) if metadata.is_file() => {}
-        Ok(_) => bail!(
-            "manifest must be a regular file: {}",
-            manifest_path.display()
-        ),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error).context("inspect mempool manifest"),
+    let manifest = Manifest {
+        entries,
+        release: None,
+    };
+    manifest.validate()?;
+    files.insert("manifest.json".into(), json_bytes(&manifest)?);
+    Ok(DraftSnapshot { files, count })
+}
+
+pub(crate) struct DraftSnapshot {
+    pub(crate) files: BTreeMap<String, Vec<u8>>,
+    count: usize,
+}
+impl DraftSnapshot {
+    pub(crate) fn write(&self, root: &Path) -> CliResult {
+        write_bytes(&root.join("manifest.json"), &self.files["manifest.json"])
     }
-    write_json(&manifest_path, &ContentManifestDocument { entries })?;
-    Ok(count)
+}
+
+pub(crate) fn sync(repo_dir: &Path) -> CliResult<usize> {
+    let snapshot = prepare(repo_dir)?;
+    snapshot.write(repo_dir)?;
+    Ok(snapshot.count)
+}
+
+pub(crate) fn is_public_path(path: &str) -> bool {
+    path == "manifest.json"
+        || path.split_once('/').is_some_and(|(category, file)| {
+            LEDGER_CATEGORIES.contains(&category) && !file.contains('/') && file.ends_with(".md")
+        })
 }
 
 fn build_entry(path: &EntryPath, body: &str) -> CliResult<ContentManifestEntry> {
@@ -93,7 +112,11 @@ fn build_entry(path: &EntryPath, body: &str) -> CliResult<ContentManifestEntry> 
             authored: draft.metadata.fields(),
             derived: DerivedMetadata {
                 size_bytes: Some(body.len() as u64),
-                content_sha256: Some(sha256_hex(body.as_bytes())),
+                content_sha256: Some(
+                    websh_core::publication::ReleaseId::of(body.as_bytes())
+                        .as_str()
+                        .to_owned(),
+                ),
                 word_count: Some(
                     u32::try_from(draft.body.split_whitespace().count()).unwrap_or(u32::MAX),
                 ),

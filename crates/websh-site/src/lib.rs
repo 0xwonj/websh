@@ -9,13 +9,10 @@ pub mod bootstrap;
 pub mod identity;
 pub mod profile;
 
-pub use artifacts::{
-    ACK_ARTIFACT_PATH, ACK_COMMITMENT_JSON, ATTESTATIONS_JSON, ATTESTATIONS_PATH, ack_artifact,
-    attestation_artifact,
-};
+pub use artifacts::{ACK_ARTIFACT_PATH, ATTESTATIONS_PATH};
 pub use bootstrap::BOOTSTRAP_SITE;
 pub use identity::{
     APP_NAME, APP_TAGLINE, EXPECTED_PGP_FINGERPRINT, PUBLIC_KEY_BLOCK, PUBLIC_KEY_PATH,
-    fingerprint_matches,
+    content_trust, fingerprint_matches, pgp_policy,
 };
-pub use profile::{ASCII_BANNER, ASCII_PROFILE, HELP_TEXT, SHELL_TEXT};
+pub use profile::{ASCII_BANNER, HELP_TEXT};

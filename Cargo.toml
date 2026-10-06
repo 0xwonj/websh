@@ -41,7 +41,7 @@ clap = { version = "4", features = ["derive"] }
 cid = "0.11.3"
 imagesize = { version = "0.14", default-features = false, features = ["gif", "jpeg", "png", "webp"] }
 lopdf = { version = "0.44", default-features = false }
-pgp = "0.21"
+pgp = { version = "0.21", default-features = false }
 serde_norway = "0.9"
 
 # Browser / WASM runtime and UI.

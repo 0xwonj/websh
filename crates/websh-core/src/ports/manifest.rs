@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
 use crate::domain::{
-    BundleValidationError, ContentManifestDocument, ContentManifestEntry, EntryExtensions,
-    NodeKind, NodeMetadata, VirtualPath, is_runtime_overlay_path, validate_bundle_metadata,
+    BundleValidationError, ContentManifestEntry, EntryExtensions, Manifest, NodeKind, NodeMetadata,
+    VirtualPath, is_runtime_overlay_path, validate_bundle_metadata,
 };
 use crate::filesystem::{RouteCatalog, RouteCatalogError};
 
@@ -71,7 +71,7 @@ pub enum ManifestSnapshotError {
 }
 
 pub fn parse_manifest_snapshot(body: &str) -> ManifestSnapshotResult<ScannedSubtree> {
-    let manifest: ContentManifestDocument = serde_json::from_str(body)?;
+    let manifest: Manifest = serde_json::from_str(body)?;
 
     let mut files = Vec::new();
     let mut directories = Vec::new();
@@ -127,7 +127,10 @@ pub fn serialize_manifest_snapshot(snapshot: &ScannedSubtree) -> ManifestSnapsho
     }
     RouteCatalog::validate_snapshot(snapshot)?;
 
-    let manifest = ContentManifestDocument { entries };
+    let manifest = Manifest {
+        entries,
+        release: None,
+    };
     serde_json::to_string_pretty(&manifest).map_err(Into::into)
 }
 

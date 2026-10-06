@@ -4,7 +4,6 @@ mod media;
 mod metadata;
 mod snapshot;
 
-pub(crate) use files::collect_files_recursive;
 use files::{kind_for_content_path, route_for_content_path};
 pub(crate) use snapshot::ContentSnapshot;
 

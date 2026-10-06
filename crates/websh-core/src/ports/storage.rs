@@ -74,19 +74,22 @@ pub struct ScannedDirectory {
 }
 
 pub trait StorageBackend {
+    /// A refresh must prepare a new snapshot without mutating the installed reader.
+    fn fork_for_refresh(&self) -> Option<StorageBackendRef> {
+        None
+    }
+
+    /// Exact source evidence for disposable cache restoration, never a trust flag.
+    fn cache_snapshot(&self) -> Option<crate::publication::SourceSnapshot> {
+        None
+    }
+
     /// Scan the mount and return its current tree.
     fn scan(&self) -> LocalBoxFuture<'_, StorageResult<ScannedSubtree>>;
 
     fn read_text<'a>(&'a self, rel_path: &'a str) -> LocalBoxFuture<'a, StorageResult<String>>;
 
     fn read_bytes<'a>(&'a self, rel_path: &'a str) -> LocalBoxFuture<'a, StorageResult<Vec<u8>>>;
-
-    /// Return a browser-readable URL for a file when the backend can expose
-    /// one directly. Backends that require authenticated/proxied reads should
-    /// keep the default and let callers fall back to `read_text`/`read_bytes`.
-    fn public_read_url(&self, _rel_path: &str) -> StorageResult<Option<String>> {
-        Ok(None)
-    }
 }
 
 #[cfg(test)]

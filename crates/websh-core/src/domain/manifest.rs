@@ -6,11 +6,14 @@ use serde::{Deserialize, Serialize};
 
 use super::mempool::MempoolFields;
 use super::metadata::NodeMetadata;
+use super::publication::ReleaseMetadata;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ContentManifestDocument {
+pub struct Manifest {
     pub entries: Vec<ContentManifestEntry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub release: Option<ReleaseMetadata>,
 }
 
 /// A content node with optional mempool metadata.
@@ -30,14 +33,14 @@ mod tests {
     #[test]
     fn content_manifest_document_round_trips_existing_shape() {
         let body = include_str!("../../../../tests/fixtures/manifest_golden.json");
-        let manifest: ContentManifestDocument = serde_json::from_str(body).expect("parse");
+        let manifest: Manifest = serde_json::from_str(body).expect("parse");
         let encoded = serde_json::to_string_pretty(&manifest).expect("serialize");
         assert_eq!(encoded.trim_end(), body.trim_end());
     }
 
     #[test]
     fn content_manifest_requires_entries() {
-        let parsed = serde_json::from_str::<ContentManifestDocument>("{}");
+        let parsed = serde_json::from_str::<Manifest>("{}");
         assert!(parsed.is_err());
     }
 
@@ -46,6 +49,6 @@ mod tests {
         let body = include_str!("../../../../tests/fixtures/manifest_golden.json");
         let mut value: serde_json::Value = serde_json::from_str(body).unwrap();
         value["entries"][0]["unknown"] = true.into();
-        assert!(serde_json::from_value::<ContentManifestDocument>(value).is_err());
+        assert!(serde_json::from_value::<Manifest>(value).is_err());
     }
 }

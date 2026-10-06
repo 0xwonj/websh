@@ -10,3 +10,5 @@ mod content;
 mod deploy;
 #[path = "cli/mempool.rs"]
 mod mempool;
+#[path = "cli/publish.rs"]
+mod publish;

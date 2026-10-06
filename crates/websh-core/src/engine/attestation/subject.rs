@@ -1,11 +1,7 @@
 //! Typed attestation subjects.
 //!
-//! `Subject` is a tagged enum where each variant owns the fields its
-//! signature actually binds. A homepage subject carries `ack_combined_root`;
-//! a ledger subject carries `chain_head`; documents and pages bind only
-//! their content. Stored fields are exactly the irreducible facts —
-//! `id`, `content_sha256`, and the canonical signed message are all
-//! derived from the variant via methods on `Subject`.
+//! Each subject binds a portable publication's exact constituent files. Snapshot
+//! authentication and the publication catalog are owned by `publication`.
 
 use serde::{Deserialize, Serialize};
 
@@ -30,20 +26,6 @@ pub struct Envelope {
     pub issued_at: Option<String>,
     pub content_files: Vec<ContentFile>,
     pub attestations: Vec<Attestation>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct HomepageSubject {
-    #[serde(flatten)]
-    pub env: Envelope,
-    pub ack_combined_root: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LedgerSubject {
-    #[serde(flatten)]
-    pub env: Envelope,
-    pub chain_head: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -73,8 +55,6 @@ pub struct DirectorySubject {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Subject {
-    Homepage(HomepageSubject),
-    Ledger(LedgerSubject),
     Document(DocumentSubject),
     Page(PageSubject),
     Bundle(BundleSubject),
@@ -84,8 +64,6 @@ pub enum Subject {
 impl Subject {
     pub fn envelope(&self) -> &Envelope {
         match self {
-            Subject::Homepage(s) => &s.env,
-            Subject::Ledger(s) => &s.env,
             Subject::Document(s) => &s.env,
             Subject::Page(s) => &s.env,
             Subject::Bundle(s) => &s.env,
@@ -95,8 +73,6 @@ impl Subject {
 
     pub fn envelope_mut(&mut self) -> &mut Envelope {
         match self {
-            Subject::Homepage(s) => &mut s.env,
-            Subject::Ledger(s) => &mut s.env,
             Subject::Document(s) => &mut s.env,
             Subject::Page(s) => &mut s.env,
             Subject::Bundle(s) => &mut s.env,
@@ -126,8 +102,6 @@ impl Subject {
 
     pub fn kind_str(&self) -> &'static str {
         match self {
-            Subject::Homepage(_) => "homepage",
-            Subject::Ledger(_) => "ledger",
             Subject::Document(_) => "document",
             Subject::Page(_) => "page",
             Subject::Bundle(_) => "bundle",
@@ -155,18 +129,6 @@ impl Subject {
             .as_deref()
             .ok_or(SubjectCanonicalError::MissingIssuance)?;
         let body = match self {
-            Subject::Homepage(s) => format!(
-                "id={id}\nroute={route}\nkind=homepage\ncontent_sha256={content_sha256}\nack_combined_root={ack}\nissued_at={issued_at}",
-                route = env.route,
-                ack = s.ack_combined_root,
-                issued_at = issued_at,
-            ),
-            Subject::Ledger(s) => format!(
-                "id={id}\nroute={route}\nkind=ledger\ncontent_sha256={content_sha256}\nchain_head={head}\nissued_at={issued_at}",
-                route = env.route,
-                head = s.chain_head,
-                issued_at = issued_at,
-            ),
             Subject::Document(_) => format!(
                 "id={id}\nroute={route}\nkind=document\ncontent_sha256={content_sha256}\nissued_at={issued_at}",
                 route = env.route,
@@ -275,30 +237,6 @@ mod tests {
         ]
     }
 
-    fn homepage() -> Subject {
-        Subject::Homepage(HomepageSubject {
-            env: Envelope {
-                route: "/".to_string(),
-                issued_at: Some("2026-04-30".to_string()),
-                content_files: sample_files(),
-                attestations: Vec::new(),
-            },
-            ack_combined_root: "0xack".to_string(),
-        })
-    }
-
-    fn ledger() -> Subject {
-        Subject::Ledger(LedgerSubject {
-            env: Envelope {
-                route: "/ledger".to_string(),
-                issued_at: Some("2026-04-30".to_string()),
-                content_files: sample_files(),
-                attestations: Vec::new(),
-            },
-            chain_head: "0xhead".to_string(),
-        })
-    }
-
     fn document() -> Subject {
         Subject::Document(DocumentSubject {
             env: Envelope {
@@ -341,26 +279,6 @@ mod tests {
                 attestations: Vec::new(),
             },
         })
-    }
-
-    #[test]
-    fn canonical_message_homepage_is_exact() {
-        let subject = homepage();
-        let content_sha = subject.content_sha256().unwrap();
-        let expected = format!(
-            "websh.subject.v1\nid=route:/\nroute=/\nkind=homepage\ncontent_sha256={content_sha}\nack_combined_root=0xack\nissued_at=2026-04-30"
-        );
-        assert_eq!(subject.canonical_message().unwrap(), expected);
-    }
-
-    #[test]
-    fn canonical_message_ledger_is_exact() {
-        let subject = ledger();
-        let content_sha = subject.content_sha256().unwrap();
-        let expected = format!(
-            "websh.subject.v1\nid=route:/ledger\nroute=/ledger\nkind=ledger\ncontent_sha256={content_sha}\nchain_head=0xhead\nissued_at=2026-04-30"
-        );
-        assert_eq!(subject.canonical_message().unwrap(), expected);
     }
 
     #[test]
@@ -413,7 +331,7 @@ mod tests {
 
     #[test]
     fn validate_rejects_unsorted_content_files() {
-        let mut subject = homepage();
+        let mut subject = document();
         subject.envelope_mut().content_files = vec![
             ContentFile {
                 path: "b.txt".to_string(),
@@ -431,7 +349,7 @@ mod tests {
 
     #[test]
     fn validate_rejects_duplicate_content_paths() {
-        let mut subject = homepage();
+        let mut subject = document();
         subject.envelope_mut().content_files = vec![
             ContentFile {
                 path: "a.txt".to_string(),
@@ -449,25 +367,10 @@ mod tests {
 
     #[test]
     fn subject_variants_round_trip_without_derived_fields() {
-        for subject in [
-            homepage(),
-            ledger(),
-            document(),
-            page(),
-            bundle(),
-            directory(),
-        ] {
+        for subject in [document(), page(), bundle(), directory()] {
             subject.validate().unwrap();
             let json = serde_json::to_value(&subject).unwrap();
             assert_eq!(json["kind"], subject.kind_str());
-            assert_eq!(
-                json.get("ack_combined_root").is_some(),
-                matches!(subject, Subject::Homepage(_))
-            );
-            assert_eq!(
-                json.get("chain_head").is_some(),
-                matches!(subject, Subject::Ledger(_))
-            );
             for field in ["id", "content_sha256", "message"] {
                 assert!(json.get(field).is_none(), "{}: {field}", subject.kind_str());
             }

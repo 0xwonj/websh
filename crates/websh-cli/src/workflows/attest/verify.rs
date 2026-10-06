@@ -9,18 +9,10 @@ use websh_site::{EXPECTED_PGP_FINGERPRINT, PUBLIC_KEY_PATH};
 
 use crate::{CliResult, infra::pgp};
 
-pub(crate) fn verify_site_key(root: &Path) -> CliResult {
-    let key = pgp::read_key(&root.join(PUBLIC_KEY_PATH)).context("read site public key")?;
-    if key.fingerprint != EXPECTED_PGP_FINGERPRINT {
-        bail!("public key does not match the deployed site identity");
-    }
-    Ok(())
-}
-
 /// Verify retained evidence independently of whether its original source is
 /// still current. Freshness is checked against the prepared snapshot.
 pub(crate) fn verify_artifact(
-    root: &Path,
+    _root: &Path,
     artifact: &AttestationArtifact,
     require_signatures: bool,
 ) -> CliResult<usize> {
@@ -39,7 +31,7 @@ pub(crate) fn verify_artifact(
             let message = subject.canonical_message()?;
             let hash = message_sha256(&message);
             for attestation in subject.attestations() {
-                if !attestation.verified() || attestation.message_sha256() != hash {
+                if attestation.message_sha256() != hash {
                     bail!(
                         "invalid attestation message binding for {}",
                         subject.route()
@@ -61,10 +53,9 @@ pub(crate) fn verify_artifact(
                             );
                         }
                         let verified =
-                            pgp::verify_signature(&root.join(PUBLIC_KEY_PATH), signature, &message)
-                                .with_context(|| {
-                                    format!("verify PGP signature for {}", subject.route())
-                                })?;
+                            pgp::verify_signature(signature, &message).with_context(|| {
+                                format!("verify PGP signature for {}", subject.route())
+                            })?;
                         if verified != EXPECTED_PGP_FINGERPRINT {
                             bail!("PGP fingerprint mismatch for {}", subject.route());
                         }

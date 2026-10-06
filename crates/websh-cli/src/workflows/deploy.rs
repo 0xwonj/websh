@@ -2,9 +2,14 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use cid::Cid;
+use serde::{Deserialize, Serialize};
 
 use crate::CliResult;
-use crate::infra::{dotenv, json::write_bytes, pinata};
+use crate::infra::{
+    bundle, dotenv,
+    json::{read_json, write_json},
+    pinata,
+};
 use crate::workflows::check::check_bundle;
 
 #[derive(Debug)]
@@ -18,23 +23,54 @@ pub(crate) fn deploy(root: &Path) -> CliResult<Deployment> {
     publish(root)
 }
 
+const RECEIPT_PATH: &str = ".websh/local/deploy/release.json";
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Receipt {
+    cid: String,
+    source_commit: String,
+    source_dirty: bool,
+    files: Vec<bundle::FileDigest>,
+    previous_cid: Option<String>,
+    bundle_unchanged: bool,
+}
+
 fn publish(root: &Path) -> CliResult<Deployment> {
+    let files = bundle::inventory(root)?;
+    let (source_commit, source_dirty) = bundle::source(root)?;
+    let previous_cid = if root.join(RECEIPT_PATH).is_file() {
+        let receipt: Receipt = read_json(&root.join(RECEIPT_PATH))?;
+        Some(receipt.cid.parse::<Cid>()?.to_string())
+    } else {
+        None
+    };
     let envs = dotenv::load(root)?;
     let seconds = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
     let cid = pinata::upload(root, &format!("websh-{seconds}"), &envs)?;
+    let bundle_unchanged = bundle::inventory(root).is_ok_and(|current| current == files);
+    let receipt = Receipt {
+        cid: cid.to_string(),
+        source_commit,
+        source_dirty,
+        files,
+        previous_cid,
+        bundle_unchanged,
+    };
     // Publication cannot be rolled back by a failed local receipt write. Return
     // its CID and a warning so callers do not repeat a successful upload.
-    let receipt_warning = write_bytes(
-        &root.join(".websh/local/deploy/cid"),
-        format!("{cid}\n").as_bytes(),
-    )
-    .err()
-    .map(|error| {
-        format!("upload succeeded, but .websh/local/deploy/cid could not be saved: {error:#}")
-    });
+    let mut warnings = Vec::new();
+    if !bundle_unchanged {
+        warnings.push("upload succeeded, but the local bundle changed during upload; verify the remote files before using this CID".to_owned());
+    }
+    if let Err(error) = write_json(&root.join(RECEIPT_PATH), &receipt) {
+        warnings.push(format!(
+            "upload succeeded, but {RECEIPT_PATH} could not be saved: {error:#}"
+        ));
+    }
     Ok(Deployment {
         cid,
-        receipt_warning,
+        receipt_warning: (!warnings.is_empty()).then(|| warnings.join("; ")),
     })
 }
 
@@ -45,12 +81,35 @@ mod tests {
 
     use cid::Cid;
 
-    use super::publish;
+    use super::{RECEIPT_PATH, Receipt, publish};
     use crate::test_support::temp_dir;
 
     #[test]
     fn publication_records_only_valid_cids_and_reports_receipt_failure_after_success() {
         let root = temp_dir("publish");
+        for args in [
+            vec!["init", "--initial-branch=main"],
+            vec!["config", "user.name", "Fixture"],
+            vec!["config", "user.email", "fixture@example.test"],
+            vec![
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "Initial",
+            ],
+        ] {
+            assert!(
+                std::process::Command::new("git")
+                    .current_dir(&root)
+                    .args(args)
+                    .output()
+                    .unwrap()
+                    .status
+                    .success()
+            );
+        }
         fs::create_dir(root.join("dist")).unwrap();
         fs::write(root.join("dist/index.html"), "prebuilt bundle").unwrap();
         let bin = root.join("bin");
@@ -90,10 +149,11 @@ printf 'upload\n' >> calls
         let result = publish(&root).unwrap();
         assert_eq!(result.cid, cid);
         assert!(result.receipt_warning.is_none());
-        assert_eq!(
-            fs::read_to_string(root.join(".websh/local/deploy/cid")).unwrap(),
-            format!("{cid}\n")
-        );
+        let saved: Receipt = crate::infra::json::read_json(&root.join(RECEIPT_PATH)).unwrap();
+        assert_eq!(saved.cid, cid.to_string());
+        assert_eq!(saved.files[0].path, "index.html");
+        assert!(saved.bundle_unchanged);
+        assert!(saved.previous_cid.is_none());
 
         fs::write(
             root.join("response.json"),
@@ -106,14 +166,15 @@ printf 'upload\n' >> calls
                 .to_string()
                 .contains("inspect the remote upload before retrying")
         );
-        assert_eq!(
-            fs::read_to_string(root.join(".websh/local/deploy/cid")).unwrap(),
-            format!("{cid}\n")
-        );
+        let saved: Receipt = crate::infra::json::read_json(&root.join(RECEIPT_PATH)).unwrap();
+        assert_eq!(saved.cid, cid.to_string());
+        assert_eq!(saved.files[0].path, "index.html");
+        assert!(saved.bundle_unchanged);
+        assert!(saved.previous_cid.is_none());
 
         fs::write(root.join("response.json"), response).unwrap();
-        fs::remove_file(root.join(".websh/local/deploy/cid")).unwrap();
-        fs::create_dir(root.join(".websh/local/deploy/cid")).unwrap();
+        fs::remove_file(root.join(RECEIPT_PATH)).unwrap();
+        fs::create_dir(root.join(RECEIPT_PATH)).unwrap();
         let result = publish(&root).unwrap();
         assert_eq!(result.cid, cid);
         assert!(result.receipt_warning.unwrap().contains("upload succeeded"));

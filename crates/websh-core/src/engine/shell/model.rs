@@ -294,16 +294,19 @@ pub struct SystemInfo {
     pub user_agent: Option<String>,
 }
 
-/// Target-owned static shell text.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Runtime profile text and app-owned help.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShellText {
-    pub profile: &'static str,
+    pub profile: String,
     pub help: &'static str,
 }
 
 impl ShellText {
-    pub const fn new(profile: &'static str, help: &'static str) -> Self {
-        Self { profile, help }
+    pub fn new(profile: impl Into<String>, help: &'static str) -> Self {
+        Self {
+            profile: profile.into(),
+            help,
+        }
     }
 }
 

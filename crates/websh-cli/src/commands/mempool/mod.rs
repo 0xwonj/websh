@@ -19,6 +19,8 @@ enum MempoolSubcommand {
         /// Checkout path, relative to the current working directory.
         checkout: PathBuf,
     },
+    /// Generate, commit, and push an independently published draft snapshot.
+    Publish { checkout: PathBuf },
     /// Copy a draft into canonical content; leaves the draft and Git index unchanged.
     Import {
         /// Markdown source, relative to the current working directory.
@@ -32,6 +34,7 @@ enum MempoolSubcommand {
 
 pub(crate) fn run(root: &Path, command: MempoolCommand) -> CliResult {
     match command.command {
+        MempoolSubcommand::Publish { checkout } => crate::commands::publish::run(&checkout, true),
         MempoolSubcommand::Sync { checkout } => {
             let count = crate::workflows::mempool::manifest::sync(&checkout)?;
             println!(

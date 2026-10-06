@@ -19,3 +19,10 @@ pub(crate) fn today_utc() -> String {
     let year = y + i64::from(month <= 2);
     format!("{year:04}-{month:02}-{day:02}")
 }
+
+pub(crate) fn unix_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock is after Unix epoch")
+        .as_secs()
+}

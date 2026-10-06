@@ -1,7 +1,7 @@
 use std::fs;
 use std::process::Command;
 
-use websh_core::domain::{AuthoredMetadata, ContentManifestDocument, MempoolStatus};
+use websh_core::domain::{AuthoredMetadata, Manifest, MempoolStatus};
 
 use crate::support::{cli_fails, cli_with_env, temp_dir};
 
@@ -15,7 +15,7 @@ fn sync_uses_authored_yaml_and_preserves_the_last_manifest_on_validation_failure
     let args = ["mempool", "sync", checkout.to_str().unwrap()];
     cli_with_env(&checkout, &args, &[("PATH", "")]);
     let encoded = fs::read(checkout.join("manifest.json")).unwrap();
-    let document: ContentManifestDocument = serde_json::from_slice(&encoded).unwrap();
+    let document: Manifest = serde_json::from_slice(&encoded).unwrap();
     let entry = &document.entries[0];
     assert_eq!(entry.path, "writing/example.md");
     assert_eq!(

@@ -59,7 +59,11 @@ pub(super) fn file_metadata(
     let mut derived = super::media::derived_for_bytes(path, bytes)?;
     derived.title = Some(title(path));
     derived.size_bytes = Some(bytes.len() as u64);
-    derived.content_sha256 = Some(websh_core::attestation::artifact::sha256_hex(bytes));
+    derived.content_sha256 = Some(
+        websh_core::publication::ReleaseId::of(bytes)
+            .as_str()
+            .to_owned(),
+    );
     Ok(NodeMetadata {
         kind,
         bundle: None,

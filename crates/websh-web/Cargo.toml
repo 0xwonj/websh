@@ -38,6 +38,8 @@ web-sys = { workspace = true, features = [
     "Element",
     "HtmlCanvasElement",
     "HtmlElement",
+    "HtmlTemplateElement",
+    "DocumentFragment",
     "HtmlImageElement",
     "HtmlInputElement",
     "KeyboardEvent",
@@ -50,9 +52,13 @@ web-sys = { workspace = true, features = [
     "IdbTransaction",
     "Request",
     "RequestCache",
+    "RequestCredentials",
     "RequestInit",
     "RequestMode",
     "Response",
+    "ReadableStream",
+    "ReadableStreamDefaultReader",
+    "UrlSearchParams",
     "ScrollBehavior",
     "ScrollIntoViewOptions",
     "Storage",
@@ -71,7 +77,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
-toml = { workspace = true }
 thiserror = { workspace = true }
 stylance = { workspace = true }
 gloo-timers = { workspace = true }

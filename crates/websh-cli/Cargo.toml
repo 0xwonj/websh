@@ -18,10 +18,10 @@ websh-core = { workspace = true, features = ["eth-verify"] }
 websh-site = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+toml = { workspace = true }
 hex = { workspace = true }
 clap = { workspace = true }
 cid = { workspace = true }
-pgp = { workspace = true }
 getrandom = { workspace = true }
 serde_norway = { workspace = true }
 lopdf = { workspace = true }

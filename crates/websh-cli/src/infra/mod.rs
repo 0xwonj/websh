@@ -1,5 +1,8 @@
+pub(crate) mod bundle;
 pub(crate) mod dotenv;
+pub(crate) mod git;
 pub(crate) mod gpg;
+pub(crate) mod http;
 pub(crate) mod json;
 pub(crate) mod pgp;
 pub(crate) mod pinata;

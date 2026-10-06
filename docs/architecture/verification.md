@@ -4,15 +4,20 @@
 
 Run `just verify` for changes across layers. Its executable definition lives only in
 `justfile`; `just --show verify` shows the sequence. It checks prerequisites, formatting,
-dependencies, native and WASM code, tests, CSS, architecture, generated artifacts,
+dependencies, native and WASM code, tests, CSS, architecture,
 a release build, asset budgets, and browser flows. [Tooling](tooling.md) owns bootstrap
 and build isolation; checks never install tools or load deployment credentials.
 
-The read-only CLI check precedes the isolated build, so staged regeneration cannot hide
-stale committed artifacts. After changing authored input, run sync deliberately and
-include generated changes in the same commit. Signature and deployment policy belongs
-to the [CLI guide](cli.md#signing-and-checking). Tests use stubbed publication processes;
-they never upload or sign with the owner's key.
+The app gate has no dependency on today's content checkout. Content CI runs native
+`websh-cli --root <content-checkout> check --require-signatures`; it checks generated
+artifacts and public evidence without GPG signing, deployment credentials, or an app
+build. Run content `sync`/`sign` deliberately before publication. Signature and deployment
+policy belongs to the [CLI guide](cli.md#signing-and-checking).
+
+Tests use a deliberately public synthetic PGP identity under `tests/fixtures/pgp/`.
+GPG signs browser fixtures in an isolated fixture keyring; the real owner key is never
+used. CLI publication tests use local bare Git remotes, cover rejected pushes and retry,
+and do not upload to IPFS or contact production repositories.
 
 ## Test ownership
 
@@ -61,8 +66,8 @@ allowed units, color restrictions, and token families for stacking, font weights
 and durations. Primitive values belong in tokens/palettes, not component CSS.
 
 `just size` defaults to the verification distribution. It measures every runtime file
-outside `content/`, reports content and full-deployment sizes separately, and computes
-Brotli subtotals by asset type. Pass another built directory explicitly when needed.
+and computes Brotli subtotals by asset type. A bundled `content/` directory is an
+error; authored content is delivered independently. Pass another built directory explicitly when needed.
 Budgets change only for an explained product or packaging change.
 
 ## Dependency maintenance
@@ -75,8 +80,9 @@ Leptos macro dependencies require `rstml ^0.12`; the maintained path in `rstml 0
 does not satisfy that constraint.
 
 [deny.toml](../../deny.toml) records two exceptions: `RUSTSEC-2023-0071` for the RSA
-dependency used by local PGP verification/import, and `RUSTSEC-2024-0436` for upstream
-`paste`. PGP signing runs through GPG, not the Rust RSA dependency. Remove the RSA
+dependency retained by rPGP, and `RUSTSEC-2024-0436` for upstream
+`paste`. The accepted native/browser signature policy is Ed25519 only; owner signing runs
+through GPG, not the Rust RSA dependency. Remove the RSA
 exception when PGP adopts a fixed release, and the `paste` exception when every
 Leptos/alloy dependency path removes or replaces it. A passing gate does not mean
 the dependency graph has no advisories.

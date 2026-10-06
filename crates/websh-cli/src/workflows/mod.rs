@@ -4,4 +4,6 @@ pub(crate) mod check;
 pub(crate) mod content;
 pub(crate) mod deploy;
 pub(crate) mod mempool;
+pub(crate) mod publish;
+pub(crate) mod release;
 pub(crate) mod sync;

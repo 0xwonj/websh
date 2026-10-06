@@ -1,20 +1,24 @@
 # Native CLI
 
-`websh-cli` owns the archive's native content rules and publication checks. Editors and Git
-handle authoring and repository history; Trunk builds the app; GPG signs explicit requests;
-Pinata uploads the checked bundle.
+`websh-cli` prepares independent GitHub content snapshots and uploads prebuilt IPFS
+apps. Content generation, owner signing, Git publication, and app deployment have
+separate boundaries. The browser is read-only; wallet connection grants no write
+privilege.
 
 ## Commands
 
 ```text
 websh-cli [--root PROJECT]
   sync
+  sign
   check [--require-signatures]
+  publish
   attest sign [ROUTE]
   attest message ROUTE
   attest import pgp ROUTE --message FILE --signature FILE
   attest import ethereum ROUTE --message FILE --address ADDRESS --signature SIGNATURE
   mempool sync CHECKOUT
+  mempool publish CHECKOUT
   mempool import FILE [--to CATEGORY/SLUG.md]
   ack add NAME --visibility public|private
   ack remove NAME
@@ -24,120 +28,154 @@ websh-cli [--root PROJECT]
   deploy
 ```
 
-`--root` selects project-owned source and output paths. Explicit input/output file arguments and
-`CHECKOUT` resolve from the invocation directory. Commands do not infer interactive behavior or
-change their meaning between terminals and automation. Use `cargo run --locked -p websh-cli --
-<command>` from this workspace.
-
-## Ownership
+`--root` selects the content repository for root content commands and the app
+repository for `deploy`. Explicit input/output paths and `CHECKOUT` resolve from the
+invocation directory. Install with `cargo install --locked --path crates/websh-cli`
+from the app checkout; ordinary content edits then require no Rust or app build.
+Commands behave identically in a terminal and automation.
 
 ```text
-cli.rs / commands/   Clap parsing, argument mapping, result presentation
-project.rs          project root resolution
-workflows/          content, verification, signing, draft, ACK, and deploy use cases
-infra/              typed GPG/Pinata results, deployment environment, atomic file writes
+cli.rs / commands/   Argument mapping and result presentation
+project.rs          Explicit root resolution
+workflows/          Content, signing, draft, ACK, publication, deployment use cases
+infra/              Git, GPG, HTTP readback, Pinata, deployment env, atomic writes
 ```
 
 ## Source and generation
 
-Source lives under `content/`:
+`websh-content/content/` is the public content tree:
 
-- Markdown frontmatter for Markdown metadata.
-- `file.ext.meta.json` containing authored fields for a binary file.
-- `_index.dir.json` declaring a directory or bundle, its authored fields, and explicit grouping.
-- `content/.websh/mounts/*.mount.json` declaring read-only external mounts.
+- `.site/profile.toml` and `.site/now.toml` supply the typed homepage projection.
+- Markdown frontmatter supplies Markdown metadata.
+- `file.ext.meta.json` supplies authored binary metadata.
+- `_index.dir.json` declares a directory/bundle and optional publication grouping.
+- `.websh/mounts/*.mount.json` declares independent read-only GitHub sources with
+  explicit `trust: "unsigned"`.
 
-Authored inputs use `AuthoredMetadata`; computed facts use `DerivedMetadata` in generated
-records. See the [native contracts](current.md#native-contracts). Publication dates are explicit
-source values, independent of Git history.
-Text fields require YAML strings: quote numeric titles/tags and hexadecimal addresses
-(for example `title: "1984"`, `tags: [zk, "2024"]`, or `address: "0xabc"`).
+Authored metadata and derived facts have separate fields; see the
+[native contracts](current.md#native-contracts). Textual YAML fields must be strings:
+quote numeric titles/tags and hexadecimal addresses. Publication dates are explicit
+source values, independent of Git history. Nothing private belongs in `content/`.
 
-| Generated output | Contents |
+| Generated path in the content repository | Owner and contents |
 | --- | --- |
-| `content/manifest.json` | Filesystem listing and metadata |
-| `content/.websh/ledger.json` | Content ledger |
-| `assets/crypto/ack.commitment.json` | Public acknowledgement commitment |
-| `assets/crypto/attestations.json` | Current subjects and retained/imported signatures |
+| `content/manifest.json` | `sync`: file index, homepage, mount declarations, publication catalog |
+| `content/.websh/ack.commitment.json` | ACK generation: public acknowledgement commitment |
+| `content/.websh/attestations.json` | `sync` and explicit attest operations: portable article evidence |
+| `content/manifest.sig` | `sign`: owner PGP signature over exact manifest bytes |
+| `current.json` | `publish`: full immutable content commit, outside the manifest |
 
-Source `kind` resolves once into `NodeMetadata.kind`; generated authored metadata has no
-second kind field. A plain directory becomes one ledger/attestation unit only with
-`"group": true` in its declaration. Bundles group implicitly. Titles, dates, and other
-cosmetic metadata do not change publication boundaries.
+Edit authored inputs and run `sync`; do not hand-edit generated outputs. A pure
+`ContentSnapshot` interprets one source tree. Manifest file hashes include authored
+metadata sidecars and generated public proofs. The manifest and its detached
+signature exclude themselves. A plain directory groups into one publication only
+with `"group": true`; bundles group implicitly. `.site/` and `.websh/` are operational
+content, not durable publications. `/ledger` derives its catalog from the root
+manifest rather than a separately generated chain.
 
-Edit the source inputs, then run `sync`; do not hand-edit these outputs.
-
-`ContentSnapshot` reads and validates one source tree without writes. The resulting manifest,
-ledger, and publication units share the same interpretation of content. `sync` computes the
-complete artifact set before replacing changed outputs. Unchanged outputs retain their bytes and
-modification times. Atomic replacement protects each individual output; an interrupted
-multi-file publication is repaired by rerunning sync. `check` detects missing, stale, malformed,
-or invalid artifacts without repairing them.
-
-Generation never signs or depends on GPG, repository history, network access, or release
-environment variables. [Tooling](tooling.md#builds-and-outputs) describes Trunk integration.
+Generation never invokes GPG, Git, an app build, or network access, and never reads
+`.env`. It preserves existing issuance metadata and matching portable proofs; only
+explicit signing allocates a new sequence/time. Initial generation uses zero for
+unissued sequence/time. Unchanged outputs retain their bytes and modification times.
+Individual replacements are atomic; rerunning sync repairs an interrupted generated
+set. Damaged or missing retained proof files require explicit restoration from Git.
 
 ## Signing and checking
 
-`sync` retains valid attestations whose subject content still matches. Changed or new subjects
-remain pending. Issuance belongs to the explicit signing request, so unrelated builds and date
-changes do not create new messages.
+`sign` prepares the current content, issues the next sequence, signs exact manifest
+bytes through local GPG, verifies the signature with the app's pinned policy, and
+writes the public artifacts. It reuses an unchanged valid signature. Source changes
+while GPG runs abort before generated output replacement. Private keys never enter
+the content repository or CI.
 
-`attest sign` signs current subjects with the configured site PGP identity. A route limits the
-operation to one subject. `check` verifies any existing signatures and reports pending subjects;
-`check --require-signatures` requires the deployed site's PGP signature on every current
-subject. An arbitrary PGP key or Ethereum signature cannot satisfy that release policy.
+`check` verifies generated projections and any existing root signature and portable
+evidence without writes. `check --require-signatures` additionally requires the root
+manifest signature; portable article signatures remain optional. Root publication
+uses the same verifier as WASM, including site identity, authorized signer, algorithms,
+key binding, expiry/revocation, and manifest/body integrity rules. A stored Boolean
+never grants verification status.
 
-For an external signer, export the actual plaintext message:
+`attest sign [ROUTE]` creates optional portable evidence for article/bundle/grouped
+subjects. It is distinct from the required snapshot signature. Export/import preserve
+exact subject bytes and reject stale requests:
 
 ```bash
-cargo run --locked -p websh-cli -- attest message /ledger > request.txt
-# Sign the exact bytes of request.txt with the configured site's PGP key.
-cargo run --locked -p websh-cli -- attest import pgp /ledger \
+websh-cli --root ../websh-content attest message /writing/example > request.txt
+websh-cli --root ../websh-content attest import pgp /writing/example \
   --message request.txt --signature signature.asc
 ```
 
-Ethereum import uses the same message file with `--address` and `--signature`. It verifies a
-personal-message signature and stores supplemental evidence; it sends no blockchain transaction.
-Import checks the message's subject, issuance, and current content before accepting the
-signature. A stale request fails rather than being silently reconstructed around today's
-content.
+Ethereum import verifies a personal-message signature; it performs no blockchain
+transaction and cannot replace the owner's root PGP signature. Changing portable
+proofs changes the containing root snapshot, which must be signed before publication.
 
-ACK commands manage local source and public commitments. Private names and nonces remain under
-`.websh/local/crypto/`; public commitments are generated assets. Receipts are exported only to
-an explicit destination and bind one commitment. No receipt cache is maintained. Export and
-verification use the current published commitment.
+ACK commands keep private names and nonces in `.websh/local/crypto/`. Public commitments
+live under `content/.websh/`. Receipts export only to an explicit path and bind the
+current public commitment; no receipt cache is maintained.
+
+## Content publication
+
+```bash
+websh-cli --root ../websh-content publish
+```
+
+This is the normal owner operation: generate/check/sign, commit, and push. It needs
+normal Git authentication and the owner's local GPG key. It does not invoke Trunk,
+IPFS, Pinata, ENS, or a wallet and does not load deployment credentials.
+
+The repository must have an initial commit, an `origin` remote, and a local branch.
+The publisher fetches origin, requires a fast-forward relationship, rejects staged
+changes and unexpected modified/untracked paths, and locks concurrent publication.
+Maintain repository files such as README/CI separately with ordinary Git. Ignore
+`.websh/local/` and `.env`; private files are never publisher inputs.
+
+The publisher freezes allowlisted public bytes in a separate Git index. It creates
+content commit `C`, verifies its files, then creates a second commit whose repository
+root `current.json` points to `C`. Both commits reach origin through one ordinary push.
+The pointer commit avoids self-reference. Remote root evidence establishes the minimum
+accepted publication sequence, so reverting local data cannot silently roll readers
+back. A source or branch race aborts rather than force-pushing.
+
+A failed push leaves the prepared commits available for retry. Running the same command
+again reuses an unchanged signed snapshot and pending commits. After a successful push,
+Git state and bounded public raw-file reads are checked separately. Delayed or failed
+raw readback reports **push succeeded, visibility pending**; it does not issue a new
+signature or claim global CDN propagation. No upload journal or second content host is
+involved.
 
 ## Drafts and mounts
 
-Author drafts in an ordinary external Git checkout. `mempool sync CHECKOUT` validates category
-Markdown files and generates the current `manifest.json`; commit and push with Git. Draft
-frontmatter accepts `title`, `category`, `status`, `priority`, `modified`, and `tags`. Status
-defaults to `draft`; other supplied values are validated. The category directory determines the
-published category. Unknown fields fail.
+`websh-mempool` remains independent. Categories and Markdown files live at its repository
+root. `mempool sync CHECKOUT` generates its unsigned native `manifest.json` without
+network or signing. `mempool publish CHECKOUT` adds the immutable snapshot and
+repository-root pointer commits and pushes once through the same Git workflow.
+Publication does not change root content or the app CID. It keeps explicitly unsigned
+origin status in browser rendering and caches.
 
-`mempool import FILE` copies a local draft into `content/<category>/<slug>.md`, or the explicit
-`--to` path. It validates a projected content snapshot before writing, rejects existing
-destinations, preserves the body, removes draft-only metadata, and maps `modified` to the
-canonical `date`. It changes only the new source file; run sync afterward. It never signs,
-commits, deletes the draft, or touches a remote.
+Draft frontmatter accepts `title`, `category`, `status`, `priority`, `modified`, and
+`tags`. Status defaults to `draft`; supplied values are validated. The category
+directory determines the category; unknown fields, nested files, symlinks, and
+unsupported category contents fail.
 
-Mount declarations deserialize into the shared validated `GitHubMount` contract. Connecting an
-external repository does not initialize or modify it.
+`mempool import FILE` copies one draft into `content/<category>/<slug>.md` or `--to`.
+It validates a proposed snapshot before writing, preserves the body, removes draft-only
+metadata, and maps `modified` to `date`. It never overwrites, deletes the draft, signs,
+or contacts a remote. Run root `publish` after reviewing the imported source.
 
-## Publishing
+Adding a supported source means adding a validated mount declaration and publishing
+root content. It does not rebuild the app or initialize the external repository.
 
-`just publish` is the thin ordered recipe: sync, explicitly sign, release build, deploy. For
-offline signing, import signatures first, then use `just build` and the `deploy` command. The
-build hook preserves matching signatures.
+## App publication
 
-`deploy` accepts only the fixed prebuilt `dist/` directory. It checks current project artifacts,
-site signatures, and matching bundled files before any upload. It never builds, signs, or
-repairs a bundle. The consistency check does not prove compiled JavaScript/WASM provenance; the
-release build remains a separate trusted step.
+`just publish` builds the app and runs `deploy`. `deploy` accepts the prebuilt `dist/`,
+checks its HTML/JS/WASM and symlink boundaries, rejects bundled content, and uploads it
+to public IPFS. It never reads a content checkout, builds, or signs. A build is a trusted
+step; local file checks do not prove compiled provenance.
 
-Deployment alone reads `.env`, applying its values only to the Pinata child process. The adapter
-selects the public network, parses the structured response, and validates the returned CID.
-`.websh/local/deploy/cid` records the successful upload. A receipt-write failure reports the
-remote success and CID rather than suggesting that publication failed. ENS contenthash updates
-remain an explicit owner operation.
+Only the deployment adapter reads `.env`, applying values solely to the Pinata child
+process. A successful upload records `.websh/local/deploy/release.json`: CID, source
+commit/dirty state, file digests, prior receipt CID, and whether the local bundle remained
+unchanged during upload. Receipt-write failure reports the successful CID separately;
+it does not turn an upload into a failed publication. Local digests are not proof of
+remote retrieval. Verify the gateway and browser before changing an optional app entry.
+ENS is not a release step.

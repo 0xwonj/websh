@@ -16,8 +16,7 @@ pub(crate) fn sign(root: &Path, route: Option<&str>) -> CliResult<usize> {
     {
         bail!("unknown attestation route {route}");
     }
-    let key = pgp::read_key(&root.join(PUBLIC_KEY_PATH))?;
-    let signer = key.user_ids.first().cloned();
+    let signer = Some(websh_site::APP_NAME.to_owned());
     let date = today_utc();
     let mut signed = 0;
     for subject in &mut prepared.artifact.subjects {
@@ -38,7 +37,7 @@ pub(crate) fn sign(root: &Path, route: Option<&str>) -> CliResult<usize> {
         let message = subject.canonical_message()?;
         let signature = gpg::sign(&message, EXPECTED_PGP_FINGERPRINT)
             .with_context(|| format!("sign {}", subject.route()))?;
-        let fingerprint = pgp::verify_signature(&root.join(PUBLIC_KEY_PATH), &signature, &message)?;
+        let fingerprint = pgp::verify_signature(&signature, &message)?;
         if fingerprint != EXPECTED_PGP_FINGERPRINT {
             bail!("GPG signer does not match the site identity");
         }
@@ -49,7 +48,6 @@ pub(crate) fn sign(root: &Path, route: Option<&str>) -> CliResult<usize> {
             signature,
             signature_path: None,
             message_sha256: message_sha256(&message),
-            verified: true,
         });
         signed += 1;
     }

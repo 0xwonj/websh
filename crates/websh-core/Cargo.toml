@@ -16,8 +16,10 @@ alloy-primitives = { workspace = true, optional = true }
 unicode-normalization = { workspace = true }
 regex = { workspace = true }
 thiserror = { workspace = true }
+pgp = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+pgp = { workspace = true, features = ["wasm"] }
 getrandom02 = { workspace = true, optional = true }
 
 [features]
@@ -26,3 +28,6 @@ eth-verify = ["dep:alloy-primitives", "dep:getrandom02"]
 
 [package.metadata.cargo-machete]
 ignored = ["getrandom02"]
+
+[dev-dependencies]
+rand08 = { workspace = true }

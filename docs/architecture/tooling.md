@@ -12,7 +12,8 @@ are reused; other native binaries go under `target/tools/bin`. Install Rust thro
 rustup and provide the pinned Node, npm, and Binaryen prerequisites first. Compiler
 pins live in `rust-toolchain.toml`, `.node-version`, and `package.json`; native tool pins
 live in `scripts/tools.json`. Setup installs; verification checks without installing.
-GPG is needed only for local signing, Pinata only for deployment.
+GPG is needed for owner signing and synthetic browser-fixture signing; Pinata is needed
+only for app deployment. Verification never uses an owner secret key.
 
 | Location | Responsibility |
 | --- | --- |
@@ -26,30 +27,20 @@ forwards to `AGENTS.md` so agent instructions have one source.
 
 ## Builds and outputs
 
-Trunk runs independent Stylance and `websh-cli sync` pre-build hooks. Same-stage hooks
-may run concurrently: Stylance owns `assets/bundle.css`, and sync owns the
-[content artifacts](cli.md#source-and-generation). Every build profile uses these hooks;
-signing belongs to the explicit [publishing workflow](cli.md#publishing).
+Trunk runs one Stylance pre-build hook, which owns `assets/bundle.css`. App builds
+never generate, sign, watch, or copy authored content. Content workflows operate on
+an independent checkout through the [CLI](cli.md#content-publication).
 
-Trunk copies `content/`, public crypto artifacts under `assets/crypto/`, and original
-theme sources under `assets/themes/` unchanged. The originals intentionally ship for
-public verification against the attestation's recorded asset hashes; the application
-loads Trunk's separately transformed CSS. These copies do not prove compiled
-JavaScript/WASM provenance; the release build remains a trusted step.
+Trunk copies the pinned app trust certificate, fonts, theme assets, and vendored
+renderer resources. It transforms CSS separately. These outputs are app assets, not
+signed content evidence. Watch inputs include crates, Cargo/toolchain and Trunk
+configuration, HTML, headers, assets, and vendored dependencies. Generated CSS is
+excluded to prevent its own writes from causing rebuild loops.
 
-Watch inputs include crates, Cargo/toolchain configuration, Trunk configuration, HTML,
-headers, assets, content, and vendored dependencies. Generated CSS, manifest, and ledger
-outputs are excluded from watches to avoid rebuilding on their own writes.
-
-`just serve` runs Stylance once before starting Trunk so the ignored CSS bundle exists
-even after `just clean`. Trunk validates ignored paths before running its build hooks;
-the generated manifest and ledger already exist in a checkout and cleanup preserves them.
-The recipe passes `--enable-cooldown` to suppress watch events during builds and the short
-cooldown afterward. Trunk 0.21.14 accepts this setting only as a CLI flag, not a TOML key.
-ACK commitments and retained attestations remain watched so explicit author commands
-refresh the served site. For direct Trunk use, run
-`stylance --output-file assets/bundle.css crates/websh-web` first, then
-`trunk serve --locked --dist dist-dev --enable-cooldown` (unset `NO_COLOR` if it is `1`).
+`just serve` runs Stylance before Trunk so the ignored CSS bundle exists after cleanup.
+It passes `--enable-cooldown`, supported as a CLI flag by pinned Trunk 0.21.14. Direct
+Trunk use should first run `stylance --output-file assets/bundle.css crates/websh-web`,
+then `trunk serve --locked --dist dist-dev --enable-cooldown` (unset `NO_COLOR` if `1`).
 
 | Path | Owner |
 | --- | --- |
@@ -63,11 +54,12 @@ refresh the served site. For direct Trunk use, run
 | `target/tools/` | Installed developer tools |
 | `test-results/`, `playwright-report/` | Browser failure diagnostics |
 
-`just build-check` stages source and generated assets, clears subjects only in the staged
-attestation artifact, and builds an unsigned release there. The original content,
-signatures, and lockfiles stay untouched. Its separate compiler cache prevents a staged
-checkout from overwriting the working checkout's compiled outputs. No task swaps the
-real `content/` directory or depends on the original Git directory.
+`just build-check` stages app source and public app assets without content or deployment
+`.env`. Only the staged certificate/fingerprint is replaced with the explicit public
+fixture identity from `tests/fixtures/pgp/`; production trust is untouched and no runtime
+verification bypass exists. Browser fixtures sign native manifests with the deliberately
+public test key in `target/verify/gnupg`. No owner secret is required. The separate compiler
+cache prevents the staged checkout from overwriting working-checkout outputs.
 
 ## Cleanup and maintenance
 
@@ -82,7 +74,7 @@ Dependency patches retain their provenance, licenses, and a removal condition;
 see [dependency maintenance](verification.md#dependency-maintenance).
 
 The app ships WOFF2 fonts and retains vendored asset licenses. Runtime budgets count all
-shipped file types; content size is reported separately. Asset changes should preserve
+shipped app file types and reject a bundled `content/` directory. Asset changes should preserve
 math rendering and IPFS subpath navigation. Theme values belong in CSS palettes and
 semantic tokens; component modules consume those tokens.
 

@@ -45,28 +45,39 @@ pub fn write_site_fixture(root: &Path) {
     use std::fs;
     use websh_core::attestation::artifact::AttestationArtifact;
     use websh_core::crypto::ack::{AckPrivateSource, build_artifact_from_source};
-    for path in [
-        "content/.site/keys",
-        "assets/crypto",
-        "assets/themes",
-        "crates/websh-web/src/features/home",
-    ] {
-        fs::create_dir_all(root.join(path)).unwrap();
-    }
+    fs::create_dir_all(root.join("content/.site")).unwrap();
+    fs::create_dir_all(root.join("content/.websh")).unwrap();
+    fs::create_dir_all(root.join("content/writing")).unwrap();
     fs::write(
-        root.join(websh_site::PUBLIC_KEY_PATH),
-        websh_site::PUBLIC_KEY_BLOCK,
+        root.join("content/writing/note.md"),
+        "---\ntitle: Note\n---\nBody\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("content/.site/profile.toml"),
+        r#"
+title = "Fixture"
+tagline = "Research"
+name = "Fixture Author"
+affiliation = "Independent"
+email = "fixture@example.test"
+abstract_text = "An archive"
+introduction = "Introduction"
+public_identity = "Public"
+private_identity = "Private"
+status = "Research"
+research = ["PL"]
+tools = ["Rust"]
+habits = ["Reading"]
+categories = ["writing"]
+keywords = ["test"]
+links = []
+"#,
     )
     .unwrap();
     fs::write(
         root.join("content/.site/now.toml"),
-        "[[items]]\ntext = \"fixture\"\n",
-    )
-    .unwrap();
-    fs::write(root.join("assets/themes/fixture.json"), "{}\n").unwrap();
-    fs::write(
-        root.join("crates/websh-web/src/features/home/mod.rs"),
-        "// homepage fixture\n",
+        "[[items]]\ndate = \"2026-10-06\"\ntext = \"fixture\"\n",
     )
     .unwrap();
     let ack = build_artifact_from_source(&AckPrivateSource::default()).unwrap();

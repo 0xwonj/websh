@@ -1,4 +1,4 @@
-//! Attestation artifact, ledger, and subject helpers.
+//! Portable publication attestations and subject helpers.
 //!
 //! Verification-only surface (browser-runnable). Signing logic lives in
 //! `websh-cli`'s engine layer. External consumers reach items via the
@@ -6,5 +6,4 @@
 //! re-exports here.
 
 pub mod artifact;
-pub mod ledger;
 pub mod subject;

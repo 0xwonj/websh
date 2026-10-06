@@ -18,6 +18,7 @@ pub struct GitHubMount {
     root: String,
     gateway: String,
     name: Option<String>,
+    trust: MountTrust,
 }
 
 #[derive(Debug, Error)]
@@ -30,10 +31,20 @@ pub enum MountConfigError {
     InvalidBranch(String),
     #[error("invalid repository root: {0}")]
     InvalidRoot(#[source] VirtualPathParseError),
-    #[error("unsupported gateway: {0}; expected self or https://raw.githubusercontent.com")]
+    #[error("unsupported gateway: {0}; expected https://raw.githubusercontent.com")]
     UnsupportedGateway(String),
     #[error("mount name must not be blank or contain control characters")]
     InvalidName,
+    #[error("external mounts must explicitly allow unsigned content")]
+    InvalidTrust,
+}
+
+/// A signed root authenticates its own snapshot, never an independently changing mount.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MountTrust {
+    Owner,
+    Unsigned,
 }
 
 /// Public declarations cannot replace the site or occupy its system namespace.
@@ -54,6 +65,7 @@ enum Backend {
 #[serde(deny_unknown_fields)]
 struct MountInput {
     backend: Backend,
+    trust: MountTrust,
     mount_at: VirtualPath,
     repo: String,
     #[serde(default = "default_branch")]
@@ -79,6 +91,7 @@ impl GitHubMount {
     pub fn bootstrap(source: &BootstrapSiteSource) -> Result<Self, MountConfigError> {
         Self::from_input(MountInput {
             backend: Backend::GitHub,
+            trust: MountTrust::Owner,
             mount_at: source.mount_root(),
             repo: source.repo_with_owner.to_string(),
             branch: source.branch.to_string(),
@@ -118,7 +131,6 @@ impl GitHubMount {
         VirtualPath::from_absolute(format!("/{}", input.root))
             .map_err(MountConfigError::InvalidRoot)?;
         let gateway = match input.gateway.as_str() {
-            "self" => "self",
             RAW_GITHUB_GATEWAY => RAW_GITHUB_GATEWAY,
             _ => return Err(MountConfigError::UnsupportedGateway(input.gateway)),
         };
@@ -129,7 +141,12 @@ impl GitHubMount {
             root: input.root,
             gateway: gateway.to_string(),
             name: input.name,
+            trust: input.trust,
         })
+    }
+
+    pub fn trust(&self) -> MountTrust {
+        self.trust
     }
 
     pub fn mount_at(&self) -> &VirtualPath {
@@ -167,6 +184,9 @@ impl TryFrom<MountInput> for GitHubMount {
 
     fn try_from(input: MountInput) -> Result<Self, Self::Error> {
         validate_mount_root(&input.mount_at)?;
+        if input.trust != MountTrust::Unsigned {
+            return Err(MountConfigError::InvalidTrust);
+        }
         Self::from_input(input)
     }
 }
@@ -175,6 +195,7 @@ impl From<GitHubMount> for MountInput {
     fn from(mount: GitHubMount) -> Self {
         Self {
             backend: Backend::GitHub,
+            trust: mount.trust,
             mount_at: mount.mount_at,
             repo: mount.repo,
             branch: mount.branch,
@@ -193,7 +214,7 @@ mod tests {
     #[test]
     fn declarations_resolve_defaults_and_preserve_canonical_sources() {
         let mount: GitHubMount = serde_json::from_value(json!({
-            "backend": "github", "mount_at": "/db", "repo": "owner/repo"
+            "backend": "github", "trust": "unsigned", "mount_at": "/db", "repo": "owner/repo"
         }))
         .unwrap();
         assert_eq!(mount.runtime_mount().label, "db");
@@ -205,20 +226,21 @@ mod tests {
             mount
         );
         let local: GitHubMount = serde_json::from_value(json!({
-            "backend": "github", "mount_at": "/db", "repo": "owner/repo",
-            "branch": "feature/topic", "root": "~/notes", "gateway": "self", "name": "Notes"
+            "backend": "github", "trust": "unsigned", "mount_at": "/db", "repo": "owner/repo",
+            "branch": "feature/topic", "root": "~/notes", "gateway": "https://raw.githubusercontent.com", "name": "Notes"
         }))
         .unwrap();
         assert_eq!(local.runtime_mount().label, "Notes");
         assert_eq!(local.root(), "~/notes");
-        assert_eq!(local.gateway(), "self");
+        assert_eq!(local.gateway(), RAW_GITHUB_GATEWAY);
     }
 
     #[test]
     fn declarations_reject_invalid_or_ambiguous_configuration() {
-        let valid = json!({"backend": "github", "mount_at": "/db", "repo": "owner/repo"});
+        let valid = json!({"backend": "github", "trust": "unsigned", "mount_at": "/db", "repo": "owner/repo"});
         for (field, values) in [
             ("backend", vec!["other"]),
+            ("trust", vec!["owner", "other"]),
             (
                 "mount_at",
                 vec!["/", "/.websh", "/.websh/state", "/db/sub", "/db/../other"],
@@ -270,7 +292,7 @@ mod tests {
             repo_with_owner: "owner/site",
             branch: "main",
             content_root: "content",
-            gateway: "self",
+            gateway: RAW_GITHUB_GATEWAY,
         };
         assert!(
             GitHubMount::bootstrap(&source)

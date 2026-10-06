@@ -3,27 +3,23 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, bail};
-use websh_core::attestation::artifact::{ContentFile, sha256_hex, subject_id_for_route};
-use websh_core::attestation::ledger::{
-    CONTENT_LEDGER_CONTENT_PATH, ContentLedger, ContentLedgerCategory, ContentLedgerEntry,
-    ContentLedgerInput, ContentLedgerSortKey,
-};
+use websh_core::attestation::artifact::{ContentFile, sha256_hex};
 use websh_core::domain::{
-    ContentManifestDocument, ContentManifestEntry, GitHubMount, NodeKind, NodeMetadata,
-    VirtualPath, validate_bundle_metadata_with_targets,
+    ContentManifestEntry, GitHubMount, NodeKind, NodeMetadata, VirtualPath,
+    validate_bundle_metadata_with_targets,
 };
 use websh_core::ports::{ManifestSnapshotError, parse_manifest_snapshot};
-use websh_core::support::format::iso_date_prefix;
+use websh_core::publication::Manifest;
 
 use super::metadata::{DirectoryDeclaration, SourceMetadata, directory_metadata, file_metadata};
 use super::{DEFAULT_CONTENT_DIR, route_for_content_path};
 use crate::CliResult;
-use crate::infra::json::json_bytes;
 
-/// A logical publication unit shared by ledger and attestation generation.
+/// A portable publication unit derived from authored grouping.
 #[derive(Debug)]
 pub(crate) struct ContentUnit {
     pub(crate) route: String,
+    pub(crate) path: String,
     pub(crate) kind: NodeKind,
     pub(crate) files: Vec<ContentFile>,
 }
@@ -32,8 +28,8 @@ pub(crate) struct ContentUnit {
 /// authored tree. Loading never writes source or generated files.
 #[derive(Debug)]
 pub(crate) struct ContentSnapshot {
-    pub(crate) manifest: ContentManifestDocument,
-    pub(crate) ledger: ContentLedger,
+    pub(crate) manifest: Manifest,
+    pub(crate) files: BTreeMap<String, Vec<u8>>,
     pub(crate) units: Vec<ContentUnit>,
 }
 
@@ -104,9 +100,6 @@ impl ContentSnapshot {
             );
         }
         for (path, bytes) in &sources {
-            if is_metadata(path) {
-                continue;
-            }
             let authored = if path.ends_with(".md") {
                 let body = std::str::from_utf8(bytes)
                     .with_context(|| format!("Markdown {path} must be UTF-8"))?;
@@ -126,24 +119,10 @@ impl ContentSnapshot {
             nodes.insert(path.clone(), file_metadata(path, bytes, authored)?);
         }
         validate_bundles(&nodes)?;
-        let (ledger, units) = build_units(&sources, &nodes, &groups)?;
-
-        // The ledger is a generated runtime file. Project its new bytes instead
-        // of consulting yesterday's on-disk ledger.
-        let ledger_bytes = json_bytes(&ledger)?;
-        nodes.insert(
-            CONTENT_LEDGER_CONTENT_PATH.to_string(),
-            file_metadata(
-                CONTENT_LEDGER_CONTENT_PATH,
-                &ledger_bytes,
-                SourceMetadata::default(),
-            )?,
-        );
-        nodes
-            .entry(".websh".to_string())
-            .or_insert_with(|| directory_metadata(".websh", None));
+        let units = build_units(&sources, &nodes, &groups)?;
         update_child_counts(&mut nodes);
-        let manifest = ContentManifestDocument {
+        let manifest = Manifest {
+            release: None,
             entries: nodes
                 .into_iter()
                 .map(|(path, metadata)| ContentManifestEntry {
@@ -156,7 +135,7 @@ impl ContentSnapshot {
         parse_manifest_snapshot(&serde_json::to_string(&manifest)?)?;
         Ok(Self {
             manifest,
-            ledger,
+            files: sources,
             units,
         })
     }
@@ -188,7 +167,10 @@ fn read_tree(
             .file_name()
             .into_string()
             .map_err(|_| anyhow::anyhow!("content filename must be UTF-8"))?;
-        if matches!(name.as_str(), ".git" | ".DS_Store" | ".gitkeep") {
+        if name == ".git" || name == ".env" || name.starts_with(".env.") {
+            bail!("private or repository control file is not public content: {name}");
+        }
+        if matches!(name.as_str(), ".DS_Store" | ".gitkeep") {
             continue;
         }
         let path = join(relative, &name);
@@ -203,7 +185,13 @@ fn read_tree(
         if kind.is_dir() {
             read_tree(root, &path, sources, directories)?;
         } else if kind.is_file() {
-            if path == "manifest.json" || path == CONTENT_LEDGER_CONTENT_PATH {
+            if matches!(
+                path.as_str(),
+                "manifest.json"
+                    | "manifest.sig"
+                    | ".websh/attestations.json"
+                    | ".websh/ack.commitment.json"
+            ) {
                 continue;
             }
             sources.insert(
@@ -256,7 +244,7 @@ fn build_units(
     sources: &BTreeMap<String, Vec<u8>>,
     nodes: &BTreeMap<String, NodeMetadata>,
     groups: &BTreeSet<String>,
-) -> CliResult<(ContentLedger, Vec<ContentUnit>)> {
+) -> CliResult<Vec<ContentUnit>> {
     let bundles: Vec<&str> = nodes
         .iter()
         .filter_map(|(path, metadata)| {
@@ -290,10 +278,9 @@ fn build_units(
             )
         })
         .collect();
-    let mut inputs = Vec::new();
     let mut units = Vec::new();
     for (path, metadata) in nodes {
-        if path.is_empty() || is_system(path) {
+        if path.is_empty() || is_system(path) || is_metadata(path) {
             continue;
         }
         let files: Vec<ContentFile> = if bundles.contains(&path.as_str()) {
@@ -327,34 +314,15 @@ fn build_units(
             files
         };
         let route = route_for_content_path(path);
-        let date = metadata
-            .date()
-            .map(|date| {
-                iso_date_prefix(date)
-                    .map(str::to_owned)
-                    .with_context(|| format!("invalid publication date for {path}: {date}"))
-            })
-            .transpose()?;
-        inputs.push(ContentLedgerInput::new(
-            ContentLedgerSortKey::new(date, path.clone()),
-            ContentLedgerEntry::new(
-                subject_id_for_route(&route),
-                route.clone(),
-                path.clone(),
-                ContentLedgerCategory::for_path(path),
-                files.clone(),
-            )?,
-        ));
         units.push(ContentUnit {
             route,
+            path: path.clone(),
             kind: metadata.kind,
             files,
         });
     }
-    let ledger = ContentLedger::new(inputs)?;
-    ledger.validate()?;
     units.sort_by(|a, b| a.route.cmp(&b.route));
-    Ok((ledger, units))
+    Ok(units)
 }
 
 fn update_child_counts(nodes: &mut BTreeMap<String, NodeMetadata>) {
@@ -393,7 +361,7 @@ fn is_metadata(path: &str) -> bool {
 }
 
 fn is_system(path: &str) -> bool {
-    path == ".websh" || path.starts_with(".websh/")
+    path == ".websh" || path.starts_with(".websh/") || path == ".site" || path.starts_with(".site/")
 }
 fn inside(path: &str, parent: &str) -> bool {
     path == parent
@@ -406,180 +374,5 @@ fn join(parent: &str, name: &str) -> String {
         name.to_string()
     } else {
         format!("{parent}/{name}")
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::test_support::temp_dir;
-
-    fn write(root: &Path, path: &str, body: &str) {
-        let path = root.join("content").join(path);
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(path, body).unwrap();
-    }
-
-    fn metadata<'a>(snapshot: &'a ContentSnapshot, path: &str) -> &'a NodeMetadata {
-        &snapshot
-            .manifest
-            .entries
-            .iter()
-            .find(|entry| entry.path == path)
-            .unwrap()
-            .metadata
-    }
-
-    #[test]
-    fn current_authored_inputs_define_metadata_without_generated_sidecars() {
-        let root = temp_dir("content-snapshot");
-        write(
-            &root,
-            "note.md",
-            "---\ntitle: Old title\ntags: [old]\n---\nbody\n",
-        );
-        write(&root, "note.txt", "plain");
-        write(
-            &root,
-            "note.txt.meta.json",
-            r#"{"title":"Text","access":{"recipients":[{"address":"0xabc"}]}}"#,
-        );
-        let first = ContentSnapshot::load(&root).unwrap();
-        assert_eq!(metadata(&first, "note.md").kind, NodeKind::Page);
-        assert_eq!(metadata(&first, "note.txt").title(), Some("Text"));
-        assert_eq!(metadata(&first, "note.txt").size_bytes(), Some(5));
-        assert!(metadata(&first, "note.txt").access().is_some());
-        assert!(!root.join("content/note.meta.json").exists());
-        assert!(!root.join("content/manifest.json").exists());
-        assert!(!root.join("content/.websh/ledger.json").exists());
-
-        write(&root, "note.md", "body\n");
-        let second = ContentSnapshot::load(&root).unwrap();
-        assert_eq!(metadata(&second, "note.md").title(), Some("note"));
-        assert_eq!(metadata(&second, "note.md").tags(), None);
-        fs::create_dir(root.join("content/removed-directory")).unwrap();
-        write(&root, "manifest.json", "stale generated output");
-        write(&root, ".websh/ledger.json", "stale generated output");
-        let rebuilt = ContentSnapshot::load(&root).unwrap();
-        assert_eq!(
-            json_bytes(&second.manifest).unwrap(),
-            json_bytes(&rebuilt.manifest).unwrap()
-        );
-        assert_eq!(
-            json_bytes(&second.ledger).unwrap(),
-            json_bytes(&rebuilt.ledger).unwrap()
-        );
-        assert_eq!(
-            metadata(&second, ".websh/ledger.json").content_sha256(),
-            Some(sha256_hex(&json_bytes(&second.ledger).unwrap()).as_str())
-        );
-    }
-
-    #[test]
-    fn bundle_and_directory_units_share_the_ledger_source_inventory() {
-        let root = temp_dir("content-unit-snapshot");
-        write(
-            &root,
-            "writing/essay/_index.dir.json",
-            r#"{"kind":"bundle","bundle":{"default_variant":{"strategy":"static","id":"en"},"variants":[{"id":"en","path":"en.md","label":"English"}]},"authored":{"title":"Essay","date":"2026-05-15"}}"#,
-        );
-        write(&root, "writing/essay/en.md", "english");
-        write(&root, "writing/essay/cover.svg", "<svg></svg>");
-        write(
-            &root,
-            ".site/_index.dir.json",
-            r#"{"kind":"directory","group":true,"authored":{"title":"Site"}}"#,
-        );
-        write(&root, ".site/now.toml", "[[items]]\n");
-        write(&root, ".websh/system.json", "{}");
-        // Only the root namespace is reserved; nested .websh is ordinary content.
-        write(
-            &root,
-            "writing/.websh/_index.dir.json",
-            r#"{"kind":"directory","group":true,"authored":{"title":"Nested content"}}"#,
-        );
-        write(&root, "writing/.websh/notes.md", "ordinary content");
-        // Cosmetic directory metadata alone never changes publication boundaries.
-        write(
-            &root,
-            "writing/_index.dir.json",
-            r#"{"kind":"directory","authored":{"title":"Writing"}}"#,
-        );
-        let snapshot = ContentSnapshot::load(&root).unwrap();
-        assert_eq!(snapshot.units.len(), 3);
-        assert!(!snapshot.units.iter().any(|unit| unit.route == "/writing"));
-        assert!(snapshot.units.iter().any(|unit| unit.route == "/.site"));
-        let nested = snapshot
-            .units
-            .iter()
-            .find(|unit| unit.route == "/writing/.websh")
-            .unwrap();
-        assert_eq!(
-            nested
-                .files
-                .iter()
-                .map(|file| file.path.as_str())
-                .collect::<Vec<_>>(),
-            [
-                "content/writing/.websh/_index.dir.json",
-                "content/writing/.websh/notes.md"
-            ]
-        );
-        let bundle = snapshot
-            .units
-            .iter()
-            .find(|unit| unit.kind == NodeKind::Bundle)
-            .unwrap();
-        assert_eq!(bundle.route, "/writing/essay");
-        assert_eq!(bundle.files.len(), 3);
-        for unit in &snapshot.units {
-            let entry = &snapshot
-                .ledger
-                .blocks
-                .iter()
-                .find(|block| block.entry.route == unit.route)
-                .unwrap()
-                .entry;
-            assert_eq!(entry.content_files, unit.files);
-        }
-        assert!(
-            ContentSnapshot::load_with_file(&root, "writing/essay.md", b"conflicting route")
-                .is_err()
-        );
-        assert!(!root.join("content/writing/essay.md").exists());
-        assert!(!root.join("content/manifest.json").exists());
-    }
-
-    #[test]
-    fn invalid_authored_input_and_duplicate_mounts_do_not_write_artifacts() {
-        let root = temp_dir("content-validation");
-        write(&root, "a.txt", "source");
-        write(&root, "a.txt.meta.json", r#"{"size_bytes":999}"#);
-        assert!(
-            format!("{:#}", ContentSnapshot::load(&root).unwrap_err())
-                .contains("unknown field `size_bytes`")
-        );
-        assert_eq!(
-            fs::read_to_string(root.join("content/a.txt.meta.json")).unwrap(),
-            r#"{"size_bytes":999}"#
-        );
-        fs::remove_file(root.join("content/a.txt.meta.json")).unwrap();
-        write(&root, ".websh/state/injected.md", "not content");
-        assert!(
-            format!("{:#}", ContentSnapshot::load(&root).unwrap_err())
-                .contains("runtime namespace")
-        );
-        fs::remove_dir_all(root.join("content/.websh/state")).unwrap();
-        let mount = r#"{"backend":"github","mount_at":"/mempool","repo":"owner/repo"}"#;
-        write(&root, ".websh/mounts/a.mount.json", mount);
-        write(&root, ".websh/mounts/b.mount.json", mount);
-        assert!(
-            ContentSnapshot::load(&root)
-                .unwrap_err()
-                .to_string()
-                .contains("duplicate mount")
-        );
-        assert!(!root.join("content/manifest.json").exists());
-        assert!(!root.join("content/.websh/ledger.json").exists());
     }
 }

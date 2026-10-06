@@ -19,11 +19,15 @@ enum Command {
     Sync,
     /// Verify current artifacts without changing any files.
     Check {
-        /// Require a valid site signature on every current subject.
+        /// Require a valid owner signature on the root content manifest.
         #[arg(long)]
         require_signatures: bool,
     },
-    /// Sign current subjects or exchange offline signing requests.
+    /// Sign the current root content manifest with the pinned owner key.
+    Sign,
+    /// Generate, sign, commit, and push an independent root content release.
+    Publish,
+    /// Sign portable article subjects or exchange offline signing requests.
     Attest(commands::attest::AttestCommand),
     /// Generate a local draft manifest or import a draft into this project.
     Mempool(commands::mempool::MempoolCommand),
@@ -39,6 +43,8 @@ pub fn run() -> CliResult {
     let root = project.root();
     match cli.command {
         Command::Sync => commands::sync::run(root),
+        Command::Sign => commands::publish::sign(root),
+        Command::Publish => commands::publish::run(root, false),
         Command::Check { require_signatures } => commands::check::run(root, require_signatures),
         Command::Attest(command) => commands::attest::run(root, command),
         Command::Mempool(command) => commands::mempool::run(root, command),

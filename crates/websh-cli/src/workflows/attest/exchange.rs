@@ -70,14 +70,11 @@ pub(crate) fn import_pgp(
     let (mut prepared, message) = request(root, route, message_path)?;
     let signature = fs::read_to_string(signature_path)
         .with_context(|| format!("read signature {}", signature_path.display()))?;
-    let fingerprint = pgp::verify_signature(&root.join(PUBLIC_KEY_PATH), &signature, &message)?;
+    let fingerprint = pgp::verify_signature(&signature, &message)?;
     if fingerprint != EXPECTED_PGP_FINGERPRINT {
         bail!("PGP signature does not match site identity");
     }
-    let signer = pgp::read_key(&root.join(PUBLIC_KEY_PATH))?
-        .user_ids
-        .first()
-        .cloned();
+    let signer = Some(websh_site::APP_NAME.to_owned());
     let subject = prepared
         .artifact
         .subject_for_route_mut(route)
@@ -92,7 +89,6 @@ pub(crate) fn import_pgp(
         signature,
         signature_path: None,
         message_sha256: message_sha256(&message),
-        verified: true,
     });
     verify_artifact(root, &prepared.artifact, false)?;
     prepared.ensure_current(root)?;
@@ -120,7 +116,6 @@ pub(crate) fn import_ethereum(
         signature: signature.to_string(),
         recovered_address: verification.recovered_address,
         message_sha256: message_sha256(&message),
-        verified: true,
     });
     verify_artifact(root, &prepared.artifact, false)?;
     prepared.ensure_current(root)?;

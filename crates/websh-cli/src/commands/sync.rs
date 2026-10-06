@@ -4,8 +4,8 @@ use std::path::Path;
 pub(crate) fn run(root: &Path) -> CliResult {
     let outcome = sync::sync(root)?;
     println!(
-        "synced {} manifest entries, {} ledger blocks, {} subjects",
-        outcome.entries, outcome.blocks, outcome.subjects
+        "synced {} manifest entries and {} portable subjects",
+        outcome.entries, outcome.subjects
     );
     Ok(())
 }
