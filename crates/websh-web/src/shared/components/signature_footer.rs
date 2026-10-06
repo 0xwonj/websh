@@ -1,45 +1,12 @@
 use leptos::ev;
 use leptos::prelude::*;
 
+use crate::app::AppContext;
 use crate::shared::components::{MonoOverflow, MonoTone, MonoValue};
-use websh_core::attestation::artifact::{Attestation, AttestationArtifact, Subject};
 use websh_core::crypto::pgp::pretty_fingerprint;
-use websh_core::domain::VirtualPath;
-use websh_core::filesystem::content_route_for_path;
+use websh_core::domain::{GitHubMount, MountTrust, VirtualPath, is_runtime_overlay_path};
 
 stylance::import_crate_style!(css, "src/shared/components/signature_footer.module.css");
-
-pub fn nearest_attestation_route_for_content_path(path: &VirtualPath) -> String {
-    let fallback = content_route_for_path(path.as_str());
-    let Ok(artifact) = websh_site::attestation_artifact() else {
-        return fallback;
-    };
-    nearest_attestation_route_for_content_path_in_artifact(artifact, path).unwrap_or(fallback)
-}
-
-fn nearest_attestation_route_for_content_path_in_artifact(
-    artifact: &AttestationArtifact,
-    path: &VirtualPath,
-) -> Option<String> {
-    attestation_route_candidates(path)
-        .into_iter()
-        .find(|candidate| artifact.subject_for_route(candidate).is_some())
-}
-
-fn attestation_route_candidates(path: &VirtualPath) -> Vec<String> {
-    let mut candidates = Vec::new();
-    let mut current = Some(path.clone());
-    while let Some(candidate_path) = current {
-        let route = content_route_for_path(candidate_path.as_str());
-        if !candidates.contains(&route) {
-            candidates.push(route);
-        }
-        current = candidate_path
-            .parent()
-            .filter(|parent| !parent.is_root() || path.is_root());
-    }
-    candidates
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct FooterSigSummary {
@@ -50,37 +17,19 @@ struct FooterSigSummary {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct FooterSigRow {
-    key: String,
+    key: &'static str,
     value: String,
-    prefix: Option<String>,
-    kind: FooterSigValueKind,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum FooterSigValueKind {
-    Text,
-    Hex,
-    Fingerprint,
-    MessageHash,
-    Signature,
-    Divider,
-    /// Composite recovery confirmation: optional `prefix` label + hash via
-    /// `MonoValue` + verified status indicator. The `verified` flag selects
-    /// the trailing "✓"/"pending" glyph and the hash tone.
-    Recovered {
-        verified: bool,
-    },
+    hex: bool,
 }
 
 #[component]
-pub fn AttestationSigFooter(
+pub fn ReleaseSigFooter(
     #[prop(into)] route: Signal<String>,
-    #[prop(into, default = Signal::derive(|| false))] show_pending: Signal<bool>,
     #[prop(default = false)] colophon: bool,
 ) -> impl IntoView {
     let (sig_open, set_sig_open) = signal(false);
-    let summary =
-        Memo::new(move |_| footer_sig_summary_for_route(&route.get(), show_pending.get()));
+    let ctx = use_context::<AppContext>().expect("AppContext must be provided");
+    let summary = Memo::new(move |_| release_summary(ctx, &route.get()));
 
     view! {
         <div class=css::pagefoot data-sigstyle="chip" data-sigpos="center">
@@ -92,11 +41,14 @@ pub fn AttestationSigFooter(
                         "."
                     </div>
                     <div>
-                        "© Wonjae Choi — CC BY-SA 4.0"
+                        {move || ctx.content.home().map(|home| format!("© {} — CC BY-SA 4.0", home.profile.name)).unwrap_or_default()}
                         <span class=css::colophonJokes>", except the jokes, which are on the house"</span>
                         "."
                     </div>
                 </div>
+            })}
+            {move || summary.get().filter(|summary| summary.verified).and_then(|_| ctx.content.snapshot_url()).map(|url| view! {
+                <a href=url>{if ctx.content.is_historical() { "Historical snapshot" } else { "Link to this snapshot" }}</a>
             })}
             <Show when=move || sig_open.get() && summary.get().is_some()>
                 <span
@@ -124,7 +76,7 @@ pub fn AttestationSigFooter(
                         tabindex="0"
                         data-sigvariant="chip"
                         role="button"
-                        aria-label="Signature of this page"
+                        aria-label="Content release signature"
                         aria-expanded=move || sig_open.get().to_string()
                         on:click=move |ev: ev::MouseEvent| {
                             ev.stop_propagation();
@@ -132,7 +84,7 @@ pub fn AttestationSigFooter(
                         }
                         on:keydown=sig_keydown
                     >
-                        <span class=css::lab>"sig"</span>
+                        <span class=css::lab>"release"</span>
                         <span class=css::sigVal>
                             <MonoValue
                                 value=chip_value
@@ -142,8 +94,8 @@ pub fn AttestationSigFooter(
                         </span>
                         <span
                             class=css::ok
-                            data-state=if verified { "verified" } else { "pending" }
-                            aria-label=if verified { "verified" } else { "pending" }
+                            data-state=if verified { "verified" } else { "unsigned" }
+                            aria-label=if verified { "verified" } else { "unsigned" }
                         >
                             {if verified { "✓" } else { "…" }}
                         </span>
@@ -162,321 +114,109 @@ pub fn AttestationSigFooter(
 }
 
 fn render_sig_row(row: FooterSigRow) -> AnyView {
-    match row.kind {
-        FooterSigValueKind::Divider => view! { <div class=css::sigHr></div> }.into_any(),
-        FooterSigValueKind::Signature => view! {
-            <div class=css::sigBlockRow>
-                <div class=css::sigBlockLabel>{row.key}</div>
-                <pre class=css::sigSignature>{row.value}</pre>
-            </div>
-        }
-        .into_any(),
-        FooterSigValueKind::MessageHash => {
-            // Plain hashes (content / ack root / chain head): middle-ellipsis
-            // for at-a-glance fit consistent with other hash cells.
-            // Prefixed hashes ("message" rows with `SHA256(...) = ` preamble):
-            // keep Scroll so the prefix stays readable.
-            let prefix = row.prefix.clone().unwrap_or_default();
-            if prefix.is_empty() {
-                view! {
-                    <div class=css::sigRow>
-                        <span class=css::sigK>{row.key}</span>
-                        " "
-                        <span class=css::sigV>
-                            <MonoValue
-                                value=row.value
-                                tone=MonoTone::Hex
-                                overflow=MonoOverflow::Middle { head: 18, tail: 8 }
-                            />
-                        </span>
-                    </div>
-                }
-                .into_any()
-            } else {
-                let full_value = format!("{}{}", prefix, row.value);
-                view! {
-                    <div class=css::sigRow>
-                        <span class=css::sigK>{row.key}</span>
-                        " "
-                        <span class=css::sigV>
-                            <MonoValue
-                                value=full_value
-                                tone=MonoTone::Hex
-                                overflow=MonoOverflow::Scroll
-                            />
-                        </span>
-                    </div>
-                }
-                .into_any()
-            }
-        }
-        FooterSigValueKind::Recovered { verified } => {
-            let prefix = row.prefix.clone().unwrap_or_default();
-            let status = if verified { "✓" } else { "pending" };
-            let tone = if verified {
-                MonoTone::Hex
-            } else {
-                MonoTone::Plain
-            };
-            view! {
-                <div class=css::sigRow>
-                    <span class=css::sigK>{row.key}</span>
-                    " "
-                    <span class=css::sigV>
-                        {(!prefix.is_empty()).then(|| view! { <>{prefix}" "</> })}
-                        <MonoValue
-                            value=row.value
-                            tone=tone
-                            overflow=MonoOverflow::Middle { head: 18, tail: 8 }
-                        />
-                        " "
-                        {status}
-                    </span>
-                </div>
-            }
-            .into_any()
-        }
-        kind => view! {
-            <div class=css::sigRow>
-                <span class=css::sigK>{row.key}</span>
-                " "
-                <span class=css::sigV>
-                    <MonoValue value=row.value tone=mono_tone_for(kind) />
-                </span>
-            </div>
-        }
-        .into_any(),
+    view! {
+        <div class=css::sigRow>
+            <span class=css::sigK>{row.key}</span>
+            " "
+            <span class=css::sigV>
+                {if row.hex {
+                    view! { <MonoValue value=row.value tone=MonoTone::Hex /> }.into_any()
+                } else {
+                    row.value.into_any()
+                }}
+            </span>
+        </div>
     }
+    .into_any()
 }
 
-fn mono_tone_for(kind: FooterSigValueKind) -> MonoTone {
-    match kind {
-        FooterSigValueKind::Hex | FooterSigValueKind::MessageHash => MonoTone::Hex,
-        FooterSigValueKind::Fingerprint => MonoTone::Accent,
-        FooterSigValueKind::Text
-        | FooterSigValueKind::Signature
-        | FooterSigValueKind::Divider
-        | FooterSigValueKind::Recovered { .. } => MonoTone::Plain,
+fn release_summary(ctx: AppContext, route: &str) -> Option<FooterSigSummary> {
+    let release = ctx.content.release()?;
+    let metadata = release.manifest().release.as_ref()?;
+    let path = VirtualPath::from_absolute(route).ok()?;
+    if footer_trust(&path, &metadata.mounts)? == MountTrust::Unsigned {
+        return Some(FooterSigSummary {
+            chip_value: "unsigned".to_string(),
+            verified: false,
+            rows: vec![FooterSigRow {
+                key: "status",
+                value: "Independent source; not authenticated by the root signature".to_string(),
+                hex: false,
+            }],
+        });
     }
+    Some(FooterSigSummary {
+        chip_value: release.id().to_string(),
+        verified: true,
+        rows: vec![
+            FooterSigRow {
+                key: "scheme",
+                value: "OpenPGP · signed content release".to_string(),
+                hex: false,
+            },
+            FooterSigRow {
+                key: "release",
+                value: release.id().to_string(),
+                hex: true,
+            },
+            FooterSigRow {
+                key: "signer",
+                value: pretty_fingerprint(release.signer()),
+                hex: false,
+            },
+            FooterSigRow {
+                key: "sequence",
+                value: metadata.sequence.to_string(),
+                hex: false,
+            },
+            FooterSigRow {
+                key: "scope",
+                value: "Manifest authenticated; file bytes checked when read".to_string(),
+                hex: false,
+            },
+        ],
+    })
 }
 
-impl FooterSigRow {
-    fn with_prefix(mut self, prefix: String) -> Self {
-        self.prefix = Some(prefix);
-        self
-    }
-}
-
-fn footer_sig_summary_for_route(route: &str, show_pending: bool) -> Option<FooterSigSummary> {
-    let Ok(artifact) = websh_site::attestation_artifact() else {
-        return show_pending.then(|| pending_footer_sig("artifact"));
-    };
-    let Some(subject) = artifact.subject_for_route(route) else {
-        return show_pending.then(|| pending_footer_sig("subject"));
-    };
-
-    if subject.attestations().is_empty() && !show_pending {
+fn footer_trust(path: &VirtualPath, mounts: &[GitHubMount]) -> Option<MountTrust> {
+    if is_runtime_overlay_path(path) {
         return None;
     }
-
-    Some(footer_sig_summary_for_subject(subject))
-}
-
-fn footer_sig_summary_for_subject(subject: &Subject) -> FooterSigSummary {
-    let content_sha = subject.content_sha256().unwrap_or_default();
-    let mut rows = Vec::new();
-    rows.push(footer_row(
-        "route",
-        subject.route(),
-        FooterSigValueKind::Text,
-    ));
-    rows.push(footer_row(
-        "content",
-        &content_sha,
-        FooterSigValueKind::MessageHash,
-    ));
-    if let Subject::Homepage(hp) = subject {
-        rows.push(footer_row(
-            "ack root",
-            &hp.ack_combined_root,
-            FooterSigValueKind::MessageHash,
-        ));
-    }
-    if let Subject::Ledger(ls) = subject {
-        rows.push(footer_row(
-            "chain head",
-            &ls.chain_head,
-            FooterSigValueKind::MessageHash,
-        ));
-    }
-
-    for attestation in subject.attestations() {
-        match attestation {
-            Attestation::Pgp {
-                signer,
-                fingerprint,
-                signature,
-                message_sha256,
-                verified,
-                ..
-            } => {
-                if let Some(signer) = signer.as_deref().filter(|value| !value.trim().is_empty()) {
-                    rows.push(footer_row("signed by", signer, FooterSigValueKind::Text));
-                }
-                rows.push(footer_row(
-                    "fingerprint",
-                    &pretty_fingerprint(fingerprint),
-                    FooterSigValueKind::Fingerprint,
-                ));
-                rows.push(footer_row(
-                    "scheme",
-                    "OpenPGP · detached signature",
-                    FooterSigValueKind::Text,
-                ));
-                rows.push(
-                    footer_row("message", message_sha256, FooterSigValueKind::MessageHash)
-                        .with_prefix(message_prefix(subject)),
-                );
-                rows.push(footer_divider());
-                rows.push(footer_row(
-                    "signature",
-                    signature,
-                    FooterSigValueKind::Signature,
-                ));
-                rows.push(footer_row(
-                    "recovered",
-                    message_sha256,
-                    FooterSigValueKind::Recovered {
-                        verified: *verified,
-                    },
-                ));
-            }
-            Attestation::Ethereum {
-                signer,
-                address,
-                recovered_address,
-                signature,
-                message_sha256,
-                verified,
-                ..
-            } => {
-                rows.push(footer_row("signed by", signer, FooterSigValueKind::Text));
-                rows.push(footer_row("address", address, FooterSigValueKind::Hex));
-                rows.push(footer_row(
-                    "scheme",
-                    "EIP-191 · personal_sign",
-                    FooterSigValueKind::Text,
-                ));
-                rows.push(
-                    footer_row("message", message_sha256, FooterSigValueKind::MessageHash)
-                        .with_prefix(message_prefix(subject)),
-                );
-                rows.push(footer_divider());
-                rows.push(footer_row(
-                    "signature",
-                    signature,
-                    FooterSigValueKind::Signature,
-                ));
-                rows.push(footer_row(
-                    "recovered",
-                    recovered_address,
-                    FooterSigValueKind::Recovered {
-                        verified: *verified,
-                    },
-                ));
-            }
-        }
-    }
-
-    if subject.attestations().is_empty() {
-        rows.push(footer_divider());
-        rows.push(footer_row(
-            "status",
-            "pending signatures",
-            FooterSigValueKind::Text,
-        ));
-    }
-
-    FooterSigSummary {
-        chip_value: subject
-            .attestations()
-            .first()
-            .map(|attestation| attestation.message_sha256().to_string())
-            .unwrap_or_else(|| content_sha.clone()),
-        verified: subject.attestations().iter().any(Attestation::verified),
-        rows,
-    }
-}
-
-fn message_prefix(subject: &Subject) -> String {
-    format!("SHA256({} @ {}) = ", subject.kind_str(), subject.route())
-}
-
-fn pending_footer_sig(missing: &str) -> FooterSigSummary {
-    FooterSigSummary {
-        chip_value: "pending".to_string(),
-        verified: false,
-        rows: vec![footer_row(
-            "status",
-            &format!("pending {missing}"),
-            FooterSigValueKind::Text,
-        )],
-    }
-}
-
-fn footer_row(key: &str, value: &str, kind: FooterSigValueKind) -> FooterSigRow {
-    FooterSigRow {
-        key: key.to_string(),
-        value: value.to_string(),
-        prefix: None,
-        kind,
-    }
-}
-
-fn footer_divider() -> FooterSigRow {
-    footer_row("", "", FooterSigValueKind::Divider)
+    Some(
+        mounts
+            .iter()
+            .find(|mount| path.starts_with(mount.mount_at()))
+            .map(GitHubMount::trust)
+            .unwrap_or(MountTrust::Owner),
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wasm_bindgen_test::*;
-
-    const SIGNED_BUNDLE: &str = include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../tests/fixtures/signed-bundle.json"
-    ));
+    use wasm_bindgen_test::wasm_bindgen_test;
 
     #[wasm_bindgen_test]
-    fn signed_bundle_variants_inherit_the_parent_signature_display() {
-        // A captured public, signed v1 subject. Presentation consumes the stored
-        // verification result; cryptographic verification is covered by the CLI.
-        let artifact: AttestationArtifact = serde_json::from_str(SIGNED_BUNDLE).unwrap();
-        let path =
-            VirtualPath::from_absolute("/writing/zk-proofs-from-a-compiler-perspective/en.md")
-                .unwrap();
-        let route =
-            nearest_attestation_route_for_content_path_in_artifact(&artifact, &path).unwrap();
-        assert_eq!(route, "/writing/zk-proofs-from-a-compiler-perspective");
-        let summary = footer_sig_summary_for_subject(artifact.subject_for_route(&route).unwrap());
-        assert!(summary.verified);
-        assert!(
-            summary
-                .rows
-                .iter()
-                .any(|row| row.key == "scheme" && row.value == "OpenPGP · detached signature")
-        );
-        assert!(
-            summary
-                .rows
-                .iter()
-                .any(|row| row.key == "signature" && !row.value.is_empty())
-        );
-        assert!(
-            !summary
-                .rows
-                .iter()
-                .any(|row| row.value == "pending signatures")
-        );
+    fn footer_distinguishes_signed_content_unsigned_mounts_and_local_state() {
+        let mounts = vec![
+            serde_json::from_str::<GitHubMount>(
+                r#"{"backend":"github","trust":"unsigned","mount_at":"/drafts","repo":"owner/drafts"}"#,
+            )
+            .unwrap(),
+        ];
+        for (path, expected) in [
+            ("/", Some(MountTrust::Owner)),
+            ("/.websh/ack.commitment.json", Some(MountTrust::Owner)),
+            ("/drafts/note.md", Some(MountTrust::Unsigned)),
+            ("/.websh/state", None),
+            ("/.websh/state/wallet/connection.json", None),
+            ("/.websh/state/env/THEME", None),
+        ] {
+            assert_eq!(
+                footer_trust(&VirtualPath::from_absolute(path).unwrap(), &mounts),
+                expected,
+                "{path}"
+            );
+        }
     }
 }

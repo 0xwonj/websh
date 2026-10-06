@@ -10,10 +10,16 @@
 use leptos::prelude::*;
 
 use crate::features::reader::css;
+use crate::platform::BrowserAssetUrl;
 use websh_core::domain::ImageDim;
 
 #[component]
-pub fn AssetReaderView(url: String, alt: String, dimensions: Option<ImageDim>) -> impl IntoView {
+pub fn AssetReaderView(
+    url: BrowserAssetUrl,
+    alt: String,
+    dimensions: Option<ImageDim>,
+) -> impl IntoView {
+    let url = StoredValue::new_local(url);
     let (width_attr, height_attr) = match dimensions {
         Some(dim) => (Some(dim.width.to_string()), Some(dim.height.to_string())),
         None => (None, None),
@@ -21,7 +27,7 @@ pub fn AssetReaderView(url: String, alt: String, dimensions: Option<ImageDim>) -
     view! {
         <figure class=css::imageFigure>
             <img
-                src=url
+                src=move || url.with_value(|url| url.as_str().to_string())
                 alt=alt
                 class=css::image
                 width=width_attr

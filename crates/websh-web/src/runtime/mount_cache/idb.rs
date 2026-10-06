@@ -9,19 +9,25 @@ use ::idb::{
 };
 use futures_util::future::{Either, select};
 use gloo_timers::future::TimeoutFuture;
-use wasm_bindgen::JsValue;
+use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::spawn_local;
+use websh_core::publication::FileIntegrity;
 
 use super::*;
 
 const DATABASE: &str = "websh-cache";
 const STORE: &str = "mount_snapshots";
+const BODIES: &str = "verified_bodies";
+pub const MAX_BODY_RECORD_BYTES: usize = 8 * 1024 * 1024;
+const MAX_BODY_TOTAL_BYTES: usize = 64 * 1024 * 1024;
+const MAX_BODY_RECORDS: usize = 128;
 
 #[derive(Clone)]
 pub struct BrowserMountCache {
     database_name: &'static str,
     disabled: Rc<Cell<bool>>,
     writes_disabled: Rc<Cell<bool>>,
+    body_writes_disabled: Rc<Cell<bool>>,
     running: Rc<RefCell<BTreeSet<String>>>,
     pending: Rc<RefCell<BTreeMap<String, CacheWrite>>>,
 }
@@ -32,6 +38,7 @@ impl Default for BrowserMountCache {
             database_name: DATABASE,
             disabled: Rc::default(),
             writes_disabled: Rc::default(),
+            body_writes_disabled: Rc::default(),
             running: Rc::default(),
             pending: Rc::default(),
         }
@@ -96,15 +103,22 @@ impl BrowserMountCache {
     }
 
     async fn open_inner(&self, deadline: Deadline) -> Result<Connection, CacheError> {
-        let mut request = Factory::new()?.open(self.database_name, Some(1))?;
+        let mut request = Factory::new()?.open(self.database_name, Some(2))?;
         let disabled = self.disabled.clone();
         request.on_blocked(move |_| disabled.set(true));
         request.on_upgrade_needed(|event| {
             if let Ok(db) = event.database() {
                 let mut params = ObjectStoreParams::new();
                 params.key_path(Some(KeyPath::new_single("key")));
-                // This store contains only disposable external listings.
-                if db.create_object_store(STORE, params).is_err() {
+                // Drop the old disposable listing schema during the native migration.
+                if db.store_names().iter().any(|name| name == STORE) {
+                    let _ = db.delete_object_store(STORE);
+                }
+                if db.create_object_store(STORE, params).is_err()
+                    || db
+                        .create_object_store(BODIES, ObjectStoreParams::new())
+                        .is_err()
+                {
                     db.close();
                 }
             }
@@ -122,7 +136,10 @@ impl BrowserMountCache {
                 return Err(CacheError::Timeout);
             }
         };
-        if self.disabled.get() || !db.store_names().iter().any(|name| name == STORE) {
+        if self.disabled.get()
+            || !db.store_names().iter().any(|name| name == STORE)
+            || !db.store_names().iter().any(|name| name == BODIES)
+        {
             db.close();
             return Err(CacheError::Unavailable);
         }
@@ -137,12 +154,21 @@ impl BrowserMountCache {
     }
 
     async fn read(&self, key: String, deadline: Deadline) -> Result<Option<JsValue>, CacheError> {
+        self.read_store(STORE, key, deadline).await
+    }
+
+    async fn read_store(
+        &self,
+        name: &'static str,
+        key: String,
+        deadline: Deadline,
+    ) -> Result<Option<JsValue>, CacheError> {
         let connection = self.open(deadline).await?;
         let transaction = connection
             .0
-            .transaction(&[STORE], TransactionMode::ReadOnly)?;
-        let store = transaction.object_store(STORE)?;
-        if store.key_path()? != Some(KeyPath::new_single("key")) {
+            .transaction(&[name], TransactionMode::ReadOnly)?;
+        let store = transaction.object_store(name)?;
+        if name == STORE && store.key_path()? != Some(KeyPath::new_single("key")) {
             self.disabled.set(true);
             return Err(CacheError::Unavailable);
         }
@@ -193,11 +219,11 @@ impl BrowserMountCache {
         &self,
         incoming: Option<CacheWrite>,
         quota_eviction: bool,
-    ) -> Result<(), CacheError> {
+    ) -> Result<bool, CacheError> {
         let deadline = Deadline::new(OPERATION_TIMEOUT_MS);
         let connection = self.open(deadline).await?;
         if incoming.as_ref().is_some_and(|write| !(write.is_current)()) {
-            return Ok(());
+            return Ok(false);
         }
         let transaction = connection
             .0
@@ -217,11 +243,11 @@ impl BrowserMountCache {
                 let _ = guard.0.abort();
             }
             let completion = done.await?;
-            result?;
+            let accepted = result?;
             if !completion.is_committed() {
                 return Err(CacheError::Aborted);
             }
-            Ok(())
+            Ok(accepted)
         });
         self.finish(operation, raw, deadline).await
     }
@@ -231,7 +257,7 @@ async fn update_store(
     store: &ObjectStore,
     incoming: Option<CacheWrite>,
     quota_eviction: bool,
-) -> Result<(), CacheError> {
+) -> Result<bool, CacheError> {
     // Both reads are queued in this transaction before awaiting, preserving key/value order.
     let keys = store.get_all_keys(None, None)?.into_future();
     let values = store.get_all(None, None)?.into_future();
@@ -251,6 +277,7 @@ async fn update_store(
         }
     }
     let mut inserted = None;
+    let mut accepted = incoming.is_none();
     if let Some(write) = incoming
         && (write.is_current)()
         && write
@@ -259,6 +286,11 @@ async fn update_store(
             .is_some()
     {
         let record = write.record;
+        accepted = records.get(&record.key).is_none_or(|existing| {
+            record.outranks(existing)
+                || (record.descriptor.root == "/"
+                    && record.source.manifest == existing.source.manifest)
+        });
         if records
             .get(&record.key)
             .is_none_or(|existing| record.outranks(existing))
@@ -269,6 +301,7 @@ async fn update_store(
     }
     let mut order = records
         .values()
+        .filter(|r| r.descriptor.root != "/")
         .map(|r| (r.observed_at_ms, r.key.clone()))
         .collect::<Vec<_>>();
     order.sort();
@@ -290,10 +323,37 @@ async fn update_store(
         let value = serde_wasm_bindgen::to_value(record).map_err(|_| CacheError::Unavailable)?;
         store.put(&value, None)?.await?;
     }
-    Ok(())
+    Ok(accepted)
 }
 
 impl MountCache for BrowserMountCache {
+    fn accept_root(&self, write: CacheWrite) -> LocalBoxFuture<'_, RootAcceptance> {
+        Box::pin(async move {
+            if self.disabled.get()
+                || self.writes_disabled.get()
+                || write.record.descriptor.root != "/"
+            {
+                return RootAcceptance::Unavailable;
+            }
+            let result = self.transact(Some(write.clone()), false).await;
+            let result = match result {
+                Err(error) if error.to_string().contains("QuotaExceeded") => {
+                    // Keep the root watermark ahead of disposable PDF/image bytes.
+                    match self.clear_bodies().await {
+                        Ok(()) => self.transact(Some(write), false).await,
+                        Err(error) => Err(error),
+                    }
+                }
+                result => result,
+            };
+            match result {
+                Ok(true) => RootAcceptance::Accepted,
+                Ok(false) => RootAcceptance::Rejected,
+                Err(_) => RootAcceptance::Unavailable,
+            }
+        })
+    }
+
     fn restore(&self, descriptor: CacheDescriptor) -> LocalBoxFuture<'_, Option<CachedSnapshot>> {
         Box::pin(async move {
             let deadline = Deadline::new(RESTORE_TIMEOUT_MS);
@@ -306,6 +366,7 @@ impl MountCache for BrowserMountCache {
                 record
                     .validate(&descriptor, crate::platform::time::current_timestamp())
                     .map(|scan| CachedSnapshot {
+                        source: record.source.clone(),
                         scan,
                         observed_at_ms: record.observed_at_ms,
                     })
@@ -378,10 +439,153 @@ impl MountCache for BrowserMountCache {
     }
 }
 
+impl BrowserMountCache {
+    async fn clear_bodies(&self) -> Result<(), CacheError> {
+        let deadline = Deadline::new(OPERATION_TIMEOUT_MS);
+        let connection = self.open(deadline).await?;
+        let transaction = connection
+            .0
+            .transaction(&[BODIES], TransactionMode::ReadWrite)?;
+        let store = transaction.object_store(BODIES)?;
+        let raw: web_sys::IdbTransaction = store.transaction().into();
+        let done = transaction.into_future();
+        let operation = Box::pin(async move {
+            let _connection = connection;
+            let _guard = TransactionGuard(store.transaction().into());
+            let request = store.clear()?.await;
+            let completion = done.await?;
+            request?;
+            if !completion.is_committed() {
+                return Err(CacheError::Aborted);
+            }
+            Ok(())
+        });
+        self.finish(operation, raw, deadline).await
+    }
+
+    /// A body remains untrusted until its exact expected length and digest pass again.
+    pub async fn restore_body(&self, expected: &FileIntegrity) -> Option<Vec<u8>> {
+        if expected.size > MAX_BODY_RECORD_BYTES as u64 {
+            return None;
+        }
+        let raw = self
+            .read_store(
+                BODIES,
+                expected.cache_key(),
+                Deadline::new(RESTORE_TIMEOUT_MS),
+            )
+            .await
+            .ok()??;
+        let array = raw.dyn_into::<js_sys::Uint8Array>().ok()?;
+        if array.length() as u64 != expected.size {
+            return None;
+        }
+        let bytes = array.to_vec();
+        expected.verify(&bytes).ok()?;
+        Some(bytes)
+    }
+
+    pub async fn persist_body(&self, expected: FileIntegrity, bytes: Vec<u8>) {
+        if self.disabled.get()
+            || self.body_writes_disabled.get()
+            || bytes.len() > MAX_BODY_RECORD_BYTES
+            || expected.verify(&bytes).is_err()
+        {
+            return;
+        }
+        if let Err(error) = self.write_body(&expected, &bytes, false).await {
+            // Bodies are disposable. One bounded clear/retry frees space without
+            // evicting authenticated root metadata or its publication watermark.
+            if !error.to_string().contains("QuotaExceeded")
+                || self.write_body(&expected, &bytes, true).await.is_err()
+            {
+                self.body_writes_disabled.set(true);
+            }
+        }
+    }
+
+    async fn write_body(
+        &self,
+        expected: &FileIntegrity,
+        bytes: &[u8],
+        clear: bool,
+    ) -> Result<(), CacheError> {
+        let deadline = Deadline::new(OPERATION_TIMEOUT_MS);
+        let connection = self.open(deadline).await?;
+        let transaction = connection
+            .0
+            .transaction(&[BODIES], TransactionMode::ReadWrite)?;
+        let store = transaction.object_store(BODIES)?;
+        let raw: web_sys::IdbTransaction = store.transaction().into();
+        let done = transaction.into_future();
+        let key = expected.cache_key();
+        let body = js_sys::Uint8Array::from(bytes);
+        let size = bytes.len();
+        let operation = Box::pin(async move {
+            let _connection = connection;
+            let guard = TransactionGuard(store.transaction().into());
+            let result = async {
+                if clear {
+                    store.clear()?.await?;
+                }
+                // Keys carry digest:length, so accounting does not load every PDF.
+                // Memory provides LRU; this persistent tier uses deterministic eviction.
+                let mut records = Vec::new();
+                for existing in store.get_all_keys(None, None)?.await? {
+                    let size = existing
+                        .as_string()
+                        .and_then(|key| body_key_size(&key).map(|size| (key, size)));
+                    if let Some((existing, size)) = size {
+                        records.push((existing, size));
+                    } else {
+                        store.delete(existing)?.await?;
+                    }
+                }
+                records.retain(|(existing, _)| existing != &key);
+                let mut total = records
+                    .iter()
+                    .fold(size, |total, (_, size)| total.saturating_add(*size));
+                let mut count = records.len() + 1;
+                for (existing, size) in records {
+                    if total <= MAX_BODY_TOTAL_BYTES && count <= MAX_BODY_RECORDS {
+                        break;
+                    }
+                    store.delete(JsValue::from_str(&existing))?.await?;
+                    total -= size;
+                    count -= 1;
+                }
+                store
+                    .put(&body.into(), Some(&JsValue::from_str(&key)))?
+                    .await?;
+                Ok::<_, CacheError>(())
+            }
+            .await;
+            if result.is_err() {
+                let _ = guard.0.abort();
+            }
+            let completion = done.await?;
+            result?;
+            if !completion.is_committed() {
+                return Err(CacheError::Aborted);
+            }
+            Ok(())
+        });
+        self.finish(operation, raw, deadline).await
+    }
+}
+
+fn body_key_size(key: &str) -> Option<usize> {
+    let (digest, size) = key.split_once(':')?;
+    websh_core::publication::ReleaseId::parse(digest).ok()?;
+    let parsed: usize = size.parse().ok()?;
+    (parsed <= MAX_BODY_RECORD_BYTES && parsed.to_string() == size).then_some(parsed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use wasm_bindgen_test::*;
+    use websh_core::ports::parse_manifest_snapshot;
 
     fn isolated(name: &'static str) -> BrowserMountCache {
         BrowserMountCache {
@@ -399,6 +603,49 @@ mod tests {
             record,
             is_current: Rc::new(|| true),
         }
+    }
+
+    #[wasm_bindgen_test(async)]
+    async fn body_store_rehashes_restores_and_ignores_oversized_or_corrupt_bytes() {
+        use websh_core::publication::ReleaseId;
+        let cache = isolated("websh-cache-test-body-integrity");
+        let bytes = b"persisted exact body".to_vec();
+        let expected = FileIntegrity {
+            sha256: ReleaseId::of(&bytes),
+            size: bytes.len() as u64,
+        };
+        cache.persist_body(expected.clone(), bytes.clone()).await;
+        assert_eq!(cache.restore_body(&expected).await.unwrap(), bytes);
+        let wrong = FileIntegrity {
+            sha256: ReleaseId::of(b"other"),
+            size: bytes.len() as u64,
+        };
+        cache.persist_body(wrong.clone(), bytes.clone()).await;
+        assert!(cache.restore_body(&wrong).await.is_none());
+        let oversized = FileIntegrity {
+            sha256: expected.sha256.clone(),
+            size: MAX_BODY_RECORD_BYTES as u64 + 1,
+        };
+        assert!(cache.restore_body(&oversized).await.is_none());
+        let connection = cache.open(Deadline::new(2000)).await.unwrap();
+        let transaction = connection
+            .0
+            .transaction(&[BODIES], TransactionMode::ReadWrite)
+            .unwrap();
+        let store = transaction.object_store(BODIES).unwrap();
+        let done = transaction.into_future();
+        let corrupt = js_sys::Uint8Array::from(vec![b'x'; bytes.len()].as_slice());
+        store
+            .put(
+                &corrupt.into(),
+                Some(&JsValue::from_str(&expected.cache_key())),
+            )
+            .unwrap()
+            .await
+            .unwrap();
+        assert!(done.await.unwrap().is_committed());
+        assert!(cache.restore_body(&expected).await.is_none());
+        assert!(!cache.disabled.get());
     }
 
     #[wasm_bindgen_test(async)]
@@ -463,8 +710,8 @@ mod tests {
         let scan = parse_manifest_snapshot(r#"{"entries":[
             {"path":"empty","metadata":{"kind":"directory","authored":{},"derived":{}}},
             {"path":"article","metadata":{"kind":"bundle","bundle":{"default_variant":{"strategy":"static","id":"en"},"variants":[{"id":"en","path":"en.md","label":"English"},{"id":"ko","path":"ko.md","label":"Korean"}]},"authored":{"title":"Article"},"derived":{}}},
-            {"path":"article/en.md","metadata":{"kind":"page","authored":{"title":"English","access":{"recipients":[{"address":"0xabc"}]}},"derived":{"size_bytes":123}},"mempool":{"status":"review","priority":"high","category":"writing"}},
-            {"path":"article/ko.md","metadata":{"kind":"page","authored":{"title":"한국어"},"derived":{}}}
+            {"path":"article/en.md","metadata":{"kind":"page","authored":{"title":"English","access":{"recipients":[{"address":"0xabc"}]}},"derived":{"size_bytes":0,"content_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}},"mempool":{"status":"review","priority":"high","category":"writing"}},
+            {"path":"article/ko.md","metadata":{"kind":"page","authored":{"title":"한국어"},"derived":{"size_bytes":0,"content_sha256":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}}}
         ]}"#).unwrap();
         let now = crate::platform::time::current_timestamp();
         let record =
@@ -509,7 +756,7 @@ mod tests {
         let name = "websh-cache-test-newer-version";
         let db = Factory::new()
             .unwrap()
-            .open(name, Some(2))
+            .open(name, Some(3))
             .unwrap()
             .await
             .unwrap();
@@ -528,7 +775,7 @@ mod tests {
             .unwrap()
             .await
             .unwrap();
-        assert_eq!(db.version().unwrap(), 2);
+        assert_eq!(db.version().unwrap(), 3);
         db.close();
     }
 
@@ -537,7 +784,7 @@ mod tests {
         let name = "websh-cache-test-missing-store";
         let db = Factory::new()
             .unwrap()
-            .open(name, Some(1))
+            .open(name, Some(2))
             .unwrap()
             .await
             .unwrap();
@@ -662,7 +909,7 @@ mod tests {
         let _connection = cache.open(Deadline::new(2000)).await.unwrap();
         let upgrade = Factory::new()
             .unwrap()
-            .open(name, Some(2))
+            .open(name, Some(3))
             .unwrap()
             .into_future();
         match select(Box::pin(upgrade), Box::pin(TimeoutFuture::new(500))).await {

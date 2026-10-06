@@ -1,8 +1,6 @@
-use serde::Deserialize;
-
-use websh_core::attestation::artifact::AttestationArtifact;
 use websh_core::domain::VirtualPath;
 use websh_core::filesystem::{GlobalFs, content_href_for_path};
+use websh_core::publication::NowItem;
 
 pub(super) const TOC_ITEMS: &[TocItem] = &[
     TocItem {
@@ -64,25 +62,6 @@ impl TocItem {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
-pub(super) struct NowDocument {
-    pub(super) items: Vec<NowItem>,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub(super) struct NowItem {
-    date: String,
-    pub(super) text: String,
-}
-
-#[derive(Clone, Debug, thiserror::Error)]
-pub(super) enum NowParseError {
-    #[error("parse now.toml: {message}")]
-    Toml { message: String },
-    #[error("now.toml must contain at least one item")]
-    Empty,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct RecentItem {
     pub(super) kind: String,
@@ -92,29 +71,13 @@ pub(super) struct RecentItem {
     pub(super) tag: String,
 }
 
-pub(super) fn site_last_revised_at() -> Option<String> {
-    websh_site::attestation_artifact()
-        .ok()
-        .and_then(latest_attestation_issued_at)
-}
-
-fn latest_attestation_issued_at(artifact: &AttestationArtifact) -> Option<String> {
-    artifact
-        .subjects
-        .iter()
-        .filter(|subject| !subject.attestations().is_empty())
-        .filter_map(|subject| subject.issued_at())
-        .max()
-        .map(str::to_string)
-}
-
-pub(super) fn current_homepage_date() -> String {
-    let date = js_sys::Date::new_0();
+pub(super) fn publication_date(issued_at: u64) -> String {
+    let date = js_sys::Date::new(&((issued_at as f64) * 1000.0).into());
     format!(
         "{:04}-{:02}-{:02}",
-        date.get_full_year(),
-        date.get_month() + 1,
-        date.get_date()
+        date.get_utc_full_year(),
+        date.get_utc_month() + 1,
+        date.get_utc_date()
     )
 }
 
@@ -133,29 +96,6 @@ pub(super) fn compact_homepage_date(date: &str) -> String {
         }
         _ => date.to_string(),
     }
-}
-
-pub(super) fn parse_now_toml(body: &str) -> Result<NowDocument, NowParseError> {
-    let mut doc: NowDocument = toml::from_str(body).map_err(|error| NowParseError::Toml {
-        message: error.to_string(),
-    })?;
-
-    doc.items = doc
-        .items
-        .into_iter()
-        .map(|mut item| {
-            item.date = item.date.trim().to_string();
-            item.text = item.text.trim().to_string();
-            item
-        })
-        .filter(|item| !item.date.is_empty() && !item.text.is_empty())
-        .collect();
-
-    if doc.items.is_empty() {
-        return Err(NowParseError::Empty);
-    }
-
-    Ok(doc)
 }
 
 pub(super) fn latest_now_date(items: &[NowItem]) -> Option<String> {
@@ -339,73 +279,9 @@ mod tests {
     use wasm_bindgen_test::*;
 
     #[wasm_bindgen_test]
-    fn parse_now_toml_trims_and_filters_items() {
-        let doc = parse_now_toml(
-            r#"
-[[items]]
-date = " 2026-04-25 "
-text = " content-backed now section "
-
-[[items]]
-date = "2026-04-26"
-text = "newer content-backed item"
-
-[[items]]
-date = ""
-text = "also ignored"
-"#,
-        )
-        .expect("valid now.toml");
-
-        assert_eq!(doc.items.len(), 2);
-        assert_eq!(doc.items[0].date, "2026-04-25");
-        assert_eq!(doc.items[0].text, "content-backed now section");
-        assert_eq!(latest_now_date(&doc.items).as_deref(), Some("2026-04-26"));
-    }
-
-    #[wasm_bindgen_test]
-    fn parse_now_toml_rejects_empty_items() {
-        assert!(parse_now_toml("[[items]]\ndate = \"\"\ntext = \"\"").is_err());
-    }
-
-    #[wasm_bindgen_test]
     fn compact_homepage_date_formats_iso_date() {
         assert_eq!(compact_homepage_date("2026-04-26"), "2026/0426");
         assert_eq!(compact_homepage_date("not-a-date"), "not-a-date");
-    }
-
-    #[wasm_bindgen_test]
-    fn site_last_revised_at_uses_latest_attestation_subject() {
-        let artifact: AttestationArtifact = serde_json::from_str(
-            r#"
-{
-  "version": 1,
-  "scheme": "websh.attestations.v1",
-  "subjects": [
-    {
-      "kind": "homepage",
-      "route": "/",
-      "issued_at": "2026-04-30",
-      "content_files": [],
-      "attestations": [{"type":"pgp","fingerprint":"fixture","key_path":"key.asc","signature":"fixture","message_sha256":"fixture","verified":true}],
-      "ack_combined_root": "0xack"
-    },
-    {
-      "kind": "page",
-      "route": "/writing/newer",
-      "content_files": [],
-      "attestations": []
-    }
-  ]
-}
-"#,
-        )
-        .expect("valid artifact");
-
-        assert_eq!(
-            latest_attestation_issued_at(&artifact).as_deref(),
-            Some("2026-04-30")
-        );
     }
 
     #[wasm_bindgen_test]

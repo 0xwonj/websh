@@ -27,7 +27,8 @@ just verify   # full local gate
 ```
 
 Use hash URLs such as `/#/websh`, `/#/ledger`, and `/#/writing/example`.
-Builds refresh generated artifacts but never sign. `just --list` shows focused tasks.
+Builds need no content checkout and never generate or sign content. `just --list` shows
+focused tasks.
 
 ## Publish
 
@@ -35,17 +36,26 @@ Builds refresh generated artifacts but never sign. `just --list` shows focused t
 just publish
 ```
 
-Publishing requires the site's GPG signing key and Pinata CLI. The recipe generates,
-explicitly signs, builds, and uploads to public IPFS. Deployment alone reads `.env`;
-ENS updates remain manual. See the [CLI guide](docs/architecture/cli.md) for local
-content, draft, acknowledgement, offline-signing, and deployment workflows.
+App publishing requires Pinata CLI and deployment credentials. It builds and uploads the app
+to IPFS; only the deployment adapter reads `.env`. Use the returned CID gateway URL directly.
+Website discovery does not use ENS.
+
+Content lives in [websh-content](https://github.com/0xwonj/websh-content). Publish an edit with:
+
+```bash
+cargo run --locked -p websh-cli -- --root ../websh-content publish
+```
+
+That command generates, signs with the local owner GPG key, commits, and pushes the content
+snapshot. It does not rebuild or upload the app. Independent unsigned drafts remain in
+[websh-mempool](https://github.com/0xwonj/websh-mempool). See the
+[CLI guide](docs/architecture/cli.md) for authoring, publication, and portable proofs.
 
 ## Documentation
 
 - [Architecture](docs/architecture/current.md): crate boundaries and native contracts.
 - [Runtime](docs/architecture/runtime.md): browser state, routes, mounts, and cache limits.
 - [Verification](docs/architecture/verification.md): test ownership and focused checks.
-- [Publication design](docs/architecture/publication.md): planned IPFS app and GitHub
-  content separation without ENS.
+- [Publication](docs/architecture/publication.md): immutable snapshots and source trust.
 
 Source code and published content are licensed under [CC-BY-SA-4.0](LICENSE).

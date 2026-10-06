@@ -10,30 +10,18 @@ pub struct BrowserAssetUrl {
 }
 
 #[derive(Debug)]
-enum BrowserAssetUrlInner {
-    Public(String),
-    Object(String),
-}
+struct BrowserAssetUrlInner(String);
 
 impl BrowserAssetUrl {
-    pub fn public(url: String) -> Self {
-        Self {
-            inner: Rc::new(BrowserAssetUrlInner::Public(url)),
-        }
-    }
-
     pub fn as_str(&self) -> &str {
-        match self.inner.as_ref() {
-            BrowserAssetUrlInner::Public(url) | BrowserAssetUrlInner::Object(url) => url,
-        }
+        &self.inner.0
     }
 }
 
 impl Drop for BrowserAssetUrlInner {
     fn drop(&mut self) {
-        if let Self::Object(url) = self
-            && let Err(error) = web_sys::Url::revoke_object_url(url)
-        {
+        let url = &self.0;
+        if let Err(error) = web_sys::Url::revoke_object_url(url) {
             web_sys::console::warn_1(
                 &format!(
                     "failed to revoke object URL {url}: {}",
@@ -75,6 +63,6 @@ pub fn object_url_for_bytes(
         }
     })?;
     Ok(BrowserAssetUrl {
-        inner: Rc::new(BrowserAssetUrlInner::Object(url)),
+        inner: Rc::new(BrowserAssetUrlInner(url)),
     })
 }

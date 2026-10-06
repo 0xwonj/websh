@@ -1,135 +1,114 @@
-const { test, expect, baseUrl, dbManifest, fileEntry, dirEntry, manifestDocument, installRoutes } = require('./support/fixtures');
-const { deferred, runCommand, cacheRecords } = require('./support/browser');
+const {createHash}=require('node:crypto');
+const {test,expect,baseUrl,rawOrigin,rootPointer,mountPointer,rootPath,home,publishRoot,rootCommit,installRoutes} = require('./support/fixtures');
+const {deferred,cacheRecords}=require('./support/browser');
+const rootRecord = records=>records.find(record=>record.descriptor.root==='/');
 
-test('root content renders before external mount scan resolves', async ({ page }) => {
-  const gate = deferred();
+test('root renders before independent external discovery completes',async ({page})=>{
+ const gate=deferred();
+ await page.route(`${rawOrigin}${mountPointer}`,async route=>{await gate.promise;await route.fallback();});
+ await page.goto(`${baseUrl}/#/`,{waitUntil:'domcontentloaded'});
+ await expect(page.locator('body')).toContainText('Fixture Now item');
+ gate.resolve();await page.goto(`${baseUrl}/#/db/fresh`,{waitUntil:'networkidle'});
+ await expect(page.getByRole('heading',{name:'Fresh',exact:true}).first()).toBeVisible();
+});
 
-  await page.route('https://raw.githubusercontent.com/0xwonj/mount-db/main/manifest.json', async (route) => {
-    await gate.promise;
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(dbManifest)
-    });
+test('verified cached homepage survives offline discovery and a Now update retains unchanged bodies',async ({page,responses,errors})=>{
+ await page.goto(`${baseUrl}/#/docs/old`,{waitUntil:'networkidle'});
+ await expect(page.locator('[data-reader-body]')).toContainText('old');
+ await expect.poll(async()=>Boolean(rootRecord(await cacheRecords(page)))).toBe(true);
+ const oldCommit=rootCommit;const nextCommit='c'.repeat(40);
+ let offline=true;errors.allowHttpError(`${rawOrigin}${rootPointer}`,503);
+ await page.route(`${rawOrigin}${rootPointer}`,async route=>offline?route.fulfill({status:503,body:'offline'}):route.fallback());
+ await page.goto(`${baseUrl}/#/`,{waitUntil:'networkidle'});await page.reload({waitUntil:'networkidle'});
+ await expect(page.locator('body')).toContainText('Fixture Now item');
+ await expect(page.locator('[data-mount-status]')).toContainText('Refresh failed');
+ publishRoot(responses,{commit:nextCommit,sequence:2,projection:{...home,now:{items:[{date:'2026-05-02',text:'Updated Now without app build'}]}}});
+ const bodies=[];page.on('request',request=>{if(request.url().endsWith('/docs/old.md'))bodies.push(request.url());});
+ offline=false;
+ await page.getByRole('button',{name:'Refresh listing'}).click();
+ await expect(page.locator('body')).toContainText('Updated Now without app build');
+ await expect.poll(async()=>rootRecord(await cacheRecords(page))?.source.commit).toBe(nextCommit);
+ await page.goto(`${baseUrl}/#/docs/old`,{waitUntil:'networkidle'});
+ await expect(page.locator('[data-reader-body]')).toContainText('old');
+ expect(bodies).toEqual([]);
+ expect(new URL(page.url()).pathname).toBe('/');
+ expect(oldCommit).not.toBe(nextCommit);
+});
+
+test('unavailable IndexedDB does not block authenticated root or external reading',async ({page})=>{
+ await page.addInitScript(()=>{IDBFactory.prototype.open=()=>{throw new DOMException('storage denied','SecurityError');};});
+ await page.goto(`${baseUrl}/#/`,{waitUntil:'networkidle'});
+ await expect(page.locator('body')).toContainText('Fixture Now item');
+ await page.goto(`${baseUrl}/#/db/fresh`,{waitUntil:'networkidle'});
+ await expect(page.getByRole('heading',{name:'Fresh',exact:true}).first()).toBeVisible();
+});
+
+test('external refresh failure retains a saved listing and retries independently',async ({page,errors})=>{
+ await page.goto(`${baseUrl}/#/db/fresh`,{waitUntil:'networkidle'});
+ await expect.poll(async()=>(await cacheRecords(page)).some(record=>record.descriptor.root==='/db')).toBe(true);
+ let offline=true;errors.allowHttpError(`${rawOrigin}${mountPointer}`,503);
+ await page.route(`${rawOrigin}${mountPointer}`,route=>offline?route.fulfill({status:503,body:'offline'}):route.fallback());
+ await page.reload({waitUntil:'networkidle'});
+ await expect(page.getByRole('heading',{name:'Fresh',exact:true}).first()).toBeVisible();
+ await expect(page.locator('[data-mount-status]')).toContainText('Refresh failed');
+ offline=false;await page.getByRole('button',{name:'Refresh listing'}).click();
+ await expect(page.locator('[data-mount-status]')).toHaveCount(0);
+});
+
+test('historical snapshots validate exact identity without rolling back live cache',async ({page,responses})=>{
+ const oldBody=responses.get(rootPath('manifest.json'));
+ const oldId=createHash('sha256').update(oldBody).digest('hex');
+ const next='d'.repeat(40);
+ publishRoot(responses,{commit:next,sequence:2,projection:{...home,now:{items:[{date:'2026-05-02',text:'Latest live content'}]}}});
+ await page.goto(`${baseUrl}/#/`,{waitUntil:'networkidle'});
+ await expect(page.locator('body')).toContainText('Latest live content');
+ await expect.poll(async()=>rootRecord(await cacheRecords(page))?.source.commit).toBe(next);
+ await page.goto(`${baseUrl}/?content=${rootCommit}&release=${oldId}#/`,{waitUntil:'networkidle'});
+ await expect(page.locator('body')).toContainText('Fixture Now item');
+ await expect(page.locator('body')).toContainText('Historical snapshot');
+ expect(rootRecord(await cacheRecords(page)).source.commit).toBe(next);
+ await page.goto(`${baseUrl}/?content=${rootCommit}&release=${'f'.repeat(64)}#/`,{waitUntil:'networkidle'});
+ await expect(page.locator('body')).not.toContainText('Fixture Author');
+ await expect(page.locator('[data-mount-status]')).toContainText(/failed|mismatch|unavailable/i);
+});
+
+test('a shared root watermark rejects late older candidates and same-sequence replacements', async ({page, context, responses}) => {
+  const signatureRequested = deferred();
+  const finishOldSignature = deferred();
+  const oldSignature = responses.get(rootPath('manifest.sig'));
+  await page.route(`${rawOrigin}${rootPath('manifest.sig')}`, async route => {
+    signatureRequested.resolve();
+    await finishOldSignature.promise;
+    await route.fulfill({body: oldSignature});
   });
+  await page.goto(`${baseUrl}/#/`, {waitUntil: 'domcontentloaded'});
+  await signatureRequested.promise;
 
-  await page.goto(`${baseUrl}/#/docs/old`, { waitUntil: 'domcontentloaded' });
-  await expect(page.locator('body')).toContainText('old', { timeout: 10000 });
-
-  gate.resolve();
-  await page.goto(`${baseUrl}/#/db/fresh`, { waitUntil: 'networkidle' });
-  await expect(page.locator('body')).toContainText('Fresh', { timeout: 10000 });
-});
-
-test('warm external cache serves a known listing during failed refresh and retries in place', async ({ page, errors }) => {
-  errors.allowHttpError('https://raw.githubusercontent.com/0xwonj/mount-db/main/manifest.json', 503);
-  await page.goto(`${baseUrl}/#/db/fresh`, { waitUntil: 'networkidle' });
-  await expect(page.getByRole('heading', { name: 'Fresh', exact: true }).first()).toBeVisible();
-  await expect.poll(async () => (await cacheRecords(page)).length).toBe(1);
-  const gate = deferred();
-  let offline = true;
-  await page.route('https://raw.githubusercontent.com/0xwonj/mount-db/main/manifest.json', async route => {
-    if (offline) { await gate.promise; await route.fulfill({ status: 503, body: 'offline' }); }
-    else await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(dbManifest) });
+  const nextCommit = 'e'.repeat(40);
+  publishRoot(responses, {
+    commit: nextCommit,
+    sequence: 2,
+    projection: {...home, now: {items: [{date: '2026-05-02', text: 'Accepted newer release'}]}}
   });
-  await page.reload({ waitUntil: 'domcontentloaded' });
-  await expect(page.getByRole('heading', { name: 'Fresh', exact: true }).first()).toBeVisible();
-  await expect(page.locator('[data-mount-status]')).toContainText('Saved listing');
-  gate.resolve();
-  await expect(page.locator('[data-mount-status]')).toContainText('Refresh failed');
-  await expect(page.getByRole('heading', { name: 'Fresh', exact: true }).first()).toBeVisible();
-  offline = false;
-  await page.getByRole('button', { name: 'Refresh listing' }).click();
-  await expect(page.locator('[data-mount-status]')).toHaveCount(0);
-});
+  const newer = await context.newPage();
+  await installRoutes(newer, responses);
+  await newer.goto(`${baseUrl}/#/`, {waitUntil: 'networkidle'});
+  await expect(newer.locator('body')).toContainText('Accepted newer release');
+  await expect.poll(async () => rootRecord(await cacheRecords(newer))?.source.commit).toBe(nextCommit);
 
-test('a route absent from cached external metadata stays pending until the live answer', async ({ page }) => {
-  await page.goto(`${baseUrl}/#/db/fresh`, { waitUntil: 'networkidle' });
-  await expect.poll(async () => (await cacheRecords(page)).length).toBe(1);
-  const gate = deferred();
-  await page.route('https://raw.githubusercontent.com/0xwonj/mount-db/main/manifest.json', async route => {
-    await gate.promise;
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(dbManifest) });
+  finishOldSignature.resolve();
+  await expect(page.locator('[data-mount-status]')).toContainText(/failed|older|rollback/i);
+  await expect(page.locator('body')).not.toContainText('Fixture Now item');
+
+  publishRoot(responses, {
+    commit: 'f'.repeat(40),
+    sequence: 2,
+    projection: {...home, now: {items: [{date: '2026-05-03', text: 'Conflicting same-sequence release'}]}}
   });
-  await page.goto(`${baseUrl}/#/db/not-in-listing`, { waitUntil: 'domcontentloaded' });
-  await page.reload({ waitUntil: 'domcontentloaded' });
-  await expect(page.getByRole('heading', { name: 'Route pending' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: /not found/i })).toHaveCount(0);
-  gate.resolve();
-  await expect(page.getByRole('heading', { name: /not found/i })).toBeVisible();
-});
-
-test('unavailable IndexedDB does not block external public reading', async ({ page }) => {
-  await page.addInitScript(() => { IDBFactory.prototype.open = () => { throw new DOMException('storage denied', 'SecurityError'); }; });
-  await page.goto(`${baseUrl}/#/db/fresh`, { waitUntil: 'networkidle' });
-  await expect(page.getByRole('heading', { name: 'Fresh', exact: true }).first()).toBeVisible();
-  await expect(page.locator('body')).not.toContainText('storage denied');
-});
-
-test('a saved listing cannot supply an unavailable content body', async ({ page, errors }) => {
-  errors.allowHttpError('https://raw.githubusercontent.com/0xwonj/mount-db/main/manifest.json', 503);
-  errors.allowHttpError('https://raw.githubusercontent.com/0xwonj/mount-db/main/fresh.md', 404);
-  await page.goto(`${baseUrl}/#/db/fresh`, { waitUntil: 'networkidle' });
-  await expect.poll(async () => (await cacheRecords(page)).length).toBe(1);
-  const records = await cacheRecords(page);
-  expect(records.every(record => !record.descriptor.root.startsWith('/.websh'))).toBe(true);
-  expect(JSON.stringify(records)).not.toContain('# Fresh');
-  await page.route('https://raw.githubusercontent.com/0xwonj/mount-db/main/manifest.json', route => route.fulfill({ status: 503, body: 'offline' }));
-  await page.route('https://raw.githubusercontent.com/0xwonj/mount-db/main/fresh.md', route => route.fulfill({ status: 404, body: 'gone' }));
-  await page.reload({ waitUntil: 'networkidle' });
-  await expect(page.locator('[data-reader-body]')).toContainText('not found');
-});
-
-test('two tabs keep the newer started mount observation when an older refresh finishes last', async ({ page, context, responses }) => {
-  const mountUrl = 'https://raw.githubusercontent.com/0xwonj/mount-db/main/manifest.json';
-  await page.goto(`${baseUrl}/#/db/fresh`, { waitUntil: 'networkidle' });
-  await expect.poll(async () => (await cacheRecords(page)).length).toBe(1);
-  const gate = deferred();
-  const started = deferred();
-  const older = manifestDocument([dirEntry('', 'DB'), fileEntry('fresh.md', 'Older response')]);
-  const newer = manifestDocument([dirEntry('', 'DB'), fileEntry('fresh.md', 'Newer response')]);
-  await page.route(mountUrl, async route => { started.resolve(); await gate.promise; await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(older) }); });
-  await page.goto(`${baseUrl}/#/websh`);
-  await runCommand(page, 'refresh /db');
-  await started.promise;
-  const second = await context.newPage();
-  const secondResponses = new Map(responses);
-  secondResponses.set('/0xwonj/mount-db/main/manifest.json', JSON.stringify(newer));
-  await installRoutes(second, secondResponses);
-  await second.goto(`${baseUrl}/#/db/fresh`, { waitUntil: 'networkidle' });
-  await expect.poll(async () => (await cacheRecords(second))[0]?.manifest_json).toContain('Newer response');
-  const accepted = (await cacheRecords(second))[0];
-  await page.evaluate(() => {
-    window.__cacheTransactionDone = false;
-    const transaction = IDBDatabase.prototype.transaction;
-    IDBDatabase.prototype.transaction = function (...args) {
-      const tx = transaction.apply(this, args);
-      if (this.name === 'websh-cache' && args[1] === 'readwrite') {
-        tx.addEventListener('complete', () => { window.__cacheTransactionDone = true; });
-      }
-      return tx;
-    };
-  });
-  gate.resolve();
-  await expect(page.locator('body')).toContainText('reloaded');
-  // Wait for the first tab's cache compare transaction, not just its visible publication.
-  await expect.poll(() => page.evaluate(() => window.__cacheTransactionDone)).toBe(true);
-  expect((await cacheRecords(page))[0].request_started_at_ms).toBe(accepted.request_started_at_ms);
-  expect((await cacheRecords(page))[0].manifest_json).toContain('Newer response');
-  await second.close();
-});
-
-test('an accepted empty listing removes the current external route', async ({ page }) => {
-  const mountUrl = 'https://raw.githubusercontent.com/0xwonj/mount-db/main/manifest.json';
-  await page.goto(`${baseUrl}/#/db/fresh`, { waitUntil: 'networkidle' });
-  await expect(page.getByRole('heading', { name: 'Fresh', exact: true }).first()).toBeVisible();
-  await page.route(mountUrl, route => route.fulfill({
-    status: 200,
-    contentType: 'application/json',
-    body: JSON.stringify({ entries: [] })
-  }));
-  await page.goto(`${baseUrl}/#/websh`);
-  await runCommand(page, 'refresh /db', 'reloaded');
-  await page.goto(`${baseUrl}/#/db/fresh`);
-  await expect(page.getByRole('heading', { name: /not found/i })).toBeVisible();
+  await newer.reload({waitUntil: 'networkidle'});
+  await expect(newer.locator('body')).toContainText('Accepted newer release');
+  await expect(newer.locator('body')).not.toContainText('Conflicting same-sequence release');
+  await expect(newer.locator('[data-mount-status]')).toContainText(/failed|conflict|sequence/i);
+  expect(rootRecord(await cacheRecords(newer)).source.commit).toBe(nextCommit);
+  await newer.close();
 });

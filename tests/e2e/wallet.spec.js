@@ -40,7 +40,7 @@ test('wallet account and chain events update identity without repartitioning pub
   await page.route('https://api.ensideas.com/**', route => route.fulfill({ status: 503, body: 'ENS unavailable' }));
   await page.goto(`${baseUrl}/#/websh`, { waitUntil: 'networkidle' });
   await runCommand(page, 'login', 'Connected:');
-  await expect.poll(async () => (await cacheRecords(page)).length).toBe(1);
+  await expect.poll(async () => (await cacheRecords(page)).length).toBe(2);
   const keys = (await cacheRecords(page)).map(record => record.key);
   const second = '0x1111111111111111111111111111111111111111';
   await page.evaluate(second => { window.__walletEmit('accountsChanged', [second]); window.__walletEmit('chainChanged', '0x89'); }, second);

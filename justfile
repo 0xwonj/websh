@@ -6,11 +6,11 @@ serve:
     stylance --output-file assets/bundle.css crates/websh-web
     env -u NO_COLOR trunk serve --locked --dist dist-dev --enable-cooldown
 
-# Release build; generation never signs.
+# Release build of the app; independent of content authoring.
 build:
     trunk build --release --locked
 
-# Isolated unsigned release build for browser and size checks.
+# Isolated app build for browser and size checks.
 build-check:
     node scripts/build-check.cjs
 
@@ -18,7 +18,7 @@ build-check:
 setup:
     npm run setup
 
-# Browser checks against the unsigned verification build.
+# Browser checks against the verification build and signed content fixtures.
 [positional-arguments]
 e2e *args:
     env -u NO_COLOR node_modules/.bin/playwright test --reporter=line --workers=1 "$@"
@@ -63,7 +63,6 @@ verify:
     just test-tools
     just lint-css
     just docs-check
-    cargo run --locked -p websh-cli -- check
     just build-check
     just size
     just e2e
@@ -78,9 +77,7 @@ clean *args:
 clean-cache *args:
     node scripts/clean.cjs cache "$@"
 
-# Generate, explicitly sign, build, and publish the current archive.
+# Build and publish the app. Content publication is a separate CLI workflow.
 publish:
-    cargo run --locked -p websh-cli -- sync
-    cargo run --locked -p websh-cli -- attest sign
     trunk build --release --locked
     cargo run --locked -p websh-cli -- deploy

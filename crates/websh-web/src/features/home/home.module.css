@@ -127,10 +127,6 @@
   display: none;
 }
 
-.kwCompact {
-  display: none;
-}
-
 .appendixBCompact {
   display: none;
 }
@@ -146,14 +142,6 @@
 }
 
 @media (max-width: 480px) {
-  .kwFull {
-    display: none;
-  }
-
-  .kwCompact {
-    display: inline;
-  }
-
   .metaValue .dotSep {
     word-spacing: -0.25em;
   }

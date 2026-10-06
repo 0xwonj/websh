@@ -46,7 +46,8 @@
           }
         },
         "derived": {
-          "size_bytes": 2
+          "size_bytes": 2,
+          "content_sha256": "87428fc522803d31065e7bce3cf03fe475096631e5e07bbd7a0fde60c4cf25c7"
         }
       }
     },
@@ -58,7 +59,8 @@
           "title": "B"
         },
         "derived": {
-          "size_bytes": 4
+          "size_bytes": 4,
+          "content_sha256": "3cf9a1a81f6bdeaf08a343c1e1c73e89cf44c06ac2427a892382cae825e7c9c1"
         }
       }
     },
@@ -74,7 +76,8 @@
           ]
         },
         "derived": {
-          "size_bytes": 128
+          "size_bytes": 128,
+          "content_sha256": "24da1b81d0b16df6428eee73c69fcb2a93c76bc6df706f0c6670fe6bfe800464"
         }
       }
     }

@@ -40,7 +40,6 @@ async function installIpfsBaseAlias(page, cid = 'fakecid') {
   await page.route(`**/ipfs/${cid}/**`, async (route) => {
     const url = new URL(route.request().url());
     const targetPath = `/${url.pathname.replace(new RegExp(`^/ipfs/${cid}/?`), '')}`;
-    if (targetPath.startsWith('/content/')) return route.fallback();
     const response = await route.fetch({ url: `${appOrigin}${targetPath}${url.search}` });
     await route.fulfill({ response });
   });

@@ -1,15 +1,10 @@
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
-use crate::app::AppContext;
 use crate::shared::components::size_summary_parts;
-use websh_core::attestation::ledger::{
-    CONTENT_LEDGER_CONTENT_PATH, ContentLedger, ContentLedgerBlock, LedgerValidationError,
-};
 use websh_core::domain::{BundleVariant, FileType, NodeKind, NodeMetadata, VirtualPath};
-use websh_core::filesystem::{ContentReadError, GlobalFs, content_href_for_path};
+use websh_core::filesystem::{GlobalFs, content_href_for_path};
 use websh_core::mempool::LEDGER_CATEGORIES;
-use websh_core::support::format::{format_size, iso_date_prefix};
+use websh_core::support::format::format_size;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct LedgerModel {
@@ -17,9 +12,8 @@ pub(super) struct LedgerModel {
     pub(super) entries: Vec<LedgerEntry>,
     pub(super) counts: BTreeMap<String, usize>,
     pub(super) total_count: usize,
-    pub(super) encrypted_count: usize,
-    pub(super) head_hash: String,
-    pub(super) genesis_date: String,
+    pub(super) restricted_count: usize,
+    pub(super) release_id: String,
     pub(super) latest_date: String,
 }
 
@@ -29,32 +23,8 @@ pub(super) enum LedgerFilter {
     Category(String),
 }
 
-#[derive(Clone, Debug, thiserror::Error)]
-pub(super) enum LedgerLoadError {
-    #[error("root mount failed: {message}")]
-    RootMountFailed { message: String },
-    #[error("read {path}: {source}")]
-    Read {
-        path: VirtualPath,
-        #[source]
-        source: ContentReadError,
-    },
-    #[error("parse ledger json: {source}")]
-    Parse {
-        #[source]
-        source: Arc<serde_json::Error>,
-    },
-    #[error("validate ledger: {source}")]
-    Validate {
-        #[source]
-        source: Arc<LedgerValidationError>,
-    },
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct LedgerEntry {
-    pub(super) block_number: String,
-    pub(super) block_height: u64,
     pub(super) path: String,
     pub(super) href: String,
     pub(super) title: String,
@@ -64,9 +34,7 @@ pub(super) struct LedgerEntry {
     pub(super) kind_chips: Vec<String>,
     pub(super) meta_line: Vec<String>,
     pub(super) variants: Vec<String>,
-    pub(super) encrypted: bool,
-    pub(super) hash: String,
-    pub(super) previous_hash: String,
+    pub(super) restricted: bool,
 }
 
 pub(super) fn ledger_filter_for_route(request_path: &str, node_path: &VirtualPath) -> LedgerFilter {
@@ -80,36 +48,22 @@ pub(super) fn ledger_filter_for_route(request_path: &str, node_path: &VirtualPat
         .unwrap_or(LedgerFilter::All)
 }
 
-pub(super) async fn load_content_ledger(ctx: AppContext) -> Result<ContentLedger, LedgerLoadError> {
-    let path = VirtualPath::from_absolute(format!("/{CONTENT_LEDGER_CONTENT_PATH}"))
-        .expect("ledger path is absolute");
-    let body = ctx
-        .read_text(&path)
-        .await
-        .map_err(|source| LedgerLoadError::Read { path, source })?;
-    let ledger: ContentLedger =
-        serde_json::from_str(&body).map_err(|source| LedgerLoadError::Parse {
-            source: Arc::new(source),
-        })?;
-    ledger
-        .validate()
-        .map_err(|source| LedgerLoadError::Validate {
-            source: Arc::new(source),
-        })?;
-    Ok(ledger)
-}
-
 pub(super) fn build_ledger_model(
     fs: &GlobalFs,
-    ledger: &ContentLedger,
+    publications: &[String],
+    release_id: &str,
     filter: &LedgerFilter,
 ) -> LedgerModel {
-    let all_entries = ledger
-        .blocks
+    let mut all_entries = publications
         .iter()
-        .rev()
-        .filter_map(|block| ledger_entry_for_block(fs, block))
+        .filter_map(|path| ledger_entry_for_path(fs, path))
         .collect::<Vec<_>>();
+    all_entries.sort_by(|left, right| {
+        right
+            .date
+            .cmp(&left.date)
+            .then_with(|| left.path.cmp(&right.path))
+    });
     let total_count = all_entries.len();
 
     let mut counts = BTreeMap::new();
@@ -125,16 +79,10 @@ pub(super) fn build_ledger_model(
         .filter(|entry| filter.includes(entry))
         .cloned()
         .collect::<Vec<_>>();
-    let encrypted_count = entries.iter().filter(|entry| entry.encrypted).count();
-    let head_hash = ledger.chain_head.clone();
+    let restricted_count = entries.iter().filter(|entry| entry.restricted).count();
     let latest_date = entries
         .first()
         .map(|entry| entry.date.clone())
-        .unwrap_or_else(|| "—".to_string());
-    let genesis_date = all_entries
-        .iter()
-        .filter_map(|entry| iso_date_prefix(&entry.date).map(str::to_string))
-        .min()
         .unwrap_or_else(|| "—".to_string());
 
     LedgerModel {
@@ -142,18 +90,16 @@ pub(super) fn build_ledger_model(
         entries,
         counts,
         total_count,
-        encrypted_count,
-        head_hash,
-        genesis_date,
+        restricted_count,
+        release_id: release_id.to_string(),
         latest_date,
     }
 }
 
-fn ledger_entry_for_block(fs: &GlobalFs, block: &ContentLedgerBlock) -> Option<LedgerEntry> {
-    let entry = &block.entry;
-    let node_path = VirtualPath::from_absolute(format!("/{}", entry.path)).ok()?;
+fn ledger_entry_for_path(fs: &GlobalFs, path: &str) -> Option<LedgerEntry> {
+    let node_path = VirtualPath::from_absolute(format!("/{path}")).ok()?;
     let node_meta = fs.node_metadata(&node_path);
-    let fallback_title = fallback_file_title(&entry.path);
+    let fallback_title = fallback_file_title(path);
     let title = node_meta
         .and_then(|meta| meta.title())
         .map(str::to_string)
@@ -166,13 +112,11 @@ fn ledger_entry_for_block(fs: &GlobalFs, block: &ContentLedgerBlock) -> Option<L
         .and_then(|meta| meta.date())
         .map(str::to_string)
         .unwrap_or_else(|| "undated".to_string());
-    let category = entry.category.as_str().to_string();
-    let kind_chips = kind_chips_for_entry(fs, &node_path, node_meta, &category, &entry.path);
+    let category = path.split('/').next()?.to_string();
+    let kind_chips = kind_chips_for_entry(fs, &node_path, node_meta, &category, path);
     let tags = node_meta.map(NodeMetadata::tags_owned).unwrap_or_default();
     let metric_meta = metric_metadata_for_entry(fs, &node_path, node_meta);
-    let size = metric_meta
-        .and_then(|meta| meta.size_bytes())
-        .or(Some(signed_content_size(block)));
+    let size = metric_meta.and_then(|meta| meta.size_bytes());
     let summary_parts = metric_meta
         .map(|meta| {
             size_summary_parts(
@@ -183,7 +127,7 @@ fn ledger_entry_for_block(fs: &GlobalFs, block: &ContentLedgerBlock) -> Option<L
             )
         })
         .unwrap_or_default();
-    let encrypted = node_meta.and_then(|meta| meta.access()).is_some();
+    let restricted = node_meta.and_then(|meta| meta.access()).is_some();
     let variants = node_meta
         .and_then(|meta| meta.bundle.as_ref())
         .map(|bundle| {
@@ -195,10 +139,8 @@ fn ledger_entry_for_block(fs: &GlobalFs, block: &ContentLedgerBlock) -> Option<L
         })
         .unwrap_or_default();
     Some(LedgerEntry {
-        block_number: format!("{:04}", block.height),
-        block_height: block.height,
-        path: entry.path.clone(),
-        href: content_href_for_path(&entry.path),
+        path: path.to_string(),
+        href: content_href_for_path(path),
         title,
         description,
         date,
@@ -206,9 +148,7 @@ fn ledger_entry_for_block(fs: &GlobalFs, block: &ContentLedgerBlock) -> Option<L
         kind_chips,
         meta_line: meta_line_for_entry(summary_parts, size, &tags),
         variants,
-        encrypted,
-        hash: block.block_sha256.clone(),
-        previous_hash: block.prev_block_sha256.clone(),
+        restricted,
     })
 }
 
@@ -228,15 +168,6 @@ fn meta_line_for_entry(
         out.push("content".to_string());
     }
     out
-}
-
-fn signed_content_size(block: &ContentLedgerBlock) -> u64 {
-    block
-        .entry
-        .content_files
-        .iter()
-        .map(|file| file.bytes)
-        .sum()
 }
 
 fn metric_metadata_for_entry<'a>(
@@ -422,10 +353,6 @@ impl LedgerFilter {
 mod tests {
     use super::*;
     use wasm_bindgen_test::*;
-    use websh_core::attestation::ledger::{
-        ContentLedgerCategory, ContentLedgerEntry, ContentLedgerInput, ContentLedgerSortKey,
-    };
-    use websh_core::attestation::subject::ContentFile;
     use websh_core::domain::{
         AuthoredMetadata, BundleMetadata, BundleVariant, DerivedMetadata, EntryExtensions,
         ImageDim, NodeKind,
@@ -433,10 +360,6 @@ mod tests {
 
     fn labels(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_string()).collect()
-    }
-
-    fn sha(byte: char) -> String {
-        format!("0x{}", byte.to_string().repeat(64))
     }
 
     fn vp(path: &str) -> VirtualPath {
@@ -516,28 +439,8 @@ mod tests {
         fs.upsert_file(vp(path), String::new(), meta, EntryExtensions::default());
     }
 
-    fn ledger_for(path: &str, bytes: u64) -> ContentLedger {
-        let entry = ContentLedgerEntry::new(
-            format!("route:/{path}"),
-            format!("/{path}"),
-            path.to_string(),
-            ContentLedgerCategory::for_path(path),
-            vec![ContentFile {
-                path: format!("content/{path}"),
-                sha256: sha('a'),
-                bytes,
-            }],
-        )
-        .unwrap();
-        ContentLedger::new(vec![ContentLedgerInput::new(
-            ContentLedgerSortKey::new(Some("2026-01-01".to_string()), path.to_string()),
-            entry,
-        )])
-        .unwrap()
-    }
-
-    fn single_entry(fs: &GlobalFs, ledger: &ContentLedger) -> LedgerEntry {
-        build_ledger_model(fs, ledger, &LedgerFilter::All)
+    fn single_entry(fs: &GlobalFs, path: &str) -> LedgerEntry {
+        build_ledger_model(fs, &[path.to_string()], "release", &LedgerFilter::All)
             .entries
             .into_iter()
             .next()
@@ -560,7 +463,7 @@ mod tests {
         upsert_file(&mut fs, "/writing/foo/en.md", markdown_meta(2_140));
         upsert_file(&mut fs, "/writing/foo/ko.md", markdown_meta(1_200));
 
-        let entry = single_entry(&fs, &ledger_for("writing/foo", 9_999));
+        let entry = single_entry(&fs, "writing/foo");
 
         assert_eq!(entry.kind_chips, labels(&["markdown"]));
         assert_eq!(entry.meta_line, labels(&["2,140 words", "9 min"]));
@@ -587,7 +490,7 @@ mod tests {
         upsert_file(&mut fs, "/writing/mixed/print.pdf", pdf_meta(4));
         upsert_file(&mut fs, "/writing/mixed/ko.md", markdown_meta(850));
 
-        let entry = single_entry(&fs, &ledger_for("writing/mixed", 9_999));
+        let entry = single_entry(&fs, "writing/mixed");
 
         assert_eq!(entry.kind_chips, labels(&["image", "markdown", "document"]));
     }
@@ -608,22 +511,22 @@ mod tests {
         upsert_file(&mut fs, "/papers/foo/en.md", markdown_meta(2_140));
         upsert_file(&mut fs, "/papers/foo/print.pdf", pdf_meta(12));
 
-        let entry = single_entry(&fs, &ledger_for("papers/foo", 99_999));
+        let entry = single_entry(&fs, "papers/foo");
 
         assert_eq!(entry.meta_line, labels(&["12 pages"]));
     }
 
     #[wasm_bindgen_test]
-    fn missing_default_variant_metadata_falls_back_to_signed_content_size() {
+    fn missing_default_variant_metadata_uses_content_label() {
         let mut fs = GlobalFs::empty();
         fs.upsert_directory(
             vp("/writing/missing"),
             bundle_meta("en", vec![variant("en", "en.md", "English")]),
         );
 
-        let entry = single_entry(&fs, &ledger_for("writing/missing", 12_345));
+        let entry = single_entry(&fs, "writing/missing");
 
         assert_eq!(entry.kind_chips, labels(&["bundle"]));
-        assert_eq!(entry.meta_line, labels(&["12.3K"]));
+        assert_eq!(entry.meta_line, labels(&["content"]));
     }
 }

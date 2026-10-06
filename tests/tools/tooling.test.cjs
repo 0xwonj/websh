@@ -36,18 +36,22 @@ test("architecture enforces dependency directions without requiring unused edges
   assert.deepEqual(forbiddenEdges(packages), ["websh-core->websh-site", "websh-web->websh-cli"]);
 });
 
-test("verification isolates generated sources and compiled outputs from the author checkout", (t) => {
+test("verification builds the app without authored content or deployment credentials", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "websh-build-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-  for (const dir of ["crates", "assets/crypto", "content", "vendor"]) {
+  for (const dir of ["crates/websh-site/src", "assets/crypto", "vendor", "tests/fixtures/pgp"]) {
     fs.mkdirSync(path.join(root, dir), { recursive: true });
   }
   for (const file of ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "Trunk.toml", "index.html", "_headers"]) {
     fs.writeFileSync(path.join(root, file), "fixture");
   }
-  const authored = JSON.stringify({ scheme: "fixture", subjects: [{ signature: "retain" }] });
-  const artifact = path.join("assets", "crypto", "attestations.json");
-  fs.writeFileSync(path.join(root, artifact), authored);
+  const trustKey = path.join("assets", "crypto", "site.asc");
+  fs.writeFileSync(path.join(root, trustKey), "owner public key");
+  fs.writeFileSync(path.join(root, "tests/fixtures/pgp/public.asc"), "test public key");
+  fs.writeFileSync(path.join(root, "tests/fixtures/pgp/identity.json"), JSON.stringify({fingerprint: "B".repeat(40)}));
+  const identity = path.join("crates", "websh-site", "src", "identity.rs");
+  fs.writeFileSync(path.join(root, identity), `pub const EXPECTED_PGP_FINGERPRINT: &str = "${"A".repeat(40)}";`);
+  fs.writeFileSync(path.join(root, ".env"), "DEPLOY_SECRET=must-not-copy");
   let invoked = false;
   const dist = build(root, (command, args, options) => {
     invoked = true;
@@ -55,11 +59,15 @@ test("verification isolates generated sources and compiled outputs from the auth
     assert.deepEqual(args, ["build", "--release", "--locked", "--dist", path.join(root, "target/verify/dist")]);
     assert.equal(options.cwd, path.join(root, "target/verify/source"));
     assert.equal(options.env.CARGO_TARGET_DIR, path.join(root, "target/verify-cargo"));
-    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(options.cwd, artifact))), { scheme: "fixture", subjects: [] });
+    assert.equal(fs.readFileSync(path.join(options.cwd, trustKey), "utf8"), "test public key");
+    assert.ok(fs.readFileSync(path.join(options.cwd, identity), "utf8").includes("B".repeat(40)));
+    assert.equal(fs.existsSync(path.join(options.cwd, "content")), false);
+    assert.equal(fs.existsSync(path.join(options.cwd, ".env")), false);
   });
   assert.ok(invoked);
   assert.equal(dist, path.join(root, "target/verify/dist"));
-  assert.equal(fs.readFileSync(path.join(root, artifact), "utf8"), authored);
+  assert.equal(fs.readFileSync(path.join(root, trustKey), "utf8"), "owner public key");
+  assert.ok(fs.readFileSync(path.join(root, identity), "utf8").includes("A".repeat(40)));
 });
 
 test("Trunk's Binaryen pin must match the bootstrap requirement", () => {

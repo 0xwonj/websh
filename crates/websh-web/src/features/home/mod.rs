@@ -16,6 +16,7 @@ use crate::shared::components::{
 };
 use websh_core::domain::VirtualPath;
 use websh_core::filesystem::{GlobalFs, RouteFrame};
+use websh_core::publication::{Now, Profile};
 
 stylance::import_crate_style!(
     pub(super) css,
@@ -25,8 +26,8 @@ stylance::import_crate_style!(
 mod model;
 mod sections;
 use model::{
-    TOC_ITEMS, compact_homepage_date, current_homepage_date, latest_now_date, parse_now_toml,
-    recent_items_from_fs, site_last_revised_at, toc_item_meta,
+    TOC_ITEMS, compact_homepage_date, latest_now_date, publication_date, recent_items_from_fs,
+    toc_item_meta,
 };
 use sections::{Acknowledgements, Appendices, PageFooter};
 
@@ -47,188 +48,131 @@ fn root_content_readiness(ctx: AppContext) -> RootContentReadiness {
 
 #[component]
 pub fn HomePage(route: Memo<RouteFrame>) -> impl IntoView {
+    let ctx = use_context::<AppContext>().expect("AppContext must be provided");
+    let home = Memo::new(move |_| ctx.content.home());
+
     view! {
         <SiteSurface class=css::home>
             <SiteChrome route=route />
             <SiteContentFrame class=css::page>
                 <crate::shared::components::MountStatusNotice path=Signal::derive(VirtualPath::root) />
-                <HeroHeader />
-                <HomepageMetaTable />
-                <AbstractSection />
-                <TocSection />
-                <IntroSection />
-                <RecentFeed />
-                <Appendices />
-                <Acknowledgements />
-                <PageFooter />
+                {move || home.get().map(|home| {
+                    let issued_at = ctx.content.issued_at().map(publication_date);
+                    view! {
+                        <HeroHeader profile=home.profile.clone() issued_at=issued_at />
+                        <HomepageMetaTable profile=home.profile.clone() />
+                        <AbstractSection text=home.profile.abstract_text.clone() now=home.now />
+                        <TocSection />
+                        <IntroSection profile=home.profile />
+                        <RecentFeed />
+                        <Appendices />
+                        <Acknowledgements artifact=home.ack />
+                        <PageFooter />
+                    }
+                })}
             </SiteContentFrame>
         </SiteSurface>
     }
 }
 
 #[component]
-fn HeroHeader() -> impl IntoView {
-    let today = current_homepage_date();
-    let paper_id = format!("Paper {}", compact_homepage_date(&today));
-    let revised = format!("last revised {}", site_last_revised_at().unwrap_or(today));
+fn HeroHeader(profile: Profile, issued_at: Option<String>) -> impl IntoView {
+    let paper_id = issued_at
+        .as_deref()
+        .map(compact_homepage_date)
+        .map(|date| format!("Paper {date}"))
+        .unwrap_or_default();
+    let revised = issued_at
+        .map(|date| format!("last revised {date}"))
+        .unwrap_or_default();
+    let email_href = format!("mailto:{}", profile.email);
 
     view! {
         <IdentifierStrip>
             <span>{paper_id}</span>
             <span>{revised}</span>
         </IdentifierStrip>
-
         <h1 class=css::title>
-            "wonjae.eth"
-            <span class=css::tagline>"A Homepage, Formalised"</span>
+            {profile.title}
+            <span class=css::tagline>{profile.tagline}</span>
         </h1>
-
         <div class=css::authors>
-            "Wonjae Choi"<sup class=css::star>"*"</sup>
+            {profile.name}<sup class=css::star>"*"</sup>
         </div>
         <div class=css::aff>
-            <sup>"*"</sup>" Seoul National University "
+            <sup>"*"</sup>" "{profile.affiliation}" "
             <span class=css::dotSep>" · "</span>
-            <a href="mailto:wonjae@snu.ac.kr">"wonjae@snu.ac.kr"</a>
+            <a href=email_href>{profile.email}</a>
         </div>
     }
 }
 
 #[component]
-fn HomepageMetaTable() -> impl IntoView {
+fn HomepageMetaTable(profile: Profile) -> impl IntoView {
+    let email_href = format!("mailto:{}", profile.email);
     view! {
         <SharedMetaTable class=css::meta aria_label="ePrint metadata">
-            <SharedMetaRow
-                label="Category"
-                row_class=css::metaRow
-                key_class=css::metaKey
-                value_class=css::metaValue
-            >
-                <span class=css::tag>"cs.CR"</span>
-                <span class=css::tag>"cs.PL"</span>
-                <span class=css::tag>"cs.DC"</span>
+            <SharedMetaRow label="Category" row_class=css::metaRow key_class=css::metaKey value_class=css::metaValue>
+                {profile.categories.into_iter().map(|category| view! {
+                    <span class=css::tag>{category}</span>
+                }).collect_view()}
             </SharedMetaRow>
-            <SharedMetaRow
-                label="Keywords"
-                row_class=css::metaRow
-                key_class=css::metaKey
-                value_class=css::metaValue
-            >
-                <span class=css::kwFull>"zero-knowledge proofs"</span>
-                <span class=css::kwCompact>"zkp"</span>
-                ", compilers, Ethereum"
+            <SharedMetaRow label="Keywords" row_class=css::metaRow key_class=css::metaKey value_class=css::metaValue>
+                {profile.keywords.join(", ")}
             </SharedMetaRow>
-            <SharedMetaRow
-                label="Availability"
-                row_class=css::metaRow
-                key_class=css::metaKey
-                value_class=css::metaValue
-            >
-                <span class=css::availFull>
-                    <span class=css::dim>"ens "</span>
-                    <a href="https://wonjae.eth.limo">"wonjae.eth"</a>
-                </span>
-                <a class=css::availCompact href="https://wonjae.eth.limo">
-                    <span class=css::dim>"ens"</span>
-                </a>
-                <span class=css::dotSep>" · "</span>
+            <SharedMetaRow label="Availability" row_class=css::metaRow key_class=css::metaKey value_class=css::metaValue>
                 <span class=css::availFull>
                     <span class=css::dim>"email "</span>
-                    <a href="mailto:wonjae@snu.ac.kr">"wonjae@snu.ac.kr"</a>
+                    <a href=email_href.clone()>{profile.email}</a>
                 </span>
-                <a class=css::availCompact href="mailto:wonjae@snu.ac.kr">
-                    <span class=css::dim>"email"</span>
-                </a>
-                <span class=css::dotSep>" · "</span>
-                <span class=css::availFull>
-                    <span class=css::dim>"github "</span>
-                    <a href="https://github.com/0xwonj">"0xwonj"</a>
-                </span>
-                <a class=css::availCompact href="https://github.com/0xwonj">
-                    <span class=css::dim>"github"</span>
-                </a>
-                <span class=css::dotSep>" · "</span>
-                <span class=css::availFull>
-                    <span class=css::dim>"linkedin "</span>
-                    <a href="https://www.linkedin.com/in/wonj">"wonjaechoi"</a>
-                </span>
-                <a class=css::availCompact href="https://www.linkedin.com/in/wonj">
-                    <span class=css::dim>"linkedin"</span>
-                </a>
+                <a class=css::availCompact href=email_href><span class=css::dim>"email"</span></a>
+                {profile.links.into_iter().map(|link| {
+                    let kind = link.kind.unwrap_or_else(|| link.label.clone());
+                    view! {
+                        <span class=css::dotSep>" · "</span>
+                        <span class=css::availFull>
+                            <span class=css::dim>{kind.clone()}" "</span>
+                            <a href=link.url.clone()>{link.label}</a>
+                        </span>
+                        <a class=css::availCompact href=link.url><span class=css::dim>{kind}</span></a>
+                    }
+                }).collect_view()}
             </SharedMetaRow>
-            <SharedMetaRow
-                label="Status"
-                row_class=css::metaRow
-                key_class=css::metaKey
-                value_class=css::metaValue
-            >
-                <span class=css::live>"accepting revisions"</span>
+            <SharedMetaRow label="Status" row_class=css::metaRow key_class=css::metaKey value_class=css::metaValue>
+                <span class=css::live>{profile.status}</span>
             </SharedMetaRow>
         </SharedMetaTable>
     }
 }
 
 #[component]
-fn AbstractSection() -> impl IntoView {
+fn AbstractSection(text: String, now: Now) -> impl IntoView {
+    let rendered = render_inline_markdown(&text);
     view! {
         <h2 class=css::sectionTitle data-n="">"Abstract"</h2>
-        <p>
-            "We present a personal homepage, formalised. The author is a PhD student working on "
-            <em>"zero-knowledge proofs"</em>", "<em>"compiler design"</em>", and "<em>"Ethereum"</em>".
-            The site is a virtual filesystem; "<em>"websh"</em>" is the shell that mounts it."
-        </p>
-
-        <NowSection />
+        <p><InlineMarkdownView rendered=Signal::derive(move || rendered.clone()) /></p>
+        <NowSection now=now />
     }
 }
 
 #[component]
-fn NowSection() -> impl IntoView {
-    let ctx = use_context::<AppContext>().expect("AppContext must be provided");
-    let root_version = Memo::new(move |_| ctx.content.read_version(&VirtualPath::root()));
-    let now = LocalResource::new(move || {
-        let _version = root_version.get();
-        let readiness = untrack(|| root_content_readiness(ctx));
-        let path = VirtualPath::from_absolute("/.site/now.toml").expect("constant path");
-        let should_read = readiness == RootContentReadiness::Loaded
-            && ctx.content.with_fs_untracked(|fs| fs.exists(&path));
-
-        async move {
-            if !should_read {
-                return None;
-            }
-
-            ctx.read_text(&path)
-                .await
-                .ok()
-                .and_then(|body| parse_now_toml(&body).ok())
-        }
-    });
-
+fn NowSection(now: Now) -> impl IntoView {
+    let timestamp = latest_now_date(&now.items)
+        .map(|date| format!("last touched {date}"))
+        .unwrap_or_default();
     view! {
-        {move || {
-            now.get().flatten().map(|doc| {
-                let timestamp = latest_now_date(&doc.items)
-                    .map(|date| format!("last touched {date}"))
-                    .unwrap_or_default();
-
-                view! {
-                    <div class=css::nowInline>
-                        <p class=css::nowFormalLead><em>"Now"</em>":"</p>
-                        <ul class=css::nowFormal>
-                            {doc.items.into_iter().map(|item| {
-                                let rendered = render_inline_markdown(&item.text);
-                                let rendered = Signal::derive(move || rendered.clone());
-                                view! {
-                                    <li><InlineMarkdownView rendered=rendered /></li>
-                                }
-                            }).collect_view()}
-                        </ul>
-                        <p class=css::ts>{timestamp}</p>
-                    </div>
-                }
-            })
-        }}
+        <div class=css::nowInline>
+            <p class=css::nowFormalLead><em>"Now"</em>":"</p>
+            <ul class=css::nowFormal>
+                {now.items.into_iter().map(|item| {
+                    let rendered = render_inline_markdown(&item.text);
+                    view! {
+                        <li><InlineMarkdownView rendered=Signal::derive(move || rendered.clone()) /></li>
+                    }
+                }).collect_view()}
+            </ul>
+            <p class=css::ts>{timestamp}</p>
+        </div>
     }
 }
 
@@ -264,14 +208,20 @@ fn TocSection() -> impl IntoView {
 }
 
 #[component]
-fn IntroSection() -> impl IntoView {
+fn IntroSection(profile: Profile) -> impl IntoView {
+    let introduction = render_inline_markdown(&profile.introduction);
+    let constraints = format!(
+        "  research  ∋ {{{}}}\n             toolchain ∋ {{{}}}\n             habits    ∋ {{{}}}\n             output    = /papers ‖ /writing ‖ /projects ‖ /talks ‖ /misc",
+        profile.research.join(", "),
+        profile.tools.join(", "),
+        profile.habits.join(", "),
+    );
     view! {
         <h2 id="sec-intro" class=css::sectionTitle data-n="1.">
             "Introduction"<span class=css::loc>"[§1]"</span>
         </h2>
         <p class=css::introLead>
-            "The author is the circuit below; this page is its proof transcript. The job is to convince you, without leaking the "
-            <em>"witness"</em>", that the "<em>"constraints"</em>" are satisfiable."
+            <InlineMarkdownView rendered=Signal::derive(move || introduction.clone()) />
         </p>
 
         <div class=css::protocol>
@@ -280,7 +230,7 @@ fn IntroSection() -> impl IntoView {
                 <span><span class=css::tag>"unaudited"</span></span>
             </header>
             <div class=css::protocolBody>
-                <pre class=css::line><span class=css::kw>"public"</span>"       Wonjae Choi · PhD @ SNU · Seoul\n\n"<span class=css::kw>"private"</span>"      mood, unfinished drafts, open browser tabs (n ≫ 1)\n\n"<span class=css::kw>"constraints"</span>"  research  ∋ {zkVMs, ZK Compilers, EVM Compilers}\n             toolchain ∋ {Rust, Python, Solidity, LLVM}\n             habits    ∋ {nocturnal, infinite side projects, wasting LLM tokens}\n             output    = /papers ‖ /writing ‖ /projects ‖ /talks ‖ /misc"</pre>
+                <pre class=css::line><span class=css::kw>"public"</span>"       "{profile.public_identity}"\n\n"<span class=css::kw>"private"</span>"      "{profile.private_identity}"\n\n"<span class=css::kw>"constraints"</span>{constraints}</pre>
             </div>
             <footer>
                 <span>

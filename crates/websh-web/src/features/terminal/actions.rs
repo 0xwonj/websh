@@ -95,7 +95,7 @@ pub(super) fn create_submit_callback(ctx: AppContext, route_ctx: RouteContext) -
 
         let wallet_state = ctx.wallet.state.get();
         let runtime_mounts = ctx.content.runtime_mounts_snapshot();
-        let execution_context = shell_execution_context(&runtime_state);
+        let execution_context = shell_execution_context(&runtime_state, ctx.content.home());
         let result = ctx.with_fs(|current_fs| {
             execute_pipeline_with_context(
                 &pipeline,

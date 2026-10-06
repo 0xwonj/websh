@@ -6,6 +6,7 @@ mod error;
 mod intent;
 mod meta;
 mod preferences;
+mod resources;
 mod shell;
 mod title_block;
 mod views;
@@ -16,7 +17,6 @@ use leptos::prelude::*;
 
 use crate::app::{AppContext, RuntimeServices};
 use crate::platform::dom::absolute_hash_url_for_request_path;
-use crate::shared::components::nearest_attestation_route_for_content_path;
 use websh_core::filesystem::{RouteFrame, content_route_for_path};
 use websh_core::support::normalize_locale_tag;
 
@@ -52,7 +52,7 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
             .bundle_variant
             .as_ref()
             .map(|context| content_route_for_path(context.bundle_path.as_str()))
-            .unwrap_or_else(|| nearest_attestation_route_for_content_path(&canonical_path.get()))
+            .unwrap_or_else(|| content_route_for_path(canonical_path.get().as_str()))
     });
 
     let intent_memo = Memo::new(move |_| frame.get().intent.clone());
@@ -93,16 +93,11 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
         }
     });
 
-    // Externally authored mempool publications are pending attestation.
-    let show_pending =
-        Signal::derive(move || canonical_path.get().as_str().starts_with("/mempool/"));
-
     let shell_state = ReaderShellState {
         intent: intent_memo,
         meta: reader_meta_memo,
         chrome_route,
         attestation_route,
-        show_pending,
         set_preferred_locale,
     };
 
@@ -137,6 +132,7 @@ fn render_view_body(
         Err(error) => return view! { <div class=css::error>{error.to_string()}</div> }.into_any(),
     };
 
+    let _assets = StoredValue::new_local(document.assets);
     match document.content {
         RendererContent::Markdown(rendered) => {
             let rendered = Signal::derive(move || rendered.clone());

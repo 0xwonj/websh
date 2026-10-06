@@ -14,3 +14,6 @@ pub mod shared;
 
 #[cfg(test)]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
+
+#[cfg(test)]
+mod publication_tests;

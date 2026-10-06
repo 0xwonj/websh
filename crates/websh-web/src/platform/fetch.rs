@@ -25,6 +25,8 @@ pub enum FetchError {
     ResponseReadFailed,
     #[error("invalid response content")]
     InvalidContent,
+    #[error("response exceeds its allowed byte length")]
+    TooLarge,
     #[error("JSON parse error: {0}")]
     JsonParseError(String),
     #[error("request timed out")]
@@ -83,23 +85,47 @@ pub struct TextResponse {
     pub body: String,
 }
 
-/// A single deadline covers headers AND the complete body. Abort is best effort;
-/// the runtime's generation/epoch checks remain authoritative after cancellation.
-pub async fn fetch_manifest(url: &str, timeout_ms: u32) -> Result<TextResponse, FetchError> {
-    fetch_text(url, timeout_ms, web_sys::RequestCache::NoCache).await
-}
-
-async fn fetch_text(
+pub async fn fetch_text(
     url: &str,
     timeout_ms: u32,
     cache: web_sys::RequestCache,
 ) -> Result<TextResponse, FetchError> {
+    let response = fetch_bytes(url, timeout_ms, cache).await?;
+    Ok(TextResponse {
+        status: response.status,
+        retry_after: response.retry_after,
+        body: String::from_utf8(response.body).map_err(|_| FetchError::InvalidContent)?,
+    })
+}
+
+pub struct BytesResponse {
+    pub status: u16,
+    pub retry_after: Option<u64>,
+    pub body: Vec<u8>,
+}
+
+pub async fn fetch_bytes(
+    url: &str,
+    timeout_ms: u32,
+    cache: web_sys::RequestCache,
+) -> Result<BytesResponse, FetchError> {
+    fetch_bytes_bounded(url, timeout_ms, cache, 16 * 1024 * 1024).await
+}
+
+/// A single deadline and byte budget cover headers and every decoded body chunk.
+pub async fn fetch_bytes_bounded(
+    url: &str,
+    timeout_ms: u32,
+    cache: web_sys::RequestCache,
+    max_bytes: usize,
+) -> Result<BytesResponse, FetchError> {
     use futures_util::future::{Either, select};
     let window = web_sys::window().ok_or(FetchError::NoWindow)?;
     let abort = AbortController::new().map_err(|_| FetchError::AbortControllerFailed)?;
     let options = RequestInit::new();
     options.set_method("GET");
     options.set_mode(RequestMode::Cors);
+    options.set_credentials(web_sys::RequestCredentials::Omit);
     options.set_cache(cache);
     options.set_signal(Some(&abort.signal()));
     let request = Request::new_with_str_and_init(url, &options)
@@ -117,16 +143,36 @@ async fn fetch_text(
             .ok()
             .flatten()
             .and_then(|value| value.parse().ok());
-        let body = JsFuture::from(
-            response
-                .text()
-                .map_err(|_| FetchError::ResponseReadFailed)?,
-        )
-        .await
-        .map_err(|_| FetchError::ResponseReadFailed)?
-        .as_string()
-        .ok_or(FetchError::InvalidContent)?;
-        Ok(TextResponse {
+        let mut body = Vec::new();
+        if (200..300).contains(&status)
+            && let Some(stream) = response.body()
+        {
+            let reader = stream
+                .get_reader()
+                .dyn_into::<web_sys::ReadableStreamDefaultReader>()
+                .map_err(|_| FetchError::ResponseReadFailed)?;
+            loop {
+                let item = JsFuture::from(reader.read())
+                    .await
+                    .map_err(|_| FetchError::ResponseReadFailed)?;
+                if js_sys::Reflect::get(&item, &JsValue::from_str("done"))
+                    .map_err(|_| FetchError::ResponseReadFailed)?
+                    .as_bool()
+                    == Some(true)
+                {
+                    break;
+                }
+                let chunk = js_sys::Reflect::get(&item, &JsValue::from_str("value"))
+                    .map_err(|_| FetchError::ResponseReadFailed)?;
+                let chunk = js_sys::Uint8Array::new(&chunk);
+                if body.len().saturating_add(chunk.length() as usize) > max_bytes {
+                    let _ = reader.cancel();
+                    return Err(FetchError::TooLarge);
+                }
+                body.extend_from_slice(&chunk.to_vec());
+            }
+        }
+        Ok(BytesResponse {
             status,
             retry_after,
             body,
@@ -138,7 +184,12 @@ async fn fetch_text(
     )
     .await
     {
-        Either::Left((result, _)) => result,
+        Either::Left((result, _)) => {
+            if result.is_err() {
+                abort.abort();
+            }
+            result
+        }
         Either::Right(_) => {
             abort.abort();
             Err(FetchError::Timeout)
@@ -162,7 +213,7 @@ mod tests {
     #[wasm_bindgen_test(async)]
     async fn deadline_includes_body_after_successful_headers() {
         let restore = stallBody();
-        let result = fetch_manifest("/test-stalled-manifest", 25).await;
+        let result = fetch_text("/test-stalled-manifest", 25, web_sys::RequestCache::NoCache).await;
         restore.call0(&JsValue::UNDEFINED).unwrap();
         assert!(matches!(result, Err(FetchError::Timeout)));
     }

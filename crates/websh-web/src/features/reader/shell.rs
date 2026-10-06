@@ -3,7 +3,7 @@
 use leptos::prelude::*;
 
 use crate::features::chrome::SiteChrome;
-use crate::shared::components::AttestationSigFooter;
+use crate::shared::components::ReleaseSigFooter;
 use websh_core::filesystem::RouteFrame;
 
 use super::actions::ReaderActionsBindings;
@@ -20,7 +20,6 @@ pub struct ReaderShellState {
     pub meta: Memo<ReaderMeta>,
     pub chrome_route: Memo<RouteFrame>,
     pub attestation_route: Signal<String>,
-    pub show_pending: Signal<bool>,
     pub set_preferred_locale: Callback<String>,
 }
 
@@ -41,7 +40,7 @@ pub fn ReaderShell(
                             intent=state.intent
                             meta=state.meta
                             actions=actions
-                                    set_preferred_locale=state.set_preferred_locale
+                            set_preferred_locale=state.set_preferred_locale
                         />
                     </Show>
                     <div
@@ -52,9 +51,8 @@ pub fn ReaderShell(
                         {children()}
                     </div>
                 </div>
-                <AttestationSigFooter
+                <ReleaseSigFooter
                     route=state.attestation_route
-                    show_pending=state.show_pending
                 />
             </main>
         </div>

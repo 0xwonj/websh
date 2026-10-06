@@ -7,8 +7,7 @@ use leptos::prelude::*;
 use crate::app::AppContext;
 use crate::features::chrome::SiteChrome;
 use crate::shared::components::{
-    AttestationSigFooter, IdentifierStrip, MetaRow, MetaTable, SiteContentFrame, SiteSurface,
-    nearest_attestation_route_for_content_path,
+    IdentifierStrip, MetaRow, MetaTable, ReleaseSigFooter, SiteContentFrame, SiteSurface,
 };
 use model::{
     DirectoryListingEntry, DirectoryListingGroup, DirectoryModel,
@@ -42,7 +41,9 @@ pub fn DirectoryPage(route: Memo<RouteFrame>) -> impl IntoView {
             .map(|context| {
                 websh_core::filesystem::content_route_for_path(context.bundle_path.as_str())
             })
-            .unwrap_or_else(|| nearest_attestation_route_for_content_path(&node_path.get()))
+            .unwrap_or_else(|| {
+                websh_core::filesystem::content_route_for_path(node_path.get().as_str())
+            })
     });
 
     view! {
@@ -59,7 +60,7 @@ pub fn DirectoryPage(route: Memo<RouteFrame>) -> impl IntoView {
                         </section>
                     </div>
                 }}
-                <AttestationSigFooter route=attestation_route />
+                <ReleaseSigFooter route=attestation_route />
             </SiteContentFrame>
         </SiteSurface>
     }

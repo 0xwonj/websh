@@ -7,14 +7,29 @@ use websh_core::shell::{ExecutionContext, SystemInfo};
 use crate::config::MS_PER_SECOND;
 
 /// Build the target context supplied to the core shell executor.
-pub fn shell_execution_context(runtime_state: &RuntimeStateSnapshot) -> ExecutionContext {
+pub fn shell_execution_context(
+    runtime_state: &RuntimeStateSnapshot,
+    home: Option<websh_core::publication::HomeProjection>,
+) -> ExecutionContext {
     ExecutionContext {
         system_info: SystemInfo {
             uptime: get_uptime(),
             user_agent: get_user_agent(),
         },
         env: runtime_state.env.clone(),
-        shell_text: websh_site::SHELL_TEXT,
+        shell_text: websh_core::shell::ShellText::new(
+            home.map(|home| {
+                format!(
+                    "{}\n{}\n{}\n{}",
+                    home.profile.name,
+                    home.profile.affiliation,
+                    home.profile.abstract_text,
+                    home.profile.email
+                )
+            })
+            .unwrap_or_else(|| "Content is loading.".into()),
+            websh_site::HELP_TEXT,
+        ),
     }
 }
 

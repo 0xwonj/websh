@@ -1,5 +1,4 @@
-const { createHash } = require('node:crypto');
-const { test, expect, baseUrl, siteManifest, fileEntry, dirEntry, manifestDocument, installContentPage } = require('./support/fixtures');
+const { test, expect, baseUrl, rawOrigin, rootPath, rootPointer, siteEntries, fileEntry, dirEntry, home, publishRoot, installContentPage } = require('./support/fixtures');
 const { deferred, collectNavigationNetwork, installIpfsBaseAlias } = require('./support/browser');
 
 async function readBreadcrumbLayout(page) {
@@ -28,153 +27,68 @@ async function readBreadcrumbLayout(page) {
   });
 }
 
-test('root loads the built-in homepage and public app assets', async ({ page, request }) => {
-  for (const path of ['/assets/manifest.json', '/assets/favicon.svg']) {
-    expect((await request.get(`${baseUrl}${path}`)).status(), path).toBe(200);
-  }
-  const response = await request.get(`${baseUrl}/assets/crypto/attestations.json`);
-  expect(response.status()).toBe(200);
-  const artifact = await response.json();
-  const publicFiles = artifact.subjects.flatMap(subject => subject.content_files)
-    .filter(file => file.path.startsWith('assets/'));
-  expect(publicFiles.length).toBeGreaterThan(0);
-  for (const file of publicFiles) {
-    const response = await request.get(`${baseUrl}/${file.path}`);
-    expect(response.status(), file.path).toBe(200);
-    const bytes = await response.body();
-    expect(bytes.length, file.path).toBe(file.bytes);
-    expect(`0x${createHash('sha256').update(bytes).digest('hex')}`, file.path).toBe(file.sha256);
-  }
-  const network = collectNavigationNetwork(page);
-  await page.goto(`${baseUrl}/`, { waitUntil: 'networkidle' });
-  expect(new URL(page.url()).hash).toBe('#/');
-  await expect(page.locator('body')).toContainText('A Homepage, Formalised', { timeout: 10000 });
-  await expect(page.getByRole('navigation', { name: 'path' })).toHaveText('~');
-  await expect(page.locator('body')).not.toContainText('No route matched');
+test('cold home authenticates three root requests without bundled content', async ({ page, request, responses }) => {
+  for (const path of ['/assets/manifest.json','/assets/favicon.svg','/assets/crypto/site.asc']) expect((await request.get(`${baseUrl}${path}`)).status()).toBe(200);
+  expect((await request.get(`${baseUrl}/content/manifest.json`)).status()).toBe(404);
+  const network=collectNavigationNetwork(page); const requests=[];
+  page.on('request',request=>{ if(request.url().startsWith(`${rawOrigin}/0xwonj/websh-content/`)) requests.push(new URL(request.url()).pathname); });
+  await page.addInitScript(() => {
+    const observer = new MutationObserver(() => {
+      if (document.body?.textContent.includes('Fixture Now item')) {
+        window.fixtureHomeReady = performance.now();
+        observer.disconnect();
+      }
+    });
+    observer.observe(document, {subtree: true, childList: true});
+  });
+  await page.goto(`${baseUrl}/`,{waitUntil:'networkidle'});
+  await expect(page.locator('body')).toContainText('A Homepage, Formalised');
+  await expect(page.getByRole('navigation',{name:'path'})).toHaveText('~');
+  expect(requests.sort()).toEqual([rootPointer,rootPath('manifest.json'),rootPath('manifest.sig')].sort());
+  const timing = await page.evaluate(() => {
+    const resources = performance.getEntriesByType('resource').filter(entry => entry.name.includes('/0xwonj/websh-content/'));
+    const firstRequest = Math.min(...resources.map(entry => entry.startTime));
+    const lastResponse = Math.max(...resources.map(entry => entry.responseEnd));
+    return {
+      rootRequests: resources.length,
+      discoveryMs: Math.round(lastResponse - firstRequest),
+      verifyAndInstallMs: Math.round(window.fixtureHomeReady - lastResponse),
+      homeReadyMs: Math.round(window.fixtureHomeReady)
+    };
+  });
+  const metadataBytes = [rootPointer, rootPath('manifest.json'), rootPath('manifest.sig')]
+    .reduce((total, path) => total + Buffer.byteLength(responses.get(path)), 0);
+  console.log(`Cold fixture home: ${JSON.stringify({...timing, metadataBytes})}`);
+  await page.getByRole('button',{name:'Content release signature'}).click();
+  await expect(page.locator('body')).toContainText('OpenPGP · signed content release');
   expect(network.sameOriginFailures).toEqual([]);
 });
 
-test('home renders static sections while the root manifest is still loading', async ({ page, responses }) => {
-  const manifestRequested = deferred();
-  const releaseManifest = deferred();
-  const manifest = manifestDocument([
-    ...siteManifest.entries,
-    fileEntry('.site/now.toml', 'Now', { kind: 'document' }),
-    dirEntry('writing', 'writing'),
-    dirEntry('projects', 'projects'),
-    fileEntry('writing/loaded.md', 'Loaded Writing', {
-      date: '2026-05-01',
-      tags: ['notes']
-    }),
-    fileEntry('projects/loaded.md', 'Loaded Project', {
-      date: '2026-05-02',
-      tags: ['rust']
-    })
-  ]);
-  responses.set('/content/manifest.json', JSON.stringify(manifest));
-  responses.set('/content/.site/now.toml', '[[items]]\ndate = "2026-05-01"\ntext = "Loaded now item"\n');
-
-  await page.route('**/content/manifest.json', async (route) => {
-    manifestRequested.resolve();
-    await releaseManifest.promise;
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: responses.get('/content/manifest.json')
-    });
-  });
-
-  await page.goto(`${baseUrl}/#/`, { waitUntil: 'domcontentloaded' });
-
-  await expect(page.locator('body')).toContainText('A Homepage, Formalised', { timeout: 10000 });
-  const toc = page.getByRole('navigation', { name: 'Site index' });
-  const writingLink = toc.getByRole('link', { name: /writing/ });
-  await expect(writingLink).toContainText('…');
-  await expect(page.locator('body')).not.toContainText('Loaded Project');
-  await expect(page.locator('body')).not.toContainText('Loaded now item');
-
-  await manifestRequested.promise;
-  releaseManifest.resolve();
-
-  await expect(writingLink).toContainText('1', { timeout: 10000 });
-  await expect(page.locator('body')).toContainText('Loaded Project', { timeout: 10000 });
-  await expect(page.locator('body')).toContainText('Loaded now item', { timeout: 10000 });
+test('home projection appears atomically after signature and manifest verification', async ({page,responses})=>{
+ const gate=deferred();const started=deferred();
+ publishRoot(responses,{entries:[...siteEntries,dirEntry('writing','writing'),fileEntry('writing/loaded.md','Loaded Writing',{date:'2026-05-01'})],files:{'writing/loaded.md':'# Loaded'},projection:{...home,now:{items:[{date:'2026-05-01',text:'Loaded now item'}]}}});
+ await page.route(`${rawOrigin}${rootPath('manifest.sig')}`,async route=>{started.resolve();await gate.promise;await route.fulfill({status:200,body:responses.get(rootPath('manifest.sig'))});});
+ await page.goto(`${baseUrl}/#/`,{waitUntil:'domcontentloaded'});await started.promise;
+ await expect(page.locator('body')).not.toContainText('Loaded now item');
+ await expect(page.locator('body')).not.toContainText('Fixture Author');
+ gate.resolve();
+ await expect(page.locator('body')).toContainText('Loaded now item');
+ await expect(page.getByRole('navigation',{name:'Site index'}).getByRole('link',{name:/writing/})).toContainText('1');
 });
 
-test('missing content hash route shows 404 only after root manifest loads', async ({ page, responses }) => {
-  const manifestRequested = deferred();
-  const releaseManifest = deferred();
-
-  await page.route('**/content/manifest.json', async (route) => {
-    manifestRequested.resolve();
-    await releaseManifest.promise;
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: responses.get('/content/manifest.json')
-    });
-  });
-
-  await page.goto(`${baseUrl}/#/docs/missing`, { waitUntil: 'domcontentloaded' });
-  await manifestRequested.promise;
-
-  await expect(page.locator('body')).toContainText('route pending', { timeout: 10000 });
-  await expect(page.locator('body')).not.toContainText('404');
-  await expect(page.locator('body')).not.toContainText('No route matched');
-
-  releaseManifest.resolve();
-  await expect(page.locator('body')).toContainText('404', { timeout: 10000 });
-  await expect(page.locator('body')).toContainText('Page not found');
-  await page.getByRole('button', { name: 'Signature of this page' }).click();
-  await expect(page.locator('body')).toContainText('/.site');
+test('missing routes wait for an authenticated catalog and failures never become 404', async ({page,responses,errors})=>{
+ const gate=deferred();const started=deferred();
+ await page.route(`${rawOrigin}${rootPath('manifest.json')}`,async route=>{started.resolve();await gate.promise;await route.fulfill({status:200,body:responses.get(rootPath('manifest.json'))});});
+ await page.goto(`${baseUrl}/#/docs/missing`,{waitUntil:'domcontentloaded'});await started.promise;
+ await expect(page.getByRole('heading',{name:'Route pending'})).toBeVisible();
+ gate.resolve();await expect(page.getByRole('heading',{name:/not found/i})).toBeVisible();
 });
 
-test('direct content hash route reports root mount failure when manifest fails', async ({ page, errors }) => {
-  errors.allowHttpError('/content/manifest.json', 404);
-  await page.route('**/content/manifest.json', async (route) => {
-    await route.fulfill({
-      status: 404,
-      contentType: 'text/plain',
-      body: 'root manifest unavailable'
-    });
-  });
-
-  await page.goto(`${baseUrl}/#/docs/old`, { waitUntil: 'domcontentloaded' });
-
-  await expect(page.locator('body')).toContainText(/route unconfirmed/i, { timeout: 10000 });
-  await expect(page.locator('body')).toContainText('content/manifest.json');
-  await expect(page.locator('body')).not.toContainText('404');
-  await expect(page.locator('body')).not.toContainText('No route matched');
-});
-
-test('ledger navigation shares the home prefetch request', async ({ page, responses }) => {
-  const ledgerRequested = deferred();
-  const releaseLedger = deferred();
-  let ledgerRequests = 0;
-
-  await page.route('**/content/.websh/ledger.json', async (route) => {
-    ledgerRequests += 1;
-    ledgerRequested.resolve();
-    await releaseLedger.promise;
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: responses.get('/content/.websh/ledger.json')
-    });
-  });
-
-  await page.goto(`${baseUrl}/#/`, { waitUntil: 'domcontentloaded' });
-  await ledgerRequested.promise;
-  expect(ledgerRequests).toBe(1);
-
-  await page.getByRole('link', { name: 'ledger' }).first().click();
-  await page.waitForURL('**/#/ledger');
-  await expect(page.locator('body')).toContainText('ledger pending', { timeout: 10000 });
-  expect(ledgerRequests).toBe(1);
-  releaseLedger.resolve();
-
-  await expect(page.locator('body')).toContainText('appendable', { timeout: 10000 });
-  expect(ledgerRequests).toBe(1);
+test('cold invalid root signature is rejected before homepage publication',async ({page,responses})=>{
+ responses.set(rootPath('manifest.sig'),'not a signature');
+ await page.goto(`${baseUrl}/#/`,{waitUntil:'networkidle'});
+ await expect(page.locator('[data-mount-status]')).toContainText(/failed|unavailable/i);
+ await expect(page.locator('body')).not.toContainText('Fixture Author');
 });
 
 test('long breadcrumbs remain readable without colliding with responsive navigation', async ({ page, responses }) => {

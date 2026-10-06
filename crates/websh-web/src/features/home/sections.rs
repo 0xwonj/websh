@@ -8,12 +8,12 @@ use wasm_bindgen_futures::{JsFuture, spawn_local};
 use crate::config::{APP_NAME, APP_VERSION};
 use crate::platform::breakpoints::{BP_SM, use_min_width};
 use crate::shared::components::{
-    AttestationSigFooter, MonoOverflow, MonoTone, MonoValue, WindowFrame, WindowTrafficButton,
+    MonoOverflow, MonoTone, MonoValue, ReleaseSigFooter, WindowFrame, WindowTrafficButton,
     WindowTrafficLink, WindowTrafficTone,
 };
 use websh_core::crypto::ack::{
-    AckMembershipProof, AckReceipt, normalize_ack_name, public_proof_for_name, short_hash,
-    verify_private_receipt,
+    AckArtifact, AckMembershipProof, AckReceipt, normalize_ack_name, public_proof_for_name,
+    short_hash, verify_private_receipt,
 };
 use websh_core::crypto::pgp::pretty_fingerprint;
 
@@ -89,7 +89,7 @@ fn PublicKeyAppendix() -> impl IntoView {
         <details class=css::appendix id="appendix-a">
             <summary><h2 class=css::sectionTitle data-n="A.">"Appendix A · Public Key"<span class=css::loc>"[§A]"</span></h2></summary>
             <p>
-                "OpenPGP key for "<em>"Wonjae Choi <wonjae@snu.ac.kr>"</em>". Use it to send encrypted mail or verify signatures. Rotation: when it annoys me."
+                "This app pins the following owner OpenPGP key. Content releases are authenticated against this identity."
             </p>
             <p class=css::footnote>
                 "Fingerprint: "<span class=css::fp>{pretty_fingerprint(websh_site::EXPECTED_PGP_FINGERPRINT)}</span>
@@ -122,7 +122,7 @@ fn PublicKeyAppendix() -> impl IntoView {
                 {copy_live}
             </span>
             <p class=css::footnote>
-                "Also reachable via the virtual filesystem at "<a href="#/.site/keys/wonjae.asc">"/.site/keys/wonjae.asc"</a>"."
+                <a href=websh_site::PUBLIC_KEY_PATH download="site.asc">"Download the public key"</a>"."
             </p>
         </details>
     }
@@ -263,8 +263,7 @@ fn ShellAppendix() -> impl IntoView {
 }
 
 #[component]
-pub(super) fn Acknowledgements() -> impl IntoView {
-    let artifact = websh_site::ack_artifact().expect("homepage ACK artifact must parse");
+pub(super) fn Acknowledgements(artifact: AckArtifact) -> impl IntoView {
     let combined_root = artifact.combined_root.clone();
     let depth = ack_public_depth(artifact.public.count);
     let ack_count = artifact.public.count;
@@ -300,7 +299,7 @@ pub(super) fn Acknowledgements() -> impl IntoView {
                 }
             };
 
-            match verify_private_receipt(artifact, &receipt) {
+            match verify_private_receipt(&artifact, &receipt) {
                 Ok(verification) => set_ack_result.set(AckResult {
                     message: format!(
                         "✓ private acknowledgement receipt · name committed privately · root {}",
@@ -323,7 +322,7 @@ pub(super) fn Acknowledgements() -> impl IntoView {
             return;
         }
 
-        let proof = match public_proof_for_name(artifact, &raw) {
+        let proof = match public_proof_for_name(&artifact, &raw) {
             Ok(Some(proof)) => proof,
             Ok(None) => {
                 set_ack_result.set(AckResult {
@@ -497,9 +496,8 @@ fn AckProofView(proof: AckMembershipProof) -> impl IntoView {
 #[component]
 pub(super) fn PageFooter() -> impl IntoView {
     view! {
-        <AttestationSigFooter
+        <ReleaseSigFooter
             route=Signal::derive(|| "/".to_string())
-            show_pending=Signal::derive(|| true)
             colophon=true
         />
     }

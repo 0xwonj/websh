@@ -3,6 +3,7 @@
 //! UI features should call this module for browser-side runtime work instead
 //! of reaching directly into core storage or runtime adapter internals.
 
+pub(crate) mod body_cache;
 pub(crate) mod content;
 pub(crate) mod content_cache;
 mod error;

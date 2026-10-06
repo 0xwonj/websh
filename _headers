@@ -26,9 +26,6 @@
 /index.html
   Cache-Control: public, max-age=0, must-revalidate
 
-/content/*
-  Cache-Control: public, max-age=0, must-revalidate
-
 /assets/manifest.json
   Cache-Control: public, max-age=0, must-revalidate
 

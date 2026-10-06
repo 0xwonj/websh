@@ -8,6 +8,8 @@ use crate::platform::redirect::UrlValidationError;
 
 #[derive(Clone, Debug, thiserror::Error)]
 pub(super) enum ReaderLoadError {
+    #[error("document resources: {0}")]
+    Resources(String),
     #[error("read {path}: {source}")]
     Read {
         path: VirtualPath,

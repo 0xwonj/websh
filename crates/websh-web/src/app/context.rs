@@ -93,13 +93,6 @@ impl AppContext {
         }
         self.content.read_bytes(path).await
     }
-
-    pub fn public_read_url(&self, path: &VirtualPath) -> Result<Option<String>, ContentReadError> {
-        if is_runtime_overlay_path(path) {
-            return Ok(None);
-        }
-        self.content.public_read_url(path)
-    }
 }
 
 impl Default for AppContext {

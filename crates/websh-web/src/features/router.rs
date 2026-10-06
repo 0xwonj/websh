@@ -28,9 +28,8 @@ use crate::platform::dom::{current_route_request, focus_terminal_input, replace_
 use crate::runtime::MountLoadStatus;
 use crate::runtime::mounts::{RefreshState, SnapshotOrigin};
 use crate::shared::components::{
-    AttestationSigFooter, ErrorPageActionButton, ErrorPageActionLink, ErrorPageActions,
-    ErrorPageBody, ErrorPageDetails, ErrorPageFrame, ErrorPageTone, SiteContentFrame, SiteSurface,
-    nearest_attestation_route_for_content_path,
+    ErrorPageActionButton, ErrorPageActionLink, ErrorPageActions, ErrorPageBody, ErrorPageDetails,
+    ErrorPageFrame, ErrorPageTone, ReleaseSigFooter, SiteContentFrame, SiteSurface,
 };
 
 const NOT_FOUND_CONTENT_PATH: &str = "/.site/errors/404.md";
@@ -425,14 +424,13 @@ fn NotFound(request: RouteRequest) -> impl IntoView {
                     <ErrorPageActionLink href=HOME_HREF>"Go home"</ErrorPageActionLink>
                 </ErrorPageActions>
             </ErrorPageBody>
-            <AttestationSigFooter
+            <ReleaseSigFooter
                 route=Signal::derive(|| {
                     let path = VirtualPath::from_absolute(NOT_FOUND_CONTENT_PATH)
                         .expect("404 attestation path is absolute");
-                    nearest_attestation_route_for_content_path(&path)
+                    websh_core::filesystem::content_route_for_path(path.as_str())
                 })
-                show_pending=Signal::derive(|| true)
-                colophon=true
+                    colophon=true
             />
         </RouteErrorPage>
     }

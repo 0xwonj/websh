@@ -87,7 +87,7 @@
   color: var(--terminal-green);
 }
 
-.ok[data-state="pending"] {
+.ok[data-state="unsigned"] {
   color: var(--text-dim);
 }
 
@@ -133,38 +133,5 @@
   display: inline-block;
   max-width: calc(100% - 84px);
   vertical-align: top;
-}
-
-.sigHr {
-  border-top: 1px dashed var(--border-subtle);
-  margin: var(--space-1) 0;
-}
-
-.sigBlockRow {
-  margin-top: var(--space-px);
-}
-
-.sigBlockLabel {
-  color: var(--text-muted);
-  line-height: var(--leading-loose);
-}
-
-.sigSignature {
-  color: var(--accent);
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  margin: var(--space-0_5) 0 0;
-  border: 1px dashed var(--border-subtle);
-  padding: var(--space-1_5) var(--space-2);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-2xs);
-  line-height: var(--leading-snug);
-  letter-spacing: 0;
-  white-space: pre;
-  overflow-x: auto;
-  overflow-y: hidden;
-  overflow-wrap: normal;
-  word-break: normal;
-  box-sizing: border-box;
+  overflow-wrap: anywhere;
 }

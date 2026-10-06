@@ -22,12 +22,12 @@ const distDir = path.resolve(
 );
 const jsonMode = parseBoolean(process.env.WEBSH_SIZE_JSON);
 const budgets = {
-  wasmBrotliBytes: parseBytes(process.env.WEBSH_WASM_BROTLI_BUDGET ?? "1.05MiB"),
+  wasmBrotliBytes: parseBytes(process.env.WEBSH_WASM_BROTLI_BUDGET ?? "1.15MiB"),
   jsBrotliBytes: parseBytes(process.env.WEBSH_JS_BROTLI_BUDGET ?? "90KiB"),
   cssBrotliBytes: parseBytes(process.env.WEBSH_CSS_BROTLI_BUDGET ?? "45KiB"),
   fontBrotliBytes: parseBytes(process.env.WEBSH_FONT_BROTLI_BUDGET ?? "500KiB"),
   vendorBrotliBytes: parseBytes(process.env.WEBSH_VENDOR_BROTLI_BUDGET ?? "400KiB"),
-  totalBrotliBytes: parseBytes(process.env.WEBSH_TOTAL_BROTLI_BUDGET ?? "1.65MiB"),
+  totalBrotliBytes: parseBytes(process.env.WEBSH_TOTAL_BROTLI_BUDGET ?? "1.70MiB"),
 };
 
 function parseBoolean(value) {
@@ -101,10 +101,9 @@ function auditAsset(filePath) {
   const asset = {
     path: relativePath,
     kind: assetKind(relativePath),
-    scope: relativePath.startsWith("content/") ? "content" : "runtime",
     bytes: fs.statSync(filePath).size,
   };
-  if (asset.scope === "runtime") asset.brotliBytes = brotliSize(fs.readFileSync(filePath));
+  asset.brotliBytes = brotliSize(fs.readFileSync(filePath));
   return asset;
 }
 
@@ -171,12 +170,12 @@ function buildReport() {
     });
 
   const index = inspectIndexHtml();
-  // Count every deployed file. Application budgets exclude only authored content
-  // and its generated metadata under content/, reported separately below.
-  const runtimeAssets = assets.filter((asset) => asset.scope === "runtime");
-  const contentAssets = assets.filter((asset) => asset.scope === "content");
+  // App releases contain runtime assets only; content is published independently.
 
   const issues = [];
+  if (assets.some((asset) => asset.path.startsWith("content/"))) {
+    issues.push("app distribution contains authored content");
+  }
   if (!index.exists) {
     issues.push("dist/index.html is missing");
   }
@@ -187,41 +186,41 @@ function buildReport() {
       )}`
     );
   }
-  if (!runtimeAssets.some((asset) => asset.kind === "wasm")) {
+  if (!assets.some((asset) => asset.kind === "wasm")) {
     issues.push("no .wasm asset found in dist");
   }
   const runtime = {
-    bytes: totalBytes(runtimeAssets),
-    brotliBytes: brotliSum(runtimeAssets, () => true),
+    bytes: totalBytes(assets),
+    brotliBytes: brotliSum(assets, () => true),
   };
   enforceBudget(
     issues,
     "wasm",
-    brotliSum(runtimeAssets, (asset) => asset.kind === "wasm"),
+    brotliSum(assets, (asset) => asset.kind === "wasm"),
     budgets.wasmBrotliBytes
   );
   enforceBudget(
     issues,
     "javascript",
-    brotliSum(runtimeAssets, (asset) => asset.kind === "js"),
+    brotliSum(assets, (asset) => asset.kind === "js"),
     budgets.jsBrotliBytes
   );
   enforceBudget(
     issues,
     "css",
-    brotliSum(runtimeAssets, (asset) => asset.kind === "css"),
+    brotliSum(assets, (asset) => asset.kind === "css"),
     budgets.cssBrotliBytes
   );
   enforceBudget(
     issues,
     "font",
-    brotliSum(runtimeAssets, (asset) => asset.kind === "font"),
+    brotliSum(assets, (asset) => asset.kind === "font"),
     budgets.fontBrotliBytes
   );
   enforceBudget(
     issues,
     "vendor",
-    brotliSum(runtimeAssets, vendorAsset),
+    brotliSum(assets, vendorAsset),
     budgets.vendorBrotliBytes
   );
   enforceBudget(issues, "runtime total", runtime.brotliBytes, budgets.totalBrotliBytes);
@@ -231,8 +230,6 @@ function buildReport() {
     generatedAt: new Date().toISOString(),
     assets,
     runtime,
-    content: { bytes: totalBytes(contentAssets) },
-    deployment: { bytes: totalBytes(assets) },
     index,
     budgets,
     issues,
@@ -241,15 +238,15 @@ function buildReport() {
 
 function printHuman(report) {
   console.log(`Asset size audit: ${report.distDir}`);
-  console.log("Brotli budgets cover all runtime files. Content is counted without compression.");
+  console.log("Brotli budgets cover every app release file.");
 
   console.log("\nAssets:");
-  const runtimeAssets = report.assets.filter((asset) => asset.scope === "runtime");
-  for (const kind of new Set(runtimeAssets.map((asset) => asset.kind))) {
-    const assets = runtimeAssets.filter((asset) => asset.kind === kind);
+  const assets = report.assets;
+  for (const kind of new Set(assets.map((asset) => asset.kind))) {
+    const group = assets.filter((asset) => asset.kind === kind);
     console.log(`  .${kind}:`);
-    const width = Math.max(...assets.map((asset) => asset.path.length));
-    for (const asset of assets) {
+    const width = Math.max(...group.map((asset) => asset.path.length));
+    for (const asset of group) {
       console.log(
         `    ${asset.path.padEnd(width)}  raw=${formatBytes(
           asset.bytes
@@ -259,8 +256,6 @@ function printHuman(report) {
   }
 
   console.log(`\nRuntime: raw=${formatBytes(report.runtime.bytes)} brotli=${formatBytes(report.runtime.brotliBytes)}`);
-  console.log(`Content: raw=${formatBytes(report.content.bytes)}`);
-  console.log(`Deployment: raw=${formatBytes(report.deployment.bytes)}`);
 
   if (report.index.hasTrunkDevWebsocket) {
     console.log(

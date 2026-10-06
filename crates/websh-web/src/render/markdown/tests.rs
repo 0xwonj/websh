@@ -58,6 +58,11 @@ fn block_and_inline_markdown_keep_links_with_their_own_wrapping() {
         );
         assert_eq!(rendered.html.starts_with("<p>"), !inline);
     }
+    assert!(
+        !render_inline_markdown("![image](relative.png)")
+            .html
+            .contains("<img")
+    );
 }
 
 #[wasm_bindgen_test]

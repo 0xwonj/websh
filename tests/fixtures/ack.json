@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "scheme": "websh.ack.hybrid.v1",
+  "hash": "sha256",
+  "normalization": "nfkc+trim+collapse-whitespace+lowercase",
+  "public": {
+    "count": 0,
+    "root": "0xbaed26dca1727e58136e5a3c87f0c0d3f1e64d9608a32c0bfd6be26d77096aa3",
+    "leaves": []
+  },
+  "private": {
+    "count": 0,
+    "root": "0x87fc1cdb18a04358ad3f7423b71707cbb4f1db60839bf12b41a4d83323f0433f"
+  },
+  "combined_root": "0x3965e914719577d110a77b3a6bd9b5b356c5c5ac9297f3484258e4e9d1b6c070"
+}

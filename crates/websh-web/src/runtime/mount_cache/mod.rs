@@ -1,19 +1,17 @@
-//! Disposable external listing snapshots. Content bodies and root discovery never enter this cache.
+//! Disposable exact source snapshots, revalidated before use.
 mod idb;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::rc::Rc;
-use websh_core::ports::{
-    LocalBoxFuture, ScannedSubtree, parse_manifest_snapshot, serialize_manifest_snapshot,
-};
+use websh_core::ports::{LocalBoxFuture, ScannedSubtree};
 
 pub use idb::BrowserMountCache;
 
 pub const RESTORE_TIMEOUT_MS: u32 = 500;
 pub const OPERATION_TIMEOUT_MS: u32 = 2_000;
 pub const MANIFEST_TIMEOUT_MS: u32 = 10_000;
-pub const MAX_RECORD_BYTES: usize = 2 * 1024 * 1024;
+pub const MAX_RECORD_BYTES: usize = websh_core::publication::MAX_MANIFEST_BYTES + 16 * 1024;
 pub const MAX_TOTAL_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_RECORDS: usize = 16;
 pub const MAX_AGE_MS: u64 = 30 * 24 * 60 * 60 * 1000;
@@ -27,8 +25,7 @@ pub struct CacheDescriptor {
     pub repo: String,
     pub reference: String,
     pub prefix: String,
-    pub manifest_url: String,
-    pub content_url: String,
+    pub trust: Option<String>,
 }
 
 impl CacheDescriptor {
@@ -44,25 +41,49 @@ impl CacheDescriptor {
 pub struct CacheRecord {
     pub key: String,
     pub descriptor: CacheDescriptor,
-    pub manifest_json: String,
+    pub source: websh_core::publication::SourceSnapshot,
     pub manifest_bytes: usize,
     pub request_started_at_ms: u64,
     pub observed_at_ms: u64,
 }
 
 impl CacheRecord {
+    #[cfg(test)]
     pub fn from_scan(
         descriptor: CacheDescriptor,
         scan: &ScannedSubtree,
         started: u64,
         observed: u64,
     ) -> Option<Self> {
-        let manifest_json = serialize_manifest_snapshot(scan).ok()?;
+        let manifest_json = websh_core::ports::serialize_manifest_snapshot(scan).ok()?;
         let record = Self {
             key: descriptor.key(),
             descriptor,
+            source: websh_core::publication::SourceSnapshot {
+                commit: websh_core::publication::GitCommit::parse("0".repeat(40)).ok()?,
+                manifest: manifest_json.clone(),
+                signature: None,
+            },
             manifest_bytes: manifest_json.len(),
-            manifest_json,
+            request_started_at_ms: started,
+            observed_at_ms: observed,
+        };
+        record.validate(&record.descriptor, observed)?;
+        Some(record)
+    }
+
+    pub fn from_source(
+        descriptor: CacheDescriptor,
+        source: websh_core::publication::SourceSnapshot,
+        started: u64,
+        observed: u64,
+    ) -> Option<Self> {
+        let record = Self {
+            key: descriptor.key(),
+            descriptor,
+            manifest_bytes: source.manifest.len()
+                + source.signature.as_ref().map_or(0, String::len),
+            source,
             request_started_at_ms: started,
             observed_at_ms: observed,
         };
@@ -71,28 +92,52 @@ impl CacheRecord {
     }
 
     pub fn validate(&self, descriptor: &CacheDescriptor, now: u64) -> Option<ScannedSubtree> {
-        if descriptor.root == "/"
-            || &self.descriptor != descriptor
+        if &self.descriptor != descriptor
             || self.key != descriptor.key()
-            || self.manifest_bytes != self.manifest_json.len()
+            || self.manifest_bytes
+                != self.source.manifest.len()
+                    + self.source.signature.as_ref().map_or(0, String::len)
             || self.manifest_bytes > MAX_RECORD_BYTES
             || self.request_started_at_ms > self.observed_at_ms
             || self.observed_at_ms > MAX_SAFE_INTEGER
             || self.observed_at_ms > now.saturating_add(FUTURE_SKEW_MS)
-            || now.saturating_sub(self.observed_at_ms) > MAX_AGE_MS
+            || (descriptor.root != "/" && now.saturating_sub(self.observed_at_ms) > MAX_AGE_MS)
         {
             return None;
         }
-        parse_manifest_snapshot(&self.manifest_json).ok()
+        super::github_backend::restore_backend(descriptor, self.source.clone())
+            .ok()?
+            .loaded()
+            .map(|s| s.scan.clone())
     }
 
     pub fn outranks(&self, existing: &Self) -> bool {
+        if self.descriptor.root == "/" {
+            let accepted = |record: &Self| {
+                super::github_backend::restore_backend(&record.descriptor, record.source.clone())
+                    .ok()?
+                    .loaded()?
+                    .verified
+                    .as_ref()
+                    .map(|r| r.accepted())
+            };
+            let (Some(candidate), Some(old)) = (accepted(self), accepted(existing)) else {
+                return false;
+            };
+            if old.check_next(&candidate).is_err() {
+                return false;
+            }
+            if candidate.sequence > old.sequence {
+                return true;
+            }
+        }
         (self.request_started_at_ms, self.observed_at_ms)
             > (existing.request_started_at_ms, existing.observed_at_ms)
     }
 }
 
 pub struct CachedSnapshot {
+    pub source: websh_core::publication::SourceSnapshot,
     pub scan: ScannedSubtree,
     pub observed_at_ms: u64,
 }
@@ -104,7 +149,18 @@ pub struct CacheWrite {
     pub is_current: Rc<dyn Fn() -> bool>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RootAcceptance {
+    Accepted,
+    Rejected,
+    Unavailable,
+}
+
 pub trait MountCache {
+    fn accept_root(&self, _write: CacheWrite) -> LocalBoxFuture<'_, RootAcceptance> {
+        Box::pin(async { RootAcceptance::Unavailable })
+    }
+
     fn restore(&self, descriptor: CacheDescriptor) -> LocalBoxFuture<'_, Option<CachedSnapshot>>;
     fn persist(&self, write: CacheWrite) -> LocalBoxFuture<'_, ()>;
 }
@@ -122,9 +178,7 @@ mod tests {
             repo: "owner/repo".into(),
             reference: "Main".into(),
             prefix: "content".into(),
-            manifest_url: "https://raw.githubusercontent.com/owner/repo/Main/content/manifest.json"
-                .into(),
-            content_url: "https://raw.githubusercontent.com/owner/repo/Main/content/".into(),
+            trust: None,
         }
     }
 
@@ -143,11 +197,9 @@ mod tests {
         vary!(repo, "owner/other");
         vary!(reference, "main");
         vary!(prefix, "~");
-        vary!(
-            manifest_url,
-            "https://example.org/ipfs/new/content/manifest.json"
-        );
-        vary!(content_url, "https://example.org/ipfs/new/content/");
+        let mut other_trust = d.clone();
+        other_trust.trust = Some("different trust policy".into());
+        variants.push(other_trust);
         for changed in variants {
             assert_ne!(d.key(), changed.key());
         }
@@ -175,8 +227,8 @@ mod tests {
         invalid.manifest_bytes += 1;
         assert!(invalid.validate(&descriptor(), now).is_none());
         invalid = record.clone();
-        invalid.manifest_json = "{bad".into();
-        invalid.manifest_bytes = invalid.manifest_json.len();
+        invalid.source.manifest = "{bad".into();
+        invalid.manifest_bytes = invalid.source.manifest.len();
         assert!(invalid.validate(&descriptor(), now).is_none());
         invalid = record.clone();
         invalid.key = "other".into();
@@ -195,8 +247,8 @@ mod tests {
         let now = MAX_AGE_MS * 2;
         let mut record =
             CacheRecord::from_scan(descriptor(), &ScannedSubtree::default(), now, now).unwrap();
-        record.manifest_json = " ".repeat(MAX_RECORD_BYTES + 1);
-        record.manifest_bytes = record.manifest_json.len();
+        record.source.manifest = " ".repeat(MAX_RECORD_BYTES + 1);
+        record.manifest_bytes = record.source.manifest.len();
         assert!(record.validate(&descriptor(), now).is_none());
         record =
             CacheRecord::from_scan(descriptor(), &ScannedSubtree::default(), now, now).unwrap();

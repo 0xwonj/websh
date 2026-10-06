@@ -35,26 +35,29 @@ pub fn run(ctx: AppContext) {
         let services = RuntimeServices::new(ctx);
 
         services.init_default_env();
+        // Content discovery starts immediately, independently of terminal animation.
+        let loading = services.reload_runtime();
+        let animation = async {
+            ctx.terminal.push_output(OutputLine::info(format!(
+                "{} Booting websh kernel v{}",
+                format_elapsed(elapsed()),
+                APP_VERSION
+            )));
+            delay(&window, boot_delays::KERNEL_INIT).await;
 
-        ctx.terminal.push_output(OutputLine::info(format!(
-            "{} Booting websh kernel v{}",
-            format_elapsed(elapsed()),
-            APP_VERSION
-        )));
-        delay(&window, boot_delays::KERNEL_INIT).await;
+            ctx.terminal.push_output(OutputLine::success(format!(
+                "{} WASM runtime initialized",
+                format_elapsed(elapsed())
+            )));
+            delay(&window, boot_delays::WASM_RUNTIME).await;
 
-        ctx.terminal.push_output(OutputLine::success(format!(
-            "{} WASM runtime initialized",
-            format_elapsed(elapsed())
-        )));
-        delay(&window, boot_delays::WASM_RUNTIME).await;
-
-        ctx.terminal.push_output(OutputLine::text(format!(
-            "{} Mounting filesystems...",
-            format_elapsed(elapsed())
-        )));
-
-        match services.reload_runtime().await {
+            ctx.terminal.push_output(OutputLine::text(format!(
+                "{} Mounting filesystems...",
+                format_elapsed(elapsed())
+            )));
+        };
+        let (result, ()) = futures_util::join!(loading, animation);
+        match result {
             Ok(()) => {
                 let total_files = ctx.content.mounts.with_untracked(|mounts| {
                     match mounts.status(&websh_core::domain::VirtualPath::root()) {

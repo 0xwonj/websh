@@ -21,6 +21,8 @@ pub struct ReadStamp {
 
 #[derive(Clone, Copy)]
 pub struct Content {
+    historical: bool,
+    root_release: RwSignal<Option<Rc<websh_core::publication::VerifiedRelease>>, LocalStorage>,
     pub snapshot: ReadSignal<Rc<Snapshot>, LocalStorage>,
     published: RwSignal<Rc<Snapshot>, LocalStorage>,
     pub mounts: ReadSignal<runtime::MountLoadSet, LocalStorage>,
@@ -38,6 +40,9 @@ impl Content {
         let published = RwSignal::new_local(Rc::new(load.snapshot));
         let mount_state = RwSignal::new_local(load.mounts);
         Self {
+            historical: runtime::loader::requested_snapshot()
+                .is_ok_and(|selection| selection.is_some()),
+            root_release: RwSignal::new_local(load.release),
             snapshot: published.read_only(),
             published,
             mounts: mount_state.read_only(),
@@ -51,6 +56,39 @@ impl Content {
                 runtime::mount_cache::BrowserMountCache::default(),
             )),
         }
+    }
+
+    pub fn is_historical(&self) -> bool {
+        self.historical
+    }
+
+    pub fn snapshot_url(&self) -> Option<String> {
+        let release = self.release()?;
+        let source = self
+            .backend_for_mount_root(&VirtualPath::root())?
+            .cache_snapshot()?;
+        let href = web_sys::window()?.location().href().ok()?;
+        let url = web_sys::Url::new(&href).ok()?;
+        url.set_search(&format!(
+            "?content={}&release={}",
+            source.commit,
+            release.id()
+        ));
+        Some(url.href())
+    }
+
+    pub fn release(&self) -> Option<Rc<websh_core::publication::VerifiedRelease>> {
+        self.root_release.get()
+    }
+
+    pub fn home(&self) -> Option<websh_core::publication::HomeProjection> {
+        self.root_release
+            .with(|release| release.as_ref().map(|r| r.release().home.clone()))
+    }
+
+    pub fn issued_at(&self) -> Option<u64> {
+        self.root_release
+            .with(|release| release.as_ref().map(|r| r.release().issued_at))
     }
 
     pub fn with_fs<T>(&self, f: impl FnOnce(&GlobalFs) -> T) -> T {
@@ -88,14 +126,14 @@ impl Content {
     /// Reactive content identity. Refresh progress and failures do not change this value.
     pub fn read_version(&self, path: &VirtualPath) -> ReadStamp {
         ReadStamp {
-            generation: self.runtime_generation.get(),
+            generation: self.mounts.with(|mounts| mounts.generation(path)),
             revision: self.mounts.with(|mounts| mounts.revision(path)),
         }
     }
 
     pub(crate) fn current_read_version(&self, path: &VirtualPath) -> ReadStamp {
         ReadStamp {
-            generation: self.runtime_generation(),
+            generation: self.mounts.with_untracked(|mounts| mounts.generation(path)),
             revision: self.mounts.with_untracked(|mounts| mounts.revision(path)),
         }
     }
@@ -166,11 +204,6 @@ impl Content {
             }
         }
         Err(ContentReadError::Obsolete { path: path.clone() })
-    }
-
-    pub fn public_read_url(&self, path: &VirtualPath) -> Result<Option<String>, ContentReadError> {
-        let (_, backend, rel_path) = self.source(path)?;
-        backend.public_read_url(&rel_path).map_err(Into::into)
     }
 
     fn source(
@@ -247,11 +280,45 @@ impl Content {
         self.root_request_sequence.get_value() == sequence
     }
 
-    pub fn apply_runtime_load(&self, load: RuntimeLoad) -> u64 {
+    pub fn apply_runtime_load(&self, mut load: RuntimeLoad) -> u64 {
+        if let Some(incoming) = &load.release
+            && self
+                .root_release
+                .with_untracked(|old| old.as_ref().is_some_and(|old| old.id() == incoming.id()))
+        {
+            self.mount_state
+                .update(|mounts| mounts.finish_unchanged_root(&load.mounts));
+            return self.runtime_generation();
+        }
+        let retained = self
+            .mounts
+            .with_untracked(|previous| load.mounts.preserve_loaded(previous));
+        if !retained.is_empty() {
+            let mut fs = load.snapshot.fs().clone();
+            for root in &retained {
+                if let Some(entry) = self.with_fs_untracked(|old| old.get_entry(root).cloned()) {
+                    fs.replace_subtree(root.clone(), entry);
+                }
+                if let Some(backend) = self.backend_for_mount_root(root) {
+                    load.backends.insert(root.clone(), backend);
+                }
+            }
+            load.snapshot = Snapshot::new(fs).expect("unchanged mounts retain validated routes");
+        }
         let generation = self.runtime_generation().saturating_add(1);
+        load.mounts.assign_generation(generation, &retained);
+        let changed: Vec<_> = self
+            .mounts
+            .with_untracked(|mounts| mounts.effective_mounts())
+            .into_iter()
+            .filter(|mount| !retained.contains(&mount.root))
+            .collect();
         batch(|| {
-            self.clear_text_cache();
+            for mount in changed {
+                self.evict_text_cache_mount(&mount.root);
+            }
             self.backends.set_value(load.backends);
+            self.root_release.set(load.release);
             self.runtime_generation.set(generation);
             self.published.set(Rc::new(load.snapshot));
             self.mount_state.set(load.mounts);
@@ -282,10 +349,8 @@ impl Content {
         root: &VirtualPath,
         epoch: u64,
     ) -> bool {
-        generation == self.runtime_generation()
-            && self
-                .mounts
-                .with_untracked(|mounts| mounts.accepts_result(root, epoch))
+        self.mounts
+            .with_untracked(|mounts| mounts.accepts_attempt(generation, root, epoch))
     }
 
     pub fn apply_mount_scan_result(
@@ -330,16 +395,12 @@ impl Content {
         observed_at_ms: u64,
         refresh: runtime::mounts::RefreshState,
     ) -> Result<bool, RuntimeError> {
-        if generation != self.runtime_generation() {
-            return Ok(false);
-        }
-
         let root = result.mount.root.clone();
         let label = result.mount.label.clone();
         let epoch = result.epoch;
         if !self
             .mounts
-            .with_untracked(|mounts| mounts.accepts_result(&root, epoch))
+            .with_untracked(|mounts| mounts.accepts_attempt(generation, &root, epoch))
         {
             return Ok(false);
         }
@@ -355,6 +416,19 @@ impl Content {
         match result.scan {
             Ok(scan) => {
                 let total_files = scan.files.len();
+                let unchanged = self
+                    .backend_for_mount_root(&root)
+                    .and_then(|backend| backend.cache_snapshot())
+                    .zip(result.backend.cache_snapshot())
+                    .is_some_and(|(old, new)| {
+                        old.manifest == new.manifest && old.signature == new.signature
+                    });
+                if unchanged {
+                    self.mount_state.update(|mounts| {
+                        mounts.refresh_finished(&root, total_files, observed_at_ms, origin, refresh)
+                    });
+                    return Ok(true);
+                }
                 let mut global = self.with_fs_untracked(Clone::clone);
                 global
                     .replace_scanned_subtree(root.clone(), &scan)
@@ -471,6 +545,7 @@ mod tests {
         mounts.insert_loaded(root_mount(), 0);
 
         ctx.apply_runtime_load(RuntimeLoad {
+            release: None,
             snapshot: Snapshot::new(GlobalFs::empty()).unwrap(),
             backends,
             total_files: 0,
@@ -581,6 +656,7 @@ mod tests {
             let mut failed_mounts = runtime::MountLoadSet::empty();
             failed_mounts.insert_declared_loading(root_mount);
             ctx.apply_runtime_load(RuntimeLoad {
+                release: None,
                 snapshot: Snapshot::new(GlobalFs::empty()).unwrap(),
                 backends: BTreeMap::new(),
                 total_files: 0,
@@ -847,10 +923,6 @@ mod tests {
         ));
         assert!(matches!(
             ctx.read_bytes(&path).await,
-            Err(ContentReadError::NoBackend { .. })
-        ));
-        assert!(matches!(
-            ctx.public_read_url(&path),
             Err(ContentReadError::NoBackend { .. })
         ));
         assert_eq!(reads.get(), 0);

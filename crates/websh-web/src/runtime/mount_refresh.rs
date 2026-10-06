@@ -42,19 +42,24 @@ pub async fn refresh_mount(ctx: Content, generation: u64, job: MountScanJob) -> 
                 RefreshState::Running,
                 |error: &websh_core::ports::StorageError| RefreshState::Failed(error.to_string()),
             );
-            let result = MountScanResult {
-                mount: job.mount.clone(),
-                backend: job.backend.clone(),
-                epoch: job.epoch,
-                scan: Ok(snapshot.scan),
-            };
-            let _ = ctx.apply_mount_snapshot(
-                generation,
-                result,
-                SnapshotOrigin::Cache,
-                snapshot.observed_at_ms,
-                refresh,
-            );
+            if let Ok(backend) = super::github_backend::restore_backend(
+                descriptor.as_ref().expect("cache descriptor"),
+                snapshot.source.clone(),
+            ) {
+                let result = MountScanResult {
+                    mount: job.mount.clone(),
+                    backend,
+                    epoch: job.epoch,
+                    scan: Ok(snapshot.scan),
+                };
+                let _ = ctx.apply_mount_snapshot(
+                    generation,
+                    result,
+                    SnapshotOrigin::Cache,
+                    snapshot.observed_at_ms,
+                    refresh,
+                );
+            }
         }
         if let Some(error) = network_error.borrow().clone() {
             let _ = ctx.apply_mount_scan_result(
@@ -77,13 +82,15 @@ pub async fn refresh_mount(ctx: Content, generation: u64, job: MountScanJob) -> 
             Ok(scan) => {
                 let observed = current_timestamp();
                 let record = descriptor.clone().and_then(|descriptor| {
-                    CacheRecord::from_scan(descriptor, &scan, started, observed)
+                    result.backend.cache_snapshot().and_then(|source| {
+                        CacheRecord::from_source(descriptor, source, started, observed)
+                    })
                 });
                 let publication = ctx.apply_mount_snapshot(
                     generation,
                     MountScanResult {
                         mount: job.mount.clone(),
-                        backend: job.backend.clone(),
+                        backend: result.backend,
                         epoch: job.epoch,
                         scan: Ok(scan),
                     },
@@ -171,6 +178,11 @@ mod tests {
             Box::pin(async move {
                 TimeoutFuture::new(self.delay).await;
                 self.hit.then(|| CachedSnapshot {
+                    source: websh_core::publication::SourceSnapshot {
+                        commit: websh_core::publication::GitCommit::parse("0".repeat(40)).unwrap(),
+                        manifest: "{\"entries\":[]}".into(),
+                        signature: None,
+                    },
                     scan: ScannedSubtree::default(),
                     observed_at_ms: 42,
                 })
@@ -194,8 +206,25 @@ mod tests {
     struct ScanBackend {
         delay: u32,
         outcome: ScanOutcome,
+        scanned: Cell<bool>,
     }
     impl StorageBackend for ScanBackend {
+        fn fork_for_refresh(&self) -> Option<websh_core::ports::StorageBackendRef> {
+            Some(Rc::new(Self {
+                delay: self.delay,
+                outcome: self.outcome,
+                scanned: Cell::new(false),
+            }))
+        }
+        fn cache_snapshot(&self) -> Option<websh_core::publication::SourceSnapshot> {
+            self.scanned
+                .get()
+                .then(|| websh_core::publication::SourceSnapshot {
+                    commit: websh_core::publication::GitCommit::parse("0".repeat(40)).unwrap(),
+                    manifest: "{\"entries\":[]}".into(),
+                    signature: None,
+                })
+        }
         fn scan(&self) -> LocalBoxFuture<'_, StorageResult<ScannedSubtree>> {
             Box::pin(async move {
                 TimeoutFuture::new(self.delay).await;
@@ -203,7 +232,10 @@ mod tests {
                     ScanOutcome::Unavailable => Err(StorageError::Network {
                         message: "offline".into(),
                     }),
-                    ScanOutcome::Valid => Ok(ScannedSubtree::default()),
+                    ScanOutcome::Valid => {
+                        self.scanned.set(true);
+                        Ok(ScannedSubtree::default())
+                    }
                     ScanOutcome::ConflictingRoutes => Ok(ScannedSubtree {
                         files: ["same.md", "same.html"]
                             .into_iter()
@@ -244,6 +276,7 @@ mod tests {
             let backend = Rc::new(ScanBackend {
                 delay: network_delay,
                 outcome,
+                scanned: Cell::new(false),
             });
             let mut mounts = MountLoadSet::empty();
             mounts.insert_loading(mount.clone(), backend.clone());
@@ -254,13 +287,13 @@ mod tests {
                     repo: "owner/repo".into(),
                     reference: "main".into(),
                     prefix: "".into(),
-                    manifest_url: "https://example.test/manifest.json".into(),
-                    content_url: "https://example.test/".into(),
+                    trust: None,
                 }),
             );
             let mut global_fs = GlobalFs::empty();
             global_fs.reserve_mount_point(root.clone()).unwrap();
             ctx.apply_runtime_load(RuntimeLoad {
+                release: None,
                 snapshot: websh_core::filesystem::Snapshot::new(global_fs).unwrap(),
                 backends: [(root, backend.clone() as _)].into(),
                 total_files: 0,

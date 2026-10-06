@@ -69,6 +69,8 @@ and durations. Primitive values belong in tokens/palettes, not component CSS.
 and computes Brotli subtotals by asset type. A bundled `content/` directory is an
 error; authored content is delivered independently. Pass another built directory explicitly when needed.
 Budgets change only for an explained product or packaging change.
+The signed-content reader includes OpenPGP verification in the app: its Brotli budget
+is 1.15 MiB for WASM and 1.70 MiB for all runtime assets. Other asset caps are unchanged.
 
 ## Dependency maintenance
 

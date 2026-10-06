@@ -1,151 +1,95 @@
 const { test: base, expect } = require('@playwright/test');
-const { emptyLedger } = require('./ledger');
+const { createHash } = require('node:crypto');
+const { signManifest } = require('./signing.cjs');
+const ack = require('../../fixtures/ack.json');
 
 const baseUrl = (process.env.WEBSH_E2E_BASE_URL || 'http://127.0.0.1:4173').replace(/\/+$/, '');
 const appOrigin = new URL(baseUrl).origin;
+const rawOrigin = 'https://raw.githubusercontent.com';
+const rootRepo = '0xwonj/websh-content';
+const rootCommit = 'a'.repeat(40);
+const mountCommit = 'b'.repeat(40);
+const rootPointer = `/${rootRepo}/main/current.json`;
+const mountPointer = '/0xwonj/mount-db/main/current.json';
+const rootPath = (path, commit = rootCommit) => `/${rootRepo}/${commit}/content/${path}`;
+const mountPath = (path, commit = mountCommit, repo = '0xwonj/mount-db') => `/${repo}/${commit}/${path}`;
 const walletAddress = '0x2c4b04a4aeb6e18c2f8a5c8b4a3f62c0cf33795a';
-const tinyPng = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
-  'base64'
-);
+const tinyPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=', 'base64');
 
 function nodeMetadata(kind, { title, description = null, date = null, tags = [], size = null, childCount = null, bundle = null } = {}) {
   const authored = {};
-  if (title !== undefined && title !== null) authored.title = title;
+  if (title != null) authored.title = title;
   if (description !== null) authored.description = description;
   if (date !== null) authored.date = date;
-  if (tags.length > 0) authored.tags = tags;
-
+  if (tags.length) authored.tags = tags;
   const derived = {};
   if (size !== null) derived.size_bytes = size;
   if (childCount !== null) derived.child_count = childCount;
-
-  const metadata = {
-    kind,
-    authored,
-    derived
-  };
-  if (bundle !== null) metadata.bundle = bundle;
-  return metadata;
+  return { kind, authored, derived, ...(bundle === null ? {} : {bundle}) };
 }
-
 function fileEntry(path, title, options = {}) {
   const ext = path.split('.').pop();
-  const kind = options.kind || (ext === 'md' || ext === 'html' ? 'page' : ext === 'pdf' ? 'document' : 'data');
-  return {
-    path,
-    metadata: nodeMetadata(kind, {
-      title,
-      ...options
-    })
-  };
+  return { path, metadata: nodeMetadata(options.kind || (['md','html'].includes(ext) ? 'page' : ext === 'pdf' ? 'document' : 'data'), {title, ...options}) };
 }
-
-function dirEntry(path, title, options = {}) {
-  return {
-    path,
-    metadata: nodeMetadata('directory', { title, ...options })
-  };
+function dirEntry(path, title, options = {}) { return { path, metadata: nodeMetadata('directory', {title, ...options}) }; }
+function bundleEntry(path, title, options = {}) { return { path, metadata: nodeMetadata('bundle', {title, ...options}) }; }
+const siteEntries = [dirEntry('', 'Home'), dirEntry('.site', 'Site support'), dirEntry('.site/errors', 'errors'), fileEntry('.site/errors/404.md', 'Not found'), dirEntry('docs', 'docs'), fileEntry('docs/old.md', 'Old')];
+const rootFiles = {'docs/old.md': 'old', '.site/errors/404.md': '# Page not found\n\nThe requested page is not in this content snapshot.'};
+const defaultMounts = [{backend:'github',trust:'unsigned',mount_at:'/db',repo:'0xwonj/mount-db',branch:'main',root:'',name:'db'}];
+const home = {
+  profile: {
+    title:'wonjae.eth',tagline:'A Homepage, Formalised',name:'Fixture Author',affiliation:'Fixture University',email:'fixture@example.test',status:'accepting revisions',
+    abstract_text:'A signed test homepage.',introduction:'Fixture introduction.',public_identity:'Fixture Author',private_identity:'test-only',research:['compilers'],tools:['Rust'],habits:['testing'],categories:['cs.PL'],keywords:['compilers'],links:[]
+  }, now:{items:[{date:'2026-05-01',text:'Fixture Now item'}]}, ack
+};
+function indexed(entries, files) {
+  const unique = new Map(entries.map(entry => [entry.path, structuredClone(entry)]));
+  return [...unique.values()].map(entry => {
+    if (!['directory','bundle'].includes(entry.metadata.kind)) {
+      if (files[entry.path] === undefined) throw new Error(`Missing fixture body: ${entry.path}`);
+      const bytes = Buffer.from(files[entry.path]);
+      entry.metadata.derived.size_bytes = bytes.length;
+      entry.metadata.derived.content_sha256 = createHash('sha256').update(bytes).digest('hex');
+    }
+    return entry;
+  });
 }
-
-function bundleEntry(path, title, options = {}) {
-  return {
-    path,
-    metadata: nodeMetadata('bundle', { title, ...options })
-  };
+function publishRoot(responses, {entries=siteEntries,files={},projection=home,sequence=1,commit=rootCommit,publications=[],mounts=defaultMounts}={}) {
+  files = {...rootFiles,...files};
+  const manifest = {entries:indexed(entries,files),release:{purpose:'websh.content',site:'wonjae.eth',sequence,issued_at:Math.floor(Date.now()/1000),home:projection,mounts,publications}};
+  const body = JSON.stringify(manifest);
+  responses.set(rootPointer,JSON.stringify({commit}));
+  responses.set(rootPath('manifest.json',commit),body);
+  responses.set(rootPath('manifest.sig',commit),signManifest(body));
+  for (const entry of manifest.entries) if (!['directory','bundle'].includes(entry.metadata.kind)) responses.set(rootPath(entry.path,commit),files[entry.path]);
+  return manifest;
 }
-
-function manifestDocument(entries) {
-  return { entries };
+function publishMount(responses, {repo='0xwonj/mount-db',entries=[dirEntry('','DB'),fileEntry('fresh.md','Fresh')],files={'fresh.md':'# Fresh'},commit=mountCommit}={}) {
+  const manifest={entries:indexed(entries,files)};
+  responses.set(`/${repo}/main/current.json`,JSON.stringify({commit}));
+  responses.set(mountPath('manifest.json',commit,repo),JSON.stringify(manifest));
+  for(const [path,body] of Object.entries(files)) responses.set(mountPath(path,commit,repo),body);
+  return manifest;
 }
-
-const siteEntries = [
-  dirEntry('', 'Home'),
-  dirEntry('.site', 'Site support', {
-    description: 'Runtime support and trust metadata for the site.',
-    tags: ['runtime', 'trust'],
-    childCount: 3
-  }),
-  dirEntry('.websh', '.websh'),
-  dirEntry('.websh/mounts', 'mounts'),
-  dirEntry('docs', 'docs'),
-  fileEntry('.websh/ledger.json', 'Ledger', { kind: 'data' }),
-  fileEntry('.websh/mounts/db.mount.json', 'DB mount', { kind: 'data' }),
-  fileEntry('docs/old.md', 'Old')
-];
-
-const siteManifest = manifestDocument(siteEntries);
-
-const dbManifest = manifestDocument([
-  dirEntry('', 'DB'),
-  fileEntry('fresh.md', 'Fresh')
-]);
-
-function fixturePathname(url) {
-  return url.pathname.replace(/^\/ipfs\/[^/]+(?=\/)/, '');
+function freshResponses() { const responses=new Map(); publishRoot(responses);publishMount(responses);return responses; }
+function contentPathEntries(path,title) {
+  const parts=path.split('/'); const dirs=[];
+  for(let i=0;i<parts.length-1;i++) dirs.push(dirEntry(parts.slice(0,i+1).join('/'),parts[i]));
+  return [...dirs,fileEntry(path,title)];
 }
-
-function contentTypeForPath(pathname) {
-  if (pathname.endsWith('.json')) return 'application/json';
-  if (pathname.endsWith('.pdf')) return 'application/pdf';
-  if (pathname.endsWith('.png')) return 'image/png';
-  if (pathname.endsWith('.svg')) return 'image/svg+xml';
+function installContentPage(responses,path,title,body='# Fixture page') { publishRoot(responses,{entries:[...siteEntries,...contentPathEntries(path,title)],files:{[path]:body}}); }
+function contentTypeForPath(path) {
+  if(path.endsWith('.json')) return 'application/json';
+  if(path.endsWith('.pdf')) return 'application/pdf';
+  if(path.endsWith('.png')) return 'image/png';
   return 'text/plain';
 }
-
-function freshResponses() {
-  return new Map([
-    ['/content/manifest.json', JSON.stringify(siteManifest)],
-    ['/content/docs/old.md', 'old'],
-    ['/content/.websh/ledger.json', JSON.stringify(emptyLedger())],
-    ['/content/.websh/mounts/db.mount.json', JSON.stringify({
-      backend: 'github',
-      mount_at: '/db',
-      repo: '0xwonj/mount-db',
-      branch: 'main',
-      root: '',
-      name: 'db',
-    })],
-    ['/0xwonj/mount-db/main/manifest.json', JSON.stringify(dbManifest)],
-    ['/0xwonj/mount-db/main/fresh.md', '# Fresh']
-  ]);
-}
-
-function contentPathEntries(path, title) {
-  const parts = path.split('/').filter(Boolean);
-  const dirs = [];
-  for (let idx = 0; idx < parts.length - 1; idx += 1) {
-    const dirPath = parts.slice(0, idx + 1).join('/');
-    dirs.push(dirEntry(dirPath, parts[idx]));
-  }
-  return [...dirs, fileEntry(path, title)];
-}
-
-function installContentPage(responses, path, title, body = '# Fixture page') {
-  responses.set(
-    '/content/manifest.json',
-    JSON.stringify(manifestDocument([
-      ...siteEntries,
-      ...contentPathEntries(path, title)
-    ]))
-  );
-  responses.set(`/content/${path}`, body);
-}
-
-async function installRoutes(page, responses) {
-  const serve = async route => {
-    const url = new URL(route.request().url());
-    const body = responses.get(fixturePathname(url));
-    await route.fulfill({
-      status: body === undefined ? 404 : 200,
-      contentType: contentTypeForPath(url.pathname),
-      body: body === undefined ? `missing ${url.pathname}` : body
-    });
-  };
-  await page.route('**/content/**', serve);
-  await page.route('https://raw.githubusercontent.com/**', serve);
-  await page.route('https://api.ensideas.com/**', route =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: '{}' }));
+async function installRoutes(page,responses) {
+  await page.route(`${rawOrigin}/**`,async route=>{
+    const url=new URL(route.request().url()); const body=responses.get(decodeURI(url.pathname));
+    await route.fulfill({status:body===undefined?404:200,contentType:contentTypeForPath(url.pathname),body:body===undefined?`missing ${url.pathname}`:body});
+  });
+  await page.route('https://api.ensideas.com/**',route=>route.fulfill({status:200,contentType:'application/json',body:'{}'}));
 }
 
 // Playwright creates this map and these listeners separately for every test.
@@ -182,8 +126,4 @@ const test = base.extend({
   }, { auto: true }]
 });
 
-module.exports = {
-  test, expect, baseUrl, appOrigin, walletAddress, tinyPng,
-  fileEntry, dirEntry, bundleEntry, manifestDocument, siteEntries, siteManifest,
-  dbManifest, installContentPage, installRoutes
-};
+module.exports = {test,expect,baseUrl,appOrigin,rawOrigin,walletAddress,tinyPng,fileEntry,dirEntry,bundleEntry,siteEntries,home,rootCommit,mountCommit,rootPointer,mountPointer,rootPath,mountPath,publishRoot,publishMount,installContentPage,installRoutes};

@@ -14,10 +14,17 @@ borrowed reads. The browser holds it through `Rc`, and routing reuses the stored
 Inline text belongs only to the browser's runtime overlay. Content replacement may assemble a
 new tree; ordinary reads borrow the installed snapshot.
 
-Root loading reads the live bundled manifest and its declarations, reserves accepted external
-mount roots, and installs the complete candidate runtime. External cache restore and public
-manifest requests then run concurrently. Root content and declaration discovery are never
-restored from IndexedDB.
+Root discovery reads GitHub `current.json`, then fetches the selected commit's manifest and
+signature concurrently. Shared native/WASM verification authenticates exact manifest bytes,
+validates the home projection and file catalog, and produces `VerifiedRelease`. Only then does
+`Content` install the candidate. Profile, Now, ACK, routes, and mount declarations share that
+publication boundary. No authored content is compiled into the app.
+
+A verified root cache restores concurrently with discovery. Home rendering waits on neither
+external mounts, body downloads, wallet setup, nor terminal animation. Immutable file reads
+use commit URLs and verify the manifest's SHA-256 and byte length before use. Root declaration
+signatures identify external sources; independently changing unsigned mounts do not inherit
+root authentication.
 
 Wallet and preference changes rebuild only the small `/.websh/state` overlay. Shell navigation,
 directory listings, and reader metadata use `FsView`; ancestor listings merge by canonical path.
@@ -47,7 +54,10 @@ Root request sequences are allocated when a request starts. Only the latest requ
 a new runtime or report root failure. An installed generation changes on accepted root
 replacement. A failed root refresh retains the existing runtime and external mounts.
 
-Each mount has a request `epoch` and a `content_revision`. Refresh changes the epoch while
+Each mount has a source generation, request `epoch`, and `content_revision`. Root replacement
+preserves unchanged external declarations, loaded backends, and read identities. Changed or
+removed declarations invalidate their earlier work. Identical manifest bytes retain content
+identity and body caches. Refresh changes the epoch while
 retaining an available snapshot. A validated candidate is assembled separately, checked for
 routing conflicts, then published atomically. Only publication advances the content revision.
 Failed refreshes preserve listing data and loaded bodies.
@@ -64,46 +74,64 @@ request. The reader subscribes to content identity rather than refresh progress 
 document results, including owned object URLs. A rejected mount boundary never falls through to
 an ancestor backend.
 
-## External listing cache
+## Verified caches
 
-`runtime::mount_cache` owns a browser-local interface and an IndexedDB adapter. Database
-`websh-cache`, structural version 1, contains only `mount_snapshots`, keyed by `key`. Payloads
-use the current manifest codec, including directory, bundle, file, and mempool metadata.
-Document bodies are fetched live; the cache does not provide full offline reading.
+`runtime::mount_cache` owns optional IndexedDB access. Database `websh-cache`, structural
+version 2, stores exact source evidence in `mount_snapshots` and verified file bytes in a
+bounded body store. The old disposable listing schema is discarded during upgrade; no old
+record reader remains. Clearing storage does not affect publication or wallet authority.
 
-Descriptors include canonical mount root, repository, ref, normalized prefix, and resolved
-manifest/content base URLs. Deterministic serialization plus SHA-256 produces `mount:<digest>`.
-Stored descriptors must match exactly. `self` resolves against the document base, preserving
-deployment and IPFS prefixes. Wallet and labels do not affect cache identity.
+Snapshot descriptors include canonical mount root, repository, ref, prefix, and the root's
+pinned site/key/signer policy digest. Deterministic serialization and SHA-256 produce the
+record key. External records have no owner trust key. Labels and wallet state are not source
+identity. Cache records carry exact manifest/signature bytes and a full commit; deserialization
+alone does not authenticate them. Root evidence is reverified and unsigned indexes are validated
+before restoration. Cached bodies are rehashed against the current expected digest and length.
 
 | Limit | Value |
 | --- | --- |
-| Restore deadline, including open/read/validation | 500 ms |
+| Snapshot restore, including open/read/validation | 500 ms |
 | Other cache operation attempt | 2 seconds |
-| Manifest HTTP deadline, including complete response body | 10 seconds |
-| Serialized manifest per record | 2 MiB |
-| Total manifest payload / record count | 8 MiB / 16 |
-| Maximum usable age / future clock skew | 30 days / 5 minutes |
+| HTTP deadline, headers and complete decoded body | 10 seconds |
+| Live manifest / signature / pointer | 4 MiB / 16 KiB / 1 KiB |
+| Cached snapshot payload per record | 4 MiB + 16 KiB |
+| Snapshot payload total / count | 8 MiB / 16 |
+| External snapshot age / future clock skew | 30 days / 5 minutes |
+| Body memory / entry count | 16 MiB / 128 |
+| Persistent bodies / entry count | 64 MiB / 128 |
+| Largest persistable body | 8 MiB |
 
-Validate the exact current record shape, identity, safe ordered timestamps, actual UTF-8 size,
-paths, metadata, bundles, and routes before publication. Oversized live results can render
-without persistence. Backwards wall-clock movement prevents persistence of that observation.
+Root publication sequence and exact manifest digest define live ordering. Lower sequences and
+same-sequence conflicts are rejected against both installed evidence and cached high-water
+state. A root candidate's acceptance and persistence comparison run in one readwrite
+transaction before live installation when storage is available. Root records are not aged out
+or capacity-evicted like external listings. An unavailable cache permits network reading;
+local ordering is not a proof of first-visit latestness and cannot survive cleared storage.
+Separate tabs do not synchronize their visible pages automatically.
 
-Live success always wins over cache. Early network failure waits for the bounded cache answer. A
-timely cache hit can remain available with refresh failure; a late cache result has no effect.
-Refreshing an available snapshot does not reopen the cache.
+For unsigned external snapshots, newer request-start time wins, then observation time. This
+orders observations rather than Git revisions. Cache restoration can fill an empty source but
+cannot replace a successful live result. A failed refresh retains installed data and marks
+freshness as unavailable. An unchanged commit avoids another metadata download, while the
+certificate policy is rechecked at current time.
 
-Writes are serialized/coalesced per key and recheck request validity before the transaction.
-Comparison, replacement, invalid/expired cleanup, and capacity pruning share a readwrite
-transaction. Newer request-start time wins, then observation time; an exact tie preserves the
-existing record. This orders observations, not Git revisions. Cleanup validates the current
-record inside its transaction, protecting replacements from other tabs.
+Verified body storage uses digest-and-length keys, so unchanged articles survive a Now-only
+update. Concurrent reads share a request only when both immutable URL and expected integrity
+match. Documents and media are loaded on demand; there is no full-PDF prefetch or offline app
+service worker. PDFs and images receive owned Blob URLs, including relative resources found
+in sanitized Markdown/HTML. Replacing or disposing a view revokes its URLs.
 
-Blocked/denied storage, version/schema errors, deadlines, and quota failures fall back to
-network reading. Timed-out opens close if they later succeed; versionchange closes connections.
-Transactions must commit before a write is successful. Quota failure gets one bounded
-eviction/retry; repeated failure disables writes for the session. There is no permission prompt,
-polling, cache management screen, or cross-tab leader.
+Blocked storage, schema errors, deadlines, and quota failures fall back to network reading.
+Timed-out opens close if they later succeed; version changes close connections. Writes must
+commit before success. There is no permission prompt, polling, or cache-management screen.
+
+## Historical viewing
+
+`?content=<full Git commit>&release=<manifest SHA-256>` before the hash route selects an exact
+root snapshot. The app authenticates its manifest and checks the supplied digest, labels the
+view historical, and neither updates the live head cache nor lowers its sequence watermark.
+The signature footer provides a snapshot link. External mounts remain independently live and
+are explicitly unsigned. Removing the query returns to live discovery.
 
 ## Wallet and preferences
 
@@ -126,6 +154,6 @@ only.
 - `platform::wallet`: EIP-1193 requests, deadlines, listener installation, and ENS reads.
 - `runtime::wallet`: guarded connection lifecycle and read-only wallet state.
 - `runtime::state`: local preferences and read-only environment/session state.
-- `runtime::github_backend`: public manifest and file GETs, without authoring or credentials.
+- `runtime::github_backend`: fixed-commit GitHub reads and exact source evidence, without credentials.
 
 Native authoring and publication are described in the [CLI guide](cli.md).

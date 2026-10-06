@@ -1,7 +1,6 @@
 //! Application-owned runtime services.
 
 use wasm_bindgen_futures::spawn_local;
-use websh_core::attestation::ledger::CONTENT_LEDGER_CONTENT_PATH;
 use websh_core::domain::VirtualPath;
 
 use crate::render::theme;
@@ -10,7 +9,7 @@ use crate::runtime::loader;
 use super::{AppContext, ThemeError};
 use crate::runtime::EnvironmentError;
 use crate::runtime::loader::RuntimeLoad;
-use crate::runtime::mounts::{MountLoadStatus, MountScanJob};
+use crate::runtime::mounts::MountScanJob;
 use crate::runtime::{RuntimeError, RuntimeResult};
 
 #[derive(Clone, Copy)]
@@ -48,7 +47,95 @@ impl RuntimeServices {
 
     pub async fn reload_runtime(&self) -> RuntimeResult {
         let sequence = self.ctx.content.begin_root_request();
-        let result = loader::load_runtime().await;
+        match loader::requested_snapshot() {
+            Ok(Some(selection)) => {
+                return self.finish_root_load(sequence, loader::load_historical(selection).await);
+            }
+            Err(error) => return self.finish_root_load(sequence, Err(error)),
+            Ok(None) => {}
+        }
+        let cache = self.ctx.content.mount_cache();
+        let started = crate::platform::time::current_timestamp();
+        let restore = async {
+            if let Some(cached) = cache.restore(loader::root_cache_descriptor()).await
+                && self.ctx.content.accepts_root_request(sequence)
+                && let Ok(mut load) = loader::restore_runtime(cached.source)
+            {
+                // Always consult persisted evidence before accepting the live head, even
+                // when discovery completes first or another tab accepted a newer release.
+                let acceptable = self
+                    .ctx
+                    .content
+                    .release()
+                    .zip(load.release.as_ref())
+                    .is_none_or(|(old, candidate)| old.accepted().check(candidate).is_ok());
+                let changed = self
+                    .ctx
+                    .content
+                    .release()
+                    .zip(load.release.as_ref())
+                    .is_none_or(|(old, candidate)| old.id() != candidate.id());
+                if acceptable && changed {
+                    let total_files = load.total_files;
+                    load.mounts.refresh_finished(
+                        &VirtualPath::root(),
+                        total_files,
+                        cached.observed_at_ms,
+                        crate::runtime::mounts::SnapshotOrigin::Cache,
+                        crate::runtime::mounts::RefreshState::Running,
+                    );
+                    let _ = self.finish_root_load(sequence, Ok(load));
+                }
+            }
+        };
+        let network = async {
+            let result = loader::load_runtime(
+                self.ctx
+                    .content
+                    .backend_for_mount_root(&VirtualPath::root())
+                    .and_then(|backend| backend.cache_snapshot()),
+            )
+            .await;
+            let evidence = result
+                .as_ref()
+                .ok()
+                .and_then(|load| load.backends.get(&VirtualPath::root()))
+                .and_then(|backend| backend.cache_snapshot());
+            (result, evidence)
+        };
+        let ((), (result, evidence)) = futures_util::join!(restore, network);
+        if result.is_ok()
+            && self.ctx.content.accepts_root_request(sequence)
+            && let Some(source) = evidence
+            && let Some(record) = crate::runtime::mount_cache::CacheRecord::from_source(
+                loader::root_cache_descriptor(),
+                source,
+                started,
+                crate::platform::time::current_timestamp(),
+            )
+        {
+            let content = self.ctx.content;
+            if cache
+                .accept_root(crate::runtime::mount_cache::CacheWrite {
+                    record,
+                    is_current: std::rc::Rc::new(move || content.accepts_root_request(sequence)),
+                })
+                .await
+                == crate::runtime::mount_cache::RootAcceptance::Rejected
+            {
+                if let Some(cached) = cache.restore(loader::root_cache_descriptor()).await
+                    && let Ok(load) = loader::restore_runtime(cached.source)
+                {
+                    let _ = self.finish_root_load(sequence, Ok(load));
+                }
+                return self.finish_root_load(
+                    sequence,
+                    Err(loader::root_error(
+                        "a newer release was accepted by another tab",
+                    )),
+                );
+            }
+        }
         self.finish_root_load(sequence, result)
     }
 
@@ -63,10 +150,44 @@ impl RuntimeServices {
         }
         match result {
             Ok(load) => {
-                let jobs = load.mounts.scan_jobs.clone();
-                let generation = self.ctx.content.apply_runtime_load(load);
-                self.start_ledger_prefetch(generation);
-                self.start_mount_scans(generation, jobs);
+                if !self.ctx.content.is_historical()
+                    && let (Some(previous), Some(candidate)) =
+                        (self.ctx.content.release(), load.release.as_ref())
+                    && let Err(error) = previous.accepted().check(candidate)
+                {
+                    let _ = self
+                        .ctx
+                        .content
+                        .mark_mount_failed(&VirtualPath::root(), error.to_string());
+                    return Err(RuntimeError::RefreshFailed {
+                        message: error.to_string(),
+                    });
+                }
+                self.ctx.content.apply_runtime_load(load);
+                // Retry unavailable mounts against their installed declaration and epoch.
+                for mount in self.ctx.content.runtime_mounts_snapshot() {
+                    if mount.root.is_root() || self.ctx.content.mount_is_loaded(&mount.root) {
+                        continue;
+                    }
+                    let Some(backend) = self.ctx.content.backend_for_mount_root(&mount.root) else {
+                        continue;
+                    };
+                    let generation = self
+                        .ctx
+                        .content
+                        .current_read_version(&mount.root)
+                        .generation;
+                    if let Ok((mount, epoch)) = self.ctx.content.mark_mount_loading(&mount.root) {
+                        self.start_mount_scans(
+                            generation,
+                            vec![MountScanJob {
+                                mount,
+                                backend,
+                                epoch,
+                            }],
+                        );
+                    }
+                }
                 Ok(())
             }
             Err(error) => {
@@ -91,7 +212,11 @@ impl RuntimeServices {
             .ok_or_else(|| RuntimeError::NoBackend {
                 mount_root: mount_root.clone(),
             })?;
-        let generation = self.ctx.content.runtime_generation();
+        let generation = self
+            .ctx
+            .content
+            .current_read_version(&mount_root)
+            .generation;
         let (declared_mount, epoch) = self.ctx.content.mark_mount_loading(&mount_root)?;
         crate::runtime::mount_refresh::refresh_mount(
             self.ctx.content,
@@ -117,35 +242,12 @@ impl RuntimeServices {
             });
         }
     }
-
-    fn start_ledger_prefetch(&self, generation: u64) {
-        let ctx = self.ctx;
-        let path = VirtualPath::from_absolute(format!("/{CONTENT_LEDGER_CONTENT_PATH}"))
-            .expect("ledger path is absolute");
-        let root = VirtualPath::root();
-        if !matches!(
-            ctx.content.mount_status_for(&root),
-            Some(MountLoadStatus::Available { .. })
-        ) {
-            return;
-        }
-        if !ctx.content.with_fs_untracked(|fs| fs.exists(&path)) {
-            return;
-        }
-
-        spawn_local(async move {
-            if ctx.content.runtime_generation() != generation {
-                return;
-            }
-
-            let _ = ctx.read_text(&path).await;
-        });
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::runtime::mounts::MountLoadStatus;
     use leptos::prelude::*;
     use wasm_bindgen_test::*;
 

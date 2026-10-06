@@ -16,6 +16,7 @@ pub struct MountEntry {
     /// Request identity changes on refresh; content identity changes only on publication.
     pub(crate) epoch: u64,
     pub(crate) content_revision: u64,
+    generation: u64,
     cache_descriptor: Option<super::mount_cache::CacheDescriptor>,
     pub status: MountLoadStatus,
 }
@@ -67,6 +68,7 @@ impl MountEntry {
             declared,
             epoch: 0,
             content_revision: 0,
+            generation: 0,
             cache_descriptor: None,
             status,
         }
@@ -168,6 +170,72 @@ impl MountLoadSet {
         self.entries
             .get(root)
             .and_then(|entry| entry.cache_descriptor.clone())
+    }
+
+    pub fn preserve_loaded(&mut self, previous: &Self) -> Vec<VirtualPath> {
+        let mut retained = Vec::new();
+        for (root, entry) in &mut self.entries {
+            if root.is_root() {
+                continue;
+            }
+            if let Some(old) = previous.entries.get(root)
+                && entry.cache_descriptor.is_some()
+                && entry.cache_descriptor == old.cache_descriptor
+                && previous.is_loaded(root)
+            {
+                let declaration = entry.declared.clone();
+                *entry = old.clone();
+                entry.declared = declaration;
+                retained.push(root.clone());
+            }
+        }
+        self.scan_jobs
+            .retain(|job| !retained.contains(&job.mount.root));
+        retained
+    }
+
+    pub fn assign_generation(&mut self, generation: u64, retained: &[VirtualPath]) {
+        for (root, entry) in &mut self.entries {
+            if !retained.contains(root) {
+                entry.generation = generation;
+            }
+        }
+    }
+
+    pub fn generation(&self, path: &VirtualPath) -> u64 {
+        self.owner(path).map_or(0, |entry| entry.generation)
+    }
+
+    pub fn accepts_attempt(&self, generation: u64, root: &VirtualPath, epoch: u64) -> bool {
+        self.entries
+            .get(root)
+            .is_some_and(|entry| entry.generation == generation && entry.epoch == epoch)
+    }
+
+    pub fn refresh_finished(
+        &mut self,
+        root: &VirtualPath,
+        total_files: usize,
+        observed_at_ms: u64,
+        origin: SnapshotOrigin,
+        refresh: RefreshState,
+    ) {
+        if let Some(entry) = self.entries.get_mut(root) {
+            entry.status = MountLoadStatus::Available {
+                total_files,
+                observed_at_ms,
+                origin,
+                refresh,
+            };
+        }
+    }
+
+    pub fn finish_unchanged_root(&mut self, incoming: &Self) {
+        if let Some(status) = incoming.status(&VirtualPath::root())
+            && let Some(entry) = self.entries.get_mut(&VirtualPath::root())
+        {
+            entry.status = status;
+        }
     }
 
     pub fn revision(&self, path: &VirtualPath) -> u64 {

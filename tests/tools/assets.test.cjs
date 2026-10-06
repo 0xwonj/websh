@@ -7,7 +7,7 @@ const { test } = require("node:test");
 
 const auditScript = path.resolve(__dirname, "../../scripts/check-size.cjs");
 
-test("asset budgets count every runtime file and report content separately", (t) => {
+test("asset budgets count every app file and reject bundled content", (t) => {
   const dist = fs.mkdtempSync(path.join(os.tmpdir(), "websh-assets-"));
   t.after(() => fs.rmSync(dist, { recursive: true, force: true }));
   const files = {
@@ -17,8 +17,6 @@ test("asset budgets count every runtime file and report content separately", (t)
     "assets/sprite.png": "sprite bytes",
     "assets/config.json": "{}",
     "assets/LICENSE": "license bytes",
-    "content/article.md": "article bytes",
-    "content/.websh/ledger.json": "{}",
   };
   for (const [name, body] of Object.entries(files)) {
     const file = path.join(dist, name);
@@ -38,14 +36,13 @@ test("asset budgets count every runtime file and report content separately", (t)
 
   const { status, report } = audit();
   assert.equal(status, 0);
+  const human = spawnSync(process.execPath, [auditScript, dist], { encoding: "utf8" });
+  assert.equal(human.status, 0, human.stderr);
+  assert.match(human.stdout, /Runtime: raw=/);
   assert.equal(report.assets.length, Object.keys(files).length);
   assert.equal(report.runtime.bytes, 62);
-  assert.equal(report.content.bytes, 15);
-  assert.equal(report.deployment.bytes, 77);
-  assert.deepEqual(report.content, { bytes: 15 });
-  assert.deepEqual(report.deployment, { bytes: 77 });
   for (const asset of report.assets) {
-    assert.equal(Object.hasOwn(asset, "brotliBytes"), asset.scope === "runtime");
+    assert.ok(Object.hasOwn(asset, "brotliBytes"));
     assert.ok(!Object.hasOwn(asset, "gzipBytes"));
   }
   assert.equal(report.assets.find((asset) => asset.path.endsWith(".woff")).kind, "font");
@@ -53,6 +50,11 @@ test("asset budgets count every runtime file and report content separately", (t)
   const failed = audit(report.runtime.brotliBytes - 1);
   assert.equal(failed.status, 1);
   assert.match(failed.report.issues[0], /runtime total.*exceeds budget/);
+
+  fs.mkdirSync(path.join(dist, "content"));
+  fs.writeFileSync(path.join(dist, "content", "article.md"), "must not ship");
+  assert.match(audit().report.issues[0], /app distribution contains authored content/);
+  fs.rmSync(path.join(dist, "content"), { recursive: true });
 
   fs.writeFileSync(path.join(dist, "index.html"), "__TRUNK_ADDRESS__");
   assert.match(audit().report.issues[0], /Trunk dev websocket/);

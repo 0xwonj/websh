@@ -25,9 +25,17 @@ pub struct HeadingEntry {
 
 /// Sanitize untrusted HTML before rendering it with `inner_html`.
 pub fn sanitize_html(html: &str) -> String {
+    sanitize(html, true)
+}
+
+fn sanitize(html: &str, images: bool) -> String {
+    let mut tags = markdown_tags();
+    if !images {
+        tags.remove("img");
+    }
     let mut builder = ammonia::Builder::empty();
     builder
-        .tags(markdown_tags())
+        .tags(tags)
         .tag_attributes(markdown_tag_attributes())
         .generic_attributes(HashSet::from(["lang", "title"]))
         .url_schemes(HashSet::from(["http", "https", "mailto"]))
@@ -45,8 +53,11 @@ pub fn render_markdown(markdown: &str) -> RenderedMarkdown {
 
 /// Convert a single inline markdown fragment to sanitized HTML plus hydration metadata.
 pub fn render_inline_markdown(markdown: &str) -> RenderedMarkdown {
-    let rendered = render_markdown(markdown);
-    rendered_from_html(strip_paragraph_wrapper(&rendered.html).to_string())
+    // Homepage projections are inline prose. Asset loading belongs to the reader,
+    // where relative files pass through the accepted source and byte verification.
+    let html = comrak_markdown_to_html(markdown, &markdown_options());
+    let html = sanitize(&html, false);
+    rendered_from_html(strip_paragraph_wrapper(&html).to_string())
 }
 
 pub fn rendered_from_html(html: String) -> RenderedMarkdown {

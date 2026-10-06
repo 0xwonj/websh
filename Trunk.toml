@@ -8,8 +8,8 @@ public_url = "./"
 filehash = true
 
 [watch]
-watch = ["crates", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "Trunk.toml", "index.html", "_headers", "assets", "content", "vendor"]
-ignore = ["assets/bundle.css", "content/manifest.json", "content/.websh/ledger.json"]
+watch = ["crates", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "Trunk.toml", "index.html", "_headers", "assets", "vendor"]
+ignore = ["assets/bundle.css"]
 
 [serve]
 addresses = ["127.0.0.1"]
@@ -19,8 +19,3 @@ port = 8080
 stage = "pre_build"
 command = "stylance"
 command_arguments = ["--output-file", "assets/bundle.css", "crates/websh-web"]
-
-[[hooks]]
-stage = "pre_build"
-command = "cargo"
-command_arguments = ["run", "--locked", "--quiet", "-p", "websh-cli", "--", "sync"]
