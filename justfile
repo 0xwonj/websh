@@ -8,7 +8,7 @@ serve:
 
 # Release build of the app; independent of content authoring.
 build:
-    trunk build --release --locked
+    env -u NO_COLOR trunk build --release --locked
 
 # Isolated app build for browser and size checks.
 build-check:
@@ -79,5 +79,5 @@ clean-cache *args:
 
 # Build and publish the app. Content publication is a separate CLI workflow.
 publish:
-    trunk build --release --locked
+    env -u NO_COLOR trunk build --release --locked
     cargo run --locked -p websh-cli -- deploy
