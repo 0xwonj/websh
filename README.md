@@ -45,5 +45,7 @@ content, draft, acknowledgement, offline-signing, and deployment workflows.
 - [Architecture](docs/architecture/current.md): crate boundaries and native contracts.
 - [Runtime](docs/architecture/runtime.md): browser state, routes, mounts, and cache limits.
 - [Verification](docs/architecture/verification.md): test ownership and focused checks.
+- [Publication design](docs/architecture/publication.md): planned IPFS app and GitHub
+  content separation without ENS.
 
 Source code and published content are licensed under [CC-BY-SA-4.0](LICENSE).

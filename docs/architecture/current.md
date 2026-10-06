@@ -75,3 +75,5 @@ version, and dependency/tool pins retain versions where they carry meaning.
 
 - [Tooling](tooling.md): bootstrap, build/watch inputs, output ownership, cleanup.
 - [Verification](verification.md): local gate, focused tests, dependency maintenance.
+- [Independent publication](publication.md): planned IPFS app and GitHub content
+  separation without ENS; target design, not yet implemented.
