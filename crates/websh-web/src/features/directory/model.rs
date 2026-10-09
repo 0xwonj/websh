@@ -529,7 +529,7 @@ mod tests {
         system_meta.derived.child_count = Some(2);
         let snapshot = ScannedSubtree {
             files: vec![
-                file(".websh/attestations.json", meta(NodeKind::Data, None)),
+                file(".websh/ack.commitment.json", meta(NodeKind::Data, None)),
                 ScannedFile {
                     path: ".site/now.toml".to_string(),
                     meta: meta(NodeKind::Document, Some("now")),

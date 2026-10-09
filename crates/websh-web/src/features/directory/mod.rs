@@ -7,7 +7,7 @@ use leptos::prelude::*;
 use crate::app::AppContext;
 use crate::features::chrome::SiteChrome;
 use crate::shared::components::{
-    IdentifierStrip, MetaRow, MetaTable, ReleaseSigFooter, SiteContentFrame, SiteSurface,
+    IdentifierStrip, MetaRow, MetaTable, PageSigFooter, SiteContentFrame, SiteSurface,
 };
 use model::{
     DirectoryListingEntry, DirectoryListingGroup, DirectoryModel,
@@ -60,7 +60,7 @@ pub fn DirectoryPage(route: Memo<RouteFrame>) -> impl IntoView {
                         </section>
                     </div>
                 }}
-                <ReleaseSigFooter route=attestation_route />
+                <PageSigFooter route=attestation_route />
             </SiteContentFrame>
         </SiteSurface>
     }

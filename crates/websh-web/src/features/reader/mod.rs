@@ -69,14 +69,18 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
             let path = snapshot.resolution.node_path;
             async move {
                 let result = load_reader_document(ctx, intent).await;
-                if ctx.content.current_read_version(&path) != version {
+                let result = if ctx.content.current_read_version(&path) != version {
                     // Dropping a stale document also releases its owned object URLs.
-                    return Err(ReaderLoadError::Read {
+                    Err(ReaderLoadError::Read {
                         path: path.clone(),
-                        source: websh_core::filesystem::ContentReadError::Obsolete { path },
-                    });
-                }
-                result
+                        source: websh_core::filesystem::ContentReadError::Obsolete {
+                            path: path.clone(),
+                        },
+                    })
+                } else {
+                    result
+                };
+                (path, version, result)
             }
         }
     });
@@ -99,6 +103,14 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
         chrome_route,
         attestation_route,
         set_preferred_locale,
+        ready: Signal::derive(move || {
+            document
+                .get()
+                .filter(|(path, version, _)| {
+                    *path == canonical_path.get() && *version == content_version.get()
+                })
+                .map(|(_, _, result)| result.is_ok())
+        }),
     };
 
     let actions_bindings = ReaderActionsBindings {
@@ -117,7 +129,7 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
         <ReaderShell state=shell_state actions=actions_bindings>
             <crate::shared::components::MountStatusNotice path=Signal::derive(move || canonical_path.get()) />
             <Suspense fallback=move || view! { <div class=css::loading>"Loading..."</div> }>
-                {move || document.get().map(|result| render_view_body(result, reader_meta_memo))}
+                {move || document.get().filter(|(path, version, _)| *path == canonical_path.get() && *version == content_version.get()).map(|(_, _, result)| render_view_body(result, reader_meta_memo))}
             </Suspense>
         </ReaderShell>
     }

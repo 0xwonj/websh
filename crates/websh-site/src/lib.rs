@@ -9,7 +9,7 @@ pub mod bootstrap;
 pub mod identity;
 pub mod profile;
 
-pub use artifacts::{ACK_ARTIFACT_PATH, ATTESTATIONS_PATH};
+pub use artifacts::ACK_ARTIFACT_PATH;
 pub use bootstrap::BOOTSTRAP_SITE;
 pub use identity::{
     APP_NAME, APP_TAGLINE, EXPECTED_PGP_FINGERPRINT, PUBLIC_KEY_BLOCK, PUBLIC_KEY_PATH,

@@ -29,7 +29,7 @@ fn manifest() -> Manifest {
     }
 }
 
-fn home() -> HomeProjection {
+pub(super) fn home() -> HomeProjection {
     HomeProjection {
         profile: serde_json::from_value(json!({
             "title":"Fixture", "tagline":"A test", "name":"Publisher", "affiliation":"Lab",
@@ -162,6 +162,7 @@ fn real_signature_creates_evidence_and_rejects_tampering_wrong_authority_and_liv
         .as_secs();
     let mut document = manifest();
     document.release = Some(ReleaseMetadata {
+        attestations: Default::default(),
         purpose: CONTENT_PURPOSE.into(),
         site: "fixture".into(),
         sequence: 1,
@@ -260,6 +261,86 @@ fn real_signature_creates_evidence_and_rejects_tampering_wrong_authority_and_liv
         signer_fingerprints: &signers,
     };
     assert!(verify_detached(&bytes, &text_signature, &pgp_policy, now).is_err());
+    // A valid root signature cannot substitute for a missing, stale, or invalid page proof.
+    use crate::attestation::artifact::{Attestation, message_sha256};
+    let mut subjects = expected_subjects(&document).unwrap();
+    for subject in &mut subjects {
+        subject.set_issued_at(Some("2026-01-01".into()));
+        let message = subject.canonical_message().unwrap();
+        let proof = DetachedSignature::sign_binary_data(
+            &mut rng,
+            &secret.primary_key,
+            &Password::empty(),
+            HashAlgorithm::Sha256,
+            message.as_bytes(),
+        )
+        .unwrap()
+        .to_armored_bytes(ArmorOptions::default())
+        .unwrap();
+        subject.attestations_mut().push(Attestation::Pgp {
+            signer: None,
+            fingerprint: fingerprint.clone(),
+            key_path: "assets/crypto/site.asc".into(),
+            signature: String::from_utf8(proof).unwrap(),
+            signature_path: None,
+            message_sha256: message_sha256(&message),
+        });
+    }
+    document.release.as_mut().unwrap().attestations.subjects = subjects;
+    let mut authenticate = |manifest: &Manifest| {
+        let body = serde_json::to_vec(manifest).unwrap();
+        let signature = DetachedSignature::sign_binary_data(
+            &mut rng,
+            &secret.primary_key,
+            &Password::empty(),
+            HashAlgorithm::Sha256,
+            body.as_slice(),
+        )
+        .unwrap()
+        .to_armored_bytes(ArmorOptions::default())
+        .unwrap();
+        verify_release(&body, &signature, &policy, now).unwrap()
+    };
+    let root = crate::domain::VirtualPath::root();
+    let signed = authenticate(&document);
+    let page = verify_subject(&signed, &root, &pgp_policy, now).unwrap();
+    assert_eq!(page.subject().route(), "/");
+    let ledger = verify_subject(
+        &signed,
+        &crate::domain::VirtualPath::from_absolute("/ledger").unwrap(),
+        &pgp_policy,
+        now,
+    )
+    .unwrap();
+    assert_ne!(page.message_hash(), ledger.message_hash());
+    let mut changed = document.clone();
+    changed.release.as_mut().unwrap().home.now.items[0].text = "Changed".into();
+    assert!(verify_subject(&authenticate(&changed), &root, &pgp_policy, now).is_err());
+    let mut missing = document.clone();
+    missing
+        .release
+        .as_mut()
+        .unwrap()
+        .attestations
+        .subject_for_route_mut("/")
+        .unwrap()
+        .attestations_mut()
+        .clear();
+    assert!(verify_subject(&authenticate(&missing), &root, &pgp_policy, now).is_err());
+    let mut invalid = document.clone();
+    if let Attestation::Pgp { message_sha256, .. } = &mut invalid
+        .release
+        .as_mut()
+        .unwrap()
+        .attestations
+        .subject_for_route_mut("/")
+        .unwrap()
+        .attestations_mut()[0]
+    {
+        *message_sha256 = "0x00".into();
+    }
+    assert!(verify_subject(&authenticate(&invalid), &root, &pgp_policy, now).is_err());
+
     assert!(
         verify_release(
             &serde_json::to_vec(&manifest()).unwrap(),
@@ -275,6 +356,7 @@ fn real_signature_creates_evidence_and_rejects_tampering_wrong_authority_and_liv
 fn root_projection_rejects_unsafe_links_invalid_dates_and_conflicting_mounts() {
     let mut document = manifest();
     document.release = Some(ReleaseMetadata {
+        attestations: Default::default(),
         purpose: CONTENT_PURPOSE.into(),
         site: "fixture".into(),
         sequence: 0,

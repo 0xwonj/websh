@@ -1,155 +1,21 @@
-use std::collections::BTreeMap;
-
 use crate::shared::components::size_summary_parts;
-use websh_core::domain::{BundleVariant, FileType, NodeKind, NodeMetadata, VirtualPath};
-use websh_core::filesystem::{GlobalFs, content_href_for_path};
-use websh_core::mempool::LEDGER_CATEGORIES;
+pub(super) use websh_core::publication::{
+    LedgerEntry, LedgerFilter, LedgerModel, build_ledger_model, ledger_filter_for_route,
+};
 use websh_core::support::format::format_size;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct LedgerModel {
-    pub(super) filter: LedgerFilter,
-    pub(super) entries: Vec<LedgerEntry>,
-    pub(super) counts: BTreeMap<String, usize>,
-    pub(super) total_count: usize,
-    pub(super) restricted_count: usize,
-    pub(super) release_id: String,
-    pub(super) latest_date: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum LedgerFilter {
-    All,
-    Category(String),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct LedgerEntry {
-    pub(super) path: String,
-    pub(super) href: String,
-    pub(super) title: String,
-    pub(super) description: Option<String>,
-    pub(super) date: String,
-    pub(super) category: String,
-    pub(super) kind_chips: Vec<String>,
-    pub(super) meta_line: Vec<String>,
-    pub(super) variants: Vec<String>,
-    pub(super) restricted: bool,
-}
-
-pub(super) fn ledger_filter_for_route(request_path: &str, node_path: &VirtualPath) -> LedgerFilter {
-    if request_path.trim_matches('/') == "ledger" {
-        return LedgerFilter::All;
-    }
-    node_path
-        .segments()
-        .next()
-        .map(|segment| LedgerFilter::Category(segment.to_string()))
-        .unwrap_or(LedgerFilter::All)
-}
-
-pub(super) fn build_ledger_model(
-    fs: &GlobalFs,
-    publications: &[String],
-    release_id: &str,
-    filter: &LedgerFilter,
-) -> LedgerModel {
-    let mut all_entries = publications
-        .iter()
-        .filter_map(|path| ledger_entry_for_path(fs, path))
-        .collect::<Vec<_>>();
-    all_entries.sort_by(|left, right| {
-        right
-            .date
-            .cmp(&left.date)
-            .then_with(|| left.path.cmp(&right.path))
-    });
-    let total_count = all_entries.len();
-
-    let mut counts = BTreeMap::new();
-    for category in LEDGER_CATEGORIES {
-        counts.insert((*category).to_string(), 0usize);
-    }
-    for entry in &all_entries {
-        *counts.entry(entry.category.clone()).or_default() += 1;
-    }
-
-    let entries = all_entries
-        .iter()
-        .filter(|entry| filter.includes(entry))
-        .cloned()
-        .collect::<Vec<_>>();
-    let restricted_count = entries.iter().filter(|entry| entry.restricted).count();
-    let latest_date = entries
-        .first()
-        .map(|entry| entry.date.clone())
-        .unwrap_or_else(|| "—".to_string());
-
-    LedgerModel {
-        filter: filter.clone(),
-        entries,
-        counts,
-        total_count,
-        restricted_count,
-        release_id: release_id.to_string(),
-        latest_date,
-    }
-}
-
-fn ledger_entry_for_path(fs: &GlobalFs, path: &str) -> Option<LedgerEntry> {
-    let node_path = VirtualPath::from_absolute(format!("/{path}")).ok()?;
-    let node_meta = fs.node_metadata(&node_path);
-    let fallback_title = fallback_file_title(path);
-    let title = node_meta
-        .and_then(|meta| meta.title())
-        .map(str::to_string)
-        .unwrap_or(fallback_title);
-    let description = node_meta
-        .and_then(|meta| meta.description())
-        .map(|text| text.trim().to_string())
-        .filter(|text| !text.is_empty());
-    let date = node_meta
-        .and_then(|meta| meta.date())
-        .map(str::to_string)
-        .unwrap_or_else(|| "undated".to_string());
-    let category = path.split('/').next()?.to_string();
-    let kind_chips = kind_chips_for_entry(fs, &node_path, node_meta, &category, path);
-    let tags = node_meta.map(NodeMetadata::tags_owned).unwrap_or_default();
-    let metric_meta = metric_metadata_for_entry(fs, &node_path, node_meta);
-    let size = metric_meta.and_then(|meta| meta.size_bytes());
-    let summary_parts = metric_meta
-        .map(|meta| {
-            size_summary_parts(
-                meta.kind,
-                meta.word_count(),
-                meta.page_count(),
-                meta.image_dimensions(),
-            )
-        })
-        .unwrap_or_default();
-    let restricted = node_meta.and_then(|meta| meta.access()).is_some();
-    let variants = node_meta
-        .and_then(|meta| meta.bundle.as_ref())
-        .map(|bundle| {
-            bundle
-                .variants
-                .iter()
-                .map(|variant| variant.label.clone())
-                .collect()
-        })
-        .unwrap_or_default();
-    Some(LedgerEntry {
-        path: path.to_string(),
-        href: content_href_for_path(path),
-        title,
-        description,
-        date,
-        category,
-        kind_chips,
-        meta_line: meta_line_for_entry(summary_parts, size, &tags),
-        variants,
-        restricted,
-    })
+pub(super) fn entry_meta_line(entry: &LedgerEntry) -> Vec<String> {
+    let meta = &entry.metrics;
+    meta_line_for_entry(
+        size_summary_parts(
+            meta.kind,
+            meta.word_count(),
+            meta.page_count(),
+            meta.image_dimensions(),
+        ),
+        entry.size,
+        &entry.tags,
+    )
 }
 
 fn meta_line_for_entry(
@@ -170,185 +36,6 @@ fn meta_line_for_entry(
     out
 }
 
-fn metric_metadata_for_entry<'a>(
-    fs: &'a GlobalFs,
-    node_path: &VirtualPath,
-    node_meta: Option<&'a NodeMetadata>,
-) -> Option<&'a NodeMetadata> {
-    let meta = node_meta?;
-    if meta.is_bundle()
-        && let Some(default_meta) = resolve_bundle_default_variant_metadata(fs, node_path, meta)
-    {
-        return Some(default_meta);
-    }
-    Some(meta)
-}
-
-fn kind_chips_for_entry(
-    fs: &GlobalFs,
-    node_path: &VirtualPath,
-    node_meta: Option<&NodeMetadata>,
-    category: &str,
-    path: &str,
-) -> Vec<String> {
-    if let Some(meta) = node_meta
-        && meta.is_bundle()
-    {
-        let chips = bundle_variant_kind_chips(fs, node_path, meta);
-        if !chips.is_empty() {
-            return chips;
-        }
-    }
-    vec![kind_for_entry(node_meta, category, path)]
-}
-
-fn resolve_bundle_default_variant_metadata<'a>(
-    fs: &'a GlobalFs,
-    bundle_path: &VirtualPath,
-    meta: &NodeMetadata,
-) -> Option<&'a NodeMetadata> {
-    let bundle = meta.bundle.as_ref()?;
-    let default_variant = bundle
-        .variants
-        .iter()
-        .find(|variant| variant.id == bundle.default_variant_id())?;
-    resolve_bundle_variant_metadata(fs, bundle_path, default_variant)
-}
-
-fn bundle_variant_kind_chips(
-    fs: &GlobalFs,
-    bundle_path: &VirtualPath,
-    meta: &NodeMetadata,
-) -> Vec<String> {
-    let mut chips = Vec::new();
-    let Some(bundle) = meta.bundle.as_ref() else {
-        return chips;
-    };
-    for variant in &bundle.variants {
-        let Some((target_path, target_meta)) =
-            resolve_bundle_variant_target(fs, bundle_path, variant)
-        else {
-            continue;
-        };
-        let label = variant_target_kind_label(&target_path, target_meta).to_string();
-        if !chips.contains(&label) {
-            chips.push(label);
-        }
-    }
-    chips
-}
-
-fn resolve_bundle_variant_metadata<'a>(
-    fs: &'a GlobalFs,
-    bundle_path: &VirtualPath,
-    variant: &BundleVariant,
-) -> Option<&'a NodeMetadata> {
-    let target_path = bundle_child_path(bundle_path, &variant.path)?;
-    fs.node_metadata(&target_path)
-}
-
-fn resolve_bundle_variant_target<'a>(
-    fs: &'a GlobalFs,
-    bundle_path: &VirtualPath,
-    variant: &BundleVariant,
-) -> Option<(VirtualPath, &'a NodeMetadata)> {
-    let target_path = bundle_child_path(bundle_path, &variant.path)?;
-    let target_meta = fs.node_metadata(&target_path)?;
-    Some((target_path, target_meta))
-}
-
-fn bundle_child_path(bundle_path: &VirtualPath, rel_path: &str) -> Option<VirtualPath> {
-    if rel_path.is_empty()
-        || rel_path.starts_with('/')
-        || rel_path.contains('\\')
-        || rel_path.chars().any(char::is_control)
-    {
-        return None;
-    }
-    if rel_path
-        .split('/')
-        .any(|segment| segment.is_empty() || segment == "." || segment == "..")
-    {
-        return None;
-    }
-    let path = bundle_path.join(rel_path);
-    path.starts_with(bundle_path).then_some(path)
-}
-
-fn variant_target_kind_label(path: &VirtualPath, meta: &NodeMetadata) -> &'static str {
-    match meta.kind {
-        NodeKind::Page => match FileType::from_path(path.as_str()) {
-            FileType::Markdown => "markdown",
-            _ => "document",
-        },
-        NodeKind::Document => "document",
-        NodeKind::Directory | NodeKind::Bundle => "directory",
-        NodeKind::App => "app",
-        NodeKind::Asset => match FileType::from_path(path.as_str()) {
-            FileType::Image => "image",
-            _ => "asset",
-        },
-        NodeKind::Redirect => "link",
-        NodeKind::Data => "data",
-    }
-}
-
-fn fallback_file_title(path: &str) -> String {
-    path.rsplit('/')
-        .next()
-        .and_then(|name| name.split('.').next())
-        .filter(|stem| !stem.is_empty())
-        .unwrap_or(path)
-        .to_string()
-}
-
-fn kind_for_entry(node_meta: Option<&NodeMetadata>, category: &str, path: &str) -> String {
-    if let Some(kind) = node_meta.map(|meta| meta.kind) {
-        return match kind {
-            NodeKind::Bundle => "bundle",
-            NodeKind::Directory => "directory",
-            NodeKind::Page => "note",
-            NodeKind::Document => "document",
-            NodeKind::App => "app",
-            NodeKind::Asset => "asset",
-            NodeKind::Redirect => "link",
-            NodeKind::Data => "data",
-        }
-        .to_string();
-    }
-
-    match category {
-        "papers" => "paper",
-        "projects" => "project",
-        "talks" => "talk",
-        "writing" => "writing",
-        _ if path.ends_with(".asc") => "key",
-        _ if path.ends_with(".toml") || path.ends_with(".json") => "data",
-        _ => "note",
-    }
-    .to_string()
-}
-
-impl LedgerFilter {
-    pub(super) fn is_all(&self) -> bool {
-        matches!(self, Self::All)
-    }
-
-    pub(super) fn matches(&self, category: &str) -> bool {
-        matches!(self, Self::Category(active) if active == category)
-    }
-
-    fn includes(&self, entry: &LedgerEntry) -> bool {
-        match self {
-            Self::All => true,
-            Self::Category(category) if LEDGER_CATEGORIES.contains(&category.as_str()) => {
-                entry.category == *category
-            }
-            Self::Category(category) => entry.path.starts_with(&format!("{category}/")),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -357,6 +44,9 @@ mod tests {
         AuthoredMetadata, BundleMetadata, BundleVariant, DerivedMetadata, EntryExtensions,
         ImageDim, NodeKind,
     };
+    use websh_core::domain::{NodeMetadata, VirtualPath};
+    use websh_core::filesystem::GlobalFs;
+    use websh_core::publication::{PublicationBlock, PublicationChain};
 
     fn labels(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_string()).collect()
@@ -440,11 +130,57 @@ mod tests {
     }
 
     fn single_entry(fs: &GlobalFs, path: &str) -> LedgerEntry {
-        build_ledger_model(fs, &[path.to_string()], "release", &LedgerFilter::All)
+        let chain = PublicationChain {
+            blocks: vec![PublicationBlock {
+                path: path.into(),
+                height: 1,
+                hash: "0x01".into(),
+                previous_hash: "0x00".into(),
+                content_bytes: 12_345,
+            }],
+            head: "0x01".into(),
+        };
+        build_ledger_model(fs, &chain, &LedgerFilter::All)
             .entries
             .into_iter()
             .next()
             .unwrap()
+    }
+
+    #[wasm_bindgen_test]
+    fn category_filter_preserves_chain_head_heights_and_links() {
+        let mut fs = GlobalFs::empty();
+        let paths = ["writing/old.md", "papers/middle.md", "writing/new.md"];
+        let blocks = paths
+            .iter()
+            .enumerate()
+            .map(|(index, path)| {
+                upsert_file(&mut fs, &format!("/{path}"), markdown_meta(100));
+                PublicationBlock {
+                    path: (*path).into(),
+                    height: index as u64 + 1,
+                    hash: format!("hash{}", index + 1),
+                    previous_hash: format!("hash{index}"),
+                    content_bytes: 1_000,
+                }
+            })
+            .collect();
+        let chain = PublicationChain {
+            blocks,
+            head: "hash3".into(),
+        };
+        let all = build_ledger_model(&fs, &chain, &LedgerFilter::All);
+        let writing = build_ledger_model(&fs, &chain, &LedgerFilter::Category("writing".into()));
+
+        assert_eq!(writing.head_hash, all.head_hash);
+        assert_eq!(writing.total_count, 3);
+        assert_eq!(
+            writing.entries,
+            vec![all.entries[0].clone(), all.entries[2].clone()]
+        );
+        assert_eq!(writing.entries[0].block_height, 3);
+        assert_eq!(writing.entries[0].previous_hash, "hash2");
+        assert_eq!(writing.entries[1].block_height, 1);
     }
 
     #[wasm_bindgen_test]
@@ -466,7 +202,7 @@ mod tests {
         let entry = single_entry(&fs, "writing/foo");
 
         assert_eq!(entry.kind_chips, labels(&["markdown"]));
-        assert_eq!(entry.meta_line, labels(&["2,140 words", "9 min"]));
+        assert_eq!(entry_meta_line(&entry), labels(&["2,140 words", "9 min"]));
         assert_eq!(entry.variants, labels(&["English", "Korean"]));
     }
 
@@ -513,11 +249,11 @@ mod tests {
 
         let entry = single_entry(&fs, "papers/foo");
 
-        assert_eq!(entry.meta_line, labels(&["12 pages"]));
+        assert_eq!(entry_meta_line(&entry), labels(&["12 pages"]));
     }
 
     #[wasm_bindgen_test]
-    fn missing_default_variant_metadata_uses_content_label() {
+    fn missing_default_variant_metadata_uses_committed_content_size() {
         let mut fs = GlobalFs::empty();
         fs.upsert_directory(
             vp("/writing/missing"),
@@ -527,6 +263,6 @@ mod tests {
         let entry = single_entry(&fs, "writing/missing");
 
         assert_eq!(entry.kind_chips, labels(&["bundle"]));
-        assert_eq!(entry.meta_line, labels(&["content"]));
+        assert_eq!(entry_meta_line(&entry), labels(&["12.3K"]));
     }
 }

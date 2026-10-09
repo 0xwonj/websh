@@ -21,6 +21,7 @@ setup:
 # Browser checks against the verification build and signed content fixtures.
 [positional-arguments]
 e2e *args:
+    cargo build --locked -p websh-core --example page-subjects
     env -u NO_COLOR node_modules/.bin/playwright test --reporter=line --workers=1 "$@"
 
 # Browser-owned wasm-bindgen tests.

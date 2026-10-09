@@ -1,4 +1,4 @@
-//! Required root-snapshot signature, independent of portable article evidence.
+//! Sign required page subjects before authenticating their containing root snapshot.
 use super::sync::{MANIFEST_PATH, Prepared, SIGNATURE_PATH};
 use crate::{
     CliResult,
@@ -37,7 +37,8 @@ pub(crate) fn sign(root: &Path) -> CliResult<Manifest> {
 }
 
 pub(crate) fn sign_after(root: &Path, accepted: Option<&AcceptedRelease>) -> CliResult<Manifest> {
-    let prepared = Prepared::load(root)?;
+    let mut prepared = Prepared::load(root)?;
+    super::attest::sign_subjects(&mut prepared, None)?;
     let mut manifest = prepared.manifest()?;
     let bytes = json_bytes(&manifest)?;
     if let Ok(signature) = fs::read(root.join(SIGNATURE_PATH))
@@ -72,6 +73,7 @@ pub(crate) fn sign_after(root: &Path, accepted: Option<&AcceptedRelease>) -> Cli
 pub(crate) fn signed_files(root: &Path) -> CliResult<BTreeMap<String, Vec<u8>>> {
     let prepared = Prepared::load(root)?;
     prepared.check_outputs(root)?;
+    super::attest::verify::verify_artifact(&prepared.artifact, true)?;
     verify(root)?;
     let mut files: BTreeMap<_, _> = prepared
         .files()?

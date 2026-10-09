@@ -1,7 +1,5 @@
 use std::fs;
 
-use websh_site::ATTESTATIONS_PATH;
-
 use crate::support::{cli, cli_fails, temp_dir, write_site_fixture};
 
 #[test]
@@ -14,7 +12,7 @@ fn sync_rebuilds_current_sources_and_check_reports_drift_without_writes() {
     cli(&root, &["sync"]);
     cli(&root, &["check"]);
 
-    let outputs = ["content/manifest.json", ATTESTATIONS_PATH];
+    let outputs = ["content/manifest.json"];
     let before: Vec<_> = outputs
         .iter()
         .map(|path| fs::read(root.join(path)).unwrap())

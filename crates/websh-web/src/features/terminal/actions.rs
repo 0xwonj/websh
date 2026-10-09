@@ -4,10 +4,12 @@ use crate::app::AppContext;
 use crate::app::RuntimeServices;
 use crate::platform::dom::push_route;
 use crate::runtime::shell_execution_context;
+use websh_core::domain::VirtualPath;
 use websh_core::filesystem::route_cwd;
 use websh_core::shell::OutputLine;
 use websh_core::shell::{
-    SideEffect, autocomplete, execute_pipeline_with_context, get_hint, parse_input_with_env,
+    Command, SideEffect, autocomplete, execute_pipeline_with_context, get_hint,
+    parse_input_with_env,
 };
 
 use super::RouteContext;
@@ -93,24 +95,50 @@ pub(super) fn create_submit_callback(ctx: AppContext, route_ctx: RouteContext) -
                 .add_to_command_history(&pipeline.command_line());
         }
 
-        let wallet_state = ctx.wallet.state.get();
-        let runtime_mounts = ctx.content.runtime_mounts_snapshot();
-        let execution_context = shell_execution_context(&runtime_state, ctx.content.home());
-        let result = ctx.with_fs(|current_fs| {
-            execute_pipeline_with_context(
-                &pipeline,
-                &wallet_state,
-                &runtime_mounts,
-                current_fs,
-                &cwd,
-                &execution_context,
+        let needs_profile = pipeline.commands.first().is_some_and(|command| {
+            matches!(
+                Command::parse(&command.name, &command.args),
+                Command::Whoami
             )
         });
+        let execute = move |profile| {
+            let wallet_state = ctx.wallet.state.get();
+            let runtime_mounts = ctx.content.runtime_mounts_snapshot();
+            let execution_context = shell_execution_context(&runtime_state, profile);
+            let result = ctx.with_fs(|current_fs| {
+                execute_pipeline_with_context(
+                    &pipeline,
+                    &wallet_state,
+                    &runtime_mounts,
+                    current_fs,
+                    &cwd,
+                    &execution_context,
+                )
+            });
 
-        ctx.terminal.push_lines(result.output);
+            ctx.terminal.push_lines(result.output);
 
-        for effect in result.side_effects {
-            dispatch_side_effect(&ctx, effect);
+            for effect in result.side_effects {
+                dispatch_side_effect(&ctx, effect);
+            }
+        };
+        if needs_profile {
+            let output_epoch = ctx.terminal.output_epoch();
+            wasm_bindgen_futures::spawn_local(async move {
+                let path = VirtualPath::from_absolute("/.site/profile.txt").expect("profile path");
+                let profile = ctx.read_text(&path).await;
+                if ctx.terminal.output_epoch() != output_epoch {
+                    return;
+                }
+                match profile {
+                    Ok(profile) => execute(profile),
+                    Err(error) => ctx
+                        .terminal
+                        .push_output(OutputLine::error(format!("whoami: {error}"))),
+                }
+            });
+        } else {
+            execute(String::new());
         }
     })
 }

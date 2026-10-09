@@ -57,7 +57,10 @@ or WASM Clippy scope with `--all-targets -- -D warnings`; the full recipe define
 ## Browser, CSS, and asset checks
 
 `just e2e` serves `target/verify/dist` at `127.0.0.1:4173` unless `WEBSH_E2E_BASE_URL` is
-set. Build it first. External content and wallet traffic use local fixtures. Smoke tests
+set. Build it first. The recipe builds the small `websh-core` `page-subjects` example
+to derive fixture messages from the public Rust API; JavaScript signs those messages
+with the isolated test key instead of duplicating commitment algorithms. External
+content and wallet traffic use local fixtures. Smoke tests
 fail on same-origin asset 404s and cover root-host and `/ipfs/<cid>/` hash navigation.
 WASM tests use Playwright Chromium and the exact locked wasm-bindgen runner.
 
@@ -70,7 +73,14 @@ and computes Brotli subtotals by asset type. A bundled `content/` directory is a
 error; authored content is delivered independently. Pass another built directory explicitly when needed.
 Budgets change only for an explained product or packaging change.
 The signed-content reader includes OpenPGP verification in the app: its Brotli budget
-is 1.15 MiB for WASM and 1.70 MiB for all runtime assets. Other asset caps are unchanged.
+is 1.16 MiB for WASM and 1.70 MiB for all runtime assets. The page-subject verifier
+and shared home/ledger projections measure 1,206,478 Brotli bytes in the verification
+build, 616 bytes above the former 1.15 MiB cap. This feature raises only the WASM cap
+by 0.01 MiB; the total and other asset caps are unchanged.
+
+The cold-home fixture keeps three root metadata requests; page proofs increase its
+metadata to about 7.6 KiB. The browser timing record includes root verification and
+installation. These local fixture timings are not GitHub/gateway latency estimates.
 
 ## Dependency maintenance
 

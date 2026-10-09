@@ -65,7 +65,9 @@ test('historical snapshots validate exact identity without rolling back live cac
  await expect.poll(async()=>rootRecord(await cacheRecords(page))?.source.commit).toBe(next);
  await page.goto(`${baseUrl}/?content=${rootCommit}&release=${oldId}#/`,{waitUntil:'networkidle'});
  await expect(page.locator('body')).toContainText('Fixture Now item');
- await expect(page.locator('body')).toContainText('Historical snapshot');
+ await expect(page.locator('a[href*="?content="]')).toHaveCount(0);
+ await page.getByRole('button',{name:'Signature of this page'}).click();
+ await expect(page.getByRole('tooltip').getByRole('link',{name:`${baseUrl}/?content=${rootCommit}&release=${oldId}#/`,exact:true})).toHaveAttribute('href',`${baseUrl}/?content=${rootCommit}&release=${oldId}#/`);
  expect(rootRecord(await cacheRecords(page)).source.commit).toBe(next);
  await page.goto(`${baseUrl}/?content=${rootCommit}&release=${'f'.repeat(64)}#/`,{waitUntil:'networkidle'});
  await expect(page.locator('body')).not.toContainText('Fixture Author');

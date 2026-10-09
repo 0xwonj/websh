@@ -2,17 +2,13 @@ use crate::support::{cli, cli_fails, cli_with_env, temp_dir, write_site_fixture}
 use std::os::unix::fs::PermissionsExt;
 use std::{fs, path::Path};
 use websh_core::attestation::artifact::AttestationArtifact;
-use websh_site::ATTESTATIONS_PATH;
+use websh_core::publication::Manifest;
 
 fn artifacts(root: &Path) -> Vec<Vec<u8>> {
-    [
-        "content/manifest.json",
-        websh_site::ACK_ARTIFACT_PATH,
-        ATTESTATIONS_PATH,
-    ]
-    .iter()
-    .map(|path| fs::read(root.join(path)).unwrap())
-    .collect()
+    ["content/manifest.json", websh_site::ACK_ARTIFACT_PATH]
+        .iter()
+        .map(|path| fs::read(root.join(path)).unwrap())
+        .collect()
 }
 
 #[test]
@@ -33,7 +29,7 @@ fn unsigned_sync_is_profile_independent_and_failed_signing_preserves_artifacts()
         ],
     );
     let before = artifacts(&root);
-    let artifact: AttestationArtifact = serde_json::from_slice(&before[2]).unwrap();
+    let artifact = catalog(&before[0]);
     assert!(
         artifact
             .subjects
@@ -103,31 +99,31 @@ fn external_signature_round_trip_preserves_evidence_and_rejects_stale_requests()
     assert_eq!(signed, artifacts(&root));
     cli_fails(&root, &["check"]);
     cli(&root, &["sync"]);
-    let artifact: AttestationArtifact =
-        serde_json::from_slice(&fs::read(root.join(ATTESTATIONS_PATH)).unwrap()).unwrap();
+    let artifact = catalog(&fs::read(root.join("content/manifest.json")).unwrap());
     let subject = artifact.subject_for_route("/writing/note").unwrap();
     assert!(subject.issued_at().is_none());
     assert!(subject.attestations().is_empty());
 }
 
 #[test]
-fn missing_or_corrupt_retained_evidence_is_not_silently_recreated() {
+fn corrupt_retained_evidence_is_not_silently_recreated() {
     let root = temp_dir("retained-evidence");
     write_site_fixture(&root);
     cli(&root, &["sync"]);
-    let manifest = fs::read(root.join("content/manifest.json")).unwrap();
-    let path = root.join(ATTESTATIONS_PATH);
+    let path = root.join("content/manifest.json");
     fs::write(&path, "broken").unwrap();
     cli_fails(&root, &["sync"]);
     assert_eq!(fs::read_to_string(&path).unwrap(), "broken");
-    fs::remove_file(&path).unwrap();
-    cli_fails(&root, &["sync"]);
-    assert!(!path.exists());
-    assert_eq!(
-        manifest,
-        fs::read(root.join("content/manifest.json")).unwrap()
-    );
 }
+
+fn catalog(bytes: &[u8]) -> AttestationArtifact {
+    serde_json::from_slice::<Manifest>(bytes)
+        .unwrap()
+        .release
+        .unwrap()
+        .attestations
+}
+
 fn eth_personal_sign_fixture(message: &str) -> (String, String) {
     use alloy_primitives::{Address, eip191_hash_message};
     use k256::ecdsa::SigningKey;

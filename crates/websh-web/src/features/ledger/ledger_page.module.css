@@ -196,6 +196,11 @@
   text-transform: uppercase;
 }
 
+.blockNumber {
+  color: var(--ledger-ink);
+  font-weight: var(--weight-semibold);
+}
+
 .kind {
   border: 1px solid var(--ledger-rule);
   padding: 0 var(--space-1_5);
@@ -321,6 +326,91 @@
   }
 }
 
+.blockFoot {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: var(--space-3_5);
+  padding: var(--space-1_25) var(--space-3);
+  border-top: 1px dashed var(--ledger-rule);
+  font-size: var(--font-size-xs);
+  color: var(--ledger-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.footKey {
+  flex: 0 0 auto;
+  color: var(--ledger-faint);
+  margin-right: var(--space-1_5);
+}
+
+.sig {
+  color: var(--ledger-hex);
+}
+
+.prev,
+.hashCell {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.connector {
+  position: relative;
+  height: 14px;
+  color: var(--ledger-rule-bright);
+}
+
+.connector::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: currentColor;
+  transform: translateX(-0.5px);
+}
+
+.connectorBroken {
+  height: 22px;
+  opacity: 0.7;
+}
+
+.connectorBroken::before {
+  background:
+    repeating-linear-gradient(to bottom, currentColor 0 2px, transparent 2px 4px) top center / 100% 8px no-repeat,
+    repeating-linear-gradient(to bottom, currentColor 0 2px, transparent 2px 4px) bottom center / 100% 8px no-repeat;
+}
+
+.block:hover + .connector {
+  color: var(--ledger-accent-dim);
+}
+
+.genesis {
+  border: 1px dashed var(--ledger-rule);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-xs);
+  color: var(--ledger-faint);
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: var(--space-3_5);
+  align-items: baseline;
+  position: relative;
+}
+
+.genesisLabel {
+  color: var(--ledger-faint);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.genesisQuote {
+  position: absolute;
+  right: var(--space-3);
+  top: var(--space-2);
+  color: var(--ledger-dim);
+}
+
 .empty {
   border: 1px dashed var(--ledger-rule);
   color: var(--ledger-faint);
@@ -344,6 +434,10 @@
   .blockHead {
     gap: var(--space-2);
     flex-wrap: wrap;
+  }
+
+  .blockFoot {
+    gap: var(--space-2);
   }
 
   .filterBar {

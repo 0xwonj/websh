@@ -43,7 +43,6 @@ pub fn cli_fails(root: &Path, args: &[&str]) {
 /// Minimal current site inputs, with the real public identity and no private key.
 pub fn write_site_fixture(root: &Path) {
     use std::fs;
-    use websh_core::attestation::artifact::AttestationArtifact;
     use websh_core::crypto::ack::{AckPrivateSource, build_artifact_from_source};
     fs::create_dir_all(root.join("content/.site")).unwrap();
     fs::create_dir_all(root.join("content/.websh")).unwrap();
@@ -84,14 +83,6 @@ links = []
     fs::write(
         root.join(websh_site::ACK_ARTIFACT_PATH),
         format!("{}\n", serde_json::to_string_pretty(&ack).unwrap()),
-    )
-    .unwrap();
-    fs::write(
-        root.join(websh_site::ATTESTATIONS_PATH),
-        format!(
-            "{}\n",
-            serde_json::to_string_pretty(&AttestationArtifact::default()).unwrap()
-        ),
     )
     .unwrap();
 }

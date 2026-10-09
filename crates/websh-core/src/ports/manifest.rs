@@ -72,7 +72,11 @@ pub enum ManifestSnapshotError {
 
 pub fn parse_manifest_snapshot(body: &str) -> ManifestSnapshotResult<ScannedSubtree> {
     let manifest: Manifest = serde_json::from_str(body)?;
+    manifest_snapshot(&manifest)
+}
 
+/// Build a validated file tree without serializing and parsing the proof catalog again.
+pub fn manifest_snapshot(manifest: &Manifest) -> ManifestSnapshotResult<ScannedSubtree> {
     let mut files = Vec::new();
     let mut directories = Vec::new();
 
@@ -83,7 +87,7 @@ pub fn parse_manifest_snapshot(body: &str) -> ManifestSnapshotResult<ScannedSubt
         validate_manifest_path(&entry.path, is_dir)?;
         validate_manifest_metadata(&entry.path, &entry.metadata)?;
     }
-    for entry in manifest.entries {
+    for entry in manifest.entries.iter().cloned() {
         let is_dir = entry.metadata.kind.is_directory_like();
         if is_dir {
             directories.push(ScannedDirectory {

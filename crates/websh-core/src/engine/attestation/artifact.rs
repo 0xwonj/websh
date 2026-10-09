@@ -10,7 +10,8 @@ use sha2::{Digest, Sha256};
 
 pub use crate::engine::attestation::subject::{
     BundleSubject, ContentFile, DirectorySubject, DocumentSubject, Envelope, PageSubject, Subject,
-    SubjectCanonicalError, SubjectValidationError, compute_content_sha256, subject_id_for_route,
+    SubjectCanonicalError, SubjectValidationError, ViewSubject, compute_content_sha256,
+    subject_id_for_route,
 };
 
 pub const ATTESTATIONS_SCHEME: &str = "websh.attestations.v1";

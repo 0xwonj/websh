@@ -9,7 +9,7 @@ use unicode_normalization::{UnicodeNormalization, is_nfc};
 
 use crate::{
     domain::{ContentManifestEntry, Manifest},
-    ports::{ScannedSubtree, parse_manifest_snapshot},
+    ports::{ScannedSubtree, manifest_snapshot},
 };
 
 pub const CONTENT_PURPOSE: &str = "websh.content";
@@ -122,7 +122,7 @@ impl Manifest {
         for entry in &self.entries {
             validate_path_aliases(&entry.path, &mut aliases)?;
         }
-        let snapshot = parse_manifest_snapshot(&body)?;
+        let snapshot = manifest_snapshot(self)?;
         let paths = self
             .entries
             .iter()
@@ -175,6 +175,7 @@ impl Manifest {
             if release.purpose != CONTENT_PURPOSE
                 || release.site.trim().is_empty()
                 || release.site.len() > 256
+                || release.site.chars().any(char::is_control)
             {
                 return Err(ReleaseError::Invalid("invalid release purpose/site".into()));
             }
@@ -254,6 +255,7 @@ impl Manifest {
                 }
             }
         }
+        super::subjects::validate_catalog(self)?;
         Ok(snapshot)
     }
 

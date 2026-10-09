@@ -1,7 +1,7 @@
 //! Typed attestation subjects.
 //!
-//! Each subject binds a portable publication's exact constituent files. Snapshot
-//! authentication and the publication catalog are owned by `publication`.
+//! A subject binds a publication file set or a computed page projection.
+//! Snapshot authentication and subject selection are owned by `publication`.
 
 use serde::{Deserialize, Serialize};
 
@@ -15,7 +15,7 @@ pub struct ContentFile {
     pub bytes: u64,
 }
 
-/// Fields common to every subject variant.
+/// Fields shared by file-based subject variants.
 ///
 /// Flattened into each variant via `#[serde(flatten)]` so the JSON shape is
 /// `{ "kind": "...", "route": "...", "issued_at": "...", "content_files": [...], "attestations": [...], <variant fields> }`.
@@ -52,6 +52,17 @@ pub struct DirectorySubject {
     pub env: Envelope,
 }
 
+/// A computed view binds a projection, never a synthetic file.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ViewSubject {
+    pub route: String,
+    pub site: String,
+    pub content_sha256: String,
+    pub issued_at: Option<String>,
+    pub attestations: Vec<Attestation>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Subject {
@@ -59,45 +70,87 @@ pub enum Subject {
     Page(PageSubject),
     Bundle(BundleSubject),
     Directory(DirectorySubject),
+    Home(ViewSubject),
+    Ledger(ViewSubject),
 }
 
 impl Subject {
-    pub fn envelope(&self) -> &Envelope {
+    fn files_envelope(&self) -> Option<&Envelope> {
         match self {
-            Subject::Document(s) => &s.env,
-            Subject::Page(s) => &s.env,
-            Subject::Bundle(s) => &s.env,
-            Subject::Directory(s) => &s.env,
+            Self::Document(s) => Some(&s.env),
+            Self::Page(s) => Some(&s.env),
+            Self::Bundle(s) => Some(&s.env),
+            Self::Directory(s) => Some(&s.env),
+            Self::Home(_) | Self::Ledger(_) => None,
         }
     }
 
-    pub fn envelope_mut(&mut self) -> &mut Envelope {
+    fn files_envelope_mut(&mut self) -> Option<&mut Envelope> {
         match self {
-            Subject::Document(s) => &mut s.env,
-            Subject::Page(s) => &mut s.env,
-            Subject::Bundle(s) => &mut s.env,
-            Subject::Directory(s) => &mut s.env,
+            Self::Document(s) => Some(&mut s.env),
+            Self::Page(s) => Some(&mut s.env),
+            Self::Bundle(s) => Some(&mut s.env),
+            Self::Directory(s) => Some(&mut s.env),
+            Self::Home(_) | Self::Ledger(_) => None,
         }
     }
 
     pub fn route(&self) -> &str {
-        &self.envelope().route
+        match self {
+            Self::Home(s) | Self::Ledger(s) => &s.route,
+            _ => &self.files_envelope().expect("file subject").route,
+        }
     }
 
     pub fn issued_at(&self) -> Option<&str> {
-        self.envelope().issued_at.as_deref()
+        match self {
+            Self::Home(s) | Self::Ledger(s) => s.issued_at.as_deref(),
+            _ => self
+                .files_envelope()
+                .expect("file subject")
+                .issued_at
+                .as_deref(),
+        }
+    }
+
+    pub fn set_issued_at(&mut self, issued_at: Option<String>) {
+        match self {
+            Self::Home(s) | Self::Ledger(s) => s.issued_at = issued_at,
+            _ => self.files_envelope_mut().expect("file subject").issued_at = issued_at,
+        }
     }
 
     pub fn content_files(&self) -> &[ContentFile] {
-        &self.envelope().content_files
+        self.files_envelope().map_or(&[], |env| &env.content_files)
     }
 
     pub fn attestations(&self) -> &[Attestation] {
-        &self.envelope().attestations
+        match self {
+            Self::Home(s) | Self::Ledger(s) => &s.attestations,
+            _ => &self.files_envelope().expect("file subject").attestations,
+        }
     }
 
     pub fn attestations_mut(&mut self) -> &mut Vec<Attestation> {
-        &mut self.envelope_mut().attestations
+        match self {
+            Self::Home(s) | Self::Ledger(s) => &mut s.attestations,
+            _ => {
+                &mut self
+                    .files_envelope_mut()
+                    .expect("file subject")
+                    .attestations
+            }
+        }
+    }
+
+    pub fn same_payload(&self, other: &Self) -> bool {
+        let payload = |subject: &Self| {
+            let mut subject = subject.clone();
+            subject.set_issued_at(None);
+            subject.attestations_mut().clear();
+            subject
+        };
+        payload(self) == payload(other)
     }
 
     pub fn kind_str(&self) -> &'static str {
@@ -106,6 +159,8 @@ impl Subject {
             Subject::Page(_) => "page",
             Subject::Bundle(_) => "bundle",
             Subject::Directory(_) => "directory",
+            Subject::Home(_) => "home",
+            Subject::Ledger(_) => "ledger",
         }
     }
 
@@ -114,7 +169,10 @@ impl Subject {
     }
 
     pub fn content_sha256(&self) -> Result<String, SubjectCanonicalError> {
-        compute_content_sha256(self.content_files())
+        match self {
+            Self::Home(s) | Self::Ledger(s) => Ok(s.content_sha256.clone()),
+            _ => compute_content_sha256(self.content_files()),
+        }
     }
 
     /// The canonical text bound by attestation signatures.
@@ -123,33 +181,18 @@ impl Subject {
     pub fn canonical_message(&self) -> Result<String, SubjectCanonicalError> {
         let id = self.id();
         let content_sha256 = self.content_sha256()?;
-        let env = self.envelope();
-        let issued_at = env
-            .issued_at
-            .as_deref()
+        let issued_at = self
+            .issued_at()
             .ok_or(SubjectCanonicalError::MissingIssuance)?;
-        let body = match self {
-            Subject::Document(_) => format!(
-                "id={id}\nroute={route}\nkind=document\ncontent_sha256={content_sha256}\nissued_at={issued_at}",
-                route = env.route,
-                issued_at = issued_at,
-            ),
-            Subject::Page(_) => format!(
-                "id={id}\nroute={route}\nkind=page\ncontent_sha256={content_sha256}\nissued_at={issued_at}",
-                route = env.route,
-                issued_at = issued_at,
-            ),
-            Subject::Bundle(_) => format!(
-                "id={id}\nroute={route}\nkind=bundle\ncontent_sha256={content_sha256}\nissued_at={issued_at}",
-                route = env.route,
-                issued_at = issued_at,
-            ),
-            Subject::Directory(_) => format!(
-                "id={id}\nroute={route}\nkind=directory\ncontent_sha256={content_sha256}\nissued_at={issued_at}",
-                route = env.route,
-                issued_at = issued_at,
-            ),
+        let route = self.route();
+        let kind = self.kind_str();
+        let site = match self {
+            Self::Home(s) | Self::Ledger(s) => format!("site={}\n", s.site),
+            _ => String::new(),
         };
+        let body = format!(
+            "id={id}\n{site}route={route}\nkind={kind}\ncontent_sha256={content_sha256}\nissued_at={issued_at}"
+        );
         Ok(format!("{SUBJECT_MESSAGE_SCHEME}\n{body}"))
     }
 
@@ -158,9 +201,38 @@ impl Subject {
     /// - `content_files` must be strictly sorted by path with no duplicates
     /// - `canonical_message` must serialize without error
     pub fn validate(&self) -> Result<(), SubjectValidationError> {
-        let env = self.envelope();
+        if crate::domain::VirtualPath::from_absolute(self.route()).is_err() {
+            return Err(SubjectValidationError::Invalid(
+                "noncanonical subject route",
+            ));
+        }
+        if let Some(date) = self.issued_at()
+            && (date.len() != 10
+                || !date.bytes().enumerate().all(|(i, b)| {
+                    if i == 4 || i == 7 {
+                        b == b'-'
+                    } else {
+                        b.is_ascii_digit()
+                    }
+                }))
+        {
+            return Err(SubjectValidationError::Invalid(
+                "invalid subject issuance date",
+            ));
+        }
+        if let Self::Home(view) | Self::Ledger(view) = self
+            && (view.site.is_empty()
+                || view.site.len() > 256
+                || view.site.chars().any(char::is_control)
+                || view
+                    .content_sha256
+                    .strip_prefix("0x")
+                    .is_none_or(|hash| crate::publication::ReleaseId::parse(hash).is_err()))
+        {
+            return Err(SubjectValidationError::Invalid("invalid view commitment"));
+        }
         let mut last: Option<&str> = None;
-        for file in &env.content_files {
+        for file in self.content_files() {
             if let Some(prev) = last {
                 if file.path.as_str() == prev {
                     return Err(SubjectValidationError::DuplicateContentPath {
@@ -177,7 +249,7 @@ impl Subject {
             last = Some(file.path.as_str());
         }
         self.content_sha256()?;
-        if env.issued_at.is_some() || !env.attestations.is_empty() {
+        if self.issued_at().is_some() || !self.attestations().is_empty() {
             self.canonical_message()?;
         }
         Ok(())
@@ -197,6 +269,8 @@ pub enum SubjectCanonicalError {
 
 #[derive(Debug, thiserror::Error)]
 pub enum SubjectValidationError {
+    #[error("{0}")]
+    Invalid(&'static str),
     #[error("duplicate content path: {path}")]
     DuplicateContentPath { path: String },
     #[error("content_files not strictly sorted: {previous} > {current}")]
@@ -332,7 +406,7 @@ mod tests {
     #[test]
     fn validate_rejects_unsorted_content_files() {
         let mut subject = document();
-        subject.envelope_mut().content_files = vec![
+        subject.files_envelope_mut().unwrap().content_files = vec![
             ContentFile {
                 path: "b.txt".to_string(),
                 sha256: "0xbbb".to_string(),
@@ -350,7 +424,7 @@ mod tests {
     #[test]
     fn validate_rejects_duplicate_content_paths() {
         let mut subject = document();
-        subject.envelope_mut().content_files = vec![
+        subject.files_envelope_mut().unwrap().content_files = vec![
             ContentFile {
                 path: "a.txt".to_string(),
                 sha256: "0xaaa".to_string(),

@@ -104,6 +104,8 @@
   z-index: var(--z-popover);
   width: min(450px, calc(100vw - 32px));
   white-space: normal;
+  max-height: min(600px, calc(100vh - 64px));
+  overflow-y: auto;
   display: none;
   cursor: default;
   user-select: text;
@@ -134,4 +136,42 @@
   max-width: calc(100% - 84px);
   vertical-align: top;
   overflow-wrap: anywhere;
+}
+
+.sigV a > span {
+  color: inherit;
+}
+
+.sigHr {
+  border-top: 1px dashed var(--border-subtle);
+  margin: var(--space-1) 0;
+}
+
+.sigBlockRow {
+  margin-top: var(--space-px);
+}
+
+.sigBlockLabel {
+  color: var(--text-muted);
+  line-height: var(--leading-loose);
+}
+
+.sigSignature {
+  color: var(--accent);
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  margin: var(--space-0_5) 0 0;
+  border: 1px dashed var(--border-subtle);
+  padding: var(--space-1_5) var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-2xs);
+  line-height: var(--leading-snug);
+  letter-spacing: 0;
+  white-space: pre;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overflow-wrap: normal;
+  word-break: normal;
+  box-sizing: border-box;
 }

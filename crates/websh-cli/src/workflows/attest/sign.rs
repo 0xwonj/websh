@@ -11,12 +11,26 @@ use websh_site::{EXPECTED_PGP_FINGERPRINT, PUBLIC_KEY_PATH};
 
 pub(crate) fn sign(root: &Path, route: Option<&str>) -> CliResult<usize> {
     let mut prepared = Prepared::load(root)?;
+    let signed = sign_subjects(&mut prepared, route)?;
+    prepared.ensure_current(root)?;
+    prepared.publish(root)?;
+    Ok(signed)
+}
+
+pub(crate) fn sign_subjects(prepared: &mut Prepared, route: Option<&str>) -> CliResult<usize> {
     if let Some(route) = route
         && prepared.artifact.subject_for_route(route).is_none()
     {
         bail!("unknown attestation route {route}");
     }
-    let signer = Some(websh_site::APP_NAME.to_owned());
+    let manifest = prepared.manifest()?;
+    let profile = &manifest
+        .release
+        .as_ref()
+        .expect("root release")
+        .home
+        .profile;
+    let signer = Some(format!("{} <{}>", profile.name, profile.email));
     let date = today_utc();
     let mut signed = 0;
     for subject in &mut prepared.artifact.subjects {
@@ -32,7 +46,7 @@ pub(crate) fn sign(root: &Path, route: Option<&str>) -> CliResult<usize> {
         }
         // Existing additional signatures bind the same date, so retain it.
         if subject.issued_at().is_none() {
-            subject.envelope_mut().issued_at = Some(date.clone());
+            subject.set_issued_at(Some(date.clone()));
         }
         let message = subject.canonical_message()?;
         let signature = gpg::sign(&message, EXPECTED_PGP_FINGERPRINT)
@@ -51,8 +65,6 @@ pub(crate) fn sign(root: &Path, route: Option<&str>) -> CliResult<usize> {
         });
         signed += 1;
     }
-    verify_artifact(root, &prepared.artifact, route.is_none())?;
-    prepared.ensure_current(root)?;
-    prepared.publish(root)?;
+    verify_artifact(&prepared.artifact, route.is_none())?;
     Ok(signed)
 }

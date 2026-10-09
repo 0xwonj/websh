@@ -1,7 +1,39 @@
-const { test, expect, baseUrl } = require('./support/fixtures');
-const { runCommand } = require('./support/browser');
+const { test, expect, baseUrl, rawOrigin, rootPath } = require('./support/fixtures');
+const { deferred, runCommand } = require('./support/browser');
 
 const themeStorageKey = 'user.THEME';
+
+test('whoami loads the ASCII profile, respects pipes and does not refill cleared output', async ({ page, responses }) => {
+  const profilePath = rootPath('.site/profile.txt');
+  const gate = deferred();
+  let profileRequests = 0;
+  await page.route(`${rawOrigin}${profilePath}`, async route => {
+    profileRequests += 1;
+    await gate.promise;
+    await route.fallback();
+  });
+  await page.goto(`${baseUrl}/#/websh`, { waitUntil: 'networkidle' });
+  await expect(page.locator('body')).toContainText('guest@wonjae.eth:~');
+
+  await runCommand(page, 'WHOAMI');
+  await expect.poll(() => profileRequests).toBe(1);
+  await runCommand(page, 'clear');
+  const finished = page.waitForEvent('requestfinished', request => request.url() === `${rawOrigin}${profilePath}`);
+  gate.resolve();
+  await finished;
+  await page.waitForLoadState('networkidle');
+  await expect(page.locator('body')).not.toContainText('Fixture Author');
+
+  await runCommand(page, 'whoami');
+  const ascii = page.locator('pre').filter({ hasText: 'Fixture Author' });
+  await expect(ascii).toHaveCount(1);
+  expect(await ascii.textContent()).toBe(responses.get(profilePath));
+  await runCommand(page, 'clear');
+  await runCommand(page, 'WhoAmI | grep Fixture | wc');
+  await expect(page.getByText('1', { exact: true })).toBeVisible();
+  await expect(ascii).toHaveCount(0);
+  expect(profileRequests).toBe(1);
+});
 
 test('CSS validates the saved palette before the app starts', async ({ page }) => {
   // Preserve the real stylesheets and prepaint scripts, but do not start Wasm.

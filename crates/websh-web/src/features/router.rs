@@ -29,7 +29,7 @@ use crate::runtime::MountLoadStatus;
 use crate::runtime::mounts::{RefreshState, SnapshotOrigin};
 use crate::shared::components::{
     ErrorPageActionButton, ErrorPageActionLink, ErrorPageActions, ErrorPageBody, ErrorPageDetails,
-    ErrorPageFrame, ErrorPageTone, ReleaseSigFooter, SiteContentFrame, SiteSurface,
+    ErrorPageFrame, ErrorPageTone, PageSigFooter, SiteContentFrame, SiteSurface,
 };
 
 const NOT_FOUND_CONTENT_PATH: &str = "/.site/errors/404.md";
@@ -424,7 +424,7 @@ fn NotFound(request: RouteRequest) -> impl IntoView {
                     <ErrorPageActionLink href=HOME_HREF>"Go home"</ErrorPageActionLink>
                 </ErrorPageActions>
             </ErrorPageBody>
-            <ReleaseSigFooter
+            <PageSigFooter
                 route=Signal::derive(|| {
                     let path = VirtualPath::from_absolute(NOT_FOUND_CONTENT_PATH)
                         .expect("404 attestation path is absolute");

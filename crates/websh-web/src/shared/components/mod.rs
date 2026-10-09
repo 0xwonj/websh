@@ -21,7 +21,7 @@ pub use identifier_strip::IdentifierStrip;
 pub use markdown::{InlineMarkdownView, MarkdownView};
 pub use meta_table::{MetaRow, MetaTable};
 pub use mono_value::{MonoFont, MonoOverflow, MonoTone, MonoValue};
-pub use signature_footer::ReleaseSigFooter;
+pub use signature_footer::PageSigFooter;
 pub use site_frame::{SiteContentFrame, SiteSurface};
 pub use window_frame::{
     WindowActionButton, WindowActionLink, WindowFrame, WindowTrafficButton, WindowTrafficLink,

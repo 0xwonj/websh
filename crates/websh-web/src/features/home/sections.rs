@@ -8,7 +8,7 @@ use wasm_bindgen_futures::{JsFuture, spawn_local};
 use crate::config::{APP_NAME, APP_VERSION};
 use crate::platform::breakpoints::{BP_SM, use_min_width};
 use crate::shared::components::{
-    MonoOverflow, MonoTone, MonoValue, ReleaseSigFooter, WindowFrame, WindowTrafficButton,
+    MonoOverflow, MonoTone, MonoValue, PageSigFooter, WindowFrame, WindowTrafficButton,
     WindowTrafficLink, WindowTrafficTone,
 };
 use websh_core::crypto::ack::{
@@ -50,15 +50,15 @@ enum ClipboardError {
 }
 
 #[component]
-pub(super) fn Appendices() -> impl IntoView {
+pub(super) fn Appendices(key_identity: String) -> impl IntoView {
     view! {
-        <PublicKeyAppendix />
+        <PublicKeyAppendix identity=key_identity />
         <ShellAppendix />
     }
 }
 
 #[component]
-fn PublicKeyAppendix() -> impl IntoView {
+fn PublicKeyAppendix(identity: String) -> impl IntoView {
     let (copy_status, set_copy_status) = signal(CopyStatus::Idle);
     let copy_key = move |_| {
         set_copy_status.set(CopyStatus::Copying);
@@ -89,7 +89,7 @@ fn PublicKeyAppendix() -> impl IntoView {
         <details class=css::appendix id="appendix-a">
             <summary><h2 class=css::sectionTitle data-n="A.">"Appendix A · Public Key"<span class=css::loc>"[§A]"</span></h2></summary>
             <p>
-                "This app pins the following owner OpenPGP key. Content releases are authenticated against this identity."
+                "OpenPGP key for "<em>{identity}</em>". Use it to send encrypted mail or verify signatures. Rotation: when it annoys me."
             </p>
             <p class=css::footnote>
                 "Fingerprint: "<span class=css::fp>{pretty_fingerprint(websh_site::EXPECTED_PGP_FINGERPRINT)}</span>
@@ -496,7 +496,7 @@ fn AckProofView(proof: AckMembershipProof) -> impl IntoView {
 #[component]
 pub(super) fn PageFooter() -> impl IntoView {
     view! {
-        <ReleaseSigFooter
+        <PageSigFooter
             route=Signal::derive(|| "/".to_string())
             colophon=true
         />

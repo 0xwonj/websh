@@ -59,8 +59,24 @@ test('cold home authenticates three root requests without bundled content', asyn
   const metadataBytes = [rootPointer, rootPath('manifest.json'), rootPath('manifest.sig')]
     .reduce((total, path) => total + Buffer.byteLength(responses.get(path)), 0);
   console.log(`Cold fixture home: ${JSON.stringify({...timing, metadataBytes})}`);
-  await page.getByRole('button',{name:'Content release signature'}).click();
-  await expect(page.locator('body')).toContainText('OpenPGP · signed content release');
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
+  await expect(page.locator('a[href*="?content="]')).toHaveCount(0);
+  const signature = page.getByRole('button',{name:'Signature of this page'});
+  await signature.click();
+  const details = page.getByRole('tooltip');
+  await expect(details).toContainText('OpenPGP · detached signature');
+  await expect(details).toContainText('-----BEGIN PGP SIGNATURE-----');
+  await expect(details).toContainText('Fixture Author <fixture@example.test>');
+  await expect(details).toContainText('SHA256(home @ /) = 0x');
+  expect(await details.locator('[class*="sigK"]').allTextContents()).toEqual([
+    'route', 'content', 'ack root', 'signed by', 'fingerprint', 'scheme', 'message', 'verified', 'snapshot'
+  ]);
+  await expect(details.locator('[class*="sigRow"]').filter({hasText: /^verified /})).toHaveText(/verified 0x[0-9a-f]+…[0-9a-f]+ ✓/);
+  const snapshot = details.getByRole('link');
+  await expect(snapshot).toHaveAttribute('href', /\?content=[a-f0-9]{40}&release=[a-f0-9]{64}#\/$/);
+  await expect(snapshot).toHaveText(await snapshot.getAttribute('href'));
+  await signature.press('Escape');
+  await expect(details).toHaveCount(0);
   expect(network.sameOriginFailures).toEqual([]);
 });
 

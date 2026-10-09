@@ -20,7 +20,7 @@ pub(crate) fn message(root: &Path, route: &str) -> CliResult<String> {
         .with_context(|| format!("unknown attestation route {route}"))?
         .clone();
     if subject.issued_at().is_none() {
-        subject.envelope_mut().issued_at = Some(today_utc());
+        subject.set_issued_at(Some(today_utc()));
     }
     Ok(subject.canonical_message()?)
 }
@@ -54,7 +54,7 @@ fn request(root: &Path, route: &str, path: &Path) -> CliResult<(Prepared, String
     {
         bail!("request date differs from retained signatures for {route}");
     }
-    subject.envelope_mut().issued_at = Some(issued_at.to_string());
+    subject.set_issued_at(Some(issued_at.to_string()));
     if subject.canonical_message()? != message {
         bail!("signing request does not match current subject {route}; export a new message");
     }
@@ -90,7 +90,7 @@ pub(crate) fn import_pgp(
         signature_path: None,
         message_sha256: message_sha256(&message),
     });
-    verify_artifact(root, &prepared.artifact, false)?;
+    verify_artifact(&prepared.artifact, false)?;
     prepared.ensure_current(root)?;
     prepared.publish(root)
 }
@@ -117,7 +117,7 @@ pub(crate) fn import_ethereum(
         recovered_address: verification.recovered_address,
         message_sha256: message_sha256(&message),
     });
-    verify_artifact(root, &prepared.artifact, false)?;
+    verify_artifact(&prepared.artifact, false)?;
     prepared.ensure_current(root)?;
     prepared.publish(root)
 }

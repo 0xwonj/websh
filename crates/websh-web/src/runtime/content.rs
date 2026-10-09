@@ -81,6 +81,22 @@ impl Content {
         self.root_release.get()
     }
 
+    pub fn page_signature(
+        &self,
+        path: &VirtualPath,
+    ) -> Result<websh_core::publication::VerifiedSubject, websh_core::publication::ReleaseError>
+    {
+        let release = self.release().ok_or_else(|| {
+            websh_core::publication::ReleaseError::Invalid("content is not authenticated".into())
+        })?;
+        websh_core::publication::verify_subject(
+            &release,
+            path,
+            &websh_site::pgp_policy(),
+            (js_sys::Date::now() / 1000.0) as u64,
+        )
+    }
+
     pub fn home(&self) -> Option<websh_core::publication::HomeProjection> {
         self.root_release
             .with(|release| release.as_ref().map(|r| r.release().home.clone()))
@@ -89,6 +105,15 @@ impl Content {
     pub fn issued_at(&self) -> Option<u64> {
         self.root_release
             .with(|release| release.as_ref().map(|r| r.release().issued_at))
+    }
+
+    pub fn with_root_fs<T>(&self, f: impl FnOnce(&GlobalFs) -> T) -> T {
+        let mut fs = GlobalFs::empty();
+        if let Some(release) = self.release() {
+            fs.mount_scanned_subtree(VirtualPath::root(), release.snapshot())
+                .expect("validated root snapshot");
+        }
+        f(&fs)
     }
 
     pub fn with_fs<T>(&self, f: impl FnOnce(&GlobalFs) -> T) -> T {

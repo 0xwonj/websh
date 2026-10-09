@@ -14,7 +14,7 @@ use crate::shared::components::{
     IdentifierStrip, MetaRow as SharedMetaRow, MetaTable as SharedMetaTable, SiteContentFrame,
     SiteSurface,
 };
-use websh_core::domain::VirtualPath;
+use websh_core::domain::{LinkRef, VirtualPath};
 use websh_core::filesystem::{GlobalFs, RouteFrame};
 use websh_core::publication::{Now, Profile};
 
@@ -26,7 +26,7 @@ stylance::import_crate_style!(
 mod model;
 mod sections;
 use model::{
-    TOC_ITEMS, compact_homepage_date, latest_now_date, publication_date, recent_items_from_fs,
+    TOC_ITEMS, compact_homepage_date, current_homepage_date, latest_now_date, recent_items_from_fs,
     toc_item_meta,
 };
 use sections::{Acknowledgements, Appendices, PageFooter};
@@ -57,7 +57,8 @@ pub fn HomePage(route: Memo<RouteFrame>) -> impl IntoView {
             <SiteContentFrame class=css::page>
                 <crate::shared::components::MountStatusNotice path=Signal::derive(VirtualPath::root) />
                 {move || home.get().map(|home| {
-                    let issued_at = ctx.content.issued_at().map(publication_date);
+                    let issued_at = ctx.content.release().and_then(|release| release.release().attestations.subject_for_route("/").and_then(|subject| subject.issued_at().map(str::to_owned)));
+                    let key_identity = format!("{} <{}>", home.profile.name, home.profile.email);
                     view! {
                         <HeroHeader profile=home.profile.clone() issued_at=issued_at />
                         <HomepageMetaTable profile=home.profile.clone() />
@@ -65,7 +66,7 @@ pub fn HomePage(route: Memo<RouteFrame>) -> impl IntoView {
                         <TocSection />
                         <IntroSection profile=home.profile />
                         <RecentFeed />
-                        <Appendices />
+                        <Appendices key_identity=key_identity />
                         <Acknowledgements artifact=home.ack />
                         <PageFooter />
                     }
@@ -77,11 +78,7 @@ pub fn HomePage(route: Memo<RouteFrame>) -> impl IntoView {
 
 #[component]
 fn HeroHeader(profile: Profile, issued_at: Option<String>) -> impl IntoView {
-    let paper_id = issued_at
-        .as_deref()
-        .map(compact_homepage_date)
-        .map(|date| format!("Paper {date}"))
-        .unwrap_or_default();
+    let paper_id = format!("Paper {}", compact_homepage_date(&current_homepage_date()));
     let revised = issued_at
         .map(|date| format!("last revised {date}"))
         .unwrap_or_default();
@@ -110,6 +107,26 @@ fn HeroHeader(profile: Profile, issued_at: Option<String>) -> impl IntoView {
 #[component]
 fn HomepageMetaTable(profile: Profile) -> impl IntoView {
     let email_href = format!("mailto:{}", profile.email);
+    let keywords = profile.keywords.join(", ");
+    let compact_keywords = profile
+        .keywords
+        .iter()
+        .map(|keyword| match keyword.as_str() {
+            "zero-knowledge proofs" => "zkp",
+            keyword => keyword,
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut links = profile.links;
+    let ens = links
+        .iter()
+        .position(|link| link.kind.as_deref() == Some("ens"))
+        .map(|index| links.remove(index))
+        .unwrap_or_else(|| LinkRef {
+            label: websh_site::APP_NAME.to_string(),
+            url: format!("https://{}.limo", websh_site::APP_NAME),
+            kind: Some("ens".to_string()),
+        });
     view! {
         <SharedMetaTable class=css::meta aria_label="ePrint metadata">
             <SharedMetaRow label="Category" row_class=css::metaRow key_class=css::metaKey value_class=css::metaValue>
@@ -118,15 +135,22 @@ fn HomepageMetaTable(profile: Profile) -> impl IntoView {
                 }).collect_view()}
             </SharedMetaRow>
             <SharedMetaRow label="Keywords" row_class=css::metaRow key_class=css::metaKey value_class=css::metaValue>
-                {profile.keywords.join(", ")}
+                <span class=css::kwFull>{keywords}</span>
+                <span class=css::kwCompact>{compact_keywords}</span>
             </SharedMetaRow>
             <SharedMetaRow label="Availability" row_class=css::metaRow key_class=css::metaKey value_class=css::metaValue>
+                <span class=css::availFull>
+                    <span class=css::dim>"ens "</span>
+                    <a href=ens.url.clone()>{ens.label}</a>
+                </span>
+                <a class=css::availCompact href=ens.url><span class=css::dim>"ens"</span></a>
+                <span class=css::dotSep>" · "</span>
                 <span class=css::availFull>
                     <span class=css::dim>"email "</span>
                     <a href=email_href.clone()>{profile.email}</a>
                 </span>
                 <a class=css::availCompact href=email_href><span class=css::dim>"email"</span></a>
-                {profile.links.into_iter().map(|link| {
+                {links.into_iter().map(|link| {
                     let kind = link.kind.unwrap_or_else(|| link.label.clone());
                     view! {
                         <span class=css::dotSep>" · "</span>
@@ -186,7 +210,7 @@ fn TocSection() -> impl IntoView {
             <ol>
                 {move || {
                     let readiness = root_content_readiness(ctx);
-                    ctx.content.with_fs(|fs| {
+                    ctx.content.with_root_fs(|fs| {
                         TOC_ITEMS.iter().map(|item| {
                             let meta = toc_item_meta_for_readiness(fs, item, readiness);
                             view! {
@@ -252,7 +276,7 @@ fn RecentFeed() -> impl IntoView {
         if root_content_readiness(ctx) != RootContentReadiness::Loaded {
             return Vec::new();
         }
-        ctx.content.with_fs(recent_items_from_fs)
+        ctx.content.with_root_fs(recent_items_from_fs)
     });
 
     view! {

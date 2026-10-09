@@ -37,8 +37,8 @@ just publish
 ```
 
 App publishing requires Pinata CLI and deployment credentials. It builds and uploads the app
-to IPFS; only the deployment adapter reads `.env`. Use the returned CID gateway URL directly.
-Website discovery does not use ENS.
+to IPFS; only the deployment adapter reads `.env`. Verify the returned CID gateway URL,
+then update `wonjae.eth`'s ENS content hash to that app CID in the owner's wallet.
 
 Content lives in [websh-content](https://github.com/0xwonj/websh-content). Publish an edit with:
 
@@ -47,7 +47,7 @@ cargo run --locked -p websh-cli -- --root ../websh-content publish
 ```
 
 That command generates, signs with the local owner GPG key, commits, and pushes the content
-snapshot. It does not rebuild or upload the app. Independent unsigned drafts remain in
+snapshot. It does not rebuild or upload the app, or require an ENS update. Independent unsigned drafts remain in
 [websh-mempool](https://github.com/0xwonj/websh-mempool). See the
 [CLI guide](docs/architecture/cli.md) for authoring, publication, and portable proofs.
 

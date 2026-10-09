@@ -22,7 +22,7 @@ const distDir = path.resolve(
 );
 const jsonMode = parseBoolean(process.env.WEBSH_SIZE_JSON);
 const budgets = {
-  wasmBrotliBytes: parseBytes(process.env.WEBSH_WASM_BROTLI_BUDGET ?? "1.15MiB"),
+  wasmBrotliBytes: parseBytes(process.env.WEBSH_WASM_BROTLI_BUDGET ?? "1.16MiB"),
   jsBrotliBytes: parseBytes(process.env.WEBSH_JS_BROTLI_BUDGET ?? "90KiB"),
   cssBrotliBytes: parseBytes(process.env.WEBSH_CSS_BROTLI_BUDGET ?? "45KiB"),
   fontBrotliBytes: parseBytes(process.env.WEBSH_FONT_BROTLI_BUDGET ?? "500KiB"),

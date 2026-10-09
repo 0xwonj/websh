@@ -3,7 +3,7 @@
 use leptos::prelude::*;
 
 use crate::features::chrome::SiteChrome;
-use crate::shared::components::ReleaseSigFooter;
+use crate::shared::components::PageSigFooter;
 use websh_core::filesystem::RouteFrame;
 
 use super::actions::ReaderActionsBindings;
@@ -16,6 +16,7 @@ use super::title_block::{Ident, TitleBlock};
 /// block, and footer need.
 #[derive(Clone, Copy)]
 pub struct ReaderShellState {
+    pub ready: Signal<Option<bool>>,
     pub intent: Memo<ReaderIntent>,
     pub meta: Memo<ReaderMeta>,
     pub chrome_route: Memo<RouteFrame>,
@@ -51,8 +52,9 @@ pub fn ReaderShell(
                         {children()}
                     </div>
                 </div>
-                <ReleaseSigFooter
+                <PageSigFooter
                     route=state.attestation_route
+                    ready=state.ready
                 />
             </main>
         </div>

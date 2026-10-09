@@ -1,18 +1,25 @@
 const {test,expect,baseUrl,siteEntries,fileEntry,dirEntry,publishRoot,publishMount,rootPath} = require('./support/fixtures');
 
-test('publication catalog filters the signed entry set',async ({page,responses})=>{
+test('ledger filters preserve the signed chain identities',async ({page,responses})=>{
  publishRoot(responses,{entries:[...siteEntries,dirEntry('writing','writing'),dirEntry('projects','projects'),fileEntry('writing/note.md','A note',{date:'2026-04-20'}),fileEntry('projects/app.md','An app',{date:'2026-04-22'})],files:{'writing/note.md':'# A note','projects/app.md':'# An app'},publications:['writing/note.md','projects/app.md']});
  await page.goto(`${baseUrl}/#/writing`,{waitUntil:'networkidle'});
  await expect(page.getByRole('link',{name:/^writing 1$/})).toHaveAttribute('aria-current','page');
  await expect(page.locator('article')).toHaveCount(1);
  await expect(page.locator('article')).toContainText('A note');
+ await expect(page.locator('article')).toContainText('block 0001');
+ const noteHash=await page.locator('article [aria-label^="block hash "]').getAttribute('aria-label');
+ const head=await page.locator('[aria-label^="chain head "]').getAttribute('aria-label');
  await page.goto(`${baseUrl}/#/ledger`,{waitUntil:'networkidle'});
  await expect(page.getByRole('link',{name:/^all 2$/})).toHaveAttribute('aria-current','page');
  await expect(page.locator('article').first()).toContainText('An app');
- await expect(page.getByRole('region',{name:'Ledger metadata'})).toContainText('verified snapshot');
+ await expect(page.getByRole('region',{name:'Ledger metadata'})).toContainText('appendable');
  await expect(page.locator('article')).toHaveCount(2);
+ await expect(page.locator('[aria-label^="chain head "]')).toHaveAttribute('aria-label',head);
+ await expect(page.locator('article').first()).toContainText('block 0002');
+ await expect(page.locator('article').first().locator('[aria-label^="previous block hash "]')).toHaveAttribute('aria-label',noteHash.replace('block hash ','previous block hash '));
+ await expect(page.getByRole('region',{name:'Ledger chain'})).toContainText('genesis');
  await page.goto(`${baseUrl}/#/misc`,{waitUntil:'networkidle'});
- await expect(page.locator('body')).toContainText('no publications match this filter');
+ await expect(page.locator('body')).toContainText('no blocks match this ledger filter');
 });
 
 test('independent mempool uses its own snapshot and never inherits the root signature',async ({page,responses})=>{
@@ -26,8 +33,8 @@ test('independent mempool uses its own snapshot and never inherits the root sign
  await expect(mempool.locator('a [data-kind]')).toHaveText(['writing']);
  await mempool.getByRole('link',{name:/writing entry/}).click();
  await expect(page.locator('[data-reader-body]')).toContainText('Fixture body.');
- const footer=page.getByRole('button',{name:'Content release signature'});
+ const footer=page.getByRole('button',{name:'Signature of this page'});
  await expect(footer).toContainText('unsigned');
- await footer.click();await expect(page.locator('body')).toContainText('not authenticated by the root signature');
+ await footer.click();await expect(page.locator('body')).toContainText('not authenticated by the owner');
  expect(responses.get(rootPath('manifest.json'))).toBe(signedRoot);
 });

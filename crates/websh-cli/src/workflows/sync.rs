@@ -11,7 +11,7 @@ use websh_core::domain::{
 use websh_core::publication::{
     CONTENT_PURPOSE, HomeProjection, Manifest, Now, Profile, ReleaseMetadata,
 };
-use websh_site::{ACK_ARTIFACT_PATH, APP_NAME, ATTESTATIONS_PATH};
+use websh_site::{ACK_ARTIFACT_PATH, APP_NAME};
 
 use super::content::ContentSnapshot;
 use super::{ack, attest};
@@ -37,21 +37,21 @@ pub(crate) struct SyncOutcome {
 
 impl Prepared {
     pub(crate) fn load(root: &Path) -> CliResult<Self> {
-        let retained_bytes = match fs::read(root.join(ATTESTATIONS_PATH)) {
+        let retained_bytes = match fs::read(root.join(MANIFEST_PATH)) {
             Ok(bytes) => Some(bytes),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-            Err(error) => return Err(error).context("read portable attestations"),
+            Err(error) => return Err(error).context("read prior manifest"),
         };
-        if retained_bytes.is_none() && root.join(MANIFEST_PATH).exists() {
-            bail!("portable attestations are missing; restore the file from Git before generation");
-        }
-        let existing = retained_bytes
+        let prior_release = retained_bytes
             .as_deref()
-            .map(serde_json::from_slice::<AttestationArtifact>)
-            .transpose()
-            .context("parse portable attestations; restore damaged evidence from Git")?
+            .map(Manifest::from_bytes)
+            .transpose()?
+            .and_then(|manifest| manifest.release);
+        let existing = prior_release
+            .as_ref()
+            .map(|release| release.attestations.clone())
             .unwrap_or_default();
-        attest::verify::verify_artifact(root, &existing, false)?;
+        attest::verify::verify_artifact(&existing, false)?;
         let ack = match ack::prepare(root)? {
             Some(artifact) => artifact,
             None if root.join(ACK_ARTIFACT_PATH).exists() => {
@@ -61,19 +61,14 @@ impl Prepared {
         };
         ack.validate()?;
         let content = ContentSnapshot::load(root)?;
-        let artifact = attest::prepare(&content, &existing)?;
-        let prior_release = match fs::read(root.join(MANIFEST_PATH)) {
-            Ok(bytes) => Manifest::from_bytes(&bytes)?.release,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-            Err(error) => return Err(error).context("read prior manifest"),
-        };
-        let prepared = Self {
-            artifact,
+        let mut prepared = Self {
+            artifact: AttestationArtifact::default(),
             content,
             ack,
             prior_release,
             retained_bytes,
         };
+        prepared.artifact = attest::prepare(&prepared.manifest()?, &existing)?;
         prepared.manifest()?;
         Ok(prepared)
     }
@@ -122,6 +117,7 @@ impl Prepared {
         let manifest = Manifest {
             entries,
             release: Some(ReleaseMetadata {
+                attestations: self.artifact.clone(),
                 purpose: CONTENT_PURPOSE.to_owned(),
                 site: APP_NAME.to_owned(),
                 sequence: self
@@ -154,10 +150,6 @@ impl Prepared {
     pub(crate) fn files(&self) -> CliResult<BTreeMap<String, Vec<u8>>> {
         let mut files = self.content.files.clone();
         files.insert(".websh/ack.commitment.json".into(), json_bytes(&self.ack)?);
-        files.insert(
-            ".websh/attestations.json".into(),
-            json_bytes(&self.artifact)?,
-        );
         Ok(files)
     }
 
@@ -175,14 +167,12 @@ impl Prepared {
     pub(crate) fn publish(&self, root: &Path) -> CliResult {
         let manifest = json_bytes(&self.manifest()?)?;
         write_bytes(&root.join(ACK_ARTIFACT_PATH), &json_bytes(&self.ack)?)?;
-        write_bytes(&root.join(ATTESTATIONS_PATH), &json_bytes(&self.artifact)?)?;
         write_bytes(&root.join(MANIFEST_PATH), &manifest)
     }
 
     pub(crate) fn check_outputs(&self, root: &Path) -> CliResult {
         for (path, expected) in [
             (ACK_ARTIFACT_PATH, json_bytes(&self.ack)?),
-            (ATTESTATIONS_PATH, json_bytes(&self.artifact)?),
             (MANIFEST_PATH, json_bytes(&self.manifest()?)?),
         ] {
             if fs::read(root.join(path)).with_context(|| format!("read generated {path}"))?

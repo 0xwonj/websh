@@ -3,7 +3,6 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, bail};
-use websh_core::attestation::artifact::{ContentFile, sha256_hex};
 use websh_core::domain::{
     ContentManifestEntry, GitHubMount, NodeKind, NodeMetadata, VirtualPath,
     validate_bundle_metadata_with_targets,
@@ -20,8 +19,6 @@ use crate::CliResult;
 pub(crate) struct ContentUnit {
     pub(crate) route: String,
     pub(crate) path: String,
-    pub(crate) kind: NodeKind,
-    pub(crate) files: Vec<ContentFile>,
 }
 
 /// All generated content projections computed from one immutable read of the
@@ -120,7 +117,7 @@ impl ContentSnapshot {
             nodes.insert(path.clone(), file_metadata(path, bytes, authored)?);
         }
         validate_bundles(&nodes)?;
-        let units = build_units(&sources, &nodes, &groups)?;
+        let units = build_units(&nodes, &groups);
         update_child_counts(&mut nodes);
         let manifest = Manifest {
             release: None,
@@ -188,10 +185,7 @@ fn read_tree(
         } else if kind.is_file() {
             if matches!(
                 path.as_str(),
-                "manifest.json"
-                    | "manifest.sig"
-                    | ".websh/attestations.json"
-                    | ".websh/ack.commitment.json"
+                "manifest.json" | "manifest.sig" | ".websh/ack.commitment.json"
             ) {
                 continue;
             }
@@ -242,10 +236,9 @@ fn validate_bundles(nodes: &BTreeMap<String, NodeMetadata>) -> CliResult {
 }
 
 fn build_units(
-    sources: &BTreeMap<String, Vec<u8>>,
     nodes: &BTreeMap<String, NodeMetadata>,
     groups: &BTreeSet<String>,
-) -> CliResult<Vec<ContentUnit>> {
+) -> Vec<ContentUnit> {
     let bundles: Vec<&str> = nodes
         .iter()
         .filter_map(|(path, metadata)| {
@@ -265,65 +258,29 @@ fn build_units(
         }
         grouped.push(path.as_str());
     }
-    let hashed: BTreeMap<_, _> = sources
-        .iter()
-        .filter(|(path, _)| !is_system(path))
-        .map(|(path, bytes)| {
-            (
-                path.as_str(),
-                ContentFile {
-                    path: format!("content/{path}"),
-                    sha256: sha256_hex(bytes),
-                    bytes: bytes.len() as u64,
-                },
-            )
-        })
-        .collect();
     let mut units = Vec::new();
     for (path, metadata) in nodes {
         if path.is_empty() || is_system(path) || is_metadata(path) {
             continue;
         }
-        let files: Vec<ContentFile> = if bundles.contains(&path.as_str()) {
-            hashed
-                .iter()
-                .filter(|(file, _)| inside(file, path))
-                .map(|(_, file)| file.clone())
-                .collect()
-        } else if grouped.contains(&path.as_str()) {
-            hashed
-                .iter()
-                .filter(|(file, _)| {
-                    inside(file, path) && !bundles.iter().any(|bundle| inside(file, bundle))
-                })
-                .map(|(_, file)| file.clone())
-                .collect()
-        } else {
-            if metadata.kind.is_directory_like()
+        if !bundles.contains(&path.as_str())
+            && !grouped.contains(&path.as_str())
+            && (metadata.kind.is_directory_like()
                 || bundles
                     .iter()
                     .chain(grouped.iter())
-                    .any(|parent| inside(path, parent))
-            {
-                continue;
-            }
-            let mut files = vec![hashed[path.as_str()].clone()];
-            if let Some(sidecar) = hashed.get(format!("{path}.meta.json").as_str()) {
-                files.push((*sidecar).clone());
-            }
-            files.sort_by(|a, b| a.path.cmp(&b.path));
-            files
-        };
+                    .any(|parent| inside(path, parent)))
+        {
+            continue;
+        }
         let route = route_for_content_path(path);
         units.push(ContentUnit {
             route,
             path: path.clone(),
-            kind: metadata.kind,
-            files,
         });
     }
     units.sort_by(|a, b| a.route.cmp(&b.route));
-    Ok(units)
+    units
 }
 
 fn update_child_counts(nodes: &mut BTreeMap<String, NodeMetadata>) {

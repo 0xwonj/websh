@@ -18,6 +18,7 @@ pub struct ReleaseMetadata {
     pub mounts: Vec<GitHubMount>,
     /// Canonical index paths of durable publication units, excluding profile and metadata.
     pub publications: Vec<String>,
+    pub attestations: crate::attestation::artifact::AttestationArtifact,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

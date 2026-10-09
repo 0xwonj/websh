@@ -19,15 +19,15 @@ enum Command {
     Sync,
     /// Verify current artifacts without changing any files.
     Check {
-        /// Require a valid owner signature on the root content manifest.
+        /// Require valid owner signatures on every page subject and the root manifest.
         #[arg(long)]
         require_signatures: bool,
     },
-    /// Sign the current root content manifest with the pinned owner key.
+    /// Sign changed page subjects and the root manifest with the pinned owner key.
     Sign,
     /// Generate, sign, commit, and push an independent root content release.
     Publish,
-    /// Sign portable article subjects or exchange offline signing requests.
+    /// Sign page subjects or exchange offline signing requests.
     Attest(commands::attest::AttestCommand),
     /// Generate a local draft manifest or import a draft into this project.
     Mempool(commands::mempool::MempoolCommand),

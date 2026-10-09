@@ -15,7 +15,7 @@ pub(crate) struct CheckOutcome {
 pub(crate) fn check(root: &Path, require_signatures: bool) -> CliResult<CheckOutcome> {
     let prepared = Prepared::load(root)?;
     prepared.check_outputs(root)?;
-    let signed = attest::verify::verify_artifact(root, &prepared.artifact, false)?;
+    let signed = attest::verify::verify_artifact(&prepared.artifact, require_signatures)?;
     let root_signed = root.join(super::sync::SIGNATURE_PATH).exists();
     if require_signatures || root_signed {
         super::release::verify(root)?;

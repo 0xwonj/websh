@@ -1,5 +1,4 @@
 use std::collections::BTreeSet;
-use std::path::Path;
 
 use anyhow::{Context, bail};
 use websh_core::attestation::artifact::{Attestation, AttestationArtifact, message_sha256};
@@ -7,12 +6,12 @@ use websh_core::crypto::eth::verify_personal_sign;
 use websh_core::crypto::pgp::normalize_fingerprint;
 use websh_site::{EXPECTED_PGP_FINGERPRINT, PUBLIC_KEY_PATH};
 
-use crate::{CliResult, infra::pgp};
+use crate::{CliResult, infra::time::unix_seconds};
+use websh_core::publication::verify_subject_signature;
 
 /// Verify retained evidence independently of whether its original source is
 /// still current. Freshness is checked against the prepared snapshot.
 pub(crate) fn verify_artifact(
-    _root: &Path,
     artifact: &AttestationArtifact,
     require_signatures: bool,
 ) -> CliResult<usize> {
@@ -41,7 +40,6 @@ pub(crate) fn verify_artifact(
                     Attestation::Pgp {
                         fingerprint,
                         key_path,
-                        signature,
                         ..
                     } => {
                         if key_path != PUBLIC_KEY_PATH
@@ -52,19 +50,18 @@ pub(crate) fn verify_artifact(
                                 subject.route()
                             );
                         }
-                        let verified =
-                            pgp::verify_signature(signature, &message).with_context(|| {
-                                format!("verify PGP signature for {}", subject.route())
-                            })?;
-                        if verified != EXPECTED_PGP_FINGERPRINT {
-                            bail!("PGP fingerprint mismatch for {}", subject.route());
-                        }
+                        verify_subject_signature(
+                            subject,
+                            attestation,
+                            &websh_site::pgp_policy(),
+                            unix_seconds(),
+                        )?;
                         site_signed = true;
                     }
                     Attestation::Ethereum {
+                        signature,
                         scheme,
                         address,
-                        signature,
                         recovered_address,
                         ..
                     } => {
@@ -87,7 +84,7 @@ pub(crate) fn verify_artifact(
         }
         if require_signatures && !site_signed {
             bail!(
-                "site signature required for {}; run websh-cli attest sign",
+                "site signature required for {}; run websh-cli sign",
                 subject.route()
             );
         }

@@ -1,5 +1,8 @@
 const { test: base, expect } = require('@playwright/test');
 const { createHash } = require('node:crypto');
+const { execFileSync } = require('node:child_process');
+const path = require('node:path');
+const { fingerprint } = require('../../fixtures/pgp/identity.json');
 const { signManifest } = require('./signing.cjs');
 const ack = require('../../fixtures/ack.json');
 
@@ -33,8 +36,8 @@ function fileEntry(path, title, options = {}) {
 }
 function dirEntry(path, title, options = {}) { return { path, metadata: nodeMetadata('directory', {title, ...options}) }; }
 function bundleEntry(path, title, options = {}) { return { path, metadata: nodeMetadata('bundle', {title, ...options}) }; }
-const siteEntries = [dirEntry('', 'Home'), dirEntry('.site', 'Site support'), dirEntry('.site/errors', 'errors'), fileEntry('.site/errors/404.md', 'Not found'), dirEntry('docs', 'docs'), fileEntry('docs/old.md', 'Old')];
-const rootFiles = {'docs/old.md': 'old', '.site/errors/404.md': '# Page not found\n\nThe requested page is not in this content snapshot.'};
+const siteEntries = [dirEntry('', 'Home'), dirEntry('.site', 'Site support'), fileEntry('.site/profile.txt', 'Terminal profile'), dirEntry('.site/errors', 'errors'), fileEntry('.site/errors/404.md', 'Not found'), dirEntry('docs', 'docs'), fileEntry('docs/old.md', 'Old')];
+const rootFiles = {'docs/old.md': 'old', '.site/profile.txt': '╔════════════════╗\n║ Fixture Author ║\n╚════════════════╝\n', '.site/errors/404.md': '# Page not found\n\nThe requested page is not in this content snapshot.'};
 const defaultMounts = [{backend:'github',trust:'unsigned',mount_at:'/db',repo:'0xwonj/mount-db',branch:'main',root:'',name:'db'}];
 const home = {
   profile: {
@@ -56,7 +59,9 @@ function indexed(entries, files) {
 }
 function publishRoot(responses, {entries=siteEntries,files={},projection=home,sequence=1,commit=rootCommit,publications=[],mounts=defaultMounts}={}) {
   files = {...rootFiles,...files};
-  const manifest = {entries:indexed(entries,files),release:{purpose:'websh.content',site:'wonjae.eth',sequence,issued_at:Math.floor(Date.now()/1000),home:projection,mounts,publications}};
+  const manifest = {entries:indexed(entries,files),release:{purpose:'websh.content',site:'wonjae.eth',sequence,issued_at:Math.floor(Date.now()/1000),home:projection,mounts,publications,attestations:{version:1,scheme:'websh.attestations.v1',subjects:[]}}};
+  const requests = JSON.parse(execFileSync(path.resolve(__dirname, '../../../target/debug/examples/page-subjects'), [new Date().toISOString().slice(0,10)], {input:JSON.stringify(manifest),encoding:'utf8'}));
+  manifest.release.attestations.subjects = requests.map(({subject,message}) => ({...subject,attestations:[{type:'pgp',signer:'Fixture Author <fixture@example.test>',fingerprint,key_path:'assets/crypto/site.asc',signature:signManifest(message),message_sha256:'0x'+createHash('sha256').update(message).digest('hex')}]}));
   const body = JSON.stringify(manifest);
   responses.set(rootPointer,JSON.stringify({commit}));
   responses.set(rootPath('manifest.json',commit),body);
@@ -77,7 +82,7 @@ function contentPathEntries(path,title) {
   for(let i=0;i<parts.length-1;i++) dirs.push(dirEntry(parts.slice(0,i+1).join('/'),parts[i]));
   return [...dirs,fileEntry(path,title)];
 }
-function installContentPage(responses,path,title,body='# Fixture page') { publishRoot(responses,{entries:[...siteEntries,...contentPathEntries(path,title)],files:{[path]:body}}); }
+function installContentPage(responses,path,title,body='# Fixture page') { publishRoot(responses,{entries:[...siteEntries,...contentPathEntries(path,title)],files:{[path]:body},publications:[path]}); }
 function contentTypeForPath(path) {
   if(path.endsWith('.json')) return 'application/json';
   if(path.endsWith('.pdf')) return 'application/pdf';

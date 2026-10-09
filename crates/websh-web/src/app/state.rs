@@ -21,6 +21,8 @@ pub struct TerminalState {
     pub command_history: RwSignal<Vec<String>>,
     /// Current position in command history (for navigation).
     pub history_index: RwSignal<Option<usize>>,
+    /// Invalidates pending output when the terminal is cleared.
+    output_epoch: StoredValue<u64>,
 }
 
 impl TerminalState {
@@ -29,6 +31,7 @@ impl TerminalState {
             history: RwSignal::new(RingBuffer::new(MAX_TERMINAL_HISTORY)),
             command_history: RwSignal::new(Vec::new()),
             history_index: RwSignal::new(None),
+            output_epoch: StoredValue::new(0),
         }
     }
 
@@ -47,7 +50,13 @@ impl TerminalState {
     }
 
     pub fn clear_history(&self) {
+        self.output_epoch
+            .update_value(|epoch| *epoch = epoch.wrapping_add(1));
         self.history.update(|h| h.clear());
+    }
+
+    pub fn output_epoch(&self) -> u64 {
+        self.output_epoch.get_value()
     }
 
     pub fn add_to_command_history(&self, cmd: &str) {

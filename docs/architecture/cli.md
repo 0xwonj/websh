@@ -46,6 +46,7 @@ infra/              Git, GPG, HTTP readback, Pinata, deployment env, atomic writ
 `websh-content/content/` is the public content tree:
 
 - `.site/profile.toml` and `.site/now.toml` supply the typed homepage projection.
+- `.site/profile.txt` supplies the terminal's ASCII `whoami` profile, read on demand.
 - Markdown frontmatter supplies Markdown metadata.
 - `file.ext.meta.json` supplies authored binary metadata.
 - `_index.dir.json` declares a directory/bundle and optional publication grouping.
@@ -59,9 +60,8 @@ source values, independent of Git history. Nothing private belongs in `content/`
 
 | Generated path in the content repository | Owner and contents |
 | --- | --- |
-| `content/manifest.json` | `sync`: file index, homepage, mount declarations, publication catalog |
+| `content/manifest.json` | `sync`: file index, homepage, mount declarations, publication paths, page attestations |
 | `content/.websh/ack.commitment.json` | ACK generation: public acknowledgement commitment |
-| `content/.websh/attestations.json` | `sync` and explicit attest operations: portable article evidence |
 | `content/manifest.sig` | `sign`: owner PGP signature over exact manifest bytes |
 | `current.json` | `publish`: full immutable content commit, outside the manifest |
 
@@ -70,34 +70,39 @@ Edit authored inputs and run `sync`; do not hand-edit generated outputs. A pure
 metadata sidecars and generated public proofs. The manifest and its detached
 signature exclude themselves. A plain directory groups into one publication only
 with `"group": true`; bundles group implicitly. `.site/` and `.websh/` are operational
-content, not durable publications. `/ledger` derives its catalog from the root
-manifest rather than a separately generated chain.
+content, not durable publications. `/ledger` derives its block chain from the root
+manifest at read time rather than storing a separately generated chain.
 
 Generation never invokes GPG, Git, an app build, or network access, and never reads
-`.env`. It preserves existing issuance metadata and matching portable proofs; only
+`.env`. It preserves existing issuance metadata and matching page proofs; only
 explicit signing allocates a new sequence/time. Initial generation uses zero for
 unissued sequence/time. Unchanged outputs retain their bytes and modification times.
 Individual replacements are atomic; rerunning sync repairs an interrupted generated
-set. Damaged or missing retained proof files require explicit restoration from Git.
+set. Damaged retained evidence requires explicit restoration from Git; the inline catalog
+is part of the manifest, not a separately fetched file.
 
 ## Signing and checking
 
-`sign` prepares the current content, issues the next sequence, signs exact manifest
-bytes through local GPG, verifies the signature with the app's pinned policy, and
-writes the public artifacts. It reuses an unchanged valid signature. Source changes
+`sign` prepares current content, signs changed or missing required page subjects,
+then issues and signs the finalized manifest through local GPG. It verifies every
+proof with the app's pinned policy before writing the public artifacts. Unchanged
+valid page and root signatures retain their exact bytes and issuance. Source changes
 while GPG runs abort before generated output replacement. Private keys never enter
 the content repository or CI.
 
 `check` verifies generated projections and any existing root signature and portable
 evidence without writes. `check --require-signatures` additionally requires the root
-manifest signature; portable article signatures remain optional. Root publication
+manifest signature and a valid owner signature for every required page subject. Root publication
 uses the same verifier as WASM, including site identity, authorized signer, algorithms,
 key binding, expiry/revocation, and manifest/body integrity rules. A stored Boolean
 never grants verification status.
 
-`attest sign [ROUTE]` creates optional portable evidence for article/bundle/grouped
-subjects. It is distinct from the required snapshot signature. Export/import preserve
-exact subject bytes and reject stale requests:
+`attest sign [ROUTE]` signs selected subjects in the inline catalog. Ordinary `sign`
+and `publish` already sign all required subjects; these expert commands support
+separate export/import and supplemental evidence. Export/import preserve
+exact subject bytes and reject stale requests. [Page signatures](page-signatures.md) owns
+the required route set and canonical message format:
+
 
 ```bash
 websh-cli --root ../websh-content attest message /writing/example > request.txt
@@ -106,7 +111,7 @@ websh-cli --root ../websh-content attest import pgp /writing/example \
 ```
 
 Ethereum import verifies a personal-message signature; it performs no blockchain
-transaction and cannot replace the owner's root PGP signature. Changing portable
+transaction and cannot replace the owner's page or root PGP signature. Changing portable
 proofs changes the containing root snapshot, which must be signed before publication.
 
 ACK commands keep private names and nonces in `.websh/local/crypto/`. Public commitments
@@ -187,5 +192,6 @@ process. A successful upload records `.websh/local/deploy/release.json`: CID, so
 commit/dirty state, file digests, prior receipt CID, and whether the local bundle remained
 unchanged during upload. Receipt-write failure reports the successful CID separately;
 it does not turn an upload into a failed publication. Local digests are not proof of
-remote retrieval. Verify the gateway and browser before changing an optional app entry.
-ENS is not a release step.
+remote retrieval. Verify the gateway and browser, then have the owner update the ENS
+content hash to the new app CID and confirm the wallet transaction. The CLI does not
+perform this transaction. Content-only publication leaves the app CID and ENS unchanged.

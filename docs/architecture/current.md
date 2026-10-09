@@ -79,3 +79,4 @@ version, and dependency/tool pins retain versions where they carry meaning.
 - [Verification](verification.md): local gate, focused tests, dependency maintenance.
 - [Publication](publication.md): independent app/content sources, signed snapshots, history,
   and trust boundaries.
+- [Page signatures](page-signatures.md): subject boundaries, canonical commitments, and SIG evidence.
