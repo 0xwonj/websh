@@ -115,31 +115,3 @@ code. Its embedded verifier cannot authenticate itself. Users requiring app-CID
 verification need a verifying IPFS client/gateway; neither the URL nor an `X-Ipfs-Path`
 header proves returned bytes. CID retention also requires storage/pinning, not merely
 recording the identifier.
-
-## Pending native catalog cutover
-
-The public pointer still selects the pre-catalog manifest at
-`dc6703362887f405735ca51436143918334b0953`. This one-time owned-data migration must not
-be implemented as a compatibility reader in the app or normal publisher.
-
-After `websh-cli sign` and the full app gate, run
-`python3 scripts/prepare-cutover.py ../websh-content`. It authenticates the exact reviewed
-predecessor with the pinned public key, requires the new release to advance its sequence
-3, validates all new proofs, and prepares a snapshot commit plus a pointer commit locally.
-It also commits the reviewed README and CI pin changes. Repeating preparation is a no-op;
-it never signs or pushes. The matching CLI commit must already be set in content CI.
-
-For release, push the app commits so the pinned CLI is available, upload the matching
-app, and stage the content snapshot on a temporary remote branch. Check the new app
-with its explicit `?content=<snapshot>&release=<digest>` URL before the live switch.
-Then fast-forward push the prepared content branch and update ENS to the checked app CID
-in the same release window. ENS and GitHub cannot switch atomically; old app assets need
-a compatible historical snapshot once the content pointer advances. Verify public raw
-visibility, current-root loading, and the ENS gateway after the switch.
-
-The first cutover uses a direct fast-forward Git push because its snapshot includes
-repository maintenance as well as content. Subsequent releases use ordinary
-`websh-cli publish`; the new publisher has been rehearsed against the migrated pointer.
-If the one-time push fails, retry the same commits rather than signing again. Delete the
-staging branch, this section, and `scripts/prepare-cutover.py` after the public switch is
-verified. Preserve the published Git commits for historical snapshot links.
