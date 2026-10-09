@@ -6,6 +6,12 @@ serve:
     stylance --output-file assets/bundle.css crates/websh-web
     env -u NO_COLOR trunk serve --locked --dist dist-dev --enable-cooldown
 
+# Production-trust preview of a committed signed content snapshot; no .env or signing.
+preview content="../websh-content" port="4186":
+    cargo build --locked -p websh-cli
+    env -u NO_COLOR trunk build --release --locked --dist dist-preview
+    node scripts/preview.cjs {{quote(content)}} {{quote(port)}}
+
 # Release build of the app; independent of content authoring.
 build:
     env -u NO_COLOR trunk build --release --locked

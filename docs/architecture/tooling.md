@@ -86,3 +86,17 @@ semantic tokens; component modules consume those tokens.
 - [Pinned Trunk watch configuration](https://github.com/trunk-rs/trunk/blob/v0.21.14/src/config/rt/watch.rs)
 - [KaTeX font options](https://katex.org/docs/font)
 - [Web app manifest URL rules](https://www.w3.org/TR/appmanifest/#start_url-member)
+
+## Signed local preview
+
+`just preview ../websh-content 4186` builds `dist-preview/` with the production trust
+identity and serves an immutable signed snapshot selected by the content checkout's
+committed `current.json`. Run it after content publication or local cutover preparation.
+It refuses uncommitted content changes and checks all public signatures and blob hashes.
+It never signs or loads `.env`. Stop and restart to select a newer snapshot.
+
+The loopback server redirects only root GitHub requests into a frozen, indexed public
+blob inventory. External sources retain their normal network transport. Private files
+are never exposed, and the built distribution has no preview adapter: injection occurs
+only in the local server response. Snapshot URLs use real Git commits; unpublished
+local snapshots become shareable only after their content commits are pushed.

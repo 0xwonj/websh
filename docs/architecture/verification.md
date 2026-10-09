@@ -73,10 +73,9 @@ and computes Brotli subtotals by asset type. A bundled `content/` directory is a
 error; authored content is delivered independently. Pass another built directory explicitly when needed.
 Budgets change only for an explained product or packaging change.
 The signed-content reader includes OpenPGP verification in the app: its Brotli budget
-is 1.16 MiB for WASM and 1.70 MiB for all runtime assets. The page-subject verifier
-and shared home/ledger projections measure 1,206,478 Brotli bytes in the verification
-build, 616 bytes above the former 1.15 MiB cap. This feature raises only the WASM cap
-by 0.01 MiB; the total and other asset caps are unchanged.
+is 1.16 MiB for WASM and 1.70 MiB for all runtime assets. Page-subject verification and shared projections account for the 0.01 MiB
+increase over the former WASM cap. Use `just size` for current measurements; the total
+and other asset caps are unchanged.
 
 The cold-home fixture keeps three root metadata requests; page proofs increase its
 metadata to about 7.6 KiB. The browser timing record includes root verification and
@@ -99,7 +98,7 @@ exception when PGP adopts a fixed release, and the `paste` exception when every
 Leptos/alloy dependency path removes or replaces it. A passing gate does not mean
 the dependency graph has no advisories.
 
-The npm audit on 2026-10-05 reported
+The npm audit on 2026-10-09 reported
 [braces GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm) through
 seven high-severity development-package entries after updating Stylelint to 17.16.0
 and its standard configuration to 40.0.0. The latest matcher chain still uses
