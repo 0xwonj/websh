@@ -19,9 +19,26 @@ pub struct ReadStamp {
     pub revision: u64,
 }
 
+/// The owner resolves publication membership and authenticates its proof.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PageProof {
+    pub subject: websh_core::attestation::artifact::Subject,
+    pub message_hash: String,
+    pub authenticated: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ReadStatus {
+    Pending,
+    #[default]
+    Ready,
+    Failed,
+}
+
 #[derive(Clone, Copy)]
 pub struct Content {
     historical: bool,
+    root_fs: RwSignal<Rc<GlobalFs>, LocalStorage>,
     root_release: RwSignal<Option<Rc<websh_core::publication::VerifiedRelease>>, LocalStorage>,
     pub snapshot: ReadSignal<Rc<Snapshot>, LocalStorage>,
     published: RwSignal<Rc<Snapshot>, LocalStorage>,
@@ -35,14 +52,26 @@ pub struct Content {
     mount_cache: StoredValue<runtime::mount_cache::MountCacheRef, LocalStorage>,
 }
 
+fn root_filesystem(release: Option<&websh_core::publication::VerifiedRelease>) -> Rc<GlobalFs> {
+    let mut fs = GlobalFs::empty();
+    if let Some(release) = release {
+        fs.mount_scanned_subtree(VirtualPath::root(), release.snapshot())
+            .expect("validated root snapshot");
+    }
+    Rc::new(fs)
+}
+
 impl Content {
     pub fn new(load: RuntimeLoad) -> Self {
         let published = RwSignal::new_local(Rc::new(load.snapshot));
         let mount_state = RwSignal::new_local(load.mounts);
+        let root_release = RwSignal::new_local(load.release);
+        let root_fs = RwSignal::new_local(root_filesystem(root_release.get_untracked().as_deref()));
         Self {
             historical: runtime::loader::requested_snapshot()
                 .is_ok_and(|selection| selection.is_some()),
-            root_release: RwSignal::new_local(load.release),
+            root_release,
+            root_fs,
             snapshot: published.read_only(),
             published,
             mounts: mount_state.read_only(),
@@ -97,6 +126,28 @@ impl Content {
         )
     }
 
+    pub fn page_proof(&self, path: &VirtualPath) -> Option<PageProof> {
+        let release = self.release()?;
+        match self.page_signature(path) {
+            Ok(evidence) => Some(PageProof {
+                subject: evidence.subject().clone(),
+                message_hash: evidence.message_hash().into(),
+                authenticated: true,
+            }),
+            Err(_) => {
+                let subject = websh_core::publication::subject_for_path(release.manifest(), path)?;
+                Some(PageProof {
+                    subject: subject.clone(),
+                    message_hash: subject
+                        .canonical_message()
+                        .map(|m| websh_core::attestation::artifact::message_sha256(&m))
+                        .unwrap_or_else(|_| "invalid".into()),
+                    authenticated: false,
+                })
+            }
+        }
+    }
+
     pub fn home(&self) -> Option<websh_core::publication::HomeProjection> {
         self.root_release
             .with(|release| release.as_ref().map(|r| r.release().home.clone()))
@@ -108,12 +159,7 @@ impl Content {
     }
 
     pub fn with_root_fs<T>(&self, f: impl FnOnce(&GlobalFs) -> T) -> T {
-        let mut fs = GlobalFs::empty();
-        if let Some(release) = self.release() {
-            fs.mount_scanned_subtree(VirtualPath::root(), release.snapshot())
-                .expect("validated root snapshot");
-        }
-        f(&fs)
+        self.root_fs.with(|fs| f(fs))
     }
 
     pub fn with_fs<T>(&self, f: impl FnOnce(&GlobalFs) -> T) -> T {
@@ -343,6 +389,7 @@ impl Content {
                 self.evict_text_cache_mount(&mount.root);
             }
             self.backends.set_value(load.backends);
+            self.root_fs.set(root_filesystem(load.release.as_deref()));
             self.root_release.set(load.release);
             self.runtime_generation.set(generation);
             self.published.set(Rc::new(load.snapshot));

@@ -16,7 +16,7 @@ use super::title_block::{Ident, TitleBlock};
 /// block, and footer need.
 #[derive(Clone, Copy)]
 pub struct ReaderShellState {
-    pub ready: Signal<Option<bool>>,
+    pub ready: Signal<crate::runtime::content::ReadStatus>,
     pub intent: Memo<ReaderIntent>,
     pub meta: Memo<ReaderMeta>,
     pub chrome_route: Memo<RouteFrame>,

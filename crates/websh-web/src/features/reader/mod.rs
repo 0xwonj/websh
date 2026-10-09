@@ -17,7 +17,7 @@ use leptos::prelude::*;
 
 use crate::app::{AppContext, RuntimeServices};
 use crate::platform::dom::absolute_hash_url_for_request_path;
-use websh_core::filesystem::{RouteFrame, content_route_for_path};
+use websh_core::filesystem::RouteFrame;
 use websh_core::support::normalize_locale_tag;
 
 use actions::ReaderActionsBindings;
@@ -45,15 +45,7 @@ stylance::import_crate_style!(
 pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
     let canonical_path = Memo::new(move |_| frame.get().resolution.node_path.clone());
-    let attestation_route = Signal::derive(move || {
-        let frame = frame.get();
-        frame
-            .resolution
-            .bundle_variant
-            .as_ref()
-            .map(|context| content_route_for_path(context.bundle_path.as_str()))
-            .unwrap_or_else(|| content_route_for_path(canonical_path.get().as_str()))
-    });
+    let attestation_route = Signal::derive(move || canonical_path.get().to_string());
 
     let intent_memo = Memo::new(move |_| frame.get().intent.clone());
     let reader_meta_memo = Memo::new(move |_| reader_meta(ctx, &frame.get()));
@@ -109,7 +101,16 @@ pub fn Reader(frame: Memo<ReaderFrame>) -> impl IntoView {
                 .filter(|(path, version, _)| {
                     *path == canonical_path.get() && *version == content_version.get()
                 })
-                .map(|(_, _, result)| result.is_ok())
+                .map_or(
+                    crate::runtime::content::ReadStatus::Pending,
+                    |(_, _, result)| {
+                        if result.is_ok() {
+                            crate::runtime::content::ReadStatus::Ready
+                        } else {
+                            crate::runtime::content::ReadStatus::Failed
+                        }
+                    },
+                )
         }),
     };
 

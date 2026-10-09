@@ -71,14 +71,7 @@ impl PublicationChain {
         let mut head = GENESIS_HASH.to_string();
         let mut blocks = Vec::with_capacity(publications.len());
         for (position, publication) in publications.into_iter().enumerate() {
-            let prefix = format!("{}/", publication.path);
-            let mut entries = vec![publication];
-            entries.extend(
-                index
-                    .range(prefix.as_str()..)
-                    .take_while(|(path, _)| path.starts_with(&prefix))
-                    .map(|(_, entry)| *entry),
-            );
+            let entries = super::membership::publication_entries(manifest, &publication.path)?;
             let content_bytes = entries
                 .iter()
                 .filter(|entry| !entry.metadata.kind.is_directory_like())

@@ -72,7 +72,7 @@ belong to the file-based variants. There is one native reader.
 
 For these two new variants:
 
-1. Construct `HomePageData` or `LedgerModel` using the shared pure projection.
+1. Construct `HomePageData` or the dedicated ledger commitment from the shared pure projection.
 2. Encode a fixed-order typed structure as compact UTF-8 JSON with no trailing newline.
    Map keys are sorted, ordered lists preserve semantic order, optional fields have
    one encoding, and numeric fields are integers. Rust declaration order is canonical;
@@ -94,13 +94,15 @@ The projection field order is:
 
 - Home: `home`, `counts`, `recent`. `counts` follows `LEDGER_CATEGORIES`; recent
   items use the shared six-item selection and ordering.
-- Ledger: `filter`, `entries`, `counts`, `total_count`, `restricted_count`,
-  `head_hash`, `genesis_date`, `latest_date`. `counts` is a sorted `BTreeMap`.
-- Ledger entry: `block_height`, `hash`, `previous_hash`, `path`, `href`, `title`,
-  `description`, `date`, `category`, `kind_chips`, `metrics`, `size`, `tags`,
-  `variants`, `restricted`. `metrics` uses native `NodeMetadata` serialization.
+- Ledger: `category`, `entries`, `counts`, `total`, `restricted`, `head`,
+  `genesis`, `latest`. All-category selection is JSON null; category selections are
+  strings. `counts` is a sorted `BTreeMap`.
+- Ledger entry: `height`, `hash`, `previous_hash`, `path`, `title`, `description`,
+  `date`, `category`, `kinds`, `metric_kind`, `words`, `pages`, `dimensions`, `bytes`,
+  `tags`, `variants`, `restricted`. Optional metrics are JSON null when absent.
+  UI links and duplicate authored metadata are not serialized into this structure.
 
-Nested profile, ACK, recent-item, and metadata fields follow their typed Serde
+Nested profile, ACK, recent-item, and dimension fields follow their typed Serde
 contracts. Optional projection values use that type's declared encoding; projection
 structs do not serialize through an unordered map. Changing these encodings changes
 the commitment and requires regeneration and signing, not a compatibility fallback.
@@ -220,15 +222,14 @@ until a supported verifier actually verifies that evidence.
 | `sig` chip | Shortened page message hash and actual page-verification status |
 | `route` | Canonical subject route |
 | `content` | Page projection or publication-unit digest |
-| `ack root` / `chain head` | Relevant commitment within that page's signed data |
 | `signed by`, `fingerprint`, `scheme` | Selected page signature identity/evidence; fingerprint is the authority, display name is not |
 | `message` | `SHA256(<kind> @ <subject route>) = <message hash>` |
 | `signature` | Detached signature of that canonical message |
-| `verified` | Verified message hash plus `✓`, only after the checks above succeed |
 | `snapshot` | Full URL for the containing root snapshot and current route; single-line scrolling link |
 
-The `content` and `message` hashes now identify different objects. `verified` deliberately
-repeats the message hash as confirmation, preserving the agreed UI. Snapshot URLs keep
+The `content` and `message` hashes identify different objects. Verification is shown
+on the SIG chip; the popup does not repeat a `verified` row. ACK root and chain head
+remain committed within page data without separate popup rows. Snapshot URLs keep
 their existing semantics: independent mounts remain live, and a content-only HTTP
 origin is not an immutable app identity. Root evidence remains inspectable through the
 manifest/signature and CLI, not a second block masquerading as the page signature.
@@ -258,3 +259,13 @@ pair first and pin content CI to that CLI commit. ENS and a Git pointer do not s
 atomically: coordinate that interval explicitly. A rollback needs a matching old
 app/content pair; old historical links may require their original app CID. Page-only
 content edits after the cutover use ordinary `publish` and need no app/ENS update.
+
+Publication membership is shared by file-set proofs and chain blocks. A file includes
+its authored `.meta.json` sidecar; a group excludes independently declared nested
+publications and their sidecars. Chain blocks additionally bind the selected directory
+nodes and their metadata. Readers resolve proof membership with the actual file path,
+including the Markdown extension; the displayed subject route remains canonical.
+
+The Content owner exposes page evidence to the footer. Its root-only filesystem is
+built once per accepted root, and reader readiness remains tied to path and ReadStamp.
+Wallet, preferences, and external-mount updates do not rebuild that root projection.

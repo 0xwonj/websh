@@ -24,9 +24,6 @@ test('page messages bind their own views and a Now edit preserves a document pro
   const note = await proof(page,'/writing/note');
   expect(note.message).toContain('SHA256(page @ /writing/note)');
   expect(new Set([first.message,ledger.message,writing.message,note.message]).size).toBe(4);
-  const content = await note.details.locator('[class*="sigRow"]').filter({hasText:/^content /}).innerText();
-  const verified = await note.details.locator('[class*="sigRow"]').filter({hasText:/^verified /}).innerText();
-  expect(content.replace('content ','')).not.toBe(verified.replace('verified ','').replace(' ✓',''));
   publishRoot(responses,{...input,sequence:2,commit:'c'.repeat(40),projection:{...home,now:{items:[{date:'2026-01-02',text:'Changed Now'}]}}});
   await page.reload({waitUntil:'networkidle'});
   expect((await proof(page,'/')).message).not.toBe(first.message);
@@ -59,4 +56,15 @@ test('root authentication never grants a missing, invalid or unread page a green
   gate.resolve();
   await expect(page.locator('[data-reader-body]')).toContainText(/integrity|hash/i);
   await expect(chip.locator('[data-state="invalid"]')).toBeVisible();
+});
+
+
+test('a grouped Markdown reader resolves its signed directory by actual file membership', async ({page,responses}) => {
+  publishRoot(responses, {
+    entries: [...siteEntries, dirEntry('writing','writing'), dirEntry('writing/group','Group'), fileEntry('writing/group/note.md','Grouped note')],
+    files: {'writing/group/note.md':'# Grouped note'}, publications: ['writing/group'],
+  });
+  const note = await proof(page, '/writing/group/note');
+  expect(note.message).toContain('SHA256(directory @ /writing/group)');
+  await expect(page.locator('[data-reader-body]')).toContainText('Grouped note');
 });

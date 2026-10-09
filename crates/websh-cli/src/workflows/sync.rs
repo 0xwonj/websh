@@ -74,14 +74,19 @@ impl Prepared {
     }
 
     pub(crate) fn manifest(&self) -> CliResult<Manifest> {
-        let files = self.files()?;
+        let files = &self.content.files;
+        let ack_bytes = json_bytes(&self.ack)?;
         let mut entries = self.content.manifest.entries.clone();
-        for (path, bytes) in &files {
-            if entries.iter().any(|entry| entry.path == *path) {
+        for (path, bytes) in files
+            .iter()
+            .map(|(p, b)| (p.as_str(), b))
+            .chain(std::iter::once((".websh/ack.commitment.json", &ack_bytes)))
+        {
+            if entries.iter().any(|entry| entry.path == path) {
                 continue;
             }
             entries.push(ContentManifestEntry {
-                path: path.clone(),
+                path: path.to_owned(),
                 metadata: NodeMetadata {
                     kind: NodeKind::Data,
                     derived: DerivedMetadata {

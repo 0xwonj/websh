@@ -7,6 +7,7 @@ mod chain;
 mod home;
 mod ledger;
 mod locator;
+mod membership;
 mod subjects;
 mod validate;
 mod verify;

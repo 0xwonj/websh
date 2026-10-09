@@ -2,20 +2,44 @@ use leptos::ev;
 use leptos::prelude::*;
 
 use crate::app::AppContext;
+use crate::runtime::content::{PageProof, ReadStatus};
 use crate::shared::components::{MonoOverflow, MonoTone, MonoValue};
-use websh_core::attestation::artifact::{Attestation, message_sha256};
+use websh_core::attestation::artifact::Attestation;
 use websh_core::crypto::pgp::pretty_fingerprint;
 use websh_core::domain::{GitHubMount, MountTrust, VirtualPath, is_runtime_overlay_path};
-use websh_core::publication::{PublicationChain, subject_for_path};
 
 stylance::import_crate_style!(css, "src/shared/components/signature_footer.module.css");
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct FooterSigSummary {
     chip_value: String,
-    verified: bool,
-    state: &'static str,
+    state: SignatureState,
     rows: Vec<FooterSigRow>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SignatureState {
+    Verified,
+    Unsigned,
+    Pending,
+    Invalid,
+}
+impl SignatureState {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Verified => "verified",
+            Self::Unsigned => "unsigned",
+            Self::Pending => "pending",
+            Self::Invalid => "invalid",
+        }
+    }
+    fn symbol(self) -> &'static str {
+        match self {
+            Self::Verified => "✓",
+            Self::Invalid => "!",
+            _ => "…",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -30,7 +54,6 @@ enum FooterSigValueKind {
     Text,
     Hash,
     Message,
-    Verified(Option<bool>),
     Fingerprint,
     Signature,
     Divider,
@@ -40,11 +63,16 @@ enum FooterSigValueKind {
 pub fn PageSigFooter(
     #[prop(into)] route: Signal<String>,
     #[prop(default = false)] colophon: bool,
-    #[prop(into, default = Signal::derive(|| Some(true)))] ready: Signal<Option<bool>>,
+    #[prop(into, default = Signal::derive(ReadStatus::default))] ready: Signal<ReadStatus>,
 ) -> impl IntoView {
     let (sig_open, set_sig_open) = signal(false);
     let ctx = use_context::<AppContext>().expect("AppContext must be provided");
-    let summary = Memo::new(move |_| page_summary(ctx, &route.get(), ready.get()));
+    let proof = Memo::new(move |_| {
+        VirtualPath::from_absolute(route.get())
+            .ok()
+            .and_then(|path| ctx.content.page_proof(&path))
+    });
+    let summary = Memo::new(move |_| page_summary(ctx, &route.get(), proof.get(), ready.get()));
 
     view! {
         <div class=css::pagefoot data-sigstyle="chip" data-sigpos="center">
@@ -70,7 +98,6 @@ pub fn PageSigFooter(
                 ></span>
             </Show>
             {move || summary.get().map(|summary| {
-                let verified = summary.verified;
                 let state = summary.state;
                 let chip_value = summary.chip_value;
                 let rows = summary.rows;
@@ -107,10 +134,10 @@ pub fn PageSigFooter(
                         </span>
                         <span
                             class=css::ok
-                            data-state=state
-                            aria-label=state
+                            data-state=state.label()
+                            aria-label=state.label()
                         >
-                            {if verified { "✓" } else if state == "invalid" { "!" } else { "…" }}
+                            {state.symbol()}
                         </span>
                         <Show when=move || sig_open.get()>
                             <span
@@ -166,20 +193,13 @@ fn render_sig_row(row: FooterSigRow) -> AnyView {
                 " "
                 <span class=css::sigV>
                     {match kind {
-                        FooterSigValueKind::Hash | FooterSigValueKind::Verified(_) => {
-                            let status = match kind {
-                                FooterSigValueKind::Verified(Some(true)) => " ✓",
-                                FooterSigValueKind::Verified(Some(false)) => " failed",
-                                FooterSigValueKind::Verified(None) => " pending",
-                                _ => "",
-                            };
+                        FooterSigValueKind::Hash => {
                             view! {
                                 <MonoValue
                                     value=row.value
                                     tone=MonoTone::Hex
                                     overflow=MonoOverflow::Middle { head: 18, tail: 8 }
                                 />
-                                {status}
                             }.into_any()
                         },
                         _ => view! {
@@ -197,33 +217,33 @@ fn render_sig_row(row: FooterSigRow) -> AnyView {
     }
 }
 
-fn page_summary(ctx: AppContext, route: &str, ready: Option<bool>) -> Option<FooterSigSummary> {
+fn page_summary(
+    ctx: AppContext,
+    route: &str,
+    proof: Option<PageProof>,
+    ready: ReadStatus,
+) -> Option<FooterSigSummary> {
     let release = ctx.content.release()?;
     let path = VirtualPath::from_absolute(route).ok()?;
     if footer_trust(&path, &release.release().mounts)? == MountTrust::Unsigned {
         return Some(FooterSigSummary {
             chip_value: "unsigned".into(),
-            verified: false,
-            state: "unsigned",
+            state: SignatureState::Unsigned,
             rows: vec![row(
                 "status",
                 "Independent source; not authenticated by the owner",
             )],
         });
     }
-    let Some(subject) = subject_for_path(release.manifest(), &path) else {
+    let Some(proof) = proof else {
         return Some(FooterSigSummary {
             chip_value: "unsigned".into(),
-            verified: false,
-            state: "unsigned",
+            state: SignatureState::Unsigned,
             rows: vec![row("status", "No page signature")],
         });
     };
-    let verified = ctx.content.page_signature(&path).is_ok() && ready == Some(true);
-    let hash = subject
-        .canonical_message()
-        .map(|message| message_sha256(&message))
-        .ok();
+    let subject = &proof.subject;
+    let hash = &proof.message_hash;
     let mut rows = vec![
         row("route", subject.route()),
         typed_row(
@@ -232,21 +252,6 @@ fn page_summary(ctx: AppContext, route: &str, ready: Option<bool>) -> Option<Foo
             FooterSigValueKind::Hash,
         ),
     ];
-    if subject.kind_str() == "home" {
-        rows.push(typed_row(
-            "ack root",
-            &release.release().home.ack.combined_root,
-            FooterSigValueKind::Hash,
-        ));
-    } else if subject.kind_str() == "ledger" {
-        rows.push(typed_row(
-            "chain head",
-            PublicationChain::from_manifest(release.manifest())
-                .ok()?
-                .head,
-            FooterSigValueKind::Hash,
-        ));
-    }
     if let Some(Attestation::Pgp {
         signer,
         fingerprint,
@@ -273,17 +278,12 @@ fn page_summary(ctx: AppContext, route: &str, ready: Option<bool>) -> Option<Foo
                     "SHA256({} @ {}) = {}",
                     subject.kind_str(),
                     subject.route(),
-                    hash.as_deref().unwrap_or("invalid")
+                    hash
                 ),
                 FooterSigValueKind::Message,
             ),
             divider(),
             typed_row("signature", signature, FooterSigValueKind::Signature),
-            typed_row(
-                "verified",
-                hash.as_deref().unwrap_or("invalid"),
-                FooterSigValueKind::Verified(ready.map(|_| verified)),
-            ),
         ]);
     } else {
         rows.push(row("status", "No owner page signature"));
@@ -304,25 +304,24 @@ fn page_summary(ctx: AppContext, route: &str, ready: Option<bool>) -> Option<Foo
                 row("scheme", "EIP-191 · personal_sign"),
                 typed_row("message", message_sha256, FooterSigValueKind::Hash),
                 typed_row("signature", signature, FooterSigValueKind::Signature),
-                row("verified", "Not verified in browser"),
+                row("status", "Not verified in browser"),
             ]);
         }
     }
     Some(FooterSigSummary {
-        chip_value: hash.unwrap_or_else(|| "unsigned".into()),
-        verified,
-        state: if verified {
-            "verified"
-        } else if !subject
+        chip_value: hash.clone(),
+        state: if !subject
             .attestations()
             .iter()
             .any(|a| matches!(a, Attestation::Pgp { .. }))
         {
-            "unsigned"
-        } else if ready.is_none() {
-            "pending"
+            SignatureState::Unsigned
+        } else if !proof.authenticated || ready == ReadStatus::Failed {
+            SignatureState::Invalid
+        } else if ready == ReadStatus::Pending {
+            SignatureState::Pending
         } else {
-            "invalid"
+            SignatureState::Verified
         },
         rows,
     })

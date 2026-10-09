@@ -6,7 +6,7 @@ use crate::mempool::LEDGER_CATEGORIES;
 use crate::publication::{PublicationBlock, PublicationChain};
 use crate::support::format::iso_date_prefix;
 
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LedgerModel {
     pub filter: LedgerFilter,
     pub entries: Vec<LedgerEntry>,
@@ -18,13 +18,13 @@ pub struct LedgerModel {
     pub latest_date: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LedgerFilter {
     All,
     Category(String),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LedgerEntry {
     pub block_height: u64,
     pub hash: String,
@@ -41,6 +41,77 @@ pub struct LedgerEntry {
     pub tags: Vec<String>,
     pub variants: Vec<String>,
     pub restricted: bool,
+}
+
+// Cryptographic input is explicit and independent of display-model serialization.
+// Field order is part of this native contract; hrefs and duplicate metadata are excluded.
+pub(super) fn commitment_bytes(model: &LedgerModel) -> Result<Vec<u8>, serde_json::Error> {
+    #[derive(serde::Serialize)]
+    struct Entry<'a> {
+        height: u64,
+        hash: &'a str,
+        previous_hash: &'a str,
+        path: &'a str,
+        title: &'a str,
+        description: &'a Option<String>,
+        date: &'a str,
+        category: &'a str,
+        kinds: &'a [String],
+        metric_kind: NodeKind,
+        words: Option<u32>,
+        pages: Option<u32>,
+        dimensions: Option<&'a crate::domain::ImageDim>,
+        bytes: Option<u64>,
+        tags: &'a [String],
+        variants: &'a [String],
+        restricted: bool,
+    }
+    #[derive(serde::Serialize)]
+    struct Commitment<'a> {
+        category: Option<&'a str>,
+        entries: Vec<Entry<'a>>,
+        counts: &'a BTreeMap<String, usize>,
+        total: usize,
+        restricted: usize,
+        head: &'a str,
+        genesis: &'a str,
+        latest: &'a str,
+    }
+    serde_json::to_vec(&Commitment {
+        category: match &model.filter {
+            LedgerFilter::All => None,
+            LedgerFilter::Category(c) => Some(c),
+        },
+        entries: model
+            .entries
+            .iter()
+            .map(|e| Entry {
+                height: e.block_height,
+                hash: &e.hash,
+                previous_hash: &e.previous_hash,
+                path: &e.path,
+                title: &e.title,
+                description: &e.description,
+                date: &e.date,
+                category: &e.category,
+                kinds: &e.kind_chips,
+                metric_kind: e.metrics.kind,
+                words: e.metrics.word_count(),
+                pages: e.metrics.page_count(),
+                dimensions: e.metrics.image_dimensions(),
+                bytes: e.size,
+                tags: &e.tags,
+                variants: &e.variants,
+                restricted: e.restricted,
+            })
+            .collect(),
+        counts: &model.counts,
+        total: model.total_count,
+        restricted: model.restricted_count,
+        head: &model.head_hash,
+        genesis: &model.genesis_date,
+        latest: &model.latest_date,
+    })
 }
 
 pub fn ledger_filter_for_route(request_path: &str, node_path: &VirtualPath) -> LedgerFilter {
@@ -334,5 +405,235 @@ impl LedgerFilter {
             }
             Self::Category(category) => entry.path.starts_with(&format!("{category}/")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::{
+        AuthoredMetadata, BundleMetadata, BundleVariant, DerivedMetadata, EntryExtensions,
+        ImageDim, NodeKind,
+    };
+    use crate::domain::{NodeMetadata, VirtualPath};
+    use crate::filesystem::GlobalFs;
+    use crate::publication::{PublicationBlock, PublicationChain};
+
+    fn labels(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_string()).collect()
+    }
+
+    fn vp(path: &str) -> VirtualPath {
+        VirtualPath::from_absolute(path).unwrap()
+    }
+
+    fn variant(id: &str, path: &str, label: &str) -> BundleVariant {
+        BundleVariant {
+            id: id.to_string(),
+            path: path.to_string(),
+            label: label.to_string(),
+            locale: None,
+            media_type: None,
+        }
+    }
+
+    fn meta(kind: NodeKind) -> NodeMetadata {
+        NodeMetadata {
+            kind,
+            bundle: None,
+            authored: AuthoredMetadata::default(),
+            derived: DerivedMetadata::default(),
+        }
+    }
+
+    fn bundle_meta(default_variant: &str, variants: Vec<BundleVariant>) -> NodeMetadata {
+        let mut meta = meta(NodeKind::Bundle);
+        meta.bundle = Some(BundleMetadata {
+            default_variant: crate::domain::BundleDefaultVariant::Static {
+                id: default_variant.to_string(),
+            },
+            variants,
+        });
+        meta.authored.title = Some("Bundle".to_string());
+        meta.authored.date = Some("2026-01-01".to_string());
+        meta
+    }
+
+    fn locale_bundle_meta(fallback: &str, variants: Vec<BundleVariant>) -> NodeMetadata {
+        let mut meta = meta(NodeKind::Bundle);
+        meta.bundle = Some(BundleMetadata {
+            default_variant: crate::domain::BundleDefaultVariant::Locale {
+                fallback: fallback.to_string(),
+            },
+            variants,
+        });
+        meta.authored.title = Some("Bundle".to_string());
+        meta.authored.date = Some("2026-01-01".to_string());
+        meta
+    }
+
+    fn markdown_meta(words: u32) -> NodeMetadata {
+        let mut meta = meta(NodeKind::Page);
+        meta.derived.word_count = Some(words);
+        meta.derived.size_bytes = Some(1_000);
+        meta
+    }
+
+    fn pdf_meta(pages: u32) -> NodeMetadata {
+        let mut meta = meta(NodeKind::Document);
+        meta.derived.page_count = Some(pages);
+        meta.derived.size_bytes = Some(10_000);
+        meta
+    }
+
+    fn image_meta() -> NodeMetadata {
+        let mut meta = meta(NodeKind::Asset);
+        meta.derived.image_dimensions = Some(ImageDim {
+            width: 640,
+            height: 480,
+        });
+        meta.derived.size_bytes = Some(12_000);
+        meta
+    }
+
+    fn upsert_file(fs: &mut GlobalFs, path: &str, meta: NodeMetadata) {
+        fs.upsert_file(vp(path), String::new(), meta, EntryExtensions::default());
+    }
+
+    fn single_entry(fs: &GlobalFs, path: &str) -> LedgerEntry {
+        let chain = PublicationChain {
+            blocks: vec![PublicationBlock {
+                path: path.into(),
+                height: 1,
+                hash: "0x01".into(),
+                previous_hash: "0x00".into(),
+                content_bytes: 12_345,
+            }],
+            head: "0x01".into(),
+        };
+        build_ledger_model(fs, &chain, &LedgerFilter::All)
+            .entries
+            .into_iter()
+            .next()
+            .unwrap()
+    }
+
+    #[test]
+    fn category_filter_preserves_chain_head_heights_and_links() {
+        let mut fs = GlobalFs::empty();
+        let paths = ["writing/old.md", "papers/middle.md", "writing/new.md"];
+        let blocks = paths
+            .iter()
+            .enumerate()
+            .map(|(index, path)| {
+                upsert_file(&mut fs, &format!("/{path}"), markdown_meta(100));
+                PublicationBlock {
+                    path: (*path).into(),
+                    height: index as u64 + 1,
+                    hash: format!("hash{}", index + 1),
+                    previous_hash: format!("hash{index}"),
+                    content_bytes: 1_000,
+                }
+            })
+            .collect();
+        let chain = PublicationChain {
+            blocks,
+            head: "hash3".into(),
+        };
+        let all = build_ledger_model(&fs, &chain, &LedgerFilter::All);
+        let writing = build_ledger_model(&fs, &chain, &LedgerFilter::Category("writing".into()));
+
+        assert_eq!(writing.head_hash, all.head_hash);
+        assert_eq!(writing.total_count, 3);
+        assert_eq!(
+            writing.entries,
+            vec![all.entries[0].clone(), all.entries[2].clone()]
+        );
+        assert_eq!(writing.entries[0].block_height, 3);
+        assert_eq!(writing.entries[0].previous_hash, "hash2");
+        assert_eq!(writing.entries[1].block_height, 1);
+    }
+
+    #[test]
+    fn markdown_bundle_dedupes_kind_chip_and_uses_default_variant_metrics() {
+        let mut fs = GlobalFs::empty();
+        fs.upsert_directory(
+            vp("/writing/foo"),
+            locale_bundle_meta(
+                "en",
+                vec![
+                    variant("en", "en.md", "English"),
+                    variant("ko", "ko.md", "Korean"),
+                ],
+            ),
+        );
+        upsert_file(&mut fs, "/writing/foo/en.md", markdown_meta(2_140));
+        upsert_file(&mut fs, "/writing/foo/ko.md", markdown_meta(1_200));
+
+        let entry = single_entry(&fs, "writing/foo");
+
+        assert_eq!(entry.kind_chips, labels(&["markdown"]));
+        assert_eq!(entry.metrics.word_count(), Some(2_140));
+        assert_eq!(entry.variants, labels(&["English", "Korean"]));
+    }
+
+    #[test]
+    fn mixed_bundle_kind_chips_follow_variant_declaration_order() {
+        let mut fs = GlobalFs::empty();
+        fs.upsert_directory(
+            vp("/writing/mixed"),
+            bundle_meta(
+                "cover",
+                vec![
+                    variant("cover", "cover.png", "Cover"),
+                    variant("en", "en.md", "English"),
+                    variant("print", "print.pdf", "Print"),
+                    variant("ko", "ko.md", "Korean"),
+                ],
+            ),
+        );
+        upsert_file(&mut fs, "/writing/mixed/cover.png", image_meta());
+        upsert_file(&mut fs, "/writing/mixed/en.md", markdown_meta(900));
+        upsert_file(&mut fs, "/writing/mixed/print.pdf", pdf_meta(4));
+        upsert_file(&mut fs, "/writing/mixed/ko.md", markdown_meta(850));
+
+        let entry = single_entry(&fs, "writing/mixed");
+
+        assert_eq!(entry.kind_chips, labels(&["image", "markdown", "document"]));
+    }
+
+    #[test]
+    fn pdf_default_variant_uses_page_count_metric() {
+        let mut fs = GlobalFs::empty();
+        fs.upsert_directory(
+            vp("/papers/foo"),
+            bundle_meta(
+                "print",
+                vec![
+                    variant("en", "en.md", "English"),
+                    variant("print", "print.pdf", "Print"),
+                ],
+            ),
+        );
+        upsert_file(&mut fs, "/papers/foo/en.md", markdown_meta(2_140));
+        upsert_file(&mut fs, "/papers/foo/print.pdf", pdf_meta(12));
+
+        let entry = single_entry(&fs, "papers/foo");
+
+        assert_eq!(entry.metrics.page_count(), Some(12));
+    }
+
+    #[test]
+    fn missing_default_variant_metadata_uses_committed_content_size() {
+        let mut fs = GlobalFs::empty();
+        fs.upsert_directory(
+            vp("/writing/missing"),
+            bundle_meta("en", vec![variant("en", "en.md", "English")]),
+        );
+
+        let entry = single_entry(&fs, "writing/missing");
+
+        assert_eq!(entry.kind_chips, labels(&["bundle"]));
+        assert_eq!(entry.size, Some(12_345));
     }
 }

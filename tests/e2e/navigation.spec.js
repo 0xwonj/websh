@@ -69,9 +69,8 @@ test('cold home authenticates three root requests without bundled content', asyn
   await expect(details).toContainText('Fixture Author <fixture@example.test>');
   await expect(details).toContainText('SHA256(home @ /) = 0x');
   expect(await details.locator('[class*="sigK"]').allTextContents()).toEqual([
-    'route', 'content', 'ack root', 'signed by', 'fingerprint', 'scheme', 'message', 'verified', 'snapshot'
+    'route', 'content', 'signed by', 'fingerprint', 'scheme', 'message', 'snapshot'
   ]);
-  await expect(details.locator('[class*="sigRow"]').filter({hasText: /^verified /})).toHaveText(/verified 0x[0-9a-f]+…[0-9a-f]+ ✓/);
   const snapshot = details.getByRole('link');
   await expect(snapshot).toHaveAttribute('href', /\?content=[a-f0-9]{40}&release=[a-f0-9]{64}#\/$/);
   await expect(snapshot).toHaveText(await snapshot.getAttribute('href'));

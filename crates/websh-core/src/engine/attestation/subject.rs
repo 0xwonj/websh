@@ -144,13 +144,15 @@ impl Subject {
     }
 
     pub fn same_payload(&self, other: &Self) -> bool {
-        let payload = |subject: &Self| {
-            let mut subject = subject.clone();
-            subject.set_issued_at(None);
-            subject.attestations_mut().clear();
-            subject
-        };
-        payload(self) == payload(other)
+        if self.kind_str() != other.kind_str() || self.route() != other.route() {
+            return false;
+        }
+        match (self, other) {
+            (Self::Home(a), Self::Home(b)) | (Self::Ledger(a), Self::Ledger(b)) => {
+                a.site == b.site && a.content_sha256 == b.content_sha256
+            }
+            _ => self.content_files() == other.content_files(),
+        }
     }
 
     pub fn kind_str(&self) -> &'static str {

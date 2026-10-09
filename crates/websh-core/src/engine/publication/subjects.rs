@@ -55,13 +55,29 @@ pub fn expected_subjects(manifest: &Manifest) -> Result<Vec<Subject>, ReleaseErr
     if routes.windows(2).any(|pair| pair[0] == pair[1]) {
         return Err(invalid("ambiguous page signature route"));
     }
+    let fs = indexed_fs(manifest)?;
+    let chain = PublicationChain::from_manifest(manifest)?;
     routes
         .iter()
-        .map(|route| expected_subject(manifest, route))
+        .map(|route| project_subject(manifest, route, &fs, &chain))
         .collect()
 }
 
 fn expected_subject(manifest: &Manifest, route: &str) -> Result<Subject, ReleaseError> {
+    project_subject(
+        manifest,
+        route,
+        &indexed_fs(manifest)?,
+        &PublicationChain::from_manifest(manifest)?,
+    )
+}
+
+fn project_subject(
+    manifest: &Manifest,
+    route: &str,
+    fs: &GlobalFs,
+    chain: &PublicationChain,
+) -> Result<Subject, ReleaseError> {
     let release = manifest
         .release
         .as_ref()
@@ -70,7 +86,6 @@ fn expected_subject(manifest: &Manifest, route: &str) -> Result<Subject, Release
         || route == "/ledger"
         || LEDGER_CATEGORIES.iter().any(|c| route == format!("/{c}"))
     {
-        let fs = indexed_fs(manifest)?;
         let bytes = if route == "/" {
             serde_json::to_vec(&HomePageData {
                 home: &release.home,
@@ -79,19 +94,15 @@ fn expected_subject(manifest: &Manifest, route: &str) -> Result<Subject, Release
                     .map(|category| {
                         let path =
                             VirtualPath::from_absolute(format!("/{category}")).expect("category");
-                        (
-                            (*category).to_string(),
-                            super::count_toc_entries(&fs, &path),
-                        )
+                        ((*category).to_string(), super::count_toc_entries(fs, &path))
                     })
                     .collect(),
-                recent: super::recent_items_from_fs(&fs),
+                recent: super::recent_items_from_fs(fs),
             })?
         } else {
-            let chain = PublicationChain::from_manifest(manifest)?;
             let path = VirtualPath::from_absolute(route).map_err(invalid)?;
             let filter = super::ledger_filter_for_route(route, &path);
-            serde_json::to_vec(&super::build_ledger_model(&fs, &chain, &filter))?
+            super::ledger::commitment_bytes(&super::build_ledger_model(fs, chain, &filter))?
         };
         let view = ViewSubject {
             route: route.into(),
@@ -116,28 +127,9 @@ fn expected_subject(manifest: &Manifest, route: &str) -> Result<Subject, Release
         .iter()
         .find(|entry| entry.path == *path)
         .ok_or_else(|| invalid("subject publication is not indexed"))?;
-    let prefix = format!("{path}/");
-    let sidecar = format!("{path}.meta.json");
-    let mut files = manifest
-        .entries
-        .iter()
-        .filter(|file| {
-            if file.metadata.kind.is_directory_like() {
-                return false;
-            }
-            match entry.metadata.kind {
-                NodeKind::Bundle => file.path.starts_with(&prefix),
-                NodeKind::Directory => {
-                    file.path.starts_with(&prefix)
-                        && !release.publications.iter().any(|other| {
-                            other != path
-                                && other.starts_with(&prefix)
-                                && file.path.starts_with(&format!("{other}/"))
-                        })
-                }
-                _ => file.path == *path || file.path == sidecar,
-            }
-        })
+    let mut files = super::membership::publication_entries(manifest, path)?
+        .into_iter()
+        .filter(|file| !file.metadata.kind.is_directory_like())
         .map(|file| {
             let integrity = manifest.integrity(&file.path)?;
             Ok(ContentFile {
@@ -342,12 +334,17 @@ mod tests {
         assert_ne!(body[0], renamed[0]);
         // A new sidecar invalidates a file-set proof even if the main file is unchanged.
         let old = expected_subject(&manifest, "/writing/note").unwrap();
+        let chain = PublicationChain::from_manifest(&manifest).unwrap();
         let mut sidecar = manifest.entries[0].clone();
         sidecar.path = "writing/note.md.meta.json".into();
         manifest.entries.push(sidecar);
         let new = expected_subject(&manifest, "/writing/note").unwrap();
         assert!(!old.same_payload(&new));
         assert_eq!(new.content_files().len(), 2);
+        assert_ne!(
+            PublicationChain::from_manifest(&manifest).unwrap().head,
+            chain.head
+        );
     }
 
     #[test]
